@@ -1,0 +1,15 @@
+name: foundation
+runtime: go
+description: ai-desktops foundation stack — shared VPC, IAM, DNS, and security group resources
+
+config:
+  aws:region:
+    default: us-east-1
+  zone:
+    default: desktops.orchael.dev
+  fleetTable:
+    default: ai-desktops-fleet
+  operatorCIDR:
+    default: "0.0.0.0/0"
+  vpcId:
+    default: ""

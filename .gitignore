@@ -1,1 +1,40 @@
 .ballast/
+
+# Build output
+/ai-desktops
+infra/pulumi/desktop/desktop
+infra/pulumi/foundation/foundation
+*.exe
+
+# Go test cache and coverage
+*.test
+*.out
+coverage.txt
+
+# Pulumi runtime state
+.pulumi/
+Pulumi.*.yaml.bak
+
+# Local config with real values
+config.yaml
+*.local.yaml
+
+# Node / pnpm
+node_modules/
+apps/desktop-web/dist/
+apps/desktop-web/.vite/
+pnpm-debug.log*
+
+# macOS
+.DS_Store
+
+# JetBrains IDEs
+.idea/
+
+# VSCode
+.vscode/
+
+# Environment files (use env-secrets instead)
+.env
+.env.*
+!.env.example

@@ -1,0 +1,29 @@
+name: desktop
+runtime: go
+description: ai-desktops per-desktop stack — single EC2 instance with EBS persistence
+
+config:
+  aws:region:
+    default: us-east-1
+  desktopId:
+    default: ""
+  githubOwner:
+    default: ""
+  zone:
+    default: desktops.orchael.dev
+  instanceType:
+    default: t3.large
+  subnetId:
+    default: ""
+  securityGroupId:
+    default: ""
+  instanceProfile:
+    default: ""
+  sshKeyName:
+    default: ""
+  operatorCIDR:
+    default: "0.0.0.0/0"
+  patSecret:
+    default: "/ai-desktops/github/pat"
+  repos:
+    default: ""
