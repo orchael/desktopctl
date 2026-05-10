@@ -16,9 +16,18 @@ export default function DesktopStatus({ info }: Props) {
 
       <Section title="Repositories">
         {info.repos.length === 0 ? (
-          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>No repositories configured.</p>
+          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+            No repositories configured.
+          </p>
         ) : (
-          <ul style={{ listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <ul
+            style={{
+              listStyle: 'none',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.5rem'
+            }}
+          >
             {info.repos.map((r) => (
               <li key={r}>
                 <Tag>{r}</Tag>
@@ -29,7 +38,9 @@ export default function DesktopStatus({ info }: Props) {
       </Section>
 
       <Section title="Services">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <div
+          style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}
+        >
           {info.services.map((s) => (
             <ServiceRow key={s.name} service={s} />
           ))}
@@ -51,12 +62,18 @@ export default function DesktopStatus({ info }: Props) {
             borderRadius: 6,
             fontSize: '0.85rem',
             fontWeight: 600,
-            textDecoration: 'none',
+            textDecoration: 'none'
           }}
         >
           Open noVNC Desktop
         </a>
-        <p style={{ color: 'var(--muted)', fontSize: '0.75rem', marginTop: '0.5rem' }}>
+        <p
+          style={{
+            color: 'var(--muted)',
+            fontSize: '0.75rem',
+            marginTop: '0.5rem'
+          }}
+        >
           Bridge port: {info.bridge_port}
         </p>
       </Section>
@@ -64,7 +81,13 @@ export default function DesktopStatus({ info }: Props) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section
       style={{
@@ -72,7 +95,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         border: '1px solid var(--border)',
         borderRadius: 8,
         padding: '1rem 1.25rem',
-        marginBottom: '1rem',
+        marginBottom: '1rem'
       }}
     >
       <h2
@@ -82,7 +105,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
           color: 'var(--muted)',
-          marginBottom: '0.75rem',
+          marginBottom: '0.75rem'
         }}
       >
         {title}
@@ -92,7 +115,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  mono
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div
       style={{
@@ -101,7 +132,7 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
         alignItems: 'center',
         padding: '0.25rem 0',
         borderBottom: '1px solid var(--border)',
-        fontSize: '0.85rem',
+        fontSize: '0.85rem'
       }}
     >
       <span style={{ color: 'var(--muted)' }}>{label}</span>
@@ -119,7 +150,7 @@ function Tag({ children }: { children: React.ReactNode }) {
         borderRadius: 4,
         padding: '0.15rem 0.5rem',
         fontSize: '0.8rem',
-        color: 'var(--blue)',
+        color: 'var(--blue)'
       }}
     >
       {children}
@@ -134,7 +165,7 @@ function ServiceRow({ service }: { service: ServiceStatus }) {
         display: 'flex',
         alignItems: 'center',
         gap: '0.6rem',
-        fontSize: '0.85rem',
+        fontSize: '0.85rem'
       }}
     >
       <span
@@ -143,11 +174,19 @@ function ServiceRow({ service }: { service: ServiceStatus }) {
           height: 8,
           borderRadius: '50%',
           background: service.active ? 'var(--green)' : 'var(--red)',
-          flexShrink: 0,
+          flexShrink: 0
         }}
       />
-      <span style={{ color: service.active ? 'var(--text)' : 'var(--muted)' }}>{service.name}</span>
-      <span style={{ marginLeft: 'auto', color: service.active ? 'var(--green)' : 'var(--red)', fontSize: '0.75rem' }}>
+      <span style={{ color: service.active ? 'var(--text)' : 'var(--muted)' }}>
+        {service.name}
+      </span>
+      <span
+        style={{
+          marginLeft: 'auto',
+          color: service.active ? 'var(--green)' : 'var(--red)',
+          fontSize: '0.75rem'
+        }}
+      >
         {service.active ? 'active' : 'inactive'}
       </span>
     </div>

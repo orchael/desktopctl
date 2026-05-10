@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run tests with coverage
+        # Exclude awsx (pure AWS SDK wrappers) and cmd (entrypoints) from the threshold;
+        # those require integration tests against real AWS.
+        run: |
+          go test -coverprofile=coverage.out \
+            $(go list ./... | grep 'internal' | grep -v '/awsx')
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Internal package coverage: ${COVERAGE}%"
+          if [ "$(echo "$COVERAGE < 60" | bc -l)" -eq 1 ]; then
+            echo "Coverage ${COVERAGE}% is below 60% threshold"
+            exit 1
+          fi
+
+  web:
+    name: Desktop web build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/desktop-web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run tests
+        run: pnpm run test
+
+      - name: Run tests with coverage
+        run: pnpm run test:coverage

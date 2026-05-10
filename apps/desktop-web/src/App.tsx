@@ -24,11 +24,25 @@ export default function App() {
 
 function Header() {
   return (
-    <header style={{ marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
-      <h1 style={{ color: 'var(--accent)', fontSize: '1.5rem', fontWeight: 700 }}>
+    <header
+      style={{
+        marginBottom: '2rem',
+        borderBottom: '1px solid var(--border)',
+        paddingBottom: '1rem'
+      }}
+    >
+      <h1
+        style={{ color: 'var(--accent)', fontSize: '1.5rem', fontWeight: 700 }}
+      >
         AI Desktop
       </h1>
-      <p style={{ color: 'var(--muted)', marginTop: '0.25rem', fontSize: '0.85rem' }}>
+      <p
+        style={{
+          color: 'var(--muted)',
+          marginTop: '0.25rem',
+          fontSize: '0.85rem'
+        }}
+      >
         Local desktop status dashboard
       </p>
     </header>
@@ -41,7 +55,17 @@ function Loading() {
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div style={{ background: '#450a0a', border: '1px solid var(--red)', borderRadius: 6, padding: '0.75rem 1rem', marginBottom: '1rem', color: 'var(--red)', fontSize: '0.85rem' }}>
+    <div
+      style={{
+        background: '#450a0a',
+        border: '1px solid var(--red)',
+        borderRadius: 6,
+        padding: '0.75rem 1rem',
+        marginBottom: '1rem',
+        color: 'var(--red)',
+        fontSize: '0.85rem'
+      }}
+    >
       {message}
     </div>
   );

@@ -1,5 +1,10 @@
 # ai-desktops
 
+[![CI](https://github.com/orchael/ai-desktops/actions/workflows/ci.yml/badge.svg)](https://github.com/orchael/ai-desktops/actions/workflows/ci.yml)
+[![Release](https://github.com/orchael/ai-desktops/actions/workflows/publish-cli.yml/badge.svg)](https://github.com/orchael/ai-desktops/actions/workflows/publish-cli.yml)
+[![License](https://img.shields.io/github/license/orchael/ai-desktops)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/orchael/ai-desktops)](https://github.com/orchael/ai-desktops/releases)
+
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
 Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `ai-agent-bridge` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
