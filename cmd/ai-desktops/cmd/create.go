@@ -97,21 +97,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s) ...\n", desktopID, env, owner)
 
-	if createPreview {
-		backendURL := "s3://" + cfg.Pulumi.BackendBucket
-		workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
-		ref := pulumi.DesktopStackRef(backendURL, desktopID, workDir)
-		stackCfg := pulumi.DesktopConfig(cfg.AWS.Region, desktopID, owner, zone,
-			cfg.Desktop.InstanceType, cfg.Desktop.OperatorCIDR, cfg.Desktop.SSHKeyPath,
-			cfg.GitHub.PATSecret, req.Repos)
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	runner := pulumi.NewRunner()
 
+	// Read foundation stack outputs to get the subnet, SG, and instance profile
+	// that the desktop stack requires.
+	foundationWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
+	foundationRef := pulumi.FoundationStackRef(backendURL, env, foundationWorkDir)
+	foundationOutputs, err := runner.Outputs(ctx, foundationRef)
+	if err != nil {
+		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
+	}
+	if err := pulumi.ValidateFoundationOutputs(foundationOutputs); err != nil {
+		return fmt.Errorf("foundation stack incomplete (run init-foundation first): %w", err)
+	}
+
+	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
+	stackCfg := pulumi.DesktopConfig(
+		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
+		foundationOutputs[pulumi.OutputSubnetID],
+		foundationOutputs[pulumi.OutputSGID],
+		foundationOutputs[pulumi.OutputInstanceProfile],
+		cfg.Desktop.SSHKeyName,
+		cfg.GitHub.PATSecret,
+		req.Repos,
+	)
+
+	if createPreview {
 		fmt.Printf("Desktop ID  : %s\n", desktopID)
 		fmt.Printf("Zone        : %s\n", zone)
 		fmt.Printf("Hostname    : %s\n", desktop.Hostname(desktopID, zone))
 		fmt.Printf("Repos       : %v\n", createRepos)
-
-		runner := pulumi.NewRunner()
-		return runner.Preview(ctx, ref, stackCfg, os.Stderr)
+		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
 
 	s, err := openStore(ctx)
@@ -125,14 +143,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run pulumi up and update the record with outputs.
-	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
-	ref := pulumi.DesktopStackRef(backendURL, desktopID, workDir)
-	stackCfg := pulumi.DesktopConfig(cfg.AWS.Region, desktopID, owner, zone,
-		cfg.Desktop.InstanceType, cfg.Desktop.OperatorCIDR, cfg.Desktop.SSHKeyPath,
-		cfg.GitHub.PATSecret, req.Repos)
-
-	runner := pulumi.NewRunner()
+	ref := desktopRef
 	outputs, err := runner.Up(ctx, ref, stackCfg, os.Stderr)
 	if err != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", err.Error())

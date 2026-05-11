@@ -29,14 +29,20 @@ func TestDesktopStackRef(t *testing.T) {
 
 func TestDesktopConfig(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
-		"t3.large", "10.0.0.0/8", "/home/user/.ssh/id_rsa", "/ai-desktops/github/pat",
-		[]string{"github.com/acme/app"})
+		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
+		"/ai-desktops/github/pat", []string{"github.com/acme/app"})
 
 	if cfg["desktopId"] != "d-001" {
 		t.Errorf("desktopId: got %q", cfg["desktopId"])
 	}
 	if cfg["repos"] != "github.com/acme/app" {
 		t.Errorf("repos: got %q", cfg["repos"])
+	}
+	if cfg["subnetId"] != "subnet-abc" {
+		t.Errorf("subnetId: got %q", cfg["subnetId"])
+	}
+	if cfg["sshKeyName"] != "my-keypair" {
+		t.Errorf("sshKeyName: got %q", cfg["sshKeyName"])
 	}
 }
 
