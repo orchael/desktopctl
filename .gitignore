@@ -23,6 +23,7 @@ config.yaml
 node_modules/
 apps/desktop-web/dist/
 apps/desktop-web/.vite/
+apps/desktop-web/coverage/
 pnpm-debug.log*
 
 # macOS
