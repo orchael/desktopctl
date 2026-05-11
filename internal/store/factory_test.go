@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,8 +20,8 @@ func TestNew_WithTableName(t *testing.T) {
 	}
 }
 
-func TestNewFromContext_EmptyTableName(t *testing.T) {
-	s, err := NewFromContext(context.Background(), aws.Config{}, "")
+func TestNewWithConfig_EmptyTableName(t *testing.T) {
+	s, err := NewWithConfig(aws.Config{}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,8 +30,8 @@ func TestNewFromContext_EmptyTableName(t *testing.T) {
 	}
 }
 
-func TestNewFromContext_WithTableName(t *testing.T) {
-	s, err := NewFromContext(context.Background(), aws.Config{}, "my-table")
+func TestNewWithConfig_WithTableName(t *testing.T) {
+	s, err := NewWithConfig(aws.Config{}, "my-table")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

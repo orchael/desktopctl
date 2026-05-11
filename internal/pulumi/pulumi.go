@@ -1,5 +1,7 @@
-// Package pulumi provides helpers for managing ai-desktops Pulumi stacks via
-// the `pulumi` CLI subprocess.
+// Package pulumi provides helpers for managing ai-desktops Pulumi stacks.
+// Stacks are driven by invoking the `pulumi` CLI as a subprocess rather than
+// using the Pulumi Automation SDK, avoiding the heavyweight SDK dependency.
+// The `pulumi` binary must be on PATH.
 package pulumi
 
 import (
@@ -59,22 +61,30 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig
 }
 
 // DesktopConfig builds the Pulumi config for a desktop stack.
+// subnetID, sgID, and instanceProfile come from the foundation stack outputs.
+// sshKeyName is the EC2 key pair name (not a local file path); it may be empty
+// if SSH key-pair attachment is not required.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
-	operatorCIDR, sshKeyPath, patSecret string,
+	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
 	repos []string,
 ) StackConfig {
-	return StackConfig{
-		"aws:region":   region,
-		"desktopId":   desktopID,
-		"githubOwner": gitHubOwner,
-		"zone":        zone,
-		"instanceType": instanceType,
-		"operatorCIDR": operatorCIDR,
-		"sshKeyPath":  sshKeyPath,
-		"patSecret":   patSecret,
-		"repos":       strings.Join(repos, ","),
+	cfg := StackConfig{
+		"aws:region":      region,
+		"desktopId":       desktopID,
+		"githubOwner":     gitHubOwner,
+		"zone":            zone,
+		"instanceType":    instanceType,
+		"subnetId":        subnetID,
+		"securityGroupId": sgID,
+		"instanceProfile": instanceProfile,
+		"patSecret":       patSecret,
+		"repos":           strings.Join(repos, ","),
 	}
+	if sshKeyName != "" {
+		cfg["sshKeyName"] = sshKeyName
+	}
+	return cfg
 }
 
 // OutputKey constants for stack outputs.
@@ -134,6 +144,16 @@ func (r *Runner) Preview(ctx context.Context, ref *StackRef, cfg StackConfig, pr
 		}
 	}
 	return r.run(ctx, ref.WorkDir, env, progress, "preview", "--color", "never")
+}
+
+// Outputs reads the current output map for an existing stack without running
+// pulumi up or destroy. Returns an error if the stack does not exist.
+func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string, error) {
+	env := r.env(ref.BackendURL)
+	if err := r.run(ctx, ref.WorkDir, env, nil, "stack", "select", ref.StackName); err != nil {
+		return nil, fmt.Errorf("stack select %s: %w", ref.StackName, err)
+	}
+	return r.outputs(ctx, ref.WorkDir, env)
 }
 
 // Destroy selects the stack and runs `pulumi destroy`. Progress is streamed to

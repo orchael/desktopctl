@@ -11,7 +11,7 @@ describe('DesktopInfo', () => {
       bridge_port: 9445,
       repos: ['orchael/ai-desktops'],
       services: [],
-      novnc_url: 'https://d-001.desktops.orchael.dev'
+      novnc_url: 'https://d-001.desktops.orchael.dev/novnc'
     };
     expect(info.desktop_id).toBe('d-001');
     expect(info.hostname).toBe('d-001.desktops.orchael.dev');
@@ -21,7 +21,7 @@ describe('DesktopInfo', () => {
     expect(info.repos).toHaveLength(1);
     expect(info.repos[0]).toBe('orchael/ai-desktops');
     expect(info.services).toHaveLength(0);
-    expect(info.novnc_url).toBe('https://d-001.desktops.orchael.dev');
+    expect(info.novnc_url).toBe('https://d-001.desktops.orchael.dev/novnc');
   });
 
   it('handles multiple repos', () => {
@@ -33,7 +33,7 @@ describe('DesktopInfo', () => {
       bridge_port: 9445,
       repos: ['orchael/app', 'orchael/shared-lib', 'orchael/infra'],
       services: [],
-      novnc_url: 'https://d-002.desktops.orchael.com'
+      novnc_url: 'https://d-002.desktops.orchael.com/novnc'
     };
     expect(info.repos).toHaveLength(3);
   });

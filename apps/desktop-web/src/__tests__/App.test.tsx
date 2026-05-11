@@ -11,7 +11,7 @@ const mockInfo: DesktopInfo = {
   bridge_port: 9445,
   repos: ['orchael/ai-desktops'],
   services: [],
-  novnc_url: 'https://d-test.desktops.orchael.dev'
+  novnc_url: 'https://d-test.desktops.orchael.dev/novnc'
 };
 
 describe('App', () => {

@@ -101,6 +101,7 @@ func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent
 		Hostname:   d.Hostname,
 		SSHKeyPath: cfg.Desktop.SSHKeyPath,
 		Region:     cfg.AWS.Region,
+		Profile:    cfg.AWS.Profile,
 		BridgePort: cfg.Agent.BridgePort,
 	}
 

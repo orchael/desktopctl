@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
@@ -18,9 +16,9 @@ func New(awsCfg aws.Config, tableName string) Store {
 	return NewDynamoStore(client, tableName)
 }
 
-// NewFromContext loads an AWS config and returns the appropriate store.
+// NewWithConfig returns the appropriate store for a pre-loaded AWS config.
 // If tableName is empty an in-memory store is returned.
-func NewFromContext(ctx context.Context, awsCfg aws.Config, tableName string) (Store, error) {
+func NewWithConfig(awsCfg aws.Config, tableName string) (Store, error) {
 	if tableName == "" {
 		return NewInMemoryStore(), nil
 	}

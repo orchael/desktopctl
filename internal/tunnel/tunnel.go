@@ -22,6 +22,7 @@ type Config struct {
 	SSHKeyPath string
 	SSHUser    string
 	Region     string
+	Profile    string // AWS CLI profile; passed as --profile when non-empty
 	BridgePort int
 	Mode       Mode
 }
@@ -52,12 +53,17 @@ func SSMCommand(cfg *Config, localPort int) *exec.Cmd {
 		`{"portNumber":["%d"],"localPortNumber":["%d"]}`,
 		cfg.BridgePort, localPort,
 	)
-	return exec.Command("aws", "ssm", "start-session",
+	args := []string{
+		"ssm", "start-session",
 		"--target", cfg.InstanceID,
 		"--document-name", "AWS-StartPortForwardingSession",
 		"--parameters", params,
 		"--region", cfg.Region,
-	)
+	}
+	if cfg.Profile != "" {
+		args = append(args, "--profile", cfg.Profile)
+	}
+	return exec.Command("aws", args...)
 }
 
 // SSHCommand returns the exec.Cmd that starts an SSH local port-forwarding
