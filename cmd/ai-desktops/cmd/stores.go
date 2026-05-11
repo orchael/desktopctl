@@ -11,7 +11,7 @@ import (
 // openStore returns a DynamoDB-backed store when AWS config is available,
 // or an in-memory store as a fallback (local dev / no credentials).
 func openStore(ctx context.Context) (store.Store, error) {
-	if cfg.Fleet.TableName == "" || cfg.Pulumi.BackendBucket == "" {
+	if cfg.Fleet.TableName == "" {
 		return store.NewInMemoryStore(), nil
 	}
 	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)

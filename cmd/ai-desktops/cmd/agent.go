@@ -78,7 +78,10 @@ func init() {
 }
 
 func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent.Client, func(), error) {
-	s := store.NewInMemoryStore()
+	s, err := openStore(ctx)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open store: %w", err)
+	}
 	d, err := s.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

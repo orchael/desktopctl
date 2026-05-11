@@ -33,7 +33,7 @@ func init() {
 func runInitFoundation(cmd *cobra.Command, args []string) error {
 	env := foundationEnv
 	if env == "" {
-		env = cfg.Env
+		env = cfg.Fleet.Environment
 	}
 
 	zone, err := cfg.DNSZone()

@@ -18,7 +18,7 @@ func TestDNSZone(t *testing.T) {
 		{"staging", "", true},
 	}
 	for _, tt := range tests {
-		c := &Config{Env: tt.env}
+		c := &Config{Fleet: FleetConfig{Environment: tt.env}}
 		got, err := c.DNSZone()
 		if (err != nil) != tt.wantErr {
 			t.Errorf("env=%q: unexpected error %v", tt.env, err)
@@ -35,8 +35,8 @@ func TestDefaults(t *testing.T) {
 	if c.AWS.Region != "us-east-1" {
 		t.Errorf("default region: got %q", c.AWS.Region)
 	}
-	if c.Env != EnvDev {
-		t.Errorf("default env: got %q", c.Env)
+	if c.Fleet.Environment != EnvDev {
+		t.Errorf("default env: got %q", c.Fleet.Environment)
 	}
 	if c.Fleet.TableName != DefaultFleetTable {
 		t.Errorf("default table: got %q", c.Fleet.TableName)
@@ -47,13 +47,18 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	c := &Config{Env: EnvDev}
+	c := &Config{Fleet: FleetConfig{Environment: EnvDev}}
 	c.Defaults()
 	if err := c.Validate(); err == nil {
 		t.Error("expected error when backend_bucket is empty")
 	}
 
 	c.Pulumi.BackendBucket = "my-bucket"
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when operator_cidr is empty")
+	}
+
+	c.Desktop.OperatorCIDR = "203.0.113.1/32"
 	if err := c.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -75,7 +80,6 @@ func TestLoadOrDefault_noFile(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	yaml := `
-environment: prod
 aws:
   region: us-west-2
   profile: myprofile
@@ -83,6 +87,7 @@ pulumi:
   backend_bucket: my-state-bucket
 fleet:
   table_name: my-fleet
+  environment: prod
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -94,8 +99,8 @@ fleet:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Env != "prod" {
-		t.Errorf("env: got %q", c.Env)
+	if c.Fleet.Environment != "prod" {
+		t.Errorf("env: got %q", c.Fleet.Environment)
 	}
 	if c.AWS.Region != "us-west-2" {
 		t.Errorf("region: got %q", c.AWS.Region)

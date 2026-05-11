@@ -37,6 +37,7 @@ packages:
   - lsb-release
   - software-properties-common
   - snapd
+  - awscli
 
 runcmd:
   # --- system setup ---

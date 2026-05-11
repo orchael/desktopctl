@@ -24,13 +24,20 @@ const (
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
-	AWS       AWSConfig       `yaml:"aws"`
-	Pulumi    PulumiConfig    `yaml:"pulumi"`
-	Fleet     FleetConfig     `yaml:"fleet"`
-	GitHub    GitHubConfig    `yaml:"github"`
-	Desktop   DesktopConfig   `yaml:"desktop"`
-	Agent     AgentConfig     `yaml:"agent"`
-	Env       string          `yaml:"environment"`
+	AWS     AWSConfig     `yaml:"aws"`
+	Pulumi  PulumiConfig  `yaml:"pulumi"`
+	Fleet   FleetConfig   `yaml:"fleet"`
+	GitHub  GitHubConfig  `yaml:"github"`
+	Desktop DesktopConfig `yaml:"desktop"`
+	Agent   AgentConfig   `yaml:"agent"`
+}
+
+// Env returns the configured environment, falling back to dev.
+func (c *Config) Environment() string {
+	if c.Fleet.Environment != "" {
+		return c.Fleet.Environment
+	}
+	return EnvDev
 }
 
 type AWSConfig struct {
@@ -43,10 +50,12 @@ type PulumiConfig struct {
 }
 
 type FleetConfig struct {
-	TableName string `yaml:"table_name"`
+	TableName   string `yaml:"table_name"`
+	Environment string `yaml:"environment"`
 }
 
 type GitHubConfig struct {
+	Owner     string `yaml:"owner"`
 	PATSecret string `yaml:"pat_secret"`
 }
 
@@ -63,13 +72,13 @@ type AgentConfig struct {
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.
 func (c *Config) DNSZone() (string, error) {
-	switch c.Env {
+	switch c.Environment() {
 	case EnvProd:
 		return ZoneProd, nil
-	case EnvDev, "":
+	case EnvDev:
 		return ZoneDev, nil
 	default:
-		return "", fmt.Errorf("unknown environment %q: must be %q or %q", c.Env, EnvProd, EnvDev)
+		return "", fmt.Errorf("unknown environment %q: must be %q or %q", c.Environment(), EnvProd, EnvDev)
 	}
 }
 
@@ -78,8 +87,8 @@ func (c *Config) Defaults() {
 	if c.AWS.Region == "" {
 		c.AWS.Region = "us-east-1"
 	}
-	if c.Env == "" {
-		c.Env = EnvDev
+	if c.Fleet.Environment == "" {
+		c.Fleet.Environment = EnvDev
 	}
 	if c.Fleet.TableName == "" {
 		c.Fleet.TableName = DefaultFleetTable
@@ -87,9 +96,7 @@ func (c *Config) Defaults() {
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
 	}
-	if c.Desktop.OperatorCIDR == "" {
-		c.Desktop.OperatorCIDR = "0.0.0.0/0"
-	}
+
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
 	}
@@ -102,6 +109,9 @@ func (c *Config) Defaults() {
 func (c *Config) Validate() error {
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
+	}
+	if c.Desktop.OperatorCIDR == "" {
+		return errors.New("desktop.operator_cidr must be set (e.g. your public IP with /32)")
 	}
 	if _, err := c.DNSZone(); err != nil {
 		return err

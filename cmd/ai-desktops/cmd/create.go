@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -36,12 +37,19 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
-	_ = createCmd.MarkFlagRequired("github-owner")
 	rootCmd.AddCommand(createCmd)
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+
+	// Fall back to config file owner when --github-owner not explicitly set.
+	if createOwner == "" && cfg.GitHub.Owner != "" {
+		createOwner = cfg.GitHub.Owner
+	}
+	if createOwner == "" {
+		return fmt.Errorf("--github-owner is required (or set github.owner in config)")
+	}
 
 	// Validate repo inputs.
 	repos, owner, err := parseAndValidateRepos(createOwner, createRepos)
@@ -51,7 +59,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	env := createEnv
 	if env == "" {
-		env = cfg.Env
+		env = cfg.Fleet.Environment
 	}
 
 	zone, err := cfg.DNSZone()
@@ -139,7 +147,7 @@ func parseAndValidateRepos(owner string, rawRepos []string) ([]*repo.Repo, strin
 	if err != nil {
 		return nil, "", err
 	}
-	if detectedOwner != owner {
+	if !strings.EqualFold(detectedOwner, owner) {
 		return nil, "", fmt.Errorf("repository owner %q does not match --github-owner %q", detectedOwner, owner)
 	}
 	return repos, owner, nil

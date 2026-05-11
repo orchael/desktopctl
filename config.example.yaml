@@ -21,12 +21,13 @@ fleet:
 
   # Environment tag. Affects DNS zone selection:
   #   prod  → desktops.orchael.com
-  #   dev   → desktops.orchael.dev
+  #   dev   → desktops.orchael.dev (default)
   environment: dev
 
 github:
   # GitHub organization or user that owns all repos cloned onto desktops.
   # Repos with a different owner are rejected at create time.
+  # If set here, --github-owner can be omitted from `create`.
   owner: myorg
 
   # AWS SSM Parameter Store path or Secrets Manager secret name holding

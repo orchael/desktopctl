@@ -67,10 +67,9 @@ func SSHCommand(cfg *Config, localPort int) *exec.Cmd {
 	if user == "" {
 		user = "ubuntu"
 	}
-	remote := fmt.Sprintf("%d:127.0.0.1:%d", cfg.BridgePort, cfg.BridgePort)
 	args := []string{
 		"-N",
-		"-L", fmt.Sprintf("%d:%s", localPort, remote),
+		"-L", fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%d", localPort, cfg.BridgePort),
 		"-i", cfg.SSHKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",

@@ -4,12 +4,13 @@ package awsx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	dynamodbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -38,6 +39,11 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 
 	_, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
 	if err != nil {
+		var notFound *s3types.NotFound
+		var noSuchBucket *s3types.NoSuchBucket
+		if !errors.As(err, &notFound) && !errors.As(err, &noSuchBucket) {
+			return fmt.Errorf("check bucket %s: %w", bucket, err)
+		}
 		// Bucket does not exist — create it.
 		input := &s3.CreateBucketInput{Bucket: aws.String(bucket)}
 		if region != "us-east-1" {
@@ -101,17 +107,22 @@ func EnsureTable(ctx context.Context, cfg aws.Config, tableName string) error {
 		return nil // table already exists
 	}
 
+	var notFound *dynamodbtypes.ResourceNotFoundException
+	if !errors.As(err, &notFound) {
+		return fmt.Errorf("describe DynamoDB table %s: %w", tableName, err)
+	}
+
 	_, err = c.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
-		AttributeDefinitions: []types.AttributeDefinition{{
+		AttributeDefinitions: []dynamodbtypes.AttributeDefinition{{
 			AttributeName: aws.String("desktop_id"),
-			AttributeType: types.ScalarAttributeTypeS,
+			AttributeType: dynamodbtypes.ScalarAttributeTypeS,
 		}},
-		KeySchema: []types.KeySchemaElement{{
+		KeySchema: []dynamodbtypes.KeySchemaElement{{
 			AttributeName: aws.String("desktop_id"),
-			KeyType:       types.KeyTypeHash,
+			KeyType:       dynamodbtypes.KeyTypeHash,
 		}},
-		BillingMode: types.BillingModePayPerRequest,
+		BillingMode: dynamodbtypes.BillingModePayPerRequest,
 	})
 	if err != nil {
 		return fmt.Errorf("create DynamoDB table %s: %w", tableName, err)

@@ -149,14 +149,15 @@ ai-desktops init-foundation --preview
 ### 3. Create a desktop
 
 ```bash
-ai-desktops create --repos myorg/my-app,myorg/shared-lib
+ai-desktops create --github-owner myorg --repo myorg/my-app --repo myorg/shared-lib
 ```
 
-- Validates repo owner boundary (all repos must belong to `github.owner`)
+`--github-owner` can be omitted if `github.owner` is set in your config file.
+
+- Validates repo owner boundary (all repos must belong to the same GitHub owner)
 - Creates a DynamoDB record in state `creating`
-- Runs `pulumi up` to provision EC2, EBS, Route53 A record, and cloud-init
-- Cloud-init installs tools, retrieves GitHub PAT, clones repos under `/workspace`
-- Polls readiness checks (SSH, noVNC HTTPS, bridge TCP) until desktop is `ready`
+- Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
+- Cloud-init installs tools, retrieves GitHub PAT from AWS Secrets Manager/SSM, and clones repos under `/workspace`
 
 ### 4. Inspect fleet
 

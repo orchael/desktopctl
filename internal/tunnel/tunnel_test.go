@@ -17,8 +17,8 @@ var testCfg = &Config{
 
 func TestSSMCommand(t *testing.T) {
 	cmd := SSMCommand(testCfg, 19445)
-	if cmd.Path == "" && cmd.Args[0] != "aws" {
-		t.Error("expected aws command")
+	if cmd.Path == "" || !strings.HasSuffix(cmd.Args[0], "aws") {
+		t.Errorf("expected aws command, got path=%q args[0]=%q", cmd.Path, cmd.Args[0])
 	}
 	args := strings.Join(cmd.Args, " ")
 	if !strings.Contains(args, "ssm") {
