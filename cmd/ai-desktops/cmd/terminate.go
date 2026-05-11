@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -17,12 +20,12 @@ var (
 var terminateCmd = &cobra.Command{
 	Use:   "terminate <desktop-id>",
 	Short: "Permanently destroy a desktop and its disk state",
-	Long: `terminate destroys the Pulumi desktop stack, which permanently removes the EC2
-instance and root EBS volume. This operation is IRREVERSIBLE.
+	Long: `terminate runs pulumi destroy on the desktop stack, which permanently removes
+the EC2 instance and root EBS volume. This operation is IRREVERSIBLE.
 
-The fleet record is marked terminated only after Pulumi destroy succeeds.
-A failed desktop is NOT automatically destroyed; use --force to attempt
-termination regardless of current state.`,
+The fleet record is marked terminated only after pulumi destroy succeeds.
+If destroy fails, the instance is left running for diagnosis and the record
+is marked failed. Use --force to attempt termination from a failed state.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTerminate,
 }
@@ -61,15 +64,27 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Terminating desktop %s (stack %s) ...\n", id, d.StackName)
-	fmt.Println("IMPORTANT: This will permanently destroy the EC2 instance and EBS volume.")
-	fmt.Println("NOTE: Pulumi Automation API integration required to run destroy.")
-	fmt.Printf("Run: cd infra/pulumi/desktop && pulumi stack select %s && pulumi destroy\n", d.StackName)
+	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)
+	fmt.Fprintln(os.Stderr, "WARNING: This will permanently destroy the EC2 instance and EBS volume.")
 
-	if err := s.MarkTerminated(ctx, id); err != nil {
-		return err
+	if cfg.Pulumi.BackendBucket == "" {
+		return fmt.Errorf("pulumi.backend_bucket must be set in config")
 	}
 
-	fmt.Printf("Desktop %s marked as terminated.\n", id)
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+	runner := pulumi.NewRunner()
+
+	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
+		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
+		return fmt.Errorf("pulumi destroy: %w (desktop left running for diagnosis; record marked failed)", err)
+	}
+
+	if err := s.MarkTerminated(ctx, id); err != nil {
+		return fmt.Errorf("mark terminated: %w", err)
+	}
+
+	fmt.Printf("Desktop %s terminated.\n", id)
 	return nil
 }

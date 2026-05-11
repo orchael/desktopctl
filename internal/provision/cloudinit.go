@@ -72,24 +72,28 @@ runcmd:
     WORKSPACE="{{ .WorkspacePath }}"
     OWNER="{{ .GitHubOwner }}"
 
-    # Retrieve PAT from AWS Secrets Manager
-    PAT=$(aws secretsmanager get-secret-value \
-      --region "$REGION" \
-      --secret-id "$PAT_SECRET" \
-      --query SecretString \
-      --output text 2>/dev/null) || \
+    # Retrieve PAT from SSM Parameter Store, falling back to Secrets Manager.
     PAT=$(aws ssm get-parameter \
       --region "$REGION" \
       --name "$PAT_SECRET" \
       --with-decryption \
       --query Parameter.Value \
+      --output text 2>/dev/null) || \
+    PAT=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "$PAT_SECRET" \
+      --query SecretString \
       --output text)
 
-    # Validate PAT was retrieved
     if [ -z "$PAT" ]; then
       echo "ERROR: could not retrieve GitHub PAT from $PAT_SECRET" >&2
       exit 1
     fi
+
+    # Write credentials to .netrc so the PAT never appears in process args or git URLs.
+    printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$PAT" > /root/.netrc
+    chmod 600 /root/.netrc
+    unset PAT
 
     # Clone repositories
 {{ range .Repos }}
@@ -105,12 +109,12 @@ runcmd:
 
     DEST="$WORKSPACE/$REPO_NAME"
     if [ ! -d "$DEST/.git" ]; then
-      git clone "https://x-access-token:${PAT}@github.com/${OWNER}/${REPO_NAME}.git" "$DEST"
+      git clone "https://github.com/${OWNER}/${REPO_NAME}.git" "$DEST"
       chown -R ubuntu:ubuntu "$DEST"
     fi
 {{ end }}
-    # Clear PAT from environment
-    unset PAT
+    # Remove .netrc credentials after cloning.
+    rm -f /root/.netrc
 
   # --- write desktop metadata ---
   - |

@@ -166,12 +166,16 @@ func (c *FnChecker) Run(ctx context.Context) CheckResult {
 }
 
 // StandardCheckers returns the set of checks run against a provisioned desktop.
+// bridgePort is the localhost port where ai-agent-bridge listens on the desktop;
+// it is reached through the SSM tunnel that the caller is expected to have open.
 func StandardCheckers(hostname string, sshPort, bridgePort int) []Checker {
 	sshAddr := fmt.Sprintf("%s:%d", hostname, sshPort)
 	noVNCURL := fmt.Sprintf("https://%s/novnc", hostname)
+	bridgeAddr := fmt.Sprintf("127.0.0.1:%d", bridgePort)
 
 	return []Checker{
 		NewTCPChecker("ssh-port", sshAddr, 10*time.Second),
 		NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second),
+		NewTCPChecker("agent-bridge", bridgeAddr, 10*time.Second),
 	}
 }

@@ -17,13 +17,11 @@ var doctorCmd = &cobra.Command{
 	Use:   "doctor <desktop-id>",
 	Short: "Run health checks against a desktop",
 	Long: `doctor runs a suite of health checks against the specified desktop:
-  - EC2 instance running (via AWS API)
-  - SSH port reachable
+  - SSH port reachable (TCP)
   - noVNC HTTPS endpoint responding
-  - Docker service active (via SSH)
-  - ai-agent-bridge service active (via SSH)
-  - Required tools on PATH (git, docker, nvim, tmux)
-  - Workspace repositories present`,
+  - ai-agent-bridge port reachable via SSM tunnel (127.0.0.1:<bridge_port>)
+
+SSH-based checks (Docker, tools, repos) are not yet implemented.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDoctor,
 }

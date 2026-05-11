@@ -14,6 +14,11 @@ pulumi:
   # Created by `ai-desktops bootstrap`; must be globally unique.
   backend_bucket: myorg-ai-desktops-pulumi-state
 
+  # Path to the repository root containing infra/pulumi/foundation and
+  # infra/pulumi/desktop. Defaults to "." (current working directory).
+  # Set to an absolute path if running the CLI from outside the repo root.
+  # infra_dir: /home/user/ai-desktops
+
 fleet:
   # DynamoDB table name for fleet metadata.
   # Created by `ai-desktops bootstrap`.

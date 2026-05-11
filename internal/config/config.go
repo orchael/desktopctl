@@ -47,6 +47,9 @@ type AWSConfig struct {
 
 type PulumiConfig struct {
 	BackendBucket string `yaml:"backend_bucket"`
+	// InfraDir is the path to the repo root containing infra/pulumi/foundation
+	// and infra/pulumi/desktop. Defaults to "." (current working directory).
+	InfraDir string `yaml:"infra_dir"`
 }
 
 type FleetConfig struct {
@@ -95,6 +98,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
+	}
+	if c.Pulumi.InfraDir == "" {
+		c.Pulumi.InfraDir = "."
 	}
 
 	if c.Agent.BridgePort == 0 {

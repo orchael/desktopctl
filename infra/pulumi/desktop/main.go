@@ -1,11 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
+	"bytes"
 	"fmt"
 	"strings"
 	"text/template"
-	"bytes"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/route53"
@@ -53,16 +52,30 @@ runcmd:
   - chown ubuntu:ubuntu /workspace
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
-  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/main/install.sh | bash -s -- --desktop-type elementary || true
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/main/install.sh | bash -s -- --bind 127.0.0.1 --port 9445 || true
-  - systemctl enable ai-agent-bridge || true
-  - systemctl start ai-agent-bridge || true
+  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/main/install.sh | bash -s -- --desktop-type elementary
+  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/main/install.sh | bash -s -- --bind 127.0.0.1 --port 9445
+  - systemctl enable ai-agent-bridge
+  - systemctl start ai-agent-bridge
   - |
     set -e
     REGION="{{ .Region }}"
     PAT_SECRET="{{ .PATSecret }}"
     WORKSPACE="/workspace"
     OWNER="{{ .GitHubOwner }}"
+
+    # Retrieve PAT from AWS SSM or Secrets Manager.
+    PAT=$(aws ssm get-parameter --region "$REGION" --name "$PAT_SECRET" --with-decryption --query Parameter.Value --output text 2>/dev/null || \
+          aws secretsmanager get-secret-value --region "$REGION" --secret-id "$PAT_SECRET" --query SecretString --output text)
+    if [ -z "$PAT" ]; then
+      echo "ERROR: could not retrieve GitHub PAT from $PAT_SECRET" >&2
+      exit 1
+    fi
+
+    # Write credentials to .netrc so the PAT never appears in process args or git URLs.
+    printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$PAT" > /root/.netrc
+    chmod 600 /root/.netrc
+    unset PAT
+
     {{- range .Repos }}
     REPO="{{ . }}"
     REPO_NAME=$(basename "$REPO" .git | sed 's|.*/||')
@@ -72,12 +85,13 @@ runcmd:
       exit 1
     fi
     if [ ! -d "$WORKSPACE/$REPO_NAME/.git" ]; then
-      PAT=$(aws ssm get-parameter --region "$REGION" --name "$PAT_SECRET" --with-decryption --query Parameter.Value --output text 2>/dev/null || aws secretsmanager get-secret-value --region "$REGION" --secret-id "$PAT_SECRET" --query SecretString --output text)
-      git clone "https://x-access-token:${PAT}@github.com/${OWNER}/${REPO_NAME}.git" "$WORKSPACE/$REPO_NAME"
+      git clone "https://github.com/${OWNER}/${REPO_NAME}.git" "$WORKSPACE/$REPO_NAME"
       chown -R ubuntu:ubuntu "$WORKSPACE/$REPO_NAME"
-      unset PAT
     fi
     {{- end }}
+
+    # Remove .netrc credentials after cloning.
+    rm -f /root/.netrc
   - |
     cat > /opt/ai-desktops/desktop.env << 'EOF'
     DESKTOP_ID="{{ .DesktopID }}"
@@ -155,9 +169,9 @@ func run(ctx *pulumi.Context) error {
 	if err != nil {
 		return fmt.Errorf("render cloud-init: %w", err)
 	}
-	userDataB64 := base64.StdEncoding.EncodeToString([]byte(userData))
-
 	// --- EC2 instance ---
+	// The Pulumi AWS provider base64-encodes UserData automatically;
+	// pass the raw string to avoid double-encoding.
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
 	instanceArgs := &ec2.InstanceArgs{
@@ -166,7 +180,7 @@ func run(ctx *pulumi.Context) error {
 		SubnetId:                 pulumi.String(subnetID),
 		VpcSecurityGroupIds:      pulumi.StringArray{pulumi.String(sgID)},
 		IamInstanceProfile:       pulumi.String(instanceProfile),
-		UserData:                 pulumi.String(userDataB64),
+		UserData:                 pulumi.String(userData),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
 		RootBlockDevice: &ec2.InstanceRootBlockDeviceArgs{

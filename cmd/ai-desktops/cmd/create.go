@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/repo"
+	"github.com/spf13/cobra"
 )
 
 var (
-	createOwner     string
-	createRepos     []string
-	createPreview   bool
-	createEnv       string
+	createOwner   string
+	createRepos   []string
+	createPreview bool
+	createEnv     string
 )
 
 var createCmd = &cobra.Command{
@@ -96,12 +98,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s) ...\n", desktopID, env, owner)
 
 	if createPreview {
+		backendURL := "s3://" + cfg.Pulumi.BackendBucket
+		workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+		ref := pulumi.DesktopStackRef(backendURL, desktopID, workDir)
+		stackCfg := pulumi.DesktopConfig(cfg.AWS.Region, desktopID, owner, zone,
+			cfg.Desktop.InstanceType, cfg.Desktop.OperatorCIDR, cfg.Desktop.SSHKeyPath,
+			cfg.GitHub.PATSecret, req.Repos)
+
 		fmt.Printf("Desktop ID  : %s\n", desktopID)
 		fmt.Printf("Zone        : %s\n", zone)
 		fmt.Printf("Hostname    : %s\n", desktop.Hostname(desktopID, zone))
 		fmt.Printf("Repos       : %v\n", createRepos)
-		fmt.Println("[preview mode — no changes applied]")
-		return nil
+
+		runner := pulumi.NewRunner()
+		return runner.Preview(ctx, ref, stackCfg, os.Stderr)
 	}
 
 	s, err := openStore(ctx)
@@ -114,6 +124,28 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create fleet record: %w", err)
 	}
 
+	// Run pulumi up and update the record with outputs.
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	ref := pulumi.DesktopStackRef(backendURL, desktopID, workDir)
+	stackCfg := pulumi.DesktopConfig(cfg.AWS.Region, desktopID, owner, zone,
+		cfg.Desktop.InstanceType, cfg.Desktop.OperatorCIDR, cfg.Desktop.SSHKeyPath,
+		cfg.GitHub.PATSecret, req.Repos)
+
+	runner := pulumi.NewRunner()
+	outputs, err := runner.Up(ctx, ref, stackCfg, os.Stderr)
+	if err != nil {
+		_ = mgr.RecordFailure(ctx, desktopID, "create", err.Error())
+		return fmt.Errorf("pulumi up: %w", err)
+	}
+
+	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
+		return fmt.Errorf("update fleet record: %w", err)
+	}
+	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
+		return fmt.Errorf("mark ready: %w", err)
+	}
+
 	hostname := desktop.Hostname(desktopID, zone)
 	result := map[string]string{
 		"desktop_id": desktopID,
@@ -123,10 +155,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"stack":      desktop.StackName(desktopID),
 	}
 
-	fmt.Fprintf(os.Stderr, "Fleet record created. Run Pulumi to provision infrastructure:\n")
-	fmt.Fprintf(os.Stderr, "  cd infra/pulumi/desktop && pulumi stack select %s && pulumi up\n",
-		desktop.StackName(desktopID))
-
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
@@ -135,7 +163,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Hostname    : %s\n", result["hostname"])
 	fmt.Printf("noVNC URL   : %s\n", result["novnc_url"])
 	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
-	fmt.Printf("Pulumi stack: %s\n", result["stack"])
 	return nil
 }
 
