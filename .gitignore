@@ -1,4 +1,5 @@
 .ballast/
+.claude/scheduled_tasks.lock
 
 # Build output
 /ai-desktops
