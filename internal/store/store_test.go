@@ -9,7 +9,7 @@ import (
 func newDesktop(id string) *Desktop {
 	return &Desktop{
 		DesktopID:   id,
-		StackName:   "ai-desktops/desktop-" + id,
+		StackName:   "desktop-" + id,
 		GitHubOwner: "acme",
 		State:       StateCreating,
 	}

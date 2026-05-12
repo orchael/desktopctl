@@ -50,6 +50,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if cfg.Pulumi.BackendBucket == "" {
 		return fmt.Errorf("pulumi.backend_bucket must be set; run bootstrap first")
 	}
+	if cfg.Desktop.OperatorCIDR == "" {
+		return fmt.Errorf("desktop.operator_cidr must be set (e.g. 203.0.113.0/24); refusing to default to 0.0.0.0/0")
+	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")

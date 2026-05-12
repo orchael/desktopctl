@@ -21,8 +21,6 @@ config:
     default: ""
   sshKeyName:
     default: ""
-  operatorCIDR:
-    default: "0.0.0.0/0"
   patSecret:
     default: "/ai-desktops/github/pat"
   repos:

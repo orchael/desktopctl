@@ -38,7 +38,7 @@ github:
   # AWS SSM Parameter Store path or Secrets Manager secret name holding
   # a fine-scoped GitHub PAT (repo:read, contents:read minimum).
   # The PAT is retrieved at desktop boot by the instance role — never stored in plaintext.
-  pat_secret: /ai-desktops/github-pat
+  pat_secret: /ai-desktops/github/pat
 
 desktop:
   # EC2 instance type for each desktop.

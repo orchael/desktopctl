@@ -30,7 +30,7 @@ func (r *StackRef) FullName() string {
 // FoundationStackRef returns the StackRef for the shared foundation stack.
 func FoundationStackRef(backendURL, env, workDir string) *StackRef {
 	return &StackRef{
-		Project:    "ai-desktops",
+		Project:    "foundation",
 		StackName:  "foundation-" + env,
 		BackendURL: backendURL,
 		WorkDir:    workDir,
@@ -40,7 +40,7 @@ func FoundationStackRef(backendURL, env, workDir string) *StackRef {
 // DesktopStackRef returns the StackRef for a single desktop stack.
 func DesktopStackRef(backendURL, desktopID, workDir string) *StackRef {
 	return &StackRef{
-		Project:    "ai-desktops",
+		Project:    "desktop",
 		StackName:  "desktop-" + desktopID,
 		BackendURL: backendURL,
 		WorkDir:    workDir,

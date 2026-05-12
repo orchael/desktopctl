@@ -30,8 +30,10 @@ func GenerateID() (string, error) {
 }
 
 // StackName returns the Pulumi stack name for the given desktop ID.
+// This matches the name used by pulumi.DesktopStackRef (i.e. what the
+// `pulumi stack select` command receives).
 func StackName(desktopID string) string {
-	return "ai-desktops/desktop-" + desktopID
+	return "desktop-" + desktopID
 }
 
 // Hostname returns the DNS hostname for the given desktop ID and zone.

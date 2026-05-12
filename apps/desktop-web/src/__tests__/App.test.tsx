@@ -25,6 +25,7 @@ describe('App', () => {
 
   it('renders the header', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
       json: async () => mockInfo
     } as Response);
     render(<App />);
@@ -40,6 +41,7 @@ describe('App', () => {
 
   it('renders desktop info after successful fetch', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
       json: async () => mockInfo
     } as Response);
     render(<App />);

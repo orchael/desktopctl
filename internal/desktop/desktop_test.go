@@ -27,7 +27,7 @@ func TestGenerateID(t *testing.T) {
 }
 
 func TestStackName(t *testing.T) {
-	if got := StackName("abc123"); got != "ai-desktops/desktop-abc123" {
+	if got := StackName("abc123"); got != "desktop-abc123" {
 		t.Errorf("got %q", got)
 	}
 }

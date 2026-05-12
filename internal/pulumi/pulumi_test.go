@@ -9,13 +9,13 @@ import (
 
 func TestFoundationStackRef(t *testing.T) {
 	ref := FoundationStackRef("s3://my-bucket", "dev", "/infra/pulumi/foundation")
-	if ref.Project != "ai-desktops" {
+	if ref.Project != "foundation" {
 		t.Errorf("project: got %q", ref.Project)
 	}
 	if ref.StackName != "foundation-dev" {
 		t.Errorf("stack: got %q", ref.StackName)
 	}
-	if ref.FullName() != "ai-desktops/foundation-dev" {
+	if ref.FullName() != "foundation/foundation-dev" {
 		t.Errorf("full name: got %q", ref.FullName())
 	}
 }

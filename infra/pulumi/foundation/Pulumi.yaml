@@ -10,6 +10,6 @@ config:
   fleetTable:
     default: ai-desktops-fleet
   operatorCIDR:
-    default: "0.0.0.0/0"
+    default: ""
   vpcId:
     default: ""

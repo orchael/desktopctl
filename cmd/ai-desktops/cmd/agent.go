@@ -132,6 +132,7 @@ func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent
 	cleanup := func() {
 		if tunnelProc != nil && tunnelProc.Process != nil {
 			_ = tunnelProc.Process.Kill()
+			_ = tunnelProc.Wait()
 		}
 	}
 
