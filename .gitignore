@@ -15,6 +15,7 @@ coverage.txt
 # Pulumi runtime state
 .pulumi/
 Pulumi.*.yaml.bak
+infra/pulumi/**/Pulumi.*.yaml
 
 # Local config with real values
 config.yaml
