@@ -53,10 +53,10 @@ type StackConfig map[string]string
 // FoundationConfig builds the Pulumi config for the foundation stack.
 func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig {
 	return StackConfig{
-		"aws:region":    region,
-		"zone":          zone,
-		"fleetTable":    fleetTable,
-		"operatorCIDR":  operatorCIDR,
+		"aws:region":   region,
+		"zone":         zone,
+		"fleetTable":   fleetTable,
+		"operatorCIDR": operatorCIDR,
 	}
 }
 
@@ -109,6 +109,8 @@ type Runner struct {
 	// PassPhrase is the Pulumi config encryption passphrase. Defaults to ""
 	// which is appropriate when config values are not secrets.
 	PassPhrase string
+	// AWSProfile is the AWS CLI profile to pass to Pulumi via AWS_PROFILE.
+	AWSProfile string
 }
 
 // NewRunner returns a Runner with default settings.
@@ -122,7 +124,7 @@ func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progres
 		return nil, fmt.Errorf("stack select: %w", err)
 	}
 	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", k, v); err != nil {
+		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
 			return nil, fmt.Errorf("config set %s: %w", k, err)
 		}
 	}
@@ -139,7 +141,7 @@ func (r *Runner) Preview(ctx context.Context, ref *StackRef, cfg StackConfig, pr
 		return fmt.Errorf("stack select: %w", err)
 	}
 	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", k, v); err != nil {
+		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
 			return fmt.Errorf("config set %s: %w", k, err)
 		}
 	}
@@ -157,10 +159,18 @@ func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string,
 }
 
 // Destroy selects the stack and runs `pulumi destroy`. Progress is streamed to
-// progress if non-nil.
+// progress if non-nil. If the stack does not exist in the backend, Destroy
+// returns nil (nothing to destroy).
 func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer) error {
 	env := r.env(ref.BackendURL)
-	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", ref.StackName); err != nil {
+	out, err := r.runCapture(ctx, ref.WorkDir, env, "stack", "select", ref.StackName)
+	if progress != nil && out != "" {
+		_, _ = fmt.Fprint(progress, out)
+	}
+	if err != nil {
+		if strings.Contains(out, "no stack named") {
+			return nil
+		}
 		return fmt.Errorf("stack select: %w", err)
 	}
 	if err := r.run(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never"); err != nil {
@@ -170,10 +180,14 @@ func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer)
 }
 
 func (r *Runner) env(backendURL string) []string {
-	return append(os.Environ(),
+	e := append(os.Environ(),
 		"PULUMI_BACKEND_URL="+backendURL,
 		"PULUMI_CONFIG_PASSPHRASE="+r.PassPhrase,
 	)
+	if r.AWSProfile != "" {
+		e = append(e, "AWS_PROFILE="+r.AWSProfile)
+	}
+	return e
 }
 
 func (r *Runner) run(ctx context.Context, workDir string, env []string, progress io.Writer, args ...string) error {
@@ -185,6 +199,17 @@ func (r *Runner) run(ctx context.Context, workDir string, env []string, progress
 		cmd.Stderr = progress
 	}
 	return cmd.Run()
+}
+
+// runCapture runs a pulumi command and returns its combined stdout+stderr
+// output along with any error. Use this when the output must be inspected
+// for error classification (e.g. "no stack named").
+func (r *Runner) runCapture(ctx context.Context, workDir string, env []string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "pulumi", args...) //nolint:gosec
+	cmd.Dir = workDir
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func (r *Runner) outputs(ctx context.Context, workDir string, env []string) (map[string]string, error) {

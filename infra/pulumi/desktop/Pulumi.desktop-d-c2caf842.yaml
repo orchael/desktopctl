@@ -1,0 +1,12 @@
+encryptionsalt: v1:flsyGzas/1k=:v1:2gk6dZfztxag0WIL:D4qpflC4JrkqTAC5k2y3xXROmfrO0A==
+config:
+  aws:region: us-east-2
+  desktop:desktopId: d-c2caf842
+  desktop:githubOwner: markcallen
+  desktop:instanceType: t3.xlarge
+  desktop:subnetId: subnet-0a42751231501dd83
+  desktop:securityGroupId: sg-0f157ba84922d2b62
+  desktop:patSecret: /ai-desktops/github/pat
+  desktop:zone: desktops.orchael.dev
+  desktop:instanceProfile: ai-desktops-profile-fab2976
+  desktop:repos: github.com/markcallen/ga-gsc-analysis

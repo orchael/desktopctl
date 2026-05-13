@@ -74,7 +74,7 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-	runner := pulumi.NewRunner()
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())

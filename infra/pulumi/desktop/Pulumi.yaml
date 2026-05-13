@@ -4,7 +4,7 @@ description: ai-desktops per-desktop stack — single EC2 instance with EBS pers
 
 config:
   aws:region:
-    default: us-east-1
+    value: us-east-1
   desktopId:
     default: ""
   githubOwner:

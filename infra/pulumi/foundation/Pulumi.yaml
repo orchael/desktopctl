@@ -4,7 +4,7 @@ description: ai-desktops foundation stack — shared VPC, IAM, DNS, and security
 
 config:
   aws:region:
-    default: us-east-1
+    value: us-east-1
   zone:
     default: desktops.orchael.dev
   fleetTable:

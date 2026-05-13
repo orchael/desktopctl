@@ -129,6 +129,7 @@ func main() {
 
 func run(ctx *pulumi.Context) error {
 	cfg := config.New(ctx, "")
+	awsCfg := config.New(ctx, "aws")
 
 	desktopID := cfg.Require("desktopId")
 	githubOwner := cfg.Require("githubOwner")
@@ -140,7 +141,7 @@ func run(ctx *pulumi.Context) error {
 	subnetID := cfg.Require("subnetId")
 	sgID := cfg.Require("securityGroupId")
 	instanceProfile := cfg.Require("instanceProfile")
-	region := cfg.Require("aws:region")
+	region := awsCfg.Require("region")
 	patSecret := cfg.Get("patSecret")
 	if patSecret == "" {
 		patSecret = "/ai-desktops/github/pat"

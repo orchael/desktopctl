@@ -18,7 +18,6 @@ func main() {
 func run(ctx *pulumi.Context) error {
 	cfg := config.New(ctx, "")
 
-	region := cfg.Require("aws:region")
 	zone := cfg.Require("zone")
 	fleetTable := cfg.Get("fleetTable")
 	if fleetTable == "" {
@@ -29,8 +28,6 @@ func run(ctx *pulumi.Context) error {
 		operatorCIDR = "0.0.0.0/0"
 	}
 	vpcID := cfg.Get("vpcId")
-
-	_ = region
 
 	// --- Route53 hosted zone lookup ---
 	zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{

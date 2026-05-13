@@ -65,7 +65,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Stack                  : %s\n", ref.FullName())
 	fmt.Fprintf(os.Stderr, "Work dir               : %s\n", workDir)
 
-	runner := pulumi.NewRunner()
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
 	if foundationPreview {
 		if err := runner.Preview(ctx, ref, stackCfg, os.Stderr); err != nil {

@@ -94,3 +94,7 @@
   - Example config file (no real secrets); smoke checklist covering all 12 steps (bootstrap → init-foundation → create → verify access/tools/repos/bridge → stop → start → verify persistence → terminate)
   - Known limitations: Elementary/Pantheon reliability, root EBS persistence, failed desktops left running
   - Verify: full smoke run against `desktops.orchael.dev`
+
+## Post-MVP
+
+- [ ] Upgrade `novnc-desktop` to v0.1.5 and switch to custom ports 8080 (HTTP) and 8443 (HTTPS) — https://github.com/markcallen/ai-desktops/issues/7

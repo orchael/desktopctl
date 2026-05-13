@@ -98,7 +98,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s) ...\n", desktopID, env, owner)
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	runner := pulumi.NewRunner()
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
 	// Read foundation stack outputs to get the subnet, SG, and instance profile
 	// that the desktop stack requires.
