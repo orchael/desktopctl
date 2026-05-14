@@ -1,0 +1,58 @@
+# ai-desktops example configuration
+# Copy to ~/.ai-desktops/config.yaml and fill in your values.
+# Do NOT commit files containing real secrets or personal values.
+
+aws:
+  # AWS region where desktops will be provisioned
+  region: us-east-1
+
+  # AWS CLI profile to use (matches a profile in ~/.aws/credentials or ~/.aws/config)
+  profile: myprofile
+
+pulumi:
+  # S3 bucket name for Pulumi state storage.
+  # Created by `ai-desktops bootstrap`; must be globally unique.
+  backend_bucket: myorg-ai-desktops-pulumi-state
+
+  # Path to the repository root containing infra/pulumi/foundation and
+  # infra/pulumi/desktop. Defaults to "." (current working directory).
+  # Set to an absolute path if running the CLI from outside the repo root.
+  # infra_dir: /home/user/ai-desktops
+
+fleet:
+  # DynamoDB table name for fleet metadata.
+  # Created by `ai-desktops bootstrap`.
+  table_name: ai-desktops-fleet
+
+  # Environment tag. Affects DNS zone selection:
+  #   prod  → desktops.orchael.com
+  #   dev   → desktops.orchael.dev (default)
+  environment: dev
+
+github:
+  # GitHub organization or user that owns all repos cloned onto desktops.
+  # Repos with a different owner are rejected at create time.
+  # If set here, --github-owner can be omitted from `create`.
+  owner: myorg
+
+  # AWS SSM Parameter Store path or Secrets Manager secret name holding
+  # a fine-scoped GitHub PAT (repo:read, contents:read minimum).
+  # The PAT is retrieved at desktop boot by the instance role — never stored in plaintext.
+  pat_secret: /ai-desktops/github/pat
+
+desktop:
+  # EC2 instance type for each desktop.
+  # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.
+  instance_type: t3.xlarge
+
+  # Root EBS volume size in GiB. 40 GiB is the default.
+  # root_volume_size: 40
+
+  # CIDR range from which SSH (port 22) is allowed in the security group.
+  # Restrict to your public IP for least-privilege access.
+  operator_cidr: 203.0.113.42/32
+
+agent:
+  # Port where ai-agent-bridge listens on the desktop (localhost-only).
+  # Default: 9445. Change only if there is a port conflict on the desktop.
+  bridge_port: 9445

@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /apps/desktop-web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      testing:
+        patterns:
+          - vitest
+          - '@vitest/*'
+      dev-tooling:
+        dependency-type: development
+        patterns:
+          - eslint*
+          - prettier
+          - typescript-eslint
+          - '@eslint/*'
+          - globals
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
