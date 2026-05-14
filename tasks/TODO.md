@@ -97,4 +97,9 @@
 
 ## Post-MVP
 
-- [ ] Upgrade `novnc-desktop` to v0.1.5 and switch to custom ports 8080 (HTTP) and 8443 (HTTPS) — https://github.com/markcallen/ai-desktops/issues/7
+- [x] Upgrade `novnc-desktop` to v0.1.5 and switch to custom ports 8080 (HTTP) and 8443 (HTTPS) — https://github.com/markcallen/ai-desktops/issues/7
+- [x] Pin `novnc-desktop` and `ai-agent-bridge` installs to release tags — https://github.com/markcallen/ai-desktops/issues/4
+- [x] Replace self-signed TLS cert with certbot + Route53 DNS-01 (ACM-backed) — https://github.com/markcallen/ai-desktops/issues/2
+- [x] `doctor` SSH-based checks (Docker, tools, repos, bridge systemd unit) — https://github.com/markcallen/ai-desktops/issues/3
+- [x] Make bridge port configurable in desktop Pulumi stack — https://github.com/markcallen/ai-desktops/issues/5
+- [ ] SSH tunnel: make StrictHostKeyChecking configurable — https://github.com/markcallen/ai-desktops/issues/6

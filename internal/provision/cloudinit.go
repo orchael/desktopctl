@@ -5,13 +5,24 @@ import (
 	"text/template"
 )
 
+const (
+	NovncDesktopVersion  = "v0.1.5"
+	AIAgentBridgeVersion = "v0.1.0"
+	DefaultNoVNCHTTPPort  = 8080
+	DefaultNoVNCHTTPSPort = 8443
+)
+
 // BootstrapConfig holds the parameters for rendering the cloud-init user-data.
 type BootstrapConfig struct {
 	DesktopID     string
+	Hostname      string // FQDN used for certbot cert and novnc-desktop cert path
 	GitHubOwner   string
 	Repos         []string
 	WorkspacePath string
 	BridgePort    int
+	NoVNCHTTPPort  int
+	NoVNCHTTPSPort int
+	CertbotEmail  string
 	PATSecretPath string
 	AWSRegion     string
 	Environment   string
@@ -38,6 +49,8 @@ packages:
   - software-properties-common
   - snapd
   - awscli
+  - certbot
+  - python3-certbot-dns-route53
 
 runcmd:
   # --- system setup ---
@@ -56,11 +69,16 @@ runcmd:
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
 
-  # --- novnc-desktop ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/main/install.sh | bash -s -- --desktop-type elementary
+  # --- TLS certificate via Route53 DNS-01 (no port 80 required) ---
+  - certbot certonly --dns-route53 --non-interactive --agree-tos --email {{ .CertbotEmail }} -d {{ .Hostname }}
+  - systemctl enable certbot.timer
+  - systemctl start certbot.timer
 
-  # --- ai-agent-bridge ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/main/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }}
+  # --- novnc-desktop {{ .NovncVersion }} with custom ports and signed cert ---
+  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .NoVNCHTTPPort }} --https-port {{ .NoVNCHTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
+
+  # --- ai-agent-bridge {{ .BridgeVersion }} ---
+  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }}
   - systemctl enable ai-agent-bridge
   - systemctl start ai-agent-bridge
 
@@ -138,13 +156,34 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.BridgePort == 0 {
 		cfg.BridgePort = 9445
 	}
+	if cfg.NoVNCHTTPPort == 0 {
+		cfg.NoVNCHTTPPort = DefaultNoVNCHTTPPort
+	}
+	if cfg.NoVNCHTTPSPort == 0 {
+		cfg.NoVNCHTTPSPort = DefaultNoVNCHTTPSPort
+	}
+	if cfg.CertbotEmail == "" {
+		cfg.CertbotEmail = "admin@orchael.ai"
+	}
+
+	// Expose version constants to the template via a wrapper.
+	type templateData struct {
+		*BootstrapConfig
+		NovncVersion  string
+		BridgeVersion string
+	}
+	data := templateData{
+		BootstrapConfig: cfg,
+		NovncVersion:    NovncDesktopVersion,
+		BridgeVersion:   AIAgentBridgeVersion,
+	}
 
 	tmpl, err := template.New("cloud-init").Parse(cloudInitTemplate)
 	if err != nil {
 		return "", err
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

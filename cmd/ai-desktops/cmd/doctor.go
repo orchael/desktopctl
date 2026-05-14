@@ -17,11 +17,18 @@ var doctorCmd = &cobra.Command{
 	Use:   "doctor <desktop-id>",
 	Short: "Run health checks against a desktop",
 	Long: `doctor runs a suite of health checks against the specified desktop:
-  - SSH port reachable (TCP)
-  - noVNC HTTPS endpoint responding
-  - ai-agent-bridge port reachable via SSM tunnel (127.0.0.1:<bridge_port>)
 
-SSH-based checks (Docker, tools, repos) are not yet implemented.`,
+Network checks (always run):
+  - ssh-port      — SSH port reachable (TCP)
+  - novnc-https   — noVNC HTTPS endpoint responding on port 8443
+  - agent-bridge  — ai-agent-bridge reachable via SSM tunnel (127.0.0.1:<bridge_port>)
+
+SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
+  - docker-active   — Docker daemon is active
+  - nvim-installed  — nvim is on PATH
+  - tmux-installed  — tmux is on PATH
+  - bridge-active   — ai-agent-bridge systemd unit is active
+  - repo-<name>     — each expected repository is cloned under /workspace`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDoctor,
 }
@@ -47,9 +54,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	checkers := health.StandardCheckers(d.Hostname, 22, cfg.Agent.BridgePort)
+	checkers = append(checkers, health.SSHCheckers(
+		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos,
+	)...)
 	runner := health.NewRunner(id, checkers...)
 
-	timeout := 60 * time.Second
+	timeout := 120 * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -64,8 +74,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	for _, c := range report.Checks {
 		mark := "✓"
-		if c.Status != health.StatusPass {
+		if c.Status == health.StatusFail {
 			mark = "✗"
+		} else if c.Status == health.StatusSkipped {
+			mark = "–"
 		}
 		line := fmt.Sprintf("  %s %s", mark, c.Name)
 		if c.Message != "" {

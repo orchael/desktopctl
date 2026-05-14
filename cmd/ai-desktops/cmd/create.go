@@ -122,6 +122,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.Desktop.SSHKeyName,
 		cfg.GitHub.PATSecret,
 		req.Repos,
+		cfg.Agent.BridgePort,
 	)
 
 	if createPreview {

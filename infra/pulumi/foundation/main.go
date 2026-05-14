@@ -124,17 +124,25 @@ func run(ctx *pulumi.Context) error {
 		Ingress: ec2.SecurityGroupIngressArray{
 			// SSH from operator CIDR.
 			&ec2.SecurityGroupIngressArgs{
-				Protocol:   pulumi.String("tcp"),
-				FromPort:   pulumi.Int(22),
-				ToPort:     pulumi.Int(22),
-				CidrBlocks: pulumi.StringArray{pulumi.String(operatorCIDR)},
+				Protocol:    pulumi.String("tcp"),
+				FromPort:    pulumi.Int(22),
+				ToPort:      pulumi.Int(22),
+				CidrBlocks:  pulumi.StringArray{pulumi.String(operatorCIDR)},
 				Description: pulumi.String("SSH operator access"),
 			},
-			// noVNC HTTPS (443) from everywhere.
+			// noVNC HTTP on 8080 (redirect to HTTPS) from everywhere.
 			&ec2.SecurityGroupIngressArgs{
 				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(443),
-				ToPort:      pulumi.Int(443),
+				FromPort:    pulumi.Int(8080),
+				ToPort:      pulumi.Int(8080),
+				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+				Description: pulumi.String("noVNC HTTP"),
+			},
+			// noVNC HTTPS on 8443 from everywhere.
+			&ec2.SecurityGroupIngressArgs{
+				Protocol:    pulumi.String("tcp"),
+				FromPort:    pulumi.Int(8443),
+				ToPort:      pulumi.Int(8443),
 				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
 				Description: pulumi.String("noVNC HTTPS"),
 			},
@@ -200,6 +208,26 @@ func run(ctx *pulumi.Context) error {
 	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-secrets-policy", &iam.RolePolicyArgs{
 		Role:   role.Name,
 		Policy: pulumi.String(secretsPolicy),
+	}); err != nil {
+		return err
+	}
+
+	// Route53 write access for certbot DNS-01 challenge during TLS cert provisioning.
+	route53Policy := `{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "route53:GetChange",
+      "route53:ChangeResourceRecordSets",
+      "route53:ListHostedZones"
+    ],
+    "Resource": "*"
+  }]
+}`
+	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
+		Role:   role.Name,
+		Policy: pulumi.String(route53Policy),
 	}); err != nil {
 		return err
 	}
