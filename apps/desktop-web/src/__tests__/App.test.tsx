@@ -30,7 +30,9 @@ describe('App', () => {
     } as Response);
     render(<App />);
     expect(screen.getByText('AI Desktop')).toBeInTheDocument();
-    expect(screen.getByText('Local desktop status dashboard')).toBeInTheDocument();
+    expect(
+      screen.getByText('Local desktop status dashboard')
+    ).toBeInTheDocument();
   });
 
   it('shows loading state while fetching', () => {

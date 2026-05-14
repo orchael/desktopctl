@@ -49,7 +49,10 @@ describe('DesktopStatus', () => {
   it('renders noVNC link with correct href', () => {
     render(<DesktopStatus info={baseInfo} />);
     const link = screen.getByRole('link', { name: /open novnc desktop/i });
-    expect(link).toHaveAttribute('href', 'https://d-001.desktops.orchael.dev/novnc');
+    expect(link).toHaveAttribute(
+      'href',
+      'https://d-001.desktops.orchael.dev/novnc'
+    );
     expect(link).toHaveAttribute('target', '_blank');
   });
 
