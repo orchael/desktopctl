@@ -25,6 +25,12 @@ type Config struct {
 	Profile    string // AWS CLI profile; passed as --profile when non-empty
 	BridgePort int
 	Mode       Mode
+	// TrustHost disables SSH host key verification for the tunnel connection.
+	// When false (the default) the system ~/.ssh/known_hosts is consulted and
+	// an unknown or changed host key causes the connection to fail.
+	// Set to true only in automated or trusted environments where the host key
+	// is not yet in known_hosts (e.g. a freshly provisioned desktop).
+	TrustHost bool
 }
 
 // Tunnel represents an established or requested port-forward tunnel.
@@ -68,6 +74,11 @@ func SSMCommand(cfg *Config, localPort int) *exec.Cmd {
 
 // SSHCommand returns the exec.Cmd that starts an SSH local port-forwarding
 // session. The caller is responsible for starting and stopping the command.
+//
+// When cfg.TrustHost is false (the default) the system known_hosts file is
+// consulted normally, protecting against MITM on untrusted networks.
+// Set cfg.TrustHost to true only for freshly provisioned desktops whose host
+// key has not yet been added to known_hosts.
 func SSHCommand(cfg *Config, localPort int) *exec.Cmd {
 	user := cfg.SSHUser
 	if user == "" {
@@ -77,11 +88,15 @@ func SSHCommand(cfg *Config, localPort int) *exec.Cmd {
 		"-N",
 		"-L", fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%d", localPort, cfg.BridgePort),
 		"-i", cfg.SSHKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		fmt.Sprintf("%s@%s", user, cfg.Hostname),
 	}
-	return exec.Command("ssh", args...)
+	if cfg.TrustHost {
+		args = append(args,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+		)
+	}
+	args = append(args, fmt.Sprintf("%s@%s", user, cfg.Hostname))
+	return exec.Command("ssh", args...) //nolint:gosec
 }
 
 // BridgeURL returns the URL for reaching the bridge through the local tunnel.

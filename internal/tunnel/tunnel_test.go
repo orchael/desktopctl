@@ -32,6 +32,41 @@ func TestSSMCommand(t *testing.T) {
 	}
 }
 
+func TestSSMCommand_withProfile(t *testing.T) {
+	cfg := *testCfg
+	cfg.Profile = "my-profile"
+	cmd := SSMCommand(&cfg, 19445)
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "--profile") || !strings.Contains(args, "my-profile") {
+		t.Errorf("expected --profile my-profile in args: %s", args)
+	}
+}
+
+func TestSSHCommand_strictByDefault(t *testing.T) {
+	// TrustHost=false (zero value): must NOT include insecure host-key flags.
+	cmd := SSHCommand(testCfg, 19445)
+	args := strings.Join(cmd.Args, " ")
+	if strings.Contains(args, "StrictHostKeyChecking=no") {
+		t.Error("default (TrustHost=false) must not disable StrictHostKeyChecking")
+	}
+	if strings.Contains(args, "UserKnownHostsFile=/dev/null") {
+		t.Error("default (TrustHost=false) must not override UserKnownHostsFile")
+	}
+}
+
+func TestSSHCommand_trustHost(t *testing.T) {
+	cfg := *testCfg
+	cfg.TrustHost = true
+	cmd := SSHCommand(&cfg, 19445)
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "StrictHostKeyChecking=no") {
+		t.Errorf("TrustHost=true must pass StrictHostKeyChecking=no: %s", args)
+	}
+	if !strings.Contains(args, "UserKnownHostsFile=/dev/null") {
+		t.Errorf("TrustHost=true must pass UserKnownHostsFile=/dev/null: %s", args)
+	}
+}
+
 func TestSSHCommand(t *testing.T) {
 	cmd := SSHCommand(testCfg, 19445)
 	args := strings.Join(cmd.Args, " ")
