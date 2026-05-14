@@ -67,8 +67,8 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)
 	fmt.Fprintln(os.Stderr, "WARNING: This will permanently destroy the EC2 instance and EBS volume.")
 
-	if cfg.Pulumi.BackendBucket == "" {
-		return fmt.Errorf("pulumi.backend_bucket must be set in config")
+	if err := requireBackend(ctx); err != nil {
+		return err
 	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket

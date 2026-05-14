@@ -32,6 +32,23 @@ func LoadConfig(ctx context.Context, region, profile string) (aws.Config, error)
 
 // --- S3 ---
 
+// BucketExists reports whether the S3 bucket exists and is accessible with the
+// current credentials. It returns false (not an error) when the bucket is
+// absent; it returns an error only when the check itself fails unexpectedly.
+func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, error) {
+	c := s3.NewFromConfig(cfg)
+	_, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	if err == nil {
+		return true, nil
+	}
+	var notFound *s3types.NotFound
+	var noSuchBucket *s3types.NoSuchBucket
+	if errors.As(err, &notFound) || errors.As(err, &noSuchBucket) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check bucket %s: %w", bucket, err)
+}
+
 // EnsureBucket creates the S3 bucket if it does not already exist, then
 // configures versioning, SSE, and public-access-block.
 func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) error {

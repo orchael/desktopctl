@@ -124,15 +124,31 @@ See `config.example.yaml` at the repo root for a fully commented example.
 
 ## Full lifecycle workflow
 
-### 1. Bootstrap Pulumi state backend
+### 1. Configure the Pulumi state backend
+
+Set the S3 bucket name in your config file before running any infrastructure commands:
+
+```yaml
+pulumi:
+  backend_bucket: <globally-unique-bucket-name>   # e.g. myorg-ai-desktops-pulumi-state
+```
+
+The bucket name must be globally unique across all AWS accounts. Pick something like
+`<your-org>-ai-desktops-pulumi-state`.
+
+> **Enforced by the CLI**: `init-foundation`, `create`, and `terminate` check that this
+> bucket exists in AWS before doing any work. If the bucket is missing they will print
+> the exact command needed to create it.
+
+### 2. Bootstrap Pulumi state backend
 
 ```bash
 ai-desktops bootstrap
 ```
 
-Creates the S3 bucket (versioning + SSE + public-access block) and the DynamoDB fleet table. Idempotent — safe to re-run.
+Creates the S3 bucket (versioning + SSE + public-access block). Idempotent — safe to re-run.
 
-### 2. Initialize shared foundation infrastructure
+### 3. Initialize shared foundation infrastructure
 
 ```bash
 ai-desktops init-foundation
@@ -146,7 +162,7 @@ Preview without applying:
 ai-desktops init-foundation --preview
 ```
 
-### 3. Create a desktop
+### 4. Create a desktop
 
 ```bash
 ai-desktops create --github-owner myorg --repo myorg/my-app --repo myorg/shared-lib
@@ -159,27 +175,27 @@ ai-desktops create --github-owner myorg --repo myorg/my-app --repo myorg/shared-
 - Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
 - Cloud-init installs tools, retrieves GitHub PAT from AWS Secrets Manager/SSM, and clones repos under `/workspace`
 
-### 4. Inspect fleet
+### 5. Inspect fleet
 
 ```bash
 ai-desktops list
 ai-desktops status d-a1b2c3d4
 ```
 
-### 5. Open noVNC
+### 6. Open noVNC
 
 ```bash
 ai-desktops url d-a1b2c3d4
 # https://d-a1b2c3d4.desktops.orchael.dev
 ```
 
-### 6. SSH into desktop
+### 7. SSH into desktop
 
 ```bash
 ai-desktops ssh d-a1b2c3d4
 ```
 
-### 7. Use AI agent bridge
+### 8. Use AI agent bridge
 
 ```bash
 # Status and available providers
@@ -198,7 +214,7 @@ ai-desktops agent d-a1b2c3d4 stop <session-id>
 
 The CLI opens an SSM port-forward tunnel (falling back to SSH) to reach the bridge at `127.0.0.1:9445` on the desktop. The bridge is never exposed publicly.
 
-### 8. Run diagnostics
+### 9. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -207,14 +223,14 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 9. Stop and start
+### 10. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 10. Terminate
+### 11. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4

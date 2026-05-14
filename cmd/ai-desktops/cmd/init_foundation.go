@@ -47,8 +47,8 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if cfg.Pulumi.BackendBucket == "" {
-		return fmt.Errorf("pulumi.backend_bucket must be set; run bootstrap first")
+	if err := requireBackend(ctx); err != nil {
+		return err
 	}
 	if cfg.Desktop.OperatorCIDR == "" {
 		return fmt.Errorf("desktop.operator_cidr must be set (e.g. 203.0.113.0/24); refusing to default to 0.0.0.0/0")
