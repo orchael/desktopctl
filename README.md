@@ -146,7 +146,7 @@ The bucket name must be globally unique across all AWS accounts. Pick something 
 ai-desktops bootstrap
 ```
 
-Creates the S3 bucket (versioning + SSE + public-access block). Idempotent — safe to re-run.
+Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Idempotent — safe to re-run. This step must complete before Pulumi can initialize.
 
 ### 3. Initialize shared foundation infrastructure
 
@@ -164,11 +164,17 @@ ai-desktops init-foundation --preview
 
 ### 4. Create a desktop
 
+> **Note:** No custom AMI build is required. Desktops use public Ubuntu AMIs (hardcoded per region) with cloud-init that installs `novnc-desktop` (Elementary), Docker, and other developer tools at boot time.
+
 ```bash
-ai-desktops create --github-owner myorg --repo myorg/my-app --repo myorg/shared-lib
+ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
 ```
 
-`--github-owner` can be omitted if `github.owner` is set in your config file.
+Or use full GitHub URLs:
+
+```bash
+ai-desktops create --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
+```
 
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
 - Creates a DynamoDB record in state `creating`
@@ -223,14 +229,47 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 10. Stop and start
+### 10. Debug with SSM (if diagnostics fail)
+
+If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
+
+```bash
+# Get the instance ID from the status output
+INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep instance_id | cut -d: -f2 | xargs)
+
+# Start an interactive session
+aws ssm start-session --target $INSTANCE_ID --profile <your-profile>
+```
+
+Once in the session, you can inspect logs and services:
+
+```bash
+# View cloud-init logs (bootstrap output)
+tail -100 /var/log/cloud-init-output.log
+
+# Check novnc-desktop service status
+systemctl --user status novnc-desktop
+
+# Check ai-agent-bridge service status
+systemctl status ai-agent-bridge
+
+# View bridge logs
+journalctl -u ai-agent-bridge -n 50
+
+# Restart Pantheon session if noVNC shows black screen
+systemctl --user restart pantheon-session
+```
+
+Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSM or SSH port-forwarding internally; this direct session is for interactive troubleshooting when those fail.
+
+### 11. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 11. Terminate
+### 12. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4

@@ -106,6 +106,10 @@ func (c *Config) Defaults() {
 	if c.Pulumi.InfraDir == "" {
 		c.Pulumi.InfraDir = "."
 	}
+	if c.Desktop.SSHKeyPath == "" {
+		home, _ := os.UserHomeDir()
+		c.Desktop.SSHKeyPath = filepath.Join(home, ".ssh", "id_rsa")
+	}
 
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort

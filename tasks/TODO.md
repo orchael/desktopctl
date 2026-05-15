@@ -102,4 +102,7 @@
 - [x] Replace self-signed TLS cert with certbot + Route53 DNS-01 (Let's Encrypt) — https://github.com/markcallen/ai-desktops/issues/2
 - [x] `doctor` SSH-based checks (Docker, tools, repos, bridge systemd unit) — https://github.com/markcallen/ai-desktops/issues/3
 - [x] Make bridge port configurable in desktop Pulumi stack — https://github.com/markcallen/ai-desktops/issues/5
+- [x] BUG FIX: `ai-desktops ssh` command fails with "Identity file not accessible" — added SSHKeyPath default to ~/.ssh/id_rsa in config.Defaults()
 - [ ] SSH tunnel: make StrictHostKeyChecking configurable — https://github.com/markcallen/ai-desktops/issues/6
+- [ ] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs
+- [ ] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI)

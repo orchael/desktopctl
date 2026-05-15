@@ -23,6 +23,9 @@ func TestParse(t *testing.T) {
 		{"git@github.com:acme/myapp", "acme", "myapp", false},
 		// bare without scheme, no trailing slash
 		{"github.com/acme/repo-with-dashes", "acme", "repo-with-dashes", false},
+		// simple owner/repo format (no github.com prefix)
+		{"markcallen/ga-gsc-analysis", "markcallen", "ga-gsc-analysis", false},
+		{"acme/myapp", "acme", "myapp", false},
 
 		// errors
 		{"https://gitlab.com/acme/myapp", "", "", true},
