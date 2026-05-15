@@ -3,3 +3,4 @@ config:
   aws:region: us-east-2
   foundation:zone: desktops.orchael.dev
   foundation:fleetTable: ai-desktops-fleet
+  foundation:operatorCIDR: 203.0.113.42/32
