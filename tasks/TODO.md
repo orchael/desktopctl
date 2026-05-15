@@ -103,6 +103,11 @@
 - [x] `doctor` SSH-based checks (Docker, tools, repos, bridge systemd unit) — https://github.com/markcallen/ai-desktops/issues/3
 - [x] Make bridge port configurable in desktop Pulumi stack — https://github.com/markcallen/ai-desktops/issues/5
 - [x] BUG FIX: `ai-desktops ssh` command fails with "Identity file not accessible" — added SSHKeyPath default to ~/.ssh/id_rsa in config.Defaults()
+- [x] FEAT: SSH via SSM tunnel by default (--tunnel flag, falls back to direct SSH with --tunnel ssh)
+- [x] FEAT: Add Region field to desktop records and display in `ai-desktops list`
+- [x] DOCS: Add SSM debugging guide to README after doctor command
+- [x] ISSUE: Created GitHub Issue #23 — Add WireGuard VPN support (multi-platform: iOS, macOS, Linux, Windows)
+- [x] DOCS: Updated PRD with temporary public access (SSH/HTTP/HTTPS) until WireGuard, then restrict to VPN
 - [ ] SSH tunnel: make StrictHostKeyChecking configurable — https://github.com/markcallen/ai-desktops/issues/6
 - [ ] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs
 - [ ] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI)
