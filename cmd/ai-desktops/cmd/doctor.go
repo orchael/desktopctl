@@ -24,11 +24,25 @@ Network checks (always run):
   - agent-bridge  — ai-agent-bridge reachable via SSM tunnel (127.0.0.1:<bridge_port>)
 
 SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
-  - docker-active   — Docker daemon is active
-  - nvim-installed  — nvim is on PATH
-  - tmux-installed  — tmux is on PATH
-  - bridge-active   — ai-agent-bridge systemd unit is active
-  - repo-<name>     — each expected repository is cloned under /workspace`,
+
+  Essential Services:
+    - docker-active   — Docker daemon is active
+    - nvim-installed  — nvim is on PATH
+    - tmux-installed  — tmux is on PATH
+    - bridge-active   — ai-agent-bridge systemd unit is active
+
+  System Resources:
+    - disk-space      — /workspace has >1GB free
+    - memory-available — system has >512MB free memory
+    - novnc-running   — novnc-desktop process is running
+
+  Certificate & TLS:
+    - certbot-cert-valid   — TLS certificate is valid (>7 days until expiry)
+    - certbot-timer-enabled — certbot auto-renewal timer is enabled
+
+  Workspace:
+    - workspace-mounted — /workspace is mounted and writable
+    - repo-<name>      — each expected repository is valid git clone`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDoctor,
 }
@@ -55,6 +69,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	checkers := health.StandardCheckers(d.Hostname, 22, cfg.Agent.BridgePort)
 	checkers = append(checkers, health.SSHCheckers(
+		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos,
+	)...)
+	checkers = append(checkers, health.SystemCheckers(
+		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath,
+	)...)
+	checkers = append(checkers, health.WorkspaceCheckers(
 		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos,
 	)...)
 	runner := health.NewRunner(id, checkers...)

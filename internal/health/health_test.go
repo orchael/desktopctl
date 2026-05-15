@@ -105,7 +105,7 @@ func TestStandardCheckers_noVNCPort(t *testing.T) {
 	for _, c := range checkers {
 		if c.Name() == "novnc-https" {
 			found = true
-			// SSHChecker doesn't expose URL; check via the HTTPSChecker cast.
+			// HTTPSChecker exposes the url field for verification.
 			h, ok := c.(*HTTPSChecker)
 			if !ok {
 				t.Fatal("novnc-https checker is not an HTTPSChecker")

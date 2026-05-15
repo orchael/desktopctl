@@ -70,7 +70,7 @@ runcmd:
   - systemctl enable certbot.timer
   - systemctl start certbot.timer
 
-  # Install novnc-desktop {{ .NovncVersion }} with custom ports and ACM-validated cert.
+  # Install novnc-desktop {{ .NovncVersion }} with custom ports and Let's Encrypt cert.
   - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .HTTPPort }} --https-port {{ .HTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
 
   # Install ai-agent-bridge {{ .BridgeVersion }}, bound to localhost only.

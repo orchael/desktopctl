@@ -203,6 +203,8 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
 		"-i", c.keyPath,
 		"-p", fmt.Sprintf("%d", c.port),
 		fmt.Sprintf("%s@%s", user, c.host),
@@ -258,7 +260,7 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []str
 		checkers = append(checkers, NewSSHChecker(
 			"repo-"+name,
 			hostname, sshPort, user, keyPath,
-			fmt.Sprintf("test -d /workspace/%s/.git", name),
+			fmt.Sprintf("test -d /workspace/%s/.git", shellQuote(name)),
 			t,
 		))
 	}
@@ -272,4 +274,46 @@ func repoBaseName(repoURL string) string {
 		return parts[len(parts)-1]
 	}
 	return repoURL
+}
+
+// shellQuote wraps a string in single quotes for safe shell use, escaping embedded quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// SystemCheckers returns checks for system health (disk, memory, services, certificate).
+func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	checkers := []Checker{
+		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
+			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
+		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
+			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
+		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
+			"pgrep -f novnc-desktop >/dev/null", t),
+		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
+			"openssl x509 -in /etc/letsencrypt/live/*/fullchain.pem -noout -checkend 604800 2>/dev/null || echo 'cert expires within 7 days'", t), // 604800 = 7 days
+		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
+			"systemctl is-enabled certbot.timer", t),
+	}
+	return checkers
+}
+
+// WorkspaceCheckers returns checks for workspace and repository integrity.
+func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string, repos []string) []Checker {
+	t := 20 * time.Second
+	checkers := []Checker{
+		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
+			"[ -d /workspace ] && [ -w /workspace ]", t),
+	}
+	for _, r := range repos {
+		name := repoBaseName(r)
+		checkers = append(checkers, NewSSHChecker(
+			"repo-"+name+"-git",
+			hostname, sshPort, user, keyPath,
+			fmt.Sprintf("cd /workspace/%s && git rev-parse --is-inside-work-tree", shellQuote(name)),
+			t,
+		))
+	}
+	return checkers
 }
