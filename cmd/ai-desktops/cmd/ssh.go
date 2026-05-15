@@ -26,7 +26,7 @@ var sshCmd = &cobra.Command{
 }
 
 func init() {
-	sshCmd.Flags().StringVar(&sshTunnelMode, "tunnel", "ssm", "tunnel mode (ssm|ssh) - ssm is more reliable when SSH hostname doesn't resolve")
+	sshCmd.Flags().StringVar(&sshTunnelMode, "tunnel", "", "tunnel mode (ssm|ssh) - use for connections that can't reach hostname directly (e.g., corporate networks)")
 	rootCmd.AddCommand(sshCmd)
 }
 
@@ -46,7 +46,39 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Use SSM port-forward tunnel to reach the desktop via SSH
+	sshPath, err := exec.LookPath("ssh")
+	if err != nil {
+		return fmt.Errorf("ssh not found on PATH: %w", err)
+	}
+
+	// If no tunnel mode specified, SSH directly to the hostname
+	if sshTunnelMode == "" {
+		sshArgs := []string{
+			"-i", cfg.Desktop.SSHKeyPath,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			d.SSHTarget,
+		}
+		sshCmd := exec.Command(sshPath, sshArgs...)
+		sshCmd.Stdin = os.Stdin
+		sshCmd.Stdout = os.Stdout
+		sshCmd.Stderr = os.Stderr
+
+		// Handle Ctrl+C gracefully
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			if sshCmd.Process != nil {
+				sshCmd.Process.Kill()
+			}
+			os.Exit(130)
+		}()
+
+		return sshCmd.Run()
+	}
+
+	// Setup tunnel for --tunnel ssm or --tunnel ssh
 	localPort, err := tunnel.EphemeralPort()
 	if err != nil {
 		return fmt.Errorf("find local port: %w", err)
@@ -60,13 +92,15 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		SSHUser:    "ubuntu",
 		Region:     cfg.AWS.Region,
 		Profile:    cfg.AWS.Profile,
-		BridgePort: 22, // Forward SSH port (22) on the desktop to local tunnel
+		BridgePort: 22,
 		Mode:       tunnel.ModeSSM,
 	}
 
 	if sshTunnelMode == "ssh" {
 		tcfg.Mode = tunnel.ModeSSH
 		tcfg.Hostname = d.Hostname
+	} else if sshTunnelMode != "ssm" {
+		return fmt.Errorf("unknown tunnel mode %q (use 'ssm' or 'ssh')", sshTunnelMode)
 	}
 
 	var tunnelProc *exec.Cmd
@@ -75,11 +109,8 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		tunnelProc = tunnel.SSMCommand(tcfg, localPort)
 	case tunnel.ModeSSH:
 		tunnelProc = tunnel.SSHCommand(tcfg, localPort)
-	default:
-		return fmt.Errorf("unknown tunnel mode %q", sshTunnelMode)
 	}
 
-	// Capture tunnel output for debugging
 	tunnelProc.Stdout = os.Stderr
 	tunnelProc.Stderr = os.Stderr
 
@@ -88,7 +119,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	}
 	defer tunnelProc.Process.Kill()
 
-	// Poll for tunnel readiness with retries
+	// Poll for tunnel readiness
 	tunnelReady := false
 	for i := 0; i < 100; i++ {
 		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
@@ -101,12 +132,6 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	}
 	if !tunnelReady {
 		return fmt.Errorf("tunnel port %d failed to become reachable after 10 seconds", localPort)
-	}
-
-	// Now SSH to localhost via the tunnel
-	sshPath, err := exec.LookPath("ssh")
-	if err != nil {
-		return fmt.Errorf("ssh not found on PATH: %w", err)
 	}
 
 	sshArgs := []string{
@@ -122,7 +147,6 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	sshCmd.Stdout = os.Stdout
 	sshCmd.Stderr = os.Stderr
 
-	// Handle Ctrl+C gracefully
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -139,7 +163,6 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	err = sshCmd.Run()
 	tunnelProc.Process.Kill()
 
-	// If SSH fails, suggest SSM shell as a fallback
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nSSH connection failed (likely SSH key auth issue). You can use an interactive SSM shell instead:\n\n")
 		fmt.Fprintf(os.Stderr, "  aws ssm start-session --target %s --region %s\n\n", d.InstanceID, cfg.AWS.Region)
