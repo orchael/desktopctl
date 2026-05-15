@@ -56,3 +56,10 @@ agent:
   # Port where ai-agent-bridge listens on the desktop (localhost-only).
   # Default: 9445. Change only if there is a port conflict on the desktop.
   bridge_port: 9445
+
+  # Whether to disable SSH host key verification when tunneling to desktops.
+  # Leave false (the default) for normal operation so ~/.ssh/known_hosts is
+  # consulted. Set to true when connecting to freshly provisioned desktops
+  # whose host key is not yet in known_hosts; can also use --trust-host flag
+  # on the agent command for one-shot overrides.
+  # trust_host: false
