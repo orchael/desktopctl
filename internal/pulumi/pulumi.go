@@ -64,10 +64,12 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig
 // subnetID, sgID, and instanceProfile come from the foundation stack outputs.
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
+// bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
 	repos []string,
+	bridgePort int,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -83,6 +85,9 @@ func DesktopConfig(
 	}
 	if sshKeyName != "" {
 		cfg["sshKeyName"] = sshKeyName
+	}
+	if bridgePort > 0 {
+		cfg["bridgePort"] = fmt.Sprintf("%d", bridgePort)
 	}
 	return cfg
 }

@@ -2,10 +2,10 @@ package health
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -125,9 +125,6 @@ func (c *HTTPSChecker) Name() string { return c.name }
 func (c *HTTPSChecker) Run(ctx context.Context) CheckResult {
 	client := &http.Client{
 		Timeout: c.timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
@@ -165,17 +162,148 @@ func (c *FnChecker) Run(ctx context.Context) CheckResult {
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
 
-// StandardCheckers returns the set of checks run against a provisioned desktop.
-// bridgePort is the localhost port where ai-agent-bridge listens on the desktop;
-// it is reached through the SSM tunnel that the caller is expected to have open.
+// SSHChecker runs a command on the desktop over SSH and checks the exit code.
+// If keyPath is empty the check is skipped rather than failing.
+type SSHChecker struct {
+	name    string
+	host    string
+	port    int
+	user    string
+	keyPath string
+	command string
+	timeout time.Duration
+}
+
+// NewSSHChecker creates an SSHChecker.
+func NewSSHChecker(name, host string, port int, user, keyPath, command string, timeout time.Duration) *SSHChecker {
+	return &SSHChecker{
+		name:    name,
+		host:    host,
+		port:    port,
+		user:    user,
+		keyPath: keyPath,
+		command: command,
+		timeout: timeout,
+	}
+}
+
+func (c *SSHChecker) Name() string { return c.name }
+
+func (c *SSHChecker) Run(ctx context.Context) CheckResult {
+	if c.keyPath == "" {
+		return CheckResult{Name: c.name, Status: StatusSkipped, Message: "no SSH key configured"}
+	}
+	user := c.user
+	if user == "" {
+		user = "ubuntu"
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ConnectTimeout=10",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
+		"-i", c.keyPath,
+		"-p", fmt.Sprintf("%d", c.port),
+		fmt.Sprintf("%s@%s", user, c.host),
+		c.command,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return CheckResult{Name: c.name, Status: StatusFail, Message: msg}
+	}
+	return CheckResult{Name: c.name, Status: StatusPass}
+}
+
+// StandardCheckers returns the set of network-reachability checks run against a
+// provisioned desktop. bridgePort is the localhost port for ai-agent-bridge,
+// reached through the SSM tunnel that the caller is expected to have open.
+// noVNC is probed on HTTPS port 8443 (novnc-desktop v0.1.5+).
 func StandardCheckers(hostname string, sshPort, bridgePort int) []Checker {
 	sshAddr := fmt.Sprintf("%s:%d", hostname, sshPort)
-	noVNCURL := fmt.Sprintf("https://%s/novnc", hostname)
+	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", hostname)
 	bridgeAddr := fmt.Sprintf("127.0.0.1:%d", bridgePort)
 
 	return []Checker{
 		NewTCPChecker("ssh-port", sshAddr, 10*time.Second),
 		NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second),
 		NewTCPChecker("agent-bridge", bridgeAddr, 10*time.Second),
+	}
+}
+
+// SSHCheckers returns SSH-based checks that run commands on the desktop to
+// verify that Docker, developer tools, ai-agent-bridge, and any expected
+// workspace repositories are present and active.
+//
+// If keyPath is empty all checks are returned in the skipped state so they
+// appear in the doctor report without blocking the overall pass/fail result.
+func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []string) []Checker {
+	t := 20 * time.Second
+	checkers := []Checker{
+		NewSSHChecker("docker-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active docker", t),
+		NewSSHChecker("nvim-installed", hostname, sshPort, user, keyPath,
+			"command -v nvim >/dev/null 2>&1", t),
+		NewSSHChecker("tmux-installed", hostname, sshPort, user, keyPath,
+			"command -v tmux >/dev/null 2>&1", t),
+		NewSSHChecker("bridge-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active ai-agent-bridge", t),
+	}
+	for _, r := range repos {
+		name := repoBaseName(r)
+		checkers = append(checkers, NewSSHChecker(
+			"repo-"+name,
+			hostname, sshPort, user, keyPath,
+			fmt.Sprintf("test -d /workspace/%s/.git", shellQuote(name)),
+			t,
+		))
+	}
+	return checkers
+}
+
+func repoBaseName(repoURL string) string {
+	repoURL = strings.TrimSuffix(repoURL, ".git")
+	parts := strings.Split(repoURL, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return repoURL
+}
+
+// shellQuote wraps a string in single quotes for safe shell use, escaping embedded quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// SystemCheckers returns checks for system health (disk, memory, services, certificate).
+func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	checkers := []Checker{
+		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
+			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
+		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
+			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
+		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
+			"pgrep -f novnc-desktop >/dev/null", t),
+		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
+			"openssl x509 -in /etc/letsencrypt/live/*/fullchain.pem -noout -checkend 604800", t), // 604800 = 7 days
+		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
+			"systemctl is-enabled certbot.timer", t),
+	}
+	return checkers
+}
+
+// WorkspaceCheckers returns checks for workspace integrity.
+func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
+			"[ -d /workspace ] && [ -w /workspace ]", t),
 	}
 }

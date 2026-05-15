@@ -25,3 +25,5 @@ config:
     default: "/ai-desktops/github/pat"
   repos:
     default: ""
+  bridgePort:
+    default: 9445
