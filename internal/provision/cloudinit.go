@@ -136,13 +136,13 @@ runcmd:
 
   # --- write desktop metadata ---
   - |
-    cat > /opt/ai-desktops/desktop.env << 'ENVEOF'
-    DESKTOP_ID="{{ .DesktopID }}"
-    GITHUB_OWNER="{{ .GitHubOwner }}"
-    WORKSPACE="{{ .WorkspacePath }}"
-    ENVIRONMENT="{{ .Environment }}"
-    BRIDGE_PORT="{{ .BridgePort }}"
-ENVEOF
+    {
+      printf 'DESKTOP_ID="%s"\n' "{{ .DesktopID }}"
+      printf 'GITHUB_OWNER="%s"\n' "{{ .GitHubOwner }}"
+      printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
+      printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
+      printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
+    } > /opt/ai-desktops/desktop.env
     chmod 600 /opt/ai-desktops/desktop.env
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"

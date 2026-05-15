@@ -3,6 +3,8 @@ package provision
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestRenderCloudInit(t *testing.T) {
@@ -96,6 +98,29 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	// token should appear.
 	if strings.Contains(out, "ghp_") {
 		t.Error("rendered cloud-init must not contain a literal GitHub PAT")
+	}
+}
+
+func TestRenderCloudInit_validYAML(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:     "d-yaml",
+		Hostname:      "d-yaml.desktops.orchael.dev",
+		GitHubOwner:   "acme",
+		Repos:         []string{"github.com/acme/myrepo"},
+		WorkspacePath: "/workspace",
+		AWSRegion:     "us-east-1",
+		Environment:   "dev",
+		PATSecretPath: "/ai-desktops/github/pat",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	var v interface{}
+	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+		t.Errorf("rendered cloud-init is not valid YAML: %v", err)
 	}
 }
 
