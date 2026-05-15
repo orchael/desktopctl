@@ -74,7 +74,11 @@ type DesktopConfig struct {
 }
 
 type AgentConfig struct {
-	BridgePort int `yaml:"bridge_port"`
+	BridgePort int  `yaml:"bridge_port"`
+	// TrustHost disables SSH host key verification for SSH tunnel connections.
+	// Leave false (the default) for normal operation so known_hosts is consulted.
+	// Set to true for freshly provisioned desktops whose host key is not yet known.
+	TrustHost  bool `yaml:"trust_host"`
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.

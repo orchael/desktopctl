@@ -18,9 +18,10 @@ import (
 )
 
 var (
-	agentProvider  string
-	agentRepo      string
+	agentProvider   string
+	agentRepo       string
 	agentTunnelMode string
+	agentTrustHost  bool
 )
 
 var agentCmd = &cobra.Command{
@@ -73,6 +74,8 @@ func init() {
 	agentStartCmd.Flags().StringVar(&agentProvider, "provider", "", "agent provider (codex, claude, gemini)")
 	agentStartCmd.Flags().StringVar(&agentRepo, "repo", "", "repository to run in")
 	agentCmd.PersistentFlags().StringVar(&agentTunnelMode, "tunnel", "ssm", "tunnel mode (ssm|ssh)")
+	agentCmd.PersistentFlags().BoolVar(&agentTrustHost, "trust-host", false,
+		"disable SSH host key verification for the tunnel (use for freshly provisioned desktops not yet in known_hosts)")
 
 	rootCmd.AddCommand(agentCmd)
 }
@@ -103,6 +106,7 @@ func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent
 		Region:     cfg.AWS.Region,
 		Profile:    cfg.AWS.Profile,
 		BridgePort: cfg.Agent.BridgePort,
+		TrustHost:  agentTrustHost || cfg.Agent.TrustHost,
 	}
 
 	var tunnelProc *exec.Cmd
