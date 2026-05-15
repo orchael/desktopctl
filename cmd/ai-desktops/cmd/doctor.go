@@ -41,8 +41,8 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - certbot-timer-enabled — certbot auto-renewal timer is enabled
 
   Workspace:
-    - workspace-mounted — /workspace is mounted and writable
-    - repo-<name>      — each expected repository is valid git clone`,
+    - workspace-mounted    — /workspace is mounted and writable
+    - repo-<name>         — each configured repository is cloned under /workspace`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDoctor,
 }
@@ -75,7 +75,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath,
 	)...)
 	checkers = append(checkers, health.WorkspaceCheckers(
-		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos,
+		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath,
 	)...)
 	runner := health.NewRunner(id, checkers...)
 

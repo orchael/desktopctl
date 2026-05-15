@@ -4,7 +4,7 @@ This document describes how certbot is configured for automatic TLS certificate 
 
 ## Overview
 
-The desktop stack uses **DNS-01 challenge** with **Route53** to obtain and renew TLS certificates for nginx. This approach:
+The desktop stack uses **DNS-01 challenge** with **Route53** to obtain and renew TLS certificates for novnc-desktop. This approach:
 - ✅ Requires no open ports (no port 80 needed)
 - ✅ Works from any network (no firewall dependencies)
 - ✅ Fully automated renewal every 90 days
@@ -31,15 +31,15 @@ After issuance, the certificate files are stored at:
 
 ```
 /etc/letsencrypt/live/d-XXXXX.desktops.orchael.dev/
-  ├── fullchain.pem    # Certificate chain (used by nginx)
-  ├── privkey.pem      # Private key (used by nginx)
+  ├── fullchain.pem    # Certificate chain (used by novnc-desktop)
+  ├── privkey.pem      # Private key (used by novnc-desktop)
   ├── cert.pem         # Public certificate
   └── chain.pem        # CA chain
 ```
 
-### nginx Configuration
+### noVNC-Desktop Configuration
 
-The certificate is bound to nginx on ports 8080 (HTTP) and 8443 (HTTPS):
+The certificate is bound to novnc-desktop on ports 8080 (HTTP) and 8443 (HTTPS):
 
 ```bash
 # From novnc-desktop installer
@@ -154,7 +154,7 @@ Common causes:
 - Network connectivity issues
 - Certbot package outdated
 
-### Certificate Not Used by nginx
+### Certificate Not Used by novnc-desktop
 
 Verify novnc-desktop is using the correct paths:
 ```bash
@@ -176,7 +176,7 @@ Certbot automatically renews certificates 30 days before expiration:
 3. If needed, certbot creates a DNS TXT record in Route53
 4. Let's Encrypt validates the DNS record
 5. New certificate is saved to `/etc/letsencrypt/live/`
-6. Certificate symlinks are updated (no nginx restart needed)
+6. Certificate symlinks are updated (novnc-desktop reads files directly; no restart needed)
 7. DNS record is deleted
 
 **No manual intervention required.** Renewal happens automatically.
@@ -210,8 +210,8 @@ A: The renewal will fail and the certificate won't be renewed. Set up monitoring
 **Q: Can I manually trigger renewal?**  
 A: Yes: `sudo certbot renew --force-renewal`
 
-**Q: Do I need to restart nginx after renewal?**  
-A: No. Nginx reads the cert files directly from `/etc/letsencrypt/live/`, and symlinks are atomic.
+**Q: Do I need to restart novnc-desktop after renewal?**  
+A: No. novnc-desktop reads the cert files directly from `/etc/letsencrypt/live/`, and symlinks are atomic.
 
 **Q: What's the certificate authority?**  
 A: Let's Encrypt. Certificates are valid for 90 days.

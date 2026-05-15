@@ -15,7 +15,7 @@ ai-desktops doctor d-001
 
 ## What It Checks
 
-The doctor command performs **20+ health checks** organized into categories:
+The doctor command performs **14+ health checks** organized into categories (3 network + 11 SSH-based, depending on configuration):
 
 ### Network Connectivity (Always Run)
 

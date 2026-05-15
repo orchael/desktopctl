@@ -292,28 +292,18 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
 			"pgrep -f novnc-desktop >/dev/null", t),
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
-			"openssl x509 -in /etc/letsencrypt/live/*/fullchain.pem -noout -checkend 604800 2>/dev/null || echo 'cert expires within 7 days'", t), // 604800 = 7 days
+			"openssl x509 -in /etc/letsencrypt/live/*/fullchain.pem -noout -checkend 604800", t), // 604800 = 7 days
 		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
 			"systemctl is-enabled certbot.timer", t),
 	}
 	return checkers
 }
 
-// WorkspaceCheckers returns checks for workspace and repository integrity.
-func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string, repos []string) []Checker {
+// WorkspaceCheckers returns checks for workspace integrity.
+func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
-	checkers := []Checker{
+	return []Checker{
 		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
 			"[ -d /workspace ] && [ -w /workspace ]", t),
 	}
-	for _, r := range repos {
-		name := repoBaseName(r)
-		checkers = append(checkers, NewSSHChecker(
-			"repo-"+name+"-git",
-			hostname, sshPort, user, keyPath,
-			fmt.Sprintf("cd /workspace/%s && git rev-parse --is-inside-work-tree", shellQuote(name)),
-			t,
-		))
-	}
-	return checkers
 }
