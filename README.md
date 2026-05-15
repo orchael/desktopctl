@@ -201,7 +201,30 @@ ai-desktops url d-a1b2c3d4
 ai-desktops ssh d-a1b2c3d4
 ```
 
-### 8. Use AI agent bridge
+### 8. Verify git repos are cloned
+
+Once SSH'd into the desktop, verify that the repositories specified during `create` were cloned successfully:
+
+```bash
+# List cloned repos
+ls -la /workspace
+
+# Example: verify a specific repo
+cd /workspace/my-app
+git log --oneline -5
+git remote -v
+```
+
+If repos are missing or the clone failed, check the cloud-init bootstrap logs from your local machine:
+
+```bash
+INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep "Instance ID" | awk -F: '{print $2}' | xargs)
+aws ssm start-session --target $INSTANCE_ID --region us-east-2
+# Then inside the session:
+tail -100 /var/log/cloud-init-output.log
+```
+
+### 10. Use AI agent bridge
 
 ```bash
 # Status and available providers
@@ -218,9 +241,9 @@ ai-desktops agent d-a1b2c3d4 sessions
 ai-desktops agent d-a1b2c3d4 stop <session-id>
 ```
 
-The CLI opens an SSM port-forward tunnel (falling back to SSH) to reach the bridge at `127.0.0.1:9445` on the desktop. The bridge is never exposed publicly.
+The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 9. Run diagnostics
+### 11. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -229,7 +252,7 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 10. Debug with SSM (if diagnostics fail)
+### 12. Debug with SSM (if diagnostics fail)
 
 If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
 
@@ -260,16 +283,16 @@ journalctl -u ai-agent-bridge -n 50
 systemctl --user restart pantheon-session
 ```
 
-Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSM or SSH port-forwarding internally; this direct session is for interactive troubleshooting when those fail.
+Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
 
-### 11. Stop and start
+### 13. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 12. Terminate
+### 14. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4
@@ -289,7 +312,8 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 - [ ] noVNC URL loads in browser; desktop appears
 - [ ] `ai-desktops ssh <id>` drops into shell
 - [ ] SSH to desktop: `docker ps` succeeds; `nvim --version` succeeds; `tmux -V` succeeds
-- [ ] SSH to desktop: `ls /workspace/test-repo` shows cloned repo
+- [ ] SSH to desktop: `ls /workspace/` shows cloned repos
+- [ ] SSH to desktop: `cd /workspace/test-repo && git log --oneline -5` shows commit history
 - [ ] `ai-desktops agent <id> status` returns 200 through tunnel
 - [ ] `ai-desktops stop <id>` transitions to `stopped`; EC2 stopped in console
 - [ ] `ai-desktops start <id>` transitions back to `ready`; noVNC accessible again
