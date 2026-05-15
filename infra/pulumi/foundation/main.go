@@ -122,14 +122,15 @@ func run(ctx *pulumi.Context) error {
 		VpcId:       vpcIDOutput,
 		Description: pulumi.String("ai-desktops desktop security group"),
 		Ingress: ec2.SecurityGroupIngressArray{
-			// SSH from everywhere (temporary until WireGuard VPN is deployed — see GitHub issue #23).
+			// SSH (temporary until WireGuard VPN is deployed — see GitHub issue #23).
 			// Post-WireGuard, this will be restricted to WireGuard peer IPs only.
+			// Set operatorCIDR in Pulumi.*.yaml to control access; defaults to 0.0.0.0/0.
 			&ec2.SecurityGroupIngressArgs{
 				Protocol:    pulumi.String("tcp"),
 				FromPort:    pulumi.Int(22),
 				ToPort:      pulumi.Int(22),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("SSH - public access (temporary, restricted post-WireGuard)"),
+				CidrBlocks:  pulumi.StringArray{pulumi.String(operatorCIDR)},
+				Description: pulumi.String("SSH - configurable via operatorCIDR (default 0.0.0.0/0)"),
 			},
 			// HTTP on port 80 (temporary, for potential ACME challenges or service testing).
 			&ec2.SecurityGroupIngressArgs{

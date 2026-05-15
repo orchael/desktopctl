@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -65,7 +66,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 
 	if sshTunnelMode == "ssh" {
 		tcfg.Mode = tunnel.ModeSSH
-		tcfg.Hostname = d.SSHTarget
+		tcfg.Hostname = d.Hostname
 	}
 
 	var tunnelProc *exec.Cmd
@@ -87,8 +88,20 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	}
 	defer tunnelProc.Process.Kill()
 
-	// Wait for tunnel to establish
-	time.Sleep(2 * time.Second)
+	// Poll for tunnel readiness with retries
+	tunnelReady := false
+	for i := 0; i < 100; i++ {
+		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+		if err == nil {
+			conn.Close()
+			tunnelReady = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !tunnelReady {
+		return fmt.Errorf("tunnel port %d failed to become reachable after 10 seconds", localPort)
+	}
 
 	// Now SSH to localhost via the tunnel
 	sshPath, err := exec.LookPath("ssh")
@@ -101,7 +114,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-p", fmt.Sprintf("%d", localPort),
-		fmt.Sprintf("ubuntu@127.0.0.1"),
+		"ubuntu@127.0.0.1",
 	}
 
 	sshCmd := exec.Command(sshPath, sshArgs...)
@@ -114,18 +127,21 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		tunnelProc.Process.Kill()
-		sshCmd.Process.Kill()
-		os.Exit(0)
+		if tunnelProc.Process != nil {
+			tunnelProc.Process.Kill()
+		}
+		if sshCmd.Process != nil {
+			sshCmd.Process.Kill()
+		}
+		os.Exit(130)
 	}()
 
 	err = sshCmd.Run()
 	tunnelProc.Process.Kill()
 
-	// If SSH fails and the instance doesn't have a key pair, suggest SSM shell
+	// If SSH fails, suggest SSM shell as a fallback
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nSSH connection failed. If the instance doesn't have an SSH key pair,\n")
-		fmt.Fprintf(os.Stderr, "use AWS Systems Manager Session Manager instead:\n\n")
+		fmt.Fprintf(os.Stderr, "\nSSH connection failed (likely SSH key auth issue). You can use an interactive SSM shell instead:\n\n")
 		fmt.Fprintf(os.Stderr, "  aws ssm start-session --target %s --region %s\n\n", d.InstanceID, cfg.AWS.Region)
 		if cfg.AWS.Profile != "" {
 			fmt.Fprintf(os.Stderr, "  Or with your AWS profile:\n")
