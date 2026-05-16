@@ -110,6 +110,20 @@ func (c *Config) Defaults() {
 	if c.Pulumi.InfraDir == "" {
 		c.Pulumi.InfraDir = "."
 	}
+	if c.Desktop.SSHKeyPath == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			// Try id_ed25519 first (modern default), then fall back to id_rsa
+			for _, keyFile := range []string{"id_ed25519", "id_rsa"} {
+				keyPath := filepath.Join(home, ".ssh", keyFile)
+				if _, err := os.Stat(keyPath); err == nil {
+					c.Desktop.SSHKeyPath = keyPath
+					break
+				}
+			}
+		}
+		// If UserHomeDir fails or neither key exists, leave SSHKeyPath empty
+	}
 
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort

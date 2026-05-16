@@ -42,9 +42,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(d)
 	}
 
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+
 	fmt.Printf("Desktop ID   : %s\n", d.DesktopID)
 	fmt.Printf("State        : %s\n", d.State)
 	fmt.Printf("Owner        : %s\n", d.GitHubOwner)
+	fmt.Printf("Region       : %s\n", region)
 	fmt.Printf("Hostname     : %s\n", d.Hostname)
 	fmt.Printf("noVNC URL    : %s\n", d.NoVNCURL)
 	fmt.Printf("SSH target   : %s\n", d.SSHTarget)

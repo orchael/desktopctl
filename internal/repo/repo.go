@@ -46,9 +46,17 @@ func Parse(raw string) (*Repo, error) {
 		return parsePath(path)
 	}
 
-	// Handle https:// or bare github.com/... forms.
+	// Handle https:// or bare forms (github.com/... or owner/repo).
+	// If there's no scheme, check if it looks like owner/repo format.
 	if !strings.Contains(raw, "://") {
-		raw = "https://" + raw
+		// If it's owner/repo format (has exactly one / and first segment is not a hostname), prepend github.com
+		// Hostnames have dots (e.g., example.com) or are localhost
+		parts := strings.Split(raw, "/")
+		if len(parts) == 2 && !strings.Contains(parts[0], ".") {
+			raw = "https://github.com/" + raw
+		} else {
+			raw = "https://" + raw
+		}
 	}
 
 	u, err := url.Parse(raw)

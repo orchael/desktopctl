@@ -146,7 +146,7 @@ The bucket name must be globally unique across all AWS accounts. Pick something 
 ai-desktops bootstrap
 ```
 
-Creates the S3 bucket (versioning + SSE + public-access block). Idempotent — safe to re-run.
+Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Idempotent — safe to re-run. This step must complete before Pulumi can initialize.
 
 ### 3. Initialize shared foundation infrastructure
 
@@ -164,11 +164,17 @@ ai-desktops init-foundation --preview
 
 ### 4. Create a desktop
 
+> **Note:** No custom AMI build is required. Desktops use public Ubuntu AMIs (hardcoded per region) with cloud-init that installs `novnc-desktop` (Elementary), Docker, and other developer tools at boot time.
+
 ```bash
-ai-desktops create --github-owner myorg --repo myorg/my-app --repo myorg/shared-lib
+ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
 ```
 
-`--github-owner` can be omitted if `github.owner` is set in your config file.
+Or use full GitHub URLs:
+
+```bash
+ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
+```
 
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
 - Creates a DynamoDB record in state `creating`
@@ -195,7 +201,30 @@ ai-desktops url d-a1b2c3d4
 ai-desktops ssh d-a1b2c3d4
 ```
 
-### 8. Use AI agent bridge
+### 8. Verify git repos are cloned
+
+Once SSH'd into the desktop, verify that the repositories specified during `create` were cloned successfully:
+
+```bash
+# List cloned repos
+ls -la /workspace
+
+# Example: verify a specific repo
+cd /workspace/my-app
+git log --oneline -5
+git remote -v
+```
+
+If repos are missing or the clone failed, check the cloud-init bootstrap logs from your local machine:
+
+```bash
+INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep "Instance ID" | awk -F: '{print $2}' | xargs)
+aws ssm start-session --target $INSTANCE_ID --region us-east-2
+# Then inside the session:
+tail -100 /var/log/cloud-init-output.log
+```
+
+### 9. Use AI agent bridge
 
 ```bash
 # Status and available providers
@@ -212,9 +241,9 @@ ai-desktops agent d-a1b2c3d4 sessions
 ai-desktops agent d-a1b2c3d4 stop <session-id>
 ```
 
-The CLI opens an SSM port-forward tunnel (falling back to SSH) to reach the bridge at `127.0.0.1:9445` on the desktop. The bridge is never exposed publicly.
+The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 9. Run diagnostics
+### 10. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -223,14 +252,47 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 10. Stop and start
+### 11. Debug with SSM (if diagnostics fail)
+
+If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
+
+```bash
+# Get the instance ID from the status output
+INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep instance_id | cut -d: -f2 | xargs)
+
+# Start an interactive session
+aws ssm start-session --target $INSTANCE_ID --profile <your-profile>
+```
+
+Once in the session, you can inspect logs and services:
+
+```bash
+# View cloud-init logs (bootstrap output)
+tail -100 /var/log/cloud-init-output.log
+
+# Check novnc-desktop service status
+systemctl --user status novnc-desktop
+
+# Check ai-agent-bridge service status
+systemctl status ai-agent-bridge
+
+# View bridge logs
+journalctl -u ai-agent-bridge -n 50
+
+# Restart Pantheon session if noVNC shows black screen
+systemctl --user restart pantheon-session
+```
+
+Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
+
+### 12. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 11. Terminate
+### 13. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4
@@ -250,7 +312,8 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 - [ ] noVNC URL loads in browser; desktop appears
 - [ ] `ai-desktops ssh <id>` drops into shell
 - [ ] SSH to desktop: `docker ps` succeeds; `nvim --version` succeeds; `tmux -V` succeeds
-- [ ] SSH to desktop: `ls /workspace/test-repo` shows cloned repo
+- [ ] SSH to desktop: `ls /workspace/` shows cloned repos
+- [ ] SSH to desktop: `cd /workspace/test-repo && git log --oneline -5` shows commit history
 - [ ] `ai-desktops agent <id> status` returns 200 through tunnel
 - [ ] `ai-desktops stop <id>` transitions to `stopped`; EC2 stopped in console
 - [ ] `ai-desktops start <id>` transitions back to `ready`; noVNC accessible again

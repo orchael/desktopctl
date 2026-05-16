@@ -23,10 +23,7 @@ func run(ctx *pulumi.Context) error {
 	if fleetTable == "" {
 		fleetTable = "ai-desktops-fleet"
 	}
-	operatorCIDR := cfg.Get("operatorCIDR")
-	if operatorCIDR == "" {
-		operatorCIDR = "0.0.0.0/0"
-	}
+	operatorCIDR := cfg.Require("operatorCIDR")
 	vpcID := cfg.Get("vpcId")
 
 	// --- Route53 hosted zone lookup ---
@@ -122,13 +119,22 @@ func run(ctx *pulumi.Context) error {
 		VpcId:       vpcIDOutput,
 		Description: pulumi.String("ai-desktops desktop security group"),
 		Ingress: ec2.SecurityGroupIngressArray{
-			// SSH from operator CIDR.
+			// SSH on port 22 from operator CIDR (configurable, defaults to 0.0.0.0/0 for dev).
+			// Post-WireGuard, this will be restricted to WireGuard peer IPs only.
 			&ec2.SecurityGroupIngressArgs{
 				Protocol:    pulumi.String("tcp"),
 				FromPort:    pulumi.Int(22),
 				ToPort:      pulumi.Int(22),
 				CidrBlocks:  pulumi.StringArray{pulumi.String(operatorCIDR)},
-				Description: pulumi.String("SSH operator access"),
+				Description: pulumi.String("SSH - configurable per environment"),
+			},
+			// HTTP on port 80 (temporary, for potential ACME challenges or service testing).
+			&ec2.SecurityGroupIngressArgs{
+				Protocol:    pulumi.String("tcp"),
+				FromPort:    pulumi.Int(80),
+				ToPort:      pulumi.Int(80),
+				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+				Description: pulumi.String("HTTP - temporary until WireGuard"),
 			},
 			// noVNC HTTP on 8080 (redirect to HTTPS) from everywhere.
 			&ec2.SecurityGroupIngressArgs{

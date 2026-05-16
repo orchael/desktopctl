@@ -42,10 +42,14 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DESKTOP ID\tSTATE\tOWNER\tHOSTNAME\tCREATED")
+	fmt.Fprintln(w, "DESKTOP ID\tSTATE\tOWNER\tREGION\tHOSTNAME\tCREATED")
 	for _, d := range desktops {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			d.DesktopID, d.State, d.GitHubOwner, d.Hostname, d.CreatedAt)
+		region := d.Region
+		if region == "" {
+			region = cfg.AWS.Region
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			d.DesktopID, d.State, d.GitHubOwner, region, d.Hostname, d.CreatedAt)
 	}
 	return w.Flush()
 }

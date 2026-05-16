@@ -26,6 +26,7 @@ type Desktop struct {
 	DesktopID     string         `dynamodbav:"desktop_id"`
 	StackName     string         `dynamodbav:"stack_name"`
 	GitHubOwner   string         `dynamodbav:"github_owner"`
+	Region        string         `dynamodbav:"region"`
 	State         LifecycleState `dynamodbav:"lifecycle_state"`
 	InstanceID    string         `dynamodbav:"instance_id"`
 	Hostname      string         `dynamodbav:"hostname"`

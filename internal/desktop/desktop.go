@@ -89,6 +89,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		DesktopID:     id,
 		StackName:     StackName(id),
 		GitHubOwner:   req.GitHubOwner,
+		Region:        req.Region,
 		State:         store.StateCreating,
 		Hostname:      hostname,
 		NoVNCURL:      NoVNCURL(hostname),

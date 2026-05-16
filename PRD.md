@@ -182,9 +182,16 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 ### SR-1 — Desktop access security
 
-- Browser desktop access must be protected by authenticated HTTPS access rather than direct public VNC exposure.
+**Until WireGuard VPN is configured:**
+- SSH (port 22) is exposed publicly via security group rules.
+- noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS.
+- HTTP port 80 may be exposed for ACME challenge or service testing.
+
+**Post-WireGuard deployment:**
+- SSH access must be limited to WireGuard tunnel network only.
+- noVNC HTTPS must be accessible only through WireGuard tunnel.
 - Raw VNC ports must not be exposed publicly.
-- SSH access must be limited to authorized operators.
+- All operator access must route through authenticated WireGuard VPN; public security group rules will be removed or restricted to WireGuard peer IPs.
 
 ### SR-2 — Secret handling
 
