@@ -173,7 +173,7 @@ ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
 Or use full GitHub URLs:
 
 ```bash
-ai-desktops create --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
+ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
 ```
 
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
@@ -224,7 +224,7 @@ aws ssm start-session --target $INSTANCE_ID --region us-east-2
 tail -100 /var/log/cloud-init-output.log
 ```
 
-### 10. Use AI agent bridge
+### 9. Use AI agent bridge
 
 ```bash
 # Status and available providers
@@ -243,7 +243,7 @@ ai-desktops agent d-a1b2c3d4 stop <session-id>
 
 The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 11. Run diagnostics
+### 10. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -252,7 +252,7 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 12. Debug with SSM (if diagnostics fail)
+### 11. Debug with SSM (if diagnostics fail)
 
 If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
 
@@ -285,14 +285,14 @@ systemctl --user restart pantheon-session
 
 Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
 
-### 13. Stop and start
+### 12. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 14. Terminate
+### 13. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4

@@ -59,23 +59,23 @@ func runSSH(cmd *cobra.Command, args []string) error {
 			"-o", "UserKnownHostsFile=/dev/null",
 			d.SSHTarget,
 		}
-		sshCmd := exec.Command(sshPath, sshArgs...)
-		sshCmd.Stdin = os.Stdin
-		sshCmd.Stdout = os.Stdout
-		sshCmd.Stderr = os.Stderr
+		sshProc := exec.Command(sshPath, sshArgs...)
+		sshProc.Stdin = os.Stdin
+		sshProc.Stdout = os.Stdout
+		sshProc.Stderr = os.Stderr
 
 		// Handle Ctrl+C gracefully
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sigChan
-			if sshCmd.Process != nil {
-				sshCmd.Process.Kill()
+			if sshProc.Process != nil {
+				sshProc.Process.Kill()
 			}
 			os.Exit(130)
 		}()
 
-		return sshCmd.Run()
+		return sshProc.Run()
 	}
 
 	// Setup tunnel for --tunnel ssm or --tunnel ssh
@@ -142,10 +142,10 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		"ubuntu@127.0.0.1",
 	}
 
-	sshCmd := exec.Command(sshPath, sshArgs...)
-	sshCmd.Stdin = os.Stdin
-	sshCmd.Stdout = os.Stdout
-	sshCmd.Stderr = os.Stderr
+	sshProc := exec.Command(sshPath, sshArgs...)
+	sshProc.Stdin = os.Stdin
+	sshProc.Stdout = os.Stdout
+	sshProc.Stderr = os.Stderr
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -154,13 +154,13 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		if tunnelProc.Process != nil {
 			tunnelProc.Process.Kill()
 		}
-		if sshCmd.Process != nil {
-			sshCmd.Process.Kill()
+		if sshProc.Process != nil {
+			sshProc.Process.Kill()
 		}
 		os.Exit(130)
 	}()
 
-	err = sshCmd.Run()
+	err = sshProc.Run()
 	tunnelProc.Process.Kill()
 
 	if err != nil {
