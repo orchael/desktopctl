@@ -31,6 +31,13 @@ func runAmiDelete(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	amiID := args[0]
 
+	// Check if this is the active AMI for this region
+	if cfg.Desktop.ActiveAMI != nil {
+		if activeAMI, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok && activeAMI == amiID {
+			return fmt.Errorf("cannot delete active AMI %s for region %s (set a different active_ami in config first)", amiID, cfg.AWS.Region)
+		}
+	}
+
 	// Load AWS config for the current region
 	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(cfg.AWS.Region),
@@ -100,6 +107,17 @@ func runAmiDelete(cmd *cobra.Command, args []string) error {
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to delete snapshot %s: %v\n", snapshotID, err)
+		}
+	}
+
+	// Delete from DynamoDB history
+	fmt.Fprintf(os.Stderr, "Removing from AMI history...\n")
+	amiStore, err := openAMIStore(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not open AMI store to remove history: %v\n", err)
+	} else {
+		if err := amiStore.DeleteAMI(ctx, cfg.AWS.Region, amiID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete from AMI history: %v\n", err)
 		}
 	}
 

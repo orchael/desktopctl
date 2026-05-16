@@ -28,6 +28,7 @@ type AMIStore interface {
 	SaveAMI(ctx context.Context, record *AMIRecord) error
 	ListAMIs(ctx context.Context, region string) ([]*AMIRecord, error)
 	GetAMI(ctx context.Context, region, amiID string) (*AMIRecord, error)
+	DeleteAMI(ctx context.Context, region, amiID string) error
 }
 
 // InMemoryAMIStore is a non-persistent AMIStore implementation.
@@ -73,6 +74,12 @@ func (s *InMemoryAMIStore) GetAMI(ctx context.Context, region, amiID string) (*A
 	}
 	cp := *record
 	return &cp, nil
+}
+
+func (s *InMemoryAMIStore) DeleteAMI(ctx context.Context, region, amiID string) error {
+	key := fmt.Sprintf("%s|%s", region, amiID)
+	delete(s.records, key)
+	return nil
 }
 
 // DynamoAMIStore is a DynamoDB-backed AMI history store.
@@ -150,4 +157,18 @@ func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMI
 		return nil, fmt.Errorf("unmarshal AMI record: %w", err)
 	}
 	return record, nil
+}
+
+func (s *DynamoAMIStore) DeleteAMI(ctx context.Context, region, amiID string) error {
+	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"region":  &types.AttributeValueMemberS{Value: region},
+			"ami_id":  &types.AttributeValueMemberS{Value: amiID},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("delete AMI record: %w", err)
+	}
+	return nil
 }
