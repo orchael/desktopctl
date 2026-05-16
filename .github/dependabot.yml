@@ -14,6 +14,12 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
+      # Keep @types/node locked to v25 to match Node.js LTS version.
+      # Upgrade to the next major version when Node.js is upgraded in .nvmrc
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     groups:
       aws-sdk:
         patterns:
