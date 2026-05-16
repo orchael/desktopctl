@@ -1,4 +1,4 @@
-terraform {
+packer {
   required_plugins {
     amazon = {
       version = ">= 1.2.0"
@@ -59,10 +59,7 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion  = var.ai_agent_bridge_version
     GoVersion      = var.go_version
     UvVersion      = var.uv_version
-  }
-
-  tag_maps = {
-    Environment = "base"
+    Environment    = "base"
   }
 }
 
@@ -75,73 +72,45 @@ build {
   # Update package lists and install base toolchain
   provisioner "shell" {
     inline = [
-      "set -e",
+      "set -euxo pipefail",
+      "export DEBIAN_FRONTEND=noninteractive",
       "echo 'Installing base toolchain...'",
 
-      # Update package lists
-      "sudo apt-get update",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y",
+      # Update package lists and install base packages
+      "sudo apt-get update -y",
+      "sudo apt-get upgrade -y",
+      "sudo apt-get install -y software-properties-common",
+      "sudo add-apt-repository -y universe",
+      "sudo apt-get update -y",
+      "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release unzip build-essential",
+      "sudo apt-get install -y git docker.io tmux nginx",
 
-      # Install system packages
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y",
-      "  git",
-      "  docker.io",
-      "  tmux",
-      "  curl",
-      "  wget",
-      "  unzip",
-      "  ca-certificates",
-      "  apt-transport-https",
-      "  gnupg",
-      "  lsb-release",
-      "  software-properties-common",
-      "  snapd",
-      "  awscli",
-      "  certbot",
-      "  python3-certbot-dns-route53",
-      "  nginx",
+      # Install neovim via snap
+      "echo 'Installing neovim...'",
+      "sudo snap install nvim --classic",
 
       # Enable and start docker
       "sudo systemctl enable docker",
       "sudo systemctl start docker",
       "sudo usermod -aG docker ubuntu",
 
-      # Install neovim via snap
-      "echo 'Installing neovim...'",
-      "sudo snap install nvim --classic",
-
       # Install Go
       "echo 'Installing Go ${var.go_version}...'",
       "curl -fsSL https://go.dev/dl/go${var.go_version}.linux-amd64.tar.gz | sudo tar -xzf - -C /usr/local/",
-      "sudo tee -a /etc/profile.d/golang.sh > /dev/null <<< 'export PATH=$PATH:/usr/local/go/bin'",
+      "echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/golang.sh > /dev/null",
 
       # Install uv (Python package manager)
       "echo 'Installing uv...'",
-      "curl -LsSf https://astral.sh/uv/install.sh | sudo sh",
+      "curl -LsSf https://astral.sh/uv/install.sh | sudo bash",
 
-      # Install Homebrew
-      "echo 'Installing Homebrew...'",
-      "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-      "echo 'eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"' | tee -a /etc/profile",
+      # Install AWS CLI v2
+      "echo 'Installing AWS CLI v2...'",
+      "curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip' && sudo unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install && sudo rm -rf /tmp/awscliv2.zip /tmp/aws",
 
-      # Install WireGuard tools
-      "echo 'Installing WireGuard...'",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools",
-
-      # Install novnc-desktop (without TLS — certs configured at boot time)
-      "echo 'Installing novnc-desktop...'",
-      "curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/${var.novnc_desktop_version}/install.sh | sudo bash -s -- --desktop-type elementary --http-port 8080",
-
-      # Install ai-agent-bridge
-      "echo 'Installing ai-agent-bridge...'",
-      "curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/${var.ai_agent_bridge_version}/install.sh | sudo bash -s -- --bind 127.0.0.1 --port 9445",
-      "sudo systemctl enable ai-agent-bridge",
-
-      # Clean up
+      # Clean up (Homebrew, novnc-desktop, and ai-agent-bridge will be installed at boot time via Ansible/cloud-init)
       "echo 'Cleaning up...'",
       "sudo apt-get clean",
-      "sudo apt-get autoclean -y",
-      "history -c"
+      "sudo apt-get autoclean -y"
     ]
   }
 

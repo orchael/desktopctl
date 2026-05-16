@@ -2,8 +2,12 @@ package provision
 
 import (
 	"bytes"
+	"embed"
 	"text/template"
 )
+
+//go:embed ansible/desktop-setup/*
+var ansibleFS embed.FS
 
 const (
 	NovncDesktopVersion  = "v0.1.5"
@@ -14,19 +18,21 @@ const (
 
 // BootstrapConfig holds the parameters for rendering the cloud-init user-data.
 type BootstrapConfig struct {
-	DesktopID             string
-	Hostname              string // FQDN used for certbot cert and novnc-desktop cert path
-	GitHubOwner           string
-	Repos                 []string
-	WorkspacePath         string
-	BridgePort            int
-	NoVNCHTTPPort         int
-	NoVNCHTTPSPort        int
-	CertbotEmail          string
-	PATSecretPath         string
-	AWSRegion             string
-	Environment           string
-	PackagesPreInstalled  bool
+	DesktopID            string
+	Hostname             string // FQDN used for certbot cert and novnc-desktop cert path
+	GitHubOwner          string
+	Repos                []string
+	WorkspacePath        string
+	BridgePort           int
+	NoVNCHTTPPort        int
+	NoVNCHTTPSPort       int
+	CertbotEmail         string
+	PATSecretPath        string
+	AWSRegion            string
+	Environment          string
+	PackagesPreInstalled bool
+	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
+	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -55,7 +61,25 @@ packages:
   - python3-certbot-dns-route53
 {{- end}}
 
+packages:
+  - ansible
+
+write_files:
+  - path: /opt/ai-desktops/ansible/playbook.yml
+    owner: root:root
+    permissions: "0644"
+    content: |
+{{ .AnsiblePlaybook | indent 6 }}
+  - path: /opt/ai-desktops/ansible/inventory.ini
+    owner: root:root
+    permissions: "0644"
+    content: |
+{{ .AnsibleInventory | indent 6 }}
+
 runcmd:
+  # --- run desktop-setup ansible playbook ---
+  - ansible-playbook /opt/ai-desktops/ansible/playbook.yml -i /opt/ai-desktops/ansible/inventory.ini
+
   # --- system setup ---
   - systemctl enable docker
   - systemctl start docker
@@ -196,6 +220,19 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
+
+	// Read embedded Ansible files
+	playbookBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/playbook.yml")
+	if err != nil {
+		return "", err
+	}
+	cfg.AnsiblePlaybook = string(playbookBytes)
+
+	inventoryBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/inventory.ini")
+	if err != nil {
+		return "", err
+	}
+	cfg.AnsibleInventory = string(inventoryBytes)
 
 	// Expose version constants to the template via a wrapper.
 	type templateData struct {

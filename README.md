@@ -162,9 +162,41 @@ Preview without applying:
 ai-desktops init-foundation --preview
 ```
 
-### 4. Create a desktop
+### 4. Build a pre-baked AMI (optional but recommended)
 
-> **Note:** No custom AMI build is required. Desktops use public Ubuntu AMIs (hardcoded per region) with cloud-init that installs `novnc-desktop` (Elementary), Docker, and other developer tools at boot time.
+Pre-baked AMIs reduce desktop boot time from 5-10 minutes to ~1 minute by pre-installing all toolchain packages. Skip this step to use the default cloud-init-only approach.
+
+**Prerequisites for Packer:**
+- [Packer](https://www.packer.com/downloads) installed
+- AWS credentials configured (same profile as above)
+
+**Build the AMI:**
+
+```bash
+ai-desktops ami build --regions us-east-2
+```
+
+This runs Packer to build an Ubuntu 22.04 AMI with pre-installed:
+- Docker, git, curl, wget, tmux, neovim
+- Go 1.23.0
+- uv (Python package manager)
+- AWS CLI v2
+- Homebrew for Linux
+- nginx (for TLS proxying)
+
+**Verify the AMI:**
+
+```bash
+ai-desktops ami list
+```
+
+Output shows the registered AMI ID per region. The CLI automatically detects pre-baked AMIs and uses them during `create`.
+
+**Custom Packer builds:**
+
+Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run `ami build` to create a new AMI.
+
+### 5. Create a desktop
 
 ```bash
 ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
@@ -181,27 +213,27 @@ ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app -
 - Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
 - Cloud-init installs tools, retrieves GitHub PAT from AWS Secrets Manager/SSM, and clones repos under `/workspace`
 
-### 5. Inspect fleet
+### 6. Inspect fleet
 
 ```bash
 ai-desktops list
 ai-desktops status d-a1b2c3d4
 ```
 
-### 6. Open noVNC
+### 7. Open noVNC
 
 ```bash
 ai-desktops url d-a1b2c3d4
 # https://d-a1b2c3d4.desktops.orchael.dev
 ```
 
-### 7. SSH into desktop
+### 8. SSH into desktop
 
 ```bash
 ai-desktops ssh d-a1b2c3d4
 ```
 
-### 8. Verify git repos are cloned
+### 9. Verify git repos are cloned
 
 Once SSH'd into the desktop, verify that the repositories specified during `create` were cloned successfully:
 
@@ -224,7 +256,7 @@ aws ssm start-session --target $INSTANCE_ID --region us-east-2
 tail -100 /var/log/cloud-init-output.log
 ```
 
-### 9. Use AI agent bridge
+### 10. Use AI agent bridge
 
 ```bash
 # Status and available providers
@@ -243,7 +275,7 @@ ai-desktops agent d-a1b2c3d4 stop <session-id>
 
 The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 10. Run diagnostics
+### 11. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -252,7 +284,7 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 11. Debug with SSM (if diagnostics fail)
+### 12. Debug with SSM (if diagnostics fail)
 
 If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
 
@@ -285,14 +317,14 @@ systemctl --user restart pantheon-session
 
 Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
 
-### 12. Stop and start
+### 13. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # EBS data preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-### 13. Terminate
+### 14. Terminate
 
 ```bash
 ai-desktops terminate d-a1b2c3d4
@@ -300,12 +332,28 @@ ai-desktops terminate d-a1b2c3d4
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 
+## Updating existing desktops
+
+The desktop configuration—including Homebrew setup, GitHub known_hosts, and tool verification—is managed by Ansible and embedded in the CLI binary. To reconfigure an existing desktop with the latest configuration:
+
+```bash
+# SSH into the desktop
+ai-desktops ssh d-a1b2c3d4
+
+# Inside the desktop, re-run the Ansible playbook
+cd /opt/ai-desktops/ansible
+ansible-playbook playbook.yml -i inventory.ini
+```
+
+The playbook is idempotent and safe to re-run. This allows you to update existing desktops without rebuilding the AMI or recreating instances.
+
 ## Smoke test checklist
 
 Run this against `desktops.orchael.dev` before considering the MVP complete:
 
 - [ ] `ai-desktops bootstrap` completes without error; re-run is a no-op
 - [ ] `ai-desktops init-foundation` completes; outputs include subnetId, securityGroupId, instanceProfile, zoneId
+- [ ] `ai-desktops ami build --regions us-east-2` completes; `ai-desktops ami list` shows registered AMI ID (optional)
 - [ ] `ai-desktops create --repos myorg/test-repo` returns a desktop ID
 - [ ] `ai-desktops list` shows the new desktop in state `ready`
 - [ ] `ai-desktops status <id>` shows hostname, novnc_url, ssh_target
@@ -340,7 +388,9 @@ internal/
   backend/                Pulumi S3 backend bootstrap helpers
   awsx/                   AWS SDK helpers (S3, DynamoDB, EC2, SSM, Secrets Manager)
   pulumi/                 Automation API wrapper, stack config builders, output keys
-  provision/              Cloud-init template renderer
+  provision/              Cloud-init template renderer (embeds Ansible playbooks)
+    ansible/              Post-boot configuration (embedded in CLI binary)
+      desktop-setup/      Verifies tools, installs Homebrew, configures SSH
   health/                 Readiness checkers (TCP, HTTPS, custom)
   tunnel/                 SSM and SSH tunnel command builders
   agent/                  Typed HTTP client for ai-agent-bridge

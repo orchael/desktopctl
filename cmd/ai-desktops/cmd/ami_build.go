@@ -26,7 +26,7 @@ var amiBuildCmd = &cobra.Command{
 
 func init() {
 	amiBuildCmd.Flags().StringVar(&amiRegions, "regions", "us-east-1", "comma-separated AWS regions to build AMIs for (default: configured region)")
-	amiBuildCmd.Flags().StringVar(&amiVarsFile, "vars-file", "packer/variables.pkrvars.hcl", "path to Packer variables file")
+	amiBuildCmd.Flags().StringVar(&amiVarsFile, "vars-file", "variables.pkrvars.hcl", "path to Packer variables file (relative to --packer-dir)")
 	amiBuildCmd.Flags().StringVar(&amiPackerDir, "packer-dir", "packer", "path to Packer configuration directory")
 	amiCmd.AddCommand(amiBuildCmd)
 }
