@@ -63,7 +63,16 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// If no history in store, show the configured active AMI
+		// Filter out invalid records (empty AMIID from test data)
+		var validAMIs []*store.AMIRecord
+		for _, record := range amiList {
+			if record.AMIID != "" {
+				validAMIs = append(validAMIs, record)
+			}
+		}
+		amiList = validAMIs
+
+		// If no valid history in store, show the configured active AMI
 		if len(amiList) == 0 {
 			if activeAMI != "" {
 				amiList = []*store.AMIRecord{
@@ -76,6 +85,7 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, record := range amiList {
+
 			// Query AWS for AMI details (creation time from AWS, not from store)
 			awsCfg, err := config.LoadDefaultConfig(ctx,
 				config.WithRegion(region),
