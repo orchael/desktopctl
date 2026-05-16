@@ -1,0 +1,19 @@
+{
+  "builds": [
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1778962391,
+      "files": null,
+      "artifact_id": "us-east-2:ami-057fba0fe6e57b60b",
+      "packer_run_uuid": "c28a7605-05ad-ffd8-6dd3-454548b3c750",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
+    }
+  ],
+  "last_run_uuid": "c28a7605-05ad-ffd8-6dd3-454548b3c750"
+}

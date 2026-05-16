@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "api": "node api-server.js",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
