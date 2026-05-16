@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/repo"
 	"github.com/spf13/cobra"
@@ -114,6 +115,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
+
+	// Detect pre-baked AMI and render cloud-init accordingly.
+	amiID := ""
+	userData := ""
+	if cfg.Desktop.AMIs != nil {
+		if ami, ok := cfg.Desktop.AMIs[cfg.AWS.Region]; ok {
+			amiID = ami
+		}
+	}
+
+	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
+	hostname := desktop.Hostname(desktopID, zone)
+	bootCfg := &provision.BootstrapConfig{
+		DesktopID:             desktopID,
+		Hostname:              hostname,
+		GitHubOwner:           owner,
+		Repos:                 req.Repos,
+		WorkspacePath:         "/workspace",
+		BridgePort:            cfg.Agent.BridgePort,
+		NoVNCHTTPPort:         provision.DefaultNoVNCHTTPPort,
+		NoVNCHTTPSPort:        provision.DefaultNoVNCHTTPSPort,
+		CertbotEmail:          "admin@orchael.ai",
+		PATSecretPath:         cfg.GitHub.PATSecret,
+		AWSRegion:             cfg.AWS.Region,
+		Environment:           env,
+		PackagesPreInstalled:  amiID != "",
+	}
+	var renderErr error
+	userData, renderErr = provision.RenderCloudInit(bootCfg)
+	if renderErr != nil {
+		return fmt.Errorf("render cloud-init: %w", renderErr)
+	}
+
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
 		foundationOutputs[pulumi.OutputSubnetID],
@@ -123,12 +157,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.GitHub.PATSecret,
 		req.Repos,
 		cfg.Agent.BridgePort,
+		amiID,
+		userData,
 	)
 
 	if createPreview {
 		fmt.Printf("Desktop ID  : %s\n", desktopID)
 		fmt.Printf("Zone        : %s\n", zone)
-		fmt.Printf("Hostname    : %s\n", desktop.Hostname(desktopID, zone))
+		fmt.Printf("Hostname    : %s\n", hostname)
 		fmt.Printf("Repos       : %v\n", createRepos)
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
@@ -158,7 +194,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("mark ready: %w", err)
 	}
 
-	hostname := desktop.Hostname(desktopID, zone)
 	result := map[string]string{
 		"desktop_id": desktopID,
 		"hostname":   hostname,

@@ -63,14 +63,12 @@ type GitHubConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string `yaml:"default_profile"`
-	InstanceType   string `yaml:"instance_type"`
-	OperatorCIDR   string `yaml:"operator_cidr"`
-	SSHKeyPath     string `yaml:"ssh_key_path"`
-	// SSHKeyName is the EC2 key pair name to attach to desktops. This is the
-	// name registered in AWS (not a local file path). Optional — desktops work
-	// without it but cannot be accessed over plain SSH without SSM.
-	SSHKeyName string `yaml:"ssh_key_name"`
+	DefaultProfile string            `yaml:"default_profile"`
+	InstanceType   string            `yaml:"instance_type"`
+	OperatorCIDR   string            `yaml:"operator_cidr"`
+	SSHKeyPath     string            `yaml:"ssh_key_path"`
+	SSHKeyName     string            `yaml:"ssh_key_name"`
+	AMIs           map[string]string `yaml:"amis,omitempty"`
 }
 
 type AgentConfig struct {
@@ -143,6 +141,18 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.DNSZone(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// Save writes the config to the given file path as YAML.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write config to %s: %w", path, err)
 	}
 	return nil
 }

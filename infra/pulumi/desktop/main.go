@@ -184,30 +184,38 @@ func run(ctx *pulumi.Context) error {
 		bridgePort = defaultBridgePort
 	}
 
-	// Select AMI for the region.
-	amiID, ok := ubuntuAMIs[region]
-	if !ok {
-		return fmt.Errorf("no Ubuntu 22.04 AMI configured for region %s; add it to ubuntuAMIs", region)
+	// Select AMI: prefer amiId from config (pre-baked AMI), fall back to hardcoded map.
+	amiID := cfg.Get("amiId")
+	if amiID == "" {
+		var ok bool
+		amiID, ok = ubuntuAMIs[region]
+		if !ok {
+			return fmt.Errorf("no Ubuntu 22.04 AMI configured for region %s; add it to ubuntuAMIs or provide amiId", region)
+		}
 	}
 
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
-	// Render cloud-init user data.
-	userData, err := renderCloudInit(cloudInitData{
-		DesktopID:     desktopID,
-		GitHubOwner:   githubOwner,
-		Region:        region,
-		PATSecret:     patSecret,
-		Repos:         repos,
-		BridgePort:    bridgePort,
-		Hostname:      hostname,
-		NovncVersion:  novncDesktopVersion,
-		BridgeVersion: aiAgentBridgeVersion,
-		HTTPPort:      novncHTTPPort,
-		HTTPSPort:     novncHTTPSPort,
-	})
-	if err != nil {
-		return fmt.Errorf("render cloud-init: %w", err)
+	// Use pre-rendered userData if provided, otherwise render cloud-init locally.
+	userData := cfg.Get("userData")
+	if userData == "" {
+		var err error
+		userData, err = renderCloudInit(cloudInitData{
+			DesktopID:     desktopID,
+			GitHubOwner:   githubOwner,
+			Region:        region,
+			PATSecret:     patSecret,
+			Repos:         repos,
+			BridgePort:    bridgePort,
+			Hostname:      hostname,
+			NovncVersion:  novncDesktopVersion,
+			BridgeVersion: aiAgentBridgeVersion,
+			HTTPPort:      novncHTTPPort,
+			HTTPSPort:     novncHTTPSPort,
+		})
+		if err != nil {
+			return fmt.Errorf("render cloud-init: %w", err)
+		}
 	}
 
 	// The Pulumi AWS provider base64-encodes UserData automatically;

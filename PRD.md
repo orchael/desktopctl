@@ -176,28 +176,58 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-8.2 | The system architecture must not assume that only one human can ever access the application surface. |
 | FR-8.3 | Future authenticated access for external users must be possible without redesigning the desktop lifecycle model. |
 
+### FR-9 — Pre-baked AMI with Packer
+
+| ID | Requirement |
+| --- | --- |
+| FR-9.1 | The system must support building per-region machine images with the base toolchain pre-installed using Packer. |
+| FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
+| FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
+| FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, WireGuard configuration, workspace setup, and repository cloning. |
+| FR-9.5 | The base AMI must pre-install: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
+| FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
+| FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
+
+### FR-10 — WireGuard VPN support
+
+| ID | Requirement |
+| --- | --- |
+| FR-10.1 | The system must support operating desktops behind a WireGuard VPN when enabled in config. |
+| FR-10.2 | WireGuard tools must be installed in the base AMI; runtime configuration is injected at first boot via cloud-init. |
+| FR-10.3 | The WireGuard server private key must be generated at desktop create time and stored in AWS SSM Parameter Store as a SecureString (never in config YAML). |
+| FR-10.4 | The CLI must provide peer management commands: `ai-desktops wireguard add-peer`, `remove-peer`, `list-peers`, and `show-config`. |
+| FR-10.5 | Each peer configuration must be displayable as a QR code for easy mobile client onboarding. |
+| FR-10.6 | Peer private keys must be generated once at add-peer time and displayed to the operator; they must not be stored by `ai-desktops`. |
+| FR-10.7 | For running desktops, adding or removing a peer must apply the change live (without reboot) when the `--desktop` flag is provided. |
+| FR-10.8 | WireGuard peer list must be managed via the config system and persisted in `config.yaml`. |
+| FR-10.9 | The health check system must verify WireGuard server status and connectivity when enabled. |
+
 ---
 
 ## Security Requirements
 
 ### SR-1 — Desktop access security
 
-**Until WireGuard VPN is configured:**
-- SSH (port 22) is exposed publicly via security group rules.
+**When WireGuard is disabled** (legacy operator CIDR mode):
+- SSH (port 22) is exposed via security group rules, restricted to configured `operator_cidr`.
 - noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS.
-- HTTP port 80 may be exposed for ACME challenge or service testing.
+- HTTP port 80 is available for ACME challenges and temporary testing.
 
-**Post-WireGuard deployment:**
-- SSH access must be limited to WireGuard tunnel network only.
-- noVNC HTTPS must be accessible only through WireGuard tunnel.
-- Raw VNC ports must not be exposed publicly.
-- All operator access must route through authenticated WireGuard VPN; public security group rules will be removed or restricted to WireGuard peer IPs.
+**When WireGuard is enabled:**
+- SSH (port 22) access is restricted to WireGuard server network only (e.g., `10.99.0.0/24` if WireGuard subnet is `10.99.0.0/24`).
+- noVNC HTTPS (port 8443) is accessible only from WireGuard tunnel network.
+- HTTP port 80 is not exposed publicly (ACME DNS-01 challenge avoids HTTP dependency).
+- WireGuard server endpoint (UDP port 51820 by default) is reachable from `0.0.0.0/0` to allow initial handshake before tunnel is established.
+- All operator access to desktop resources must route through authenticated WireGuard VPN.
+- `operator_cidr` becomes optional when WireGuard is enabled; it is not used for security group rules in that mode.
 
 ### SR-2 — Secret handling
 
 - Secrets must not be baked into machine images.
 - Agent provider credentials must be injected at runtime through a secure secret-management mechanism.
 - Secrets must not be emitted in fleet-manager logs, agent logs, or browser-access bootstrap output.
+- WireGuard server private keys are generated per-desktop at creation time and stored in AWS SSM Parameter Store as SecureString, never in config files or logs.
+- WireGuard peer (operator) private keys are generated on-demand and displayed once to the operator; `ai-desktops` does not store them.
 
 ### SR-3 — Workspace boundary
 
@@ -327,6 +357,12 @@ The PRD says the desktop is reported ready after provisioning, but readiness mus
 
 Persistent desktops imply ongoing cloud cost. Failed desktop creation should leave the instance running by default for debugging until `doctor` is useful. Automated idle shutdown, budgets, and cost alerts can follow after MVP.
 
+### Pre-baked AMI provisioning
+
+Desktop provisioning performance is critical for interactive operator workflows. v1 uses cloud-init to install the baseline toolchain (docker, git, nvim, tmux, novnc-desktop, ai-agent-bridge) at boot time, which can add 5–10 minutes to desktop creation. After initial MVP, `ai-desktops` supports pre-baked AMIs built with Packer to include all toolchain components pre-installed, reducing boot time to minutes and eliminating package installation failures.
+
+The `ai-desktops ami build` command invokes Packer to build per-region AMIs containing the baseline toolchain with pinned versions. The resulting AMI IDs are stored in `config.yaml`. When creating a desktop with a pre-baked AMI, cloud-init is reduced to runtime-only steps: TLS certificate generation via certbot, nginx reverse-proxy configuration, GitHub PAT retrieval, and repository cloning. This approach keeps the stateless parts (application installs) in the AMI and the instance-specific parts (certs, secrets, repos) in cloud-init.
+
 ---
 
 ## Future Enhancements
@@ -338,3 +374,6 @@ Persistent desktops imply ongoing cloud cost. Failed desktop creation should lea
 - Deeper bridge health and session observability
 - Web UI on top of the CLI-driven lifecycle engine
 - Support for additional cloud or on-premise providers
+- Automated CI/CD-driven AMI rebuilds when pinned component versions are updated
+- Multi-desktop WireGuard mesh topology (peer-to-peer desktop connectivity)
+- WireGuard server separate from desktop instance (shared bastion topology)

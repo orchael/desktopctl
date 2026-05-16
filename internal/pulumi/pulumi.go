@@ -65,11 +65,14 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
+// amiID is the pre-baked AMI ID; empty string means use hardcoded Ubuntu map.
+// userData is the pre-rendered cloud-init user-data; empty string means Pulumi renders inline template.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
 	repos []string,
 	bridgePort int,
+	amiID, userData string,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -88,6 +91,12 @@ func DesktopConfig(
 	}
 	if bridgePort > 0 {
 		cfg["bridgePort"] = fmt.Sprintf("%d", bridgePort)
+	}
+	if amiID != "" {
+		cfg["amiId"] = amiID
+	}
+	if userData != "" {
+		cfg["userData"] = userData
 	}
 	return cfg
 }
