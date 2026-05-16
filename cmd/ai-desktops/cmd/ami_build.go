@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/packer"
+	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -81,35 +82,34 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no AMIs found in manifest")
 	}
 
-	// Initialize new config structures if needed
-	if cfg.Desktop.AMIHistory == nil {
-		cfg.Desktop.AMIHistory = make(map[string][]string)
+	// Open AMI store to save history
+	amiStore, err := openAMIStore(ctx)
+	if err != nil {
+		return fmt.Errorf("open AMI store: %w", err)
 	}
+
+	// Initialize ActiveAMI in config if needed
 	if cfg.Desktop.ActiveAMI == nil {
 		cfg.Desktop.ActiveAMI = make(map[string]string)
 	}
 
-	// Add new AMIs to history and set as active
+	// Save AMIs to store and update active_ami in config
 	for region, amiID := range regionAMIs {
-		// Append to history, avoiding duplicates
-		history := cfg.Desktop.AMIHistory[region]
-		found := false
-		for _, existing := range history {
-			if existing == amiID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			cfg.Desktop.AMIHistory[region] = append(history, amiID)
+		record := &store.AMIRecord{
+			Region: region,
+			AMIID:  amiID,
 		}
 
-		// Set as active AMI for this region
+		if err := amiStore.SaveAMI(ctx, record); err != nil {
+			return fmt.Errorf("save AMI to store: %w", err)
+		}
+
+		// Set as active AMI for this region in config
 		cfg.Desktop.ActiveAMI[region] = amiID
 		fmt.Fprintf(os.Stderr, "  %s: %s (active)\n", region, amiID)
 	}
 
-	// Save config
+	// Save config (only active_ami now, history is in DynamoDB)
 	configPath := cfgFile
 	if configPath == "" {
 		home, err := os.UserHomeDir()
@@ -123,6 +123,6 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Config saved to %s\n", configPath)
+	fmt.Fprintf(os.Stderr, "Config and AMI history saved\n")
 	return nil
 }

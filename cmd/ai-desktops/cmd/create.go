@@ -20,6 +20,7 @@ var (
 	createRepos   []string
 	createPreview bool
 	createEnv     string
+	createAMI     string
 )
 
 var createCmd = &cobra.Command{
@@ -40,6 +41,7 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
+	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -119,14 +121,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Detect pre-baked AMI and render cloud-init accordingly.
 	amiID := ""
 	userData := ""
-	// Prefer ActiveAMI (new config structure) over legacy AMIs field.
-	if cfg.Desktop.ActiveAMI != nil {
+	// Use --ami flag if provided, otherwise use config active_ami.
+	if createAMI != "" {
+		amiID = createAMI
+	} else if cfg.Desktop.ActiveAMI != nil {
 		if ami, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok {
-			amiID = ami
-		}
-	} else if cfg.Desktop.AMIs != nil {
-		// Fallback for backward compatibility with old config format.
-		if ami, ok := cfg.Desktop.AMIs[cfg.AWS.Region]; ok {
 			amiID = ami
 		}
 	}

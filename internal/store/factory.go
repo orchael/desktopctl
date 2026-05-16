@@ -25,3 +25,17 @@ func NewWithConfig(awsCfg aws.Config, tableName string) (Store, error) {
 	client := dynamodb.NewFromConfig(awsCfg)
 	return NewDynamoStore(client, tableName), nil
 }
+
+// NewAMIStore returns an in-memory AMI store.
+func NewAMIStore() AMIStore {
+	return NewInMemoryAMIStore()
+}
+
+// NewDynamoAMIStore returns a DynamoDB-backed AMI store.
+func NewDynamoAMIStoreFn(awsCfg aws.Config, tableName string) AMIStore {
+	if tableName == "" {
+		return NewInMemoryAMIStore()
+	}
+	client := dynamodb.NewFromConfig(awsCfg)
+	return NewDynamoAMIStore(client, tableName)
+}

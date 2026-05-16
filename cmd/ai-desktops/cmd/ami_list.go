@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -24,26 +25,27 @@ func init() {
 }
 
 func runAmiList(cmd *cobra.Command, args []string) error {
-	// Get all regions with AMIs (from either new or legacy config structure)
-	regionAMIs := cfg.Desktop.AMIHistory
-	if len(regionAMIs) == 0 && len(cfg.Desktop.AMIs) > 0 {
-		// Fallback for backward compatibility with legacy config
-		regionAMIs = make(map[string][]string)
-		for region, amiID := range cfg.Desktop.AMIs {
-			regionAMIs[region] = []string{amiID}
+	ctx := context.Background()
+
+	// Open AMI store to read history
+	amiStore, err := openAMIStore(ctx)
+	if err != nil {
+		return fmt.Errorf("open AMI store: %w", err)
+	}
+
+	// Get all configured regions
+	var regions []string
+	if cfg.Desktop.ActiveAMI != nil {
+		for region := range cfg.Desktop.ActiveAMI {
+			regions = append(regions, region)
 		}
 	}
 
-	if len(regionAMIs) == 0 {
+	if len(regions) == 0 {
 		fmt.Println("No pre-baked AMIs configured.")
 		return nil
 	}
 
-	// Sort regions for consistent output
-	regions := make([]string, 0, len(regionAMIs))
-	for region := range regionAMIs {
-		regions = append(regions, region)
-	}
 	sort.Strings(regions)
 
 	// Print table with aligned columns
@@ -52,30 +54,45 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w, "------\t------\t------\t-------")
 
 	for _, region := range regions {
-		amiList := regionAMIs[region]
-		activeAMI := ""
-		if cfg.Desktop.ActiveAMI != nil {
-			activeAMI = cfg.Desktop.ActiveAMI[region]
+		activeAMI := cfg.Desktop.ActiveAMI[region]
+
+		// List all AMIs for this region from the store
+		amiList, err := amiStore.ListAMIs(ctx, region)
+		if err != nil {
+			fmt.Fprintf(w, "%s\t(error reading history)\t\t%v\n", region, err)
+			continue
 		}
 
-		for _, amiID := range amiList {
-			// Query AWS for AMI details (creation time)
-			awsCfg, err := config.LoadDefaultConfig(context.Background(),
+		// If no history in store, show the configured active AMI
+		if len(amiList) == 0 {
+			if activeAMI != "" {
+				amiList = []*store.AMIRecord{
+					{Region: region, AMIID: activeAMI},
+				}
+			} else {
+				fmt.Fprintf(w, "%s\t(none configured)\t\t\n", region)
+				continue
+			}
+		}
+
+		for _, record := range amiList {
+			// Query AWS for AMI details (creation time from AWS, not from store)
+			awsCfg, err := config.LoadDefaultConfig(ctx,
 				config.WithRegion(region),
 				config.WithSharedConfigProfile(cfg.AWS.Profile),
 			)
 			if err != nil {
 				status := "inactive"
-				if amiID == activeAMI {
+				if record.AMIID == activeAMI {
 					status = "active"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t(error: %v)\n", region, amiID, status, err)
+				fmt.Fprintf(w, "%s\t%s\t%s\t(error: %v)\n", region, record.AMIID, status, err)
 				continue
 			}
 
 			ec2Client := ec2.NewFromConfig(awsCfg)
-			result, err := ec2Client.DescribeImages(context.Background(), &ec2.DescribeImagesInput{
-				ImageIds: []string{amiID},
+			result, err := ec2Client.DescribeImages(ctx, &ec2.DescribeImagesInput{
+				ImageIds: []string{record.AMIID},
 			})
 
 			createdTime := "(not found in AWS)"
@@ -84,10 +101,10 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 			}
 
 			status := "inactive"
-			if amiID == activeAMI {
+			if record.AMIID == activeAMI {
 				status = "active"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", region, amiID, status, createdTime)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", region, record.AMIID, status, createdTime)
 		}
 	}
 	w.Flush()
