@@ -166,6 +166,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Zone        : %s\n", zone)
 		fmt.Printf("Hostname    : %s\n", hostname)
 		fmt.Printf("Repos       : %v\n", createRepos)
+		if amiID != "" {
+			fmt.Printf("AMI         : %s (pre-baked, ~1min boot)\n", amiID)
+		} else {
+			fmt.Printf("AMI         : none (cloud-init bootstrap, ~5-10min boot)\n")
+		}
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
 
