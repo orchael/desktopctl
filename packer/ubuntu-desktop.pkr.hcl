@@ -71,6 +71,7 @@ build {
 
   # Update package lists and install base toolchain
   provisioner "shell" {
+    execute_command = "bash -c '{{ .Vars }} {{ .Script }}'"
     inline = [
       "set -euxo pipefail",
       "export DEBIAN_FRONTEND=noninteractive",
