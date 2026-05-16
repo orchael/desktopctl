@@ -119,7 +119,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Detect pre-baked AMI and render cloud-init accordingly.
 	amiID := ""
 	userData := ""
-	if cfg.Desktop.AMIs != nil {
+	// Prefer ActiveAMI (new config structure) over legacy AMIs field.
+	if cfg.Desktop.ActiveAMI != nil {
+		if ami, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok {
+			amiID = ami
+		}
+	} else if cfg.Desktop.AMIs != nil {
+		// Fallback for backward compatibility with old config format.
 		if ami, ok := cfg.Desktop.AMIs[cfg.AWS.Region]; ok {
 			amiID = ami
 		}

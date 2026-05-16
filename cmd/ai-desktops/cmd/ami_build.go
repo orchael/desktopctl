@@ -81,13 +81,32 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no AMIs found in manifest")
 	}
 
-	// Initialize or merge into config
-	if cfg.Desktop.AMIs == nil {
-		cfg.Desktop.AMIs = make(map[string]string)
+	// Initialize new config structures if needed
+	if cfg.Desktop.AMIHistory == nil {
+		cfg.Desktop.AMIHistory = make(map[string][]string)
 	}
+	if cfg.Desktop.ActiveAMI == nil {
+		cfg.Desktop.ActiveAMI = make(map[string]string)
+	}
+
+	// Add new AMIs to history and set as active
 	for region, amiID := range regionAMIs {
-		cfg.Desktop.AMIs[region] = amiID
-		fmt.Fprintf(os.Stderr, "  %s: %s\n", region, amiID)
+		// Append to history, avoiding duplicates
+		history := cfg.Desktop.AMIHistory[region]
+		found := false
+		for _, existing := range history {
+			if existing == amiID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.Desktop.AMIHistory[region] = append(history, amiID)
+		}
+
+		// Set as active AMI for this region
+		cfg.Desktop.ActiveAMI[region] = amiID
+		fmt.Fprintf(os.Stderr, "  %s: %s (active)\n", region, amiID)
 	}
 
 	// Save config

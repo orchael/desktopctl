@@ -24,50 +24,71 @@ func init() {
 }
 
 func runAmiList(cmd *cobra.Command, args []string) error {
-	if cfg.Desktop.AMIs == nil || len(cfg.Desktop.AMIs) == 0 {
+	// Get all regions with AMIs (from either new or legacy config structure)
+	regionAMIs := cfg.Desktop.AMIHistory
+	if len(regionAMIs) == 0 && len(cfg.Desktop.AMIs) > 0 {
+		// Fallback for backward compatibility with legacy config
+		regionAMIs = make(map[string][]string)
+		for region, amiID := range cfg.Desktop.AMIs {
+			regionAMIs[region] = []string{amiID}
+		}
+	}
+
+	if len(regionAMIs) == 0 {
 		fmt.Println("No pre-baked AMIs configured.")
 		return nil
 	}
 
 	// Sort regions for consistent output
-	regions := make([]string, 0, len(cfg.Desktop.AMIs))
-	for region := range cfg.Desktop.AMIs {
+	regions := make([]string, 0, len(regionAMIs))
+	for region := range regionAMIs {
 		regions = append(regions, region)
 	}
 	sort.Strings(regions)
 
 	// Print table with aligned columns
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "REGION\tAMI ID\tCREATED")
-	fmt.Fprintln(w, "------\t------\t-------")
+	fmt.Fprintln(w, "REGION\tAMI ID\tSTATUS\tCREATED")
+	fmt.Fprintln(w, "------\t------\t------\t-------")
 
 	for _, region := range regions {
-		amiID := cfg.Desktop.AMIs[region]
-
-		// Query AWS for AMI details (creation time)
-		awsCfg, err := config.LoadDefaultConfig(context.Background(),
-			config.WithRegion(region),
-			config.WithSharedConfigProfile(cfg.AWS.Profile),
-		)
-		if err != nil {
-			fmt.Fprintf(w, "%s\t%s\t(error: %v)\n", region, amiID, err)
-			continue
+		amiList := regionAMIs[region]
+		activeAMI := ""
+		if cfg.Desktop.ActiveAMI != nil {
+			activeAMI = cfg.Desktop.ActiveAMI[region]
 		}
 
-		ec2Client := ec2.NewFromConfig(awsCfg)
-		result, err := ec2Client.DescribeImages(context.Background(), &ec2.DescribeImagesInput{
-			ImageIds: []string{amiID},
-		})
-		if err != nil || len(result.Images) == 0 {
-			fmt.Fprintf(w, "%s\t%s\t(not found in AWS)\n", region, amiID)
-			continue
-		}
+		for _, amiID := range amiList {
+			// Query AWS for AMI details (creation time)
+			awsCfg, err := config.LoadDefaultConfig(context.Background(),
+				config.WithRegion(region),
+				config.WithSharedConfigProfile(cfg.AWS.Profile),
+			)
+			if err != nil {
+				status := "inactive"
+				if amiID == activeAMI {
+					status = "active"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t(error: %v)\n", region, amiID, status, err)
+				continue
+			}
 
-		createdTime := ""
-		if result.Images[0].CreationDate != nil {
-			createdTime = *result.Images[0].CreationDate
+			ec2Client := ec2.NewFromConfig(awsCfg)
+			result, err := ec2Client.DescribeImages(context.Background(), &ec2.DescribeImagesInput{
+				ImageIds: []string{amiID},
+			})
+
+			createdTime := "(not found in AWS)"
+			if err == nil && len(result.Images) > 0 && result.Images[0].CreationDate != nil {
+				createdTime = *result.Images[0].CreationDate
+			}
+
+			status := "inactive"
+			if amiID == activeAMI {
+				status = "active"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", region, amiID, status, createdTime)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", region, amiID, createdTime)
 	}
 	w.Flush()
 

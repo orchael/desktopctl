@@ -63,12 +63,17 @@ type GitHubConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string            `yaml:"default_profile"`
-	InstanceType   string            `yaml:"instance_type"`
-	OperatorCIDR   string            `yaml:"operator_cidr"`
-	SSHKeyPath     string            `yaml:"ssh_key_path"`
-	SSHKeyName     string            `yaml:"ssh_key_name"`
-	AMIs           map[string]string `yaml:"amis,omitempty"`
+	DefaultProfile string              `yaml:"default_profile"`
+	InstanceType   string              `yaml:"instance_type"`
+	OperatorCIDR   string              `yaml:"operator_cidr"`
+	SSHKeyPath     string              `yaml:"ssh_key_path"`
+	SSHKeyName     string              `yaml:"ssh_key_name"`
+	// AMIs is deprecated; kept for backward compatibility. Use AMIHistory and ActiveAMI instead.
+	AMIs           map[string]string   `yaml:"amis,omitempty"`
+	// AMIHistory tracks all built AMIs per region (list of AMI IDs)
+	AMIHistory     map[string][]string `yaml:"ami_history,omitempty"`
+	// ActiveAMI specifies which AMI to use for each region
+	ActiveAMI      map[string]string   `yaml:"active_ami,omitempty"`
 }
 
 type AgentConfig struct {
