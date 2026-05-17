@@ -65,7 +65,7 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vars file not found: %w", err)
 	}
 
-	if err := packer.Run(ctx, absPackerDir, amiVarsFile, os.Stderr); err != nil {
+	if err := packer.Run(ctx, absPackerDir, absVarsFile, os.Stderr); err != nil {
 		return fmt.Errorf("packer build failed: %w", err)
 	}
 

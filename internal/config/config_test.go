@@ -120,7 +120,7 @@ func TestSave_roundTrip(t *testing.T) {
 		Desktop: DesktopConfig{
 			InstanceType: "t3.large",
 			OperatorCIDR: "203.0.113.1/32",
-			AMIs: map[string]string{
+			ActiveAMI: map[string]string{
 				"us-east-1": "ami-0abc123",
 				"us-west-2": "ami-0def456",
 			},
@@ -148,10 +148,10 @@ func TestSave_roundTrip(t *testing.T) {
 	if loaded.Desktop.InstanceType != "t3.large" {
 		t.Errorf("instance type round-trip: got %q", loaded.Desktop.InstanceType)
 	}
-	if loaded.Desktop.AMIs == nil {
-		t.Error("AMIs should not be nil after round-trip")
+	if loaded.Desktop.ActiveAMI == nil {
+		t.Error("ActiveAMI should not be nil after round-trip")
 	} else {
-		if amiID, ok := loaded.Desktop.AMIs["us-east-1"]; !ok {
+		if amiID, ok := loaded.Desktop.ActiveAMI["us-east-1"]; !ok {
 			t.Error("us-east-1 AMI not found in round-trip")
 		} else if amiID != "ami-0abc123" {
 			t.Errorf("us-east-1 AMI round-trip: got %q", amiID)
@@ -162,8 +162,8 @@ func TestSave_roundTrip(t *testing.T) {
 func TestDefaults_AMIs(t *testing.T) {
 	c := &Config{}
 	c.Defaults()
-	// Defaults should not initialize an empty AMIs map
-	if c.Desktop.AMIs != nil {
-		t.Error("AMIs should be nil after Defaults()")
+	// Defaults should not initialize an empty ActiveAMI map
+	if c.Desktop.ActiveAMI != nil {
+		t.Error("ActiveAMI should be nil after Defaults()")
 	}
 }

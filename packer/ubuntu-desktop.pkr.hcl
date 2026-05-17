@@ -71,9 +71,8 @@ build {
 
   # Update package lists and install base toolchain
   provisioner "shell" {
-    execute_command = "/bin/bash -c '{{ .Script }}'"
     inline = [
-      "set -euxo pipefail",
+      "set -eux",
       "export DEBIAN_FRONTEND=noninteractive",
       "echo 'Installing base toolchain...'",
 
@@ -84,7 +83,7 @@ build {
       "sudo add-apt-repository -y universe",
       "sudo apt-get update -y",
       "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release unzip build-essential",
-      "sudo apt-get install -y git docker.io tmux nginx",
+      "sudo apt-get install -y git docker.io tmux nginx ansible",
 
       # Install neovim via snap
       "echo 'Installing neovim...'",

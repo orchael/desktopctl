@@ -3,6 +3,7 @@ package provision
 import (
 	"bytes"
 	"embed"
+	"strings"
 	"text/template"
 )
 
@@ -59,10 +60,8 @@ packages:
   - awscli
   - certbot
   - python3-certbot-dns-route53
-{{- end}}
-
-packages:
   - ansible
+{{- end}}
 
 write_files:
   - path: /opt/ai-desktops/ansible/playbook.yml
@@ -246,7 +245,19 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		BridgeVersion:   AIAgentBridgeVersion,
 	}
 
-	tmpl, err := template.New("cloud-init").Parse(cloudInitTemplate)
+	funcMap := template.FuncMap{
+		"indent": func(spaces int, text string) string {
+			lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+			indent := strings.Repeat(" ", spaces)
+			for i, line := range lines {
+				if line != "" {
+					lines[i] = indent + line
+				}
+			}
+			return strings.Join(lines, "\n")
+		},
+	}
+	tmpl, err := template.New("cloud-init").Funcs(funcMap).Parse(cloudInitTemplate)
 	if err != nil {
 		return "", err
 	}
