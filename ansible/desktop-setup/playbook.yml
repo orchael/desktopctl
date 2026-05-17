@@ -46,13 +46,19 @@
         - curl
         - wget
         - tmux
-        - nvim
         - go
         - aws
         - nginx
       changed_when: false
       ignore_errors: true
       register: tool_check
+
+    - name: Check nvim snap installation
+      ansible.builtin.shell: snap list nvim >/dev/null 2>&1 && echo "nvim installed via snap"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
 
     - name: Locate and verify uv Python manager
       ansible.builtin.shell: |
