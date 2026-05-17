@@ -128,9 +128,9 @@ runcmd:
         }
     }
     EOF
-  - systemctl reload nginx 2>/dev/null || echo "WARNING: nginx reload failed"
-  - systemctl enable novnc-desktop 2>/dev/null || echo "WARNING: novnc-desktop.service not found"
-  - systemctl start novnc-desktop 2>/dev/null || echo "WARNING: could not start novnc-desktop"
+  - "systemctl reload nginx 2>/dev/null || echo \"WARNING: nginx reload failed\""
+  - "systemctl enable novnc-desktop 2>/dev/null || echo \"WARNING: novnc-desktop.service not found\""
+  - "systemctl start novnc-desktop 2>/dev/null || echo \"WARNING: could not start novnc-desktop\""
 {{- else}}
   # --- novnc-desktop {{ .NovncVersion }} with custom ports and signed cert ---
   - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .NoVNCHTTPPort }} --https-port {{ .NoVNCHTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
