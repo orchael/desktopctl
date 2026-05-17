@@ -54,10 +54,13 @@
       ignore_errors: true
       register: tool_check
 
-    - name: Check optional tools (uv)
+    - name: Locate and verify uv Python manager
       ansible.builtin.shell: |
-        source /etc/profile.d/golang.sh 2>/dev/null || true
-        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        if [ -f /root/.local/bin/uv ]; then
+          cp /root/.local/bin/uv /usr/local/bin/uv
+          chmod +x /usr/local/bin/uv
+          echo "uv copied to /usr/local/bin"
+        fi
         which uv || exit 1
       args:
         executable: /bin/bash
