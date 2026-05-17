@@ -99,9 +99,11 @@ build {
       "curl -fsSL https://go.dev/dl/go${var.go_version}.linux-amd64.tar.gz | sudo tar -xzf - -C /usr/local/",
       "echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/golang.sh > /dev/null",
 
-      # Install uv (Python package manager)
+      # Install uv (Python package manager) to a system-wide location
       "echo 'Installing uv...'",
       "curl -LsSf https://astral.sh/uv/install.sh | sudo bash",
+      "sudo mv ~/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true",
+      "which uv || echo 'WARNING: uv may not be in system PATH'",
 
       # Install AWS CLI v2
       "echo 'Installing AWS CLI v2...'",

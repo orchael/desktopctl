@@ -17,10 +17,24 @@
 
   tasks:
     # ------------------------------------------------------------------
+    # 0. Source /etc/profile.d for tool PATH updates
+    # ------------------------------------------------------------------
+    - name: Source profile.d scripts for PATH updates
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin"
+        echo "$PATH"
+      register: path_setup
+      changed_when: false
+
+    # ------------------------------------------------------------------
     # 1. Verify pre-installed tools from Packer AMI
     # ------------------------------------------------------------------
     - name: Check pre-installed tools from Packer
-      ansible.builtin.command: "which {{ item }}"
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which {{ item }} || exit 1
       loop:
         - git
         - docker
@@ -29,12 +43,20 @@
         - tmux
         - nvim
         - go
-        - uv
         - aws
         - nginx
       changed_when: false
       ignore_errors: true
       register: tool_check
+
+    - name: Check optional tools (uv)
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which uv || exit 1
+      changed_when: false
+      ignore_errors: true
+      register: uv_check
 
     - name: Report tool verification
       ansible.builtin.debug:
@@ -70,6 +92,7 @@
 
     - name: Add Homebrew to PATH via /etc/profile.d
       become: true
+      when: brew_check.stat.exists or not ansible_failed_result is defined
       ansible.builtin.copy:
         dest: /etc/profile.d/homebrew.sh
         mode: "0644"
@@ -77,9 +100,21 @@
           if [ -d /home/linuxbrew/.linuxbrew ]; then
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
+      ignore_errors: true
 
     # ------------------------------------------------------------------
-    # 4. Setup complete
+    # 4. Install uv if not found
+    # ------------------------------------------------------------------
+    - name: Install uv (Python package manager) if missing
+      when: uv_check.rc != 0
+      ansible.builtin.shell: |
+        curl -LsSf https://astral.sh/uv/install.sh | bash
+      environment:
+        HOME: "/home/ubuntu"
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 5. Setup complete
     # ------------------------------------------------------------------
     - name: Desktop setup complete
       ansible.builtin.debug:
@@ -87,6 +122,6 @@
           AI Desktops instance configured.
 
           Pre-installed tools from Packer verified.
-          Homebrew installed and configured.
+          Homebrew and uv installation attempted.
 
           Ready for development!

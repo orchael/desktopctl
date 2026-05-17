@@ -98,13 +98,20 @@ runcmd:
   - chown ubuntu:ubuntu /opt/ai-desktops
 
   # --- TLS certificate via Route53 DNS-01 (no port 80 required) ---
-  - certbot certonly --dns-route53 --non-interactive --agree-tos --email {{ .CertbotEmail }} -d {{ .Hostname }}
-  - systemctl enable certbot.timer
-  - systemctl start certbot.timer
+  - |
+    if command -v certbot &>/dev/null; then
+      certbot certonly --dns-route53 --non-interactive --agree-tos --email {{ .CertbotEmail }} -d {{ .Hostname }} || echo "WARNING: certbot certificate renewal may have failed"
+      systemctl enable certbot.timer 2>/dev/null || echo "WARNING: certbot.timer unit not found"
+      systemctl start certbot.timer 2>/dev/null || echo "WARNING: certbot.timer unit not available"
+    else
+      echo "ERROR: certbot not found - install it before requesting certificates"
+      exit 1
+    fi
 
 {{- if .PackagesPreInstalled}}
   # --- configure nginx TLS proxy for pre-installed novnc-desktop ---
   - |
+    mkdir -p /etc/nginx/conf.d
     cat > /etc/nginx/conf.d/novnc-desktop-tls.conf << 'EOF'
     server {
         listen {{ .NoVNCHTTPSPort }} ssl;
@@ -121,9 +128,9 @@ runcmd:
         }
     }
     EOF
-  - systemctl reload nginx
-  - systemctl enable novnc-desktop
-  - systemctl start novnc-desktop
+  - systemctl reload nginx 2>/dev/null || echo "WARNING: nginx reload failed"
+  - systemctl enable novnc-desktop 2>/dev/null || echo "WARNING: novnc-desktop.service not found"
+  - systemctl start novnc-desktop 2>/dev/null || echo "WARNING: could not start novnc-desktop"
 {{- else}}
   # --- novnc-desktop {{ .NovncVersion }} with custom ports and signed cert ---
   - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .NoVNCHTTPPort }} --https-port {{ .NoVNCHTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
@@ -131,10 +138,15 @@ runcmd:
 
 {{- if not .PackagesPreInstalled}}
   # --- ai-agent-bridge {{ .BridgeVersion }} ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }}
+  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }} || echo "WARNING: ai-agent-bridge installation failed"
 {{- end}}
-  - systemctl enable ai-agent-bridge
-  - systemctl start ai-agent-bridge
+  - |
+    if systemctl list-unit-files | grep -q ai-agent-bridge.service; then
+      systemctl enable ai-agent-bridge
+      systemctl start ai-agent-bridge
+    else
+      echo "WARNING: ai-agent-bridge.service not found - bridge will not be available"
+    fi
 
   # --- retrieve github PAT and clone repos ---
   - |
