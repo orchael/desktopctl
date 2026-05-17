@@ -83,7 +83,35 @@
         "novnc_version": "v0.1.5",
         "uv_version": "0.4.0"
       }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1778997274,
+      "files": null,
+      "artifact_id": "us-east-2:ami-0350b48e98dcf2e73",
+      "packer_run_uuid": "e24f6bdb-16cb-fcf4-c5f4-915ab8bda59c",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1778997622,
+      "files": null,
+      "artifact_id": "us-east-2:ami-0e24324a6c28ff1cd",
+      "packer_run_uuid": "84184c20-c995-c645-1e80-a8ce1b0b7bbe",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
     }
   ],
-  "last_run_uuid": "662af48e-1f44-8f01-c437-0f12aeebb408"
+  "last_run_uuid": "84184c20-c995-c645-1e80-a8ce1b0b7bbe"
 }
