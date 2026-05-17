@@ -16,6 +16,7 @@ var (
 	amiRegions    string
 	amiVarsFile   string
 	amiPackerDir  string
+	amiBaseAMI    string
 )
 
 var amiBuildCmd = &cobra.Command{
@@ -29,6 +30,7 @@ func init() {
 	amiBuildCmd.Flags().StringVar(&amiRegions, "regions", "us-east-1", "comma-separated AWS regions to build AMIs for (default: configured region)")
 	amiBuildCmd.Flags().StringVar(&amiVarsFile, "vars-file", "variables.pkrvars.hcl", "path to Packer variables file (relative to --packer-dir)")
 	amiBuildCmd.Flags().StringVar(&amiPackerDir, "packer-dir", "packer", "path to Packer configuration directory")
+	amiBuildCmd.Flags().StringVar(&amiBaseAMI, "base-ami", "", "optional base AMI ID to use as source (defaults to active AMI from config)")
 	amiCmd.AddCommand(amiBuildCmd)
 }
 
@@ -65,7 +67,20 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vars file not found: %w", err)
 	}
 
-	if err := packer.Run(ctx, absPackerDir, absVarsFile, os.Stderr); err != nil {
+	// Determine base AMI to use (explicit flag or active from config)
+	baseAMI := amiBaseAMI
+	if baseAMI == "" && cfg.Desktop.ActiveAMI != nil {
+		// Use active AMI from first region if available
+		if len(regions) > 0 {
+			baseAMI = cfg.Desktop.ActiveAMI[regions[0]]
+		}
+	}
+
+	if baseAMI != "" {
+		fmt.Fprintf(os.Stderr, "Using base AMI: %s\n", baseAMI)
+	}
+
+	if err := packer.Run(ctx, absPackerDir, absVarsFile, baseAMI, os.Stderr); err != nil {
 		return fmt.Errorf("packer build failed: %w", err)
 	}
 

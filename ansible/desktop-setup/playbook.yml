@@ -13,14 +13,33 @@
 - name: Configure AI Desktops instance
   hosts: all
   gather_facts: true
-  become: false
+  become: true
+
+  environment:
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin"
+    HOME: "/root"
 
   tasks:
     # ------------------------------------------------------------------
     # 1. Verify pre-installed tools from Packer AMI
     # ------------------------------------------------------------------
+    - name: Source profile.d scripts for PATH updates
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        echo "PATH=$PATH"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: env_setup
+
     - name: Check pre-installed tools from Packer
-      ansible.builtin.command: "which {{ item }}"
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which {{ item }}
+      args:
+        executable: /bin/bash
       loop:
         - git
         - docker
@@ -29,12 +48,21 @@
         - tmux
         - nvim
         - go
-        - uv
         - aws
         - nginx
       changed_when: false
       ignore_errors: true
       register: tool_check
+
+    - name: Check optional tools (uv)
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which uv || exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
 
     - name: Report tool verification
       ansible.builtin.debug:
@@ -61,15 +89,28 @@
         path: /home/linuxbrew/.linuxbrew/bin/brew
       register: brew_check
 
-    - name: Install Homebrew for Linux
+    - name: Create linuxbrew user for Homebrew installation
+      when: not brew_check.stat.exists
+      ansible.builtin.user:
+        name: linuxbrew
+        shell: /bin/bash
+        home: /home/linuxbrew
+        createhome: true
+        system: false
+
+    - name: Install Homebrew for Linux (as linuxbrew user)
       when: not brew_check.stat.exists
       ansible.builtin.shell: |
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       args:
+        executable: /bin/bash
         creates: /home/linuxbrew/.linuxbrew/bin/brew
+      become: true
+      become_user: linuxbrew
+      environment:
+        HOME: /home/linuxbrew
 
     - name: Add Homebrew to PATH via /etc/profile.d
-      become: true
       ansible.builtin.copy:
         dest: /etc/profile.d/homebrew.sh
         mode: "0644"
@@ -77,6 +118,18 @@
           if [ -d /home/linuxbrew/.linuxbrew ]; then
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
+
+    - name: Set Homebrew directory permissions (world-readable)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: linuxbrew
+        group: linuxbrew
+        mode: "0755"
+        recurse: "{{ 'yes' if item == '/home/linuxbrew/.linuxbrew' else 'no' }}"
+      loop:
+        - /home/linuxbrew
+        - /home/linuxbrew/.linuxbrew
+      ignore_errors: true
 
     # ------------------------------------------------------------------
     # 4. Setup complete

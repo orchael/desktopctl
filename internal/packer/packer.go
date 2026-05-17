@@ -67,9 +67,8 @@ func RegionAMIs(m *Manifest) map[string]string {
 }
 
 // Run executes packer build in the given directory.
-// It accepts the packer directory, optional vars file (absolute path), and a list of regions to target.
-// Output is streamed to the provided writer.
-func Run(ctx context.Context, packerDir string, varsFile string, w io.Writer) error {
+// It accepts the packer directory, optional vars file (absolute path), optional base AMI ID, and streams output to the provided writer.
+func Run(ctx context.Context, packerDir string, varsFile string, baseAMI string, w io.Writer) error {
 	// Check that packer binary exists
 	if _, err := exec.LookPath("packer"); err != nil {
 		return fmt.Errorf("packer not found in PATH: %w", err)
@@ -81,6 +80,9 @@ func Run(ctx context.Context, packerDir string, varsFile string, w io.Writer) er
 	if varsFile != "" {
 		// If varsFile is absolute, use it as-is; otherwise it will be resolved relative to packerDir
 		args = append(args, "-var-file="+varsFile)
+	}
+	if baseAMI != "" {
+		args = append(args, "-var", "source_ami="+baseAMI)
 	}
 	args = append(args, ".")
 

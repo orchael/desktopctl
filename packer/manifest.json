@@ -111,7 +111,21 @@
         "novnc_version": "v0.1.5",
         "uv_version": "0.4.0"
       }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1778998652,
+      "files": null,
+      "artifact_id": "us-east-2:ami-0aa2315e25b6dfc00",
+      "packer_run_uuid": "1e78e88b-0098-cf97-7d83-af2f41c9bdab",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
     }
   ],
-  "last_run_uuid": "84184c20-c995-c645-1e80-a8ce1b0b7bbe"
+  "last_run_uuid": "1e78e88b-0098-cf97-7d83-af2f41c9bdab"
 }

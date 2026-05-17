@@ -32,13 +32,23 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI (e.g. us-east-2)"
 }
 
+variable "source_ami" {
+  type        = string
+  default     = ""
+  description = "Optional AMI ID to use as base. If not specified, uses latest Ubuntu 22.04 LTS from Canonical."
+}
+
 source "amazon-ebs" "ubuntu" {
   ami_name        = "ai-desktops-base-${var.novnc_desktop_version}-{{timestamp}}"
   ami_description = "ai-desktops base AMI with pre-installed toolchain"
   instance_type   = "t3.medium"
   region          = var.aws_region
 
+  # Use explicit source_ami if provided; otherwise filter for latest Ubuntu 22.04 LTS
+  source_ami = var.source_ami != "" ? var.source_ami : null
+
   # Ubuntu 22.04 LTS (Jammy) x86_64 HVM SSD — Canonical official AMI
+  # Only used if source_ami is not specified
   source_ami_filter {
     filters = {
       name                = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
@@ -101,9 +111,11 @@ build {
 
       # Install uv (Python package manager) to a system-wide location
       "echo 'Installing uv...'",
-      "curl -LsSf https://astral.sh/uv/install.sh | sudo bash",
-      "sudo mv ~/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true",
-      "which uv || echo 'WARNING: uv may not be in system PATH'",
+      "curl -LsSf https://astral.sh/uv/install.sh | bash",
+      "sudo mkdir -p /usr/local/bin",
+      "sudo cp ~/.local/bin/uv /usr/local/bin/uv",
+      "sudo chmod +x /usr/local/bin/uv",
+      "which uv || echo 'WARNING: uv installation may have failed'",
 
       # Install AWS CLI v2
       "echo 'Installing AWS CLI v2...'",

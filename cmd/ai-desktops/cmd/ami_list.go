@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/ai-desktops/internal/packer"
 	"github.com/spf13/cobra"
 )
 
@@ -27,94 +28,101 @@ func init() {
 func runAmiList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Open AMI store to read history
+	// Open AMI store
 	amiStore, err := openAMIStore(ctx)
 	if err != nil {
 		return fmt.Errorf("open AMI store: %w", err)
 	}
 
-	// Get all configured regions
-	var regions []string
-	if cfg.Desktop.ActiveAMI != nil {
-		for region := range cfg.Desktop.ActiveAMI {
-			regions = append(regions, region)
-		}
+	// Read Packer manifest to get all historical AMIs
+	manifestPath := filepath.Join("packer", "manifest.json")
+	manifest, err := packer.ParseManifest(manifestPath)
+	if err != nil {
+		return fmt.Errorf("parse manifest: %w", err)
 	}
 
-	if len(regions) == 0 {
-		fmt.Println("No pre-baked AMIs configured.")
+	// Extract all AMIs from manifest
+	regionAMIs := packer.RegionAMIs(manifest)
+	if len(regionAMIs) == 0 {
+		fmt.Println("No pre-baked AMIs found in manifest.")
 		return nil
 	}
 
-	sort.Strings(regions)
+	// Get active AMIs from config
+	activeAMIs := make(map[string]string)
+	if cfg.Desktop.ActiveAMI != nil {
+		activeAMIs = cfg.Desktop.ActiveAMI
+	}
 
 	// Print table with aligned columns
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "REGION\tAMI ID\tSTATUS\tCREATED")
-	fmt.Fprintln(w, "------\t------\t------\t-------")
+	fmt.Fprintln(w, "REGION\tAMI ID\tSTATUS\tIN DB\tCREATED")
+	fmt.Fprintln(w, "------\t------\t------\t-----\t-------")
 
-	for _, region := range regions {
-		activeAMI := cfg.Desktop.ActiveAMI[region]
-
-		// List all AMIs for this region from the store
-		amiList, err := amiStore.ListAMIs(ctx, region)
-		if err != nil {
-			fmt.Fprintf(w, "%s\t(error reading history)\t\t%v\n", region, err)
+	// Build a set of all regions
+	regionSet := make(map[string]bool)
+	for _, build := range manifest.Builds {
+		if build.ArtifactID == "" {
 			continue
 		}
+		// Parse region from artifact_id (format: region:ami-id or region1:ami-x,region2:ami-y)
+		regionMap := packer.RegionAMIs(&packer.Manifest{Builds: []packer.ManifestBuild{build}})
+		for region := range regionMap {
+			regionSet[region] = true
+		}
+	}
 
-		// Filter out invalid records (empty AMIID from test data)
-		var validAMIs []*store.AMIRecord
-		for _, record := range amiList {
-			if record.AMIID != "" {
-				validAMIs = append(validAMIs, record)
+	var regions []string
+	for region := range regionSet {
+		regions = append(regions, region)
+	}
+	sort.Strings(regions)
+
+	// For each region, list all historical AMIs
+	for _, region := range regions {
+		// Get all builds for this region from manifest
+		var amiIDsInManifest []string
+		for _, build := range manifest.Builds {
+			regionMap := packer.RegionAMIs(&packer.Manifest{Builds: []packer.ManifestBuild{build}})
+			if amiID, exists := regionMap[region]; exists {
+				amiIDsInManifest = append(amiIDsInManifest, amiID)
 			}
 		}
-		amiList = validAMIs
 
-		// If no valid history in store, show the configured active AMI
-		if len(amiList) == 0 {
-			if activeAMI != "" {
-				amiList = []*store.AMIRecord{
-					{Region: region, AMIID: activeAMI},
-				}
-			} else {
-				fmt.Fprintf(w, "%s\t(none configured)\t\t\n", region)
-				continue
+		// Show each AMI
+		for _, amiID := range amiIDsInManifest {
+			activeAMI := activeAMIs[region]
+
+			// Check if in database
+			_, err := amiStore.GetAMI(ctx, region, amiID)
+			inDB := "yes"
+			if err != nil {
+				inDB = "no"
 			}
-		}
 
-		for _, record := range amiList {
+			status := "inactive"
+			if amiID == activeAMI {
+				status = "active"
+			}
 
-			// Query AWS for AMI details (creation time from AWS, not from store)
+			// Query AWS for creation time
+			createdTime := "-"
 			awsCfg, err := config.LoadDefaultConfig(ctx,
 				config.WithRegion(region),
 				config.WithSharedConfigProfile(cfg.AWS.Profile),
 			)
-			if err != nil {
-				status := "inactive"
-				if record.AMIID == activeAMI {
-					status = "active"
+			if err == nil {
+				ec2Client := ec2.NewFromConfig(awsCfg)
+				result, err := ec2Client.DescribeImages(ctx, &ec2.DescribeImagesInput{
+					ImageIds: []string{amiID},
+				})
+				if err == nil && len(result.Images) > 0 && result.Images[0].CreationDate != nil {
+					// Parse and format the creation time nicely
+					createdTime = *result.Images[0].CreationDate
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t(error: %v)\n", region, record.AMIID, status, err)
-				continue
 			}
 
-			ec2Client := ec2.NewFromConfig(awsCfg)
-			result, err := ec2Client.DescribeImages(ctx, &ec2.DescribeImagesInput{
-				ImageIds: []string{record.AMIID},
-			})
-
-			createdTime := "(not found in AWS)"
-			if err == nil && len(result.Images) > 0 && result.Images[0].CreationDate != nil {
-				createdTime = *result.Images[0].CreationDate
-			}
-
-			status := "inactive"
-			if record.AMIID == activeAMI {
-				status = "active"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", region, record.AMIID, status, createdTime)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", region, amiID, status, inDB, createdTime)
 		}
 	}
 	w.Flush()
