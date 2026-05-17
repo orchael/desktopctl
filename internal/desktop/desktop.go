@@ -65,6 +65,7 @@ type CreateRequest struct {
 	BackendBucket string
 	Region        string
 	Profile       string
+	AMIID         string // Pre-baked AMI ID (optional)
 }
 
 // Validate checks that the CreateRequest is well-formed.
@@ -94,6 +95,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		Hostname:      hostname,
 		NoVNCURL:      NoVNCURL(hostname),
 		SSHTarget:     SSHTarget(hostname),
+		AMIID:         req.AMIID,
 		WorkspacePath: "/workspace",
 		Repos:         req.Repos,
 	}

@@ -76,6 +76,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Detect pre-baked AMI for this region (used for both request and cloud-init)
+	amiID := ""
+	if createAMI != "" {
+		amiID = createAMI
+	} else if cfg.Desktop.ActiveAMI != nil {
+		if ami, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok {
+			amiID = ami
+		}
+	}
+
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
@@ -87,6 +97,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		BackendBucket: cfg.Pulumi.BackendBucket,
 		Region:        cfg.AWS.Region,
 		Profile:       cfg.AWS.Profile,
+		AMIID:         amiID,
 	}
 
 	if err := req.Validate(); err != nil {
@@ -118,19 +129,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
 
-	// Detect pre-baked AMI and render cloud-init accordingly.
-	amiID := ""
-	userData := ""
-	// Use --ami flag if provided, otherwise use config active_ami.
-	if createAMI != "" {
-		amiID = createAMI
-	} else if cfg.Desktop.ActiveAMI != nil {
-		if ami, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok {
-			amiID = ami
-		}
-	}
-
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
+	userData := ""
 	hostname := desktop.Hostname(desktopID, zone)
 	bootCfg := &provision.BootstrapConfig{
 		DesktopID:             desktopID,

@@ -32,6 +32,7 @@ type Desktop struct {
 	Hostname      string         `dynamodbav:"hostname"`
 	NoVNCURL      string         `dynamodbav:"novnc_url"`
 	SSHTarget     string         `dynamodbav:"ssh_target"`
+	AMIID         string         `dynamodbav:"ami_id,omitempty"`
 	Readiness     string         `dynamodbav:"readiness"`
 	FailurePhase  string         `dynamodbav:"failure_phase,omitempty"`
 	FailureMsg    string         `dynamodbav:"failure_message,omitempty"`
