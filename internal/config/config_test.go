@@ -54,8 +54,11 @@ func TestValidate(t *testing.T) {
 	}
 
 	c.Pulumi.BackendBucket = "my-bucket"
-	if err := c.Validate(); err == nil {
-		t.Error("expected error when operator_cidr is empty")
+	if err := c.Validate(); err != nil {
+		t.Errorf("unexpected error with empty operator_cidr (should default to 0.0.0.0/0): %v", err)
+	}
+	if c.Desktop.OperatorCIDR != "0.0.0.0/0" {
+		t.Errorf("expected operator_cidr to default to 0.0.0.0/0, got %q", c.Desktop.OperatorCIDR)
 	}
 
 	c.Desktop.OperatorCIDR = "203.0.113.1/32"

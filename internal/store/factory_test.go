@@ -39,3 +39,24 @@ func TestNewWithConfig_WithTableName(t *testing.T) {
 		t.Error("expected DynamoStore when tableName is set")
 	}
 }
+
+func TestNewAMIStore_ReturnsInMemoryAMIStore(t *testing.T) {
+	s := NewAMIStore()
+	if _, ok := s.(*InMemoryAMIStore); !ok {
+		t.Error("expected *InMemoryAMIStore from NewAMIStore()")
+	}
+}
+
+func TestNewDynamoAMIStoreFn_EmptyTableName_ReturnsInMemoryAMIStore(t *testing.T) {
+	s := NewDynamoAMIStoreFn(aws.Config{}, "")
+	if _, ok := s.(*InMemoryAMIStore); !ok {
+		t.Error("expected *InMemoryAMIStore when tableName is empty")
+	}
+}
+
+func TestNewDynamoAMIStoreFn_WithTableName_ReturnsDynamoAMIStore(t *testing.T) {
+	s := NewDynamoAMIStoreFn(aws.Config{}, "my-table")
+	if _, ok := s.(*DynamoAMIStore); !ok {
+		t.Error("expected *DynamoAMIStore when tableName is set")
+	}
+}

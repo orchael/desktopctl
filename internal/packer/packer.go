@@ -46,16 +46,16 @@ func ParseManifest(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// RegionAMIs extracts a region→AMI map from the manifest.
+// RegionAMIs extracts a region→AMI map from the last run in the manifest.
 // artifact_id format: "region:ami-id" (single region) or "region1:ami-x,region2:ami-y" (multi-region).
+// Only builds matching last_run_uuid are included so stale entries from prior builds are ignored.
 func RegionAMIs(m *Manifest) map[string]string {
 	result := make(map[string]string)
 	for _, build := range m.Builds {
-		if build.ArtifactID == "" {
+		if build.ArtifactID == "" || build.PackerRunUUID != m.LastRunUUID {
 			continue
 		}
-		// Parse comma-separated regions:ami pairs
-		for _, pair := range strings.Split(build.ArtifactID, ",") {
+		for pair := range strings.SplitSeq(build.ArtifactID, ",") {
 			parts := strings.SplitN(strings.TrimSpace(pair), ":", 2)
 			if len(parts) == 2 {
 				region, amiID := parts[0], parts[1]
@@ -64,6 +64,25 @@ func RegionAMIs(m *Manifest) map[string]string {
 		}
 	}
 	return result
+}
+
+// Init runs packer init to download required plugins.
+func Init(ctx context.Context, packerDir string, w io.Writer) error {
+	// Check that packer binary exists
+	if _, err := exec.LookPath("packer"); err != nil {
+		return fmt.Errorf("packer not found in PATH: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "packer", "init", ".")
+	cmd.Dir = packerDir
+	cmd.Stdout = w
+	cmd.Stderr = w
+	cmd.Stdin = nil
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("packer init failed: %w", err)
+	}
+	return nil
 }
 
 // Run executes packer build in the given directory.

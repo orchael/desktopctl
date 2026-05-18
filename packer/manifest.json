@@ -3,118 +3,6 @@
     {
       "name": "ubuntu",
       "builder_type": "amazon-ebs",
-      "build_time": 1778962391,
-      "files": null,
-      "artifact_id": "us-east-2:ami-057fba0fe6e57b60b",
-      "packer_run_uuid": "c28a7605-05ad-ffd8-6dd3-454548b3c750",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778991329,
-      "files": null,
-      "artifact_id": "us-east-2:ami-086cc2b49c176bb67",
-      "packer_run_uuid": "5a92d842-cc66-e5d1-bbd7-766318035186",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778992037,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0fd5ef1bc84e080ba",
-      "packer_run_uuid": "6ecfa269-02a1-16e2-79ad-cb49bd86a1cf",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778994342,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0a02ae8d11d9528b3",
-      "packer_run_uuid": "623645b9-b2fb-de9b-bc51-e1a8e3d05755",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778995335,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0cf81ce13b4f9f6f5",
-      "packer_run_uuid": "dea81b3b-a179-3559-adb4-df595eaa36a4",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778996312,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0528e6a630e66a011",
-      "packer_run_uuid": "662af48e-1f44-8f01-c437-0f12aeebb408",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778997274,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0350b48e98dcf2e73",
-      "packer_run_uuid": "e24f6bdb-16cb-fcf4-c5f4-915ab8bda59c",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
-      "build_time": 1778997622,
-      "files": null,
-      "artifact_id": "us-east-2:ami-0e24324a6c28ff1cd",
-      "packer_run_uuid": "84184c20-c995-c645-1e80-a8ce1b0b7bbe",
-      "custom_data": {
-        "bridge_version": "v0.1.0",
-        "go_version": "1.23.0",
-        "novnc_version": "v0.1.5",
-        "uv_version": "0.4.0"
-      }
-    },
-    {
-      "name": "ubuntu",
-      "builder_type": "amazon-ebs",
       "build_time": 1778998652,
       "files": null,
       "artifact_id": "us-east-2:ami-0aa2315e25b6dfc00",
@@ -125,7 +13,35 @@
         "novnc_version": "v0.1.5",
         "uv_version": "0.4.0"
       }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779039411,
+      "files": null,
+      "artifact_id": "us-east-2:ami-08f4b692872e6bf5c",
+      "packer_run_uuid": "21427af6-2e91-195c-d3a4-3a8e156739ee",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779077923,
+      "files": null,
+      "artifact_id": "us-east-2:ami-0568ff02793ca9da9",
+      "packer_run_uuid": "97a201dc-a402-3cee-f081-c47fab83f21f",
+      "custom_data": {
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.1.5",
+        "uv_version": "0.4.0"
+      }
     }
   ],
-  "last_run_uuid": "1e78e88b-0098-cf97-7d83-af2f41c9bdab"
+  "last_run_uuid": "97a201dc-a402-3cee-f081-c47fab83f21f"
 }

@@ -12,6 +12,7 @@ import (
 
 var (
 	foundationPreview bool
+	foundationRefresh bool
 	foundationEnv     string
 )
 
@@ -30,6 +31,7 @@ Run with --preview to describe what would be applied without making changes.`,
 
 func init() {
 	initFoundationCmd.Flags().BoolVar(&foundationPreview, "preview", false, "preview changes without applying")
+	initFoundationCmd.Flags().BoolVar(&foundationRefresh, "refresh", false, "sync Pulumi state with AWS before applying (use after manual AWS changes)")
 	initFoundationCmd.Flags().StringVar(&foundationEnv, "env", "", "environment (prod|dev), overrides config")
 	rootCmd.AddCommand(initFoundationCmd)
 }
@@ -51,7 +53,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if cfg.Desktop.OperatorCIDR == "" {
-		return fmt.Errorf("desktop.operator_cidr must be set (e.g. 203.0.113.0/24); refusing to default to 0.0.0.0/0")
+		cfg.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
@@ -72,6 +74,13 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("foundation preview: %w", err)
 		}
 		return nil
+	}
+
+	if foundationRefresh {
+		fmt.Fprintln(os.Stderr, "Refreshing Pulumi state from AWS...")
+		if err := runner.Refresh(ctx, ref, os.Stderr); err != nil {
+			return fmt.Errorf("foundation refresh: %w", err)
+		}
 	}
 
 	outputs, err := runner.Up(ctx, ref, stackCfg, os.Stderr)

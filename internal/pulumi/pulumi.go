@@ -130,6 +130,19 @@ type Runner struct {
 // NewRunner returns a Runner with default settings.
 func NewRunner() *Runner { return &Runner{} }
 
+// Refresh syncs Pulumi state with the actual cloud provider state for the stack.
+// Use this when AWS resources have been modified outside of Pulumi.
+func (r *Runner) Refresh(ctx context.Context, ref *StackRef, progress io.Writer) error {
+	env := r.env(ref.BackendURL)
+	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", "--create", ref.StackName); err != nil {
+		return fmt.Errorf("stack select: %w", err)
+	}
+	if err := r.run(ctx, ref.WorkDir, env, progress, "refresh", "--yes", "--non-interactive", "--color", "never"); err != nil {
+		return fmt.Errorf("pulumi refresh: %w", err)
+	}
+	return nil
+}
+
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.
 func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progress io.Writer) (map[string]string, error) {

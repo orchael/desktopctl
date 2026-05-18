@@ -1,0 +1,84 @@
+---
+- name: Install novnc-desktop
+  hosts: all
+  become: true
+  vars:
+    desktop_type: elementary
+    novnc_http_port: 8080
+    novnc_https_port: 8443
+  pre_tasks:
+    # Disable automatic background package management to prevent interference
+    - name: Disable unattended-upgrades and automatic apt services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - unattended-upgrades
+        - apt-daily.service
+        - apt-daily-upgrade.service
+      failed_when: false
+      changed_when: false
+
+    # Fix dpkg state before running roles (handles Packer/cloud-init interruptions)
+    - name: Fix dpkg state before roles
+      ansible.builtin.shell: |
+        set -eux
+        pkill -9 apt-get apt unattended-upgrade || true
+        sleep 1
+        dpkg --configure -a || true
+        apt-get clean || true
+      changed_when: false
+
+    # Install certbot DNS-Route53 plugin — needed by cloud-init at launch time.
+    # The novnc-desktop role installs certbot + python3-certbot-nginx but not
+    # the Route53 DNS-01 plugin, which cloud-init uses to obtain the cert.
+    - name: Install certbot Route53 DNS plugin
+      ansible.builtin.apt:
+        name: python3-certbot-dns-route53
+        state: present
+        update_cache: true
+  roles:
+    # Use local novnc-desktop with embedded dpkg recovery before VNC install
+    - /home/marka/src/novnc-desktop
+
+  post_tasks:
+    - name: Create linuxbrew user for Homebrew
+      ansible.builtin.user:
+        name: linuxbrew
+        shell: /bin/bash
+        home: /home/linuxbrew
+        createhome: true
+        system: false
+
+    - name: Install Homebrew for Linux
+      ansible.builtin.shell: |
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      args:
+        executable: /bin/bash
+        creates: /home/linuxbrew/.linuxbrew/bin/brew
+      become: true
+      become_user: linuxbrew
+      environment:
+        HOME: /home/linuxbrew
+
+    - name: Add Homebrew to PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/homebrew.sh
+        mode: "0644"
+        content: |
+          if [ -d /home/linuxbrew/.linuxbrew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+
+    - name: Set Homebrew directory permissions (world-readable)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: linuxbrew
+        group: linuxbrew
+        mode: "0755"
+        recurse: "{{ 'yes' if item == '/home/linuxbrew/.linuxbrew' else 'no' }}"
+      loop:
+        - /home/linuxbrew
+        - /home/linuxbrew/.linuxbrew
+      ignore_errors: true

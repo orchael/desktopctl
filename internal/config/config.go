@@ -139,7 +139,7 @@ func (c *Config) Validate() error {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
 	if c.Desktop.OperatorCIDR == "" {
-		return errors.New("desktop.operator_cidr must be set (e.g. your public IP with /32)")
+		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
 	if _, err := c.DNSZone(); err != nil {
 		return err

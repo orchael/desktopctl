@@ -125,6 +125,9 @@ func (c *HTTPSChecker) Name() string { return c.name }
 func (c *HTTPSChecker) Run(ctx context.Context) CheckResult {
 	client := &http.Client{
 		Timeout: c.timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse // don't follow redirects; 3xx is a pass
+		},
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
 	if err != nil {
@@ -222,24 +225,20 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 }
 
 // StandardCheckers returns the set of network-reachability checks run against a
-// provisioned desktop. bridgePort is the localhost port for ai-agent-bridge,
-// reached through the SSM tunnel that the caller is expected to have open.
-// noVNC is probed on HTTPS port 8443 (novnc-desktop v0.1.5+).
-func StandardCheckers(hostname string, sshPort, bridgePort int) []Checker {
+// provisioned desktop. noVNC is probed on HTTPS port 8443 (novnc-desktop v0.1.5+).
+func StandardCheckers(hostname string, sshPort int) []Checker {
 	sshAddr := fmt.Sprintf("%s:%d", hostname, sshPort)
 	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", hostname)
-	bridgeAddr := fmt.Sprintf("127.0.0.1:%d", bridgePort)
 
 	return []Checker{
 		NewTCPChecker("ssh-port", sshAddr, 10*time.Second),
 		NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second),
-		NewTCPChecker("agent-bridge", bridgeAddr, 10*time.Second),
 	}
 }
 
 // SSHCheckers returns SSH-based checks that run commands on the desktop to
-// verify that Docker, developer tools, ai-agent-bridge, and any expected
-// workspace repositories are present and active.
+// verify that Docker, developer tools, and any expected workspace repositories
+// are present and active.
 //
 // If keyPath is empty all checks are returned in the skipped state so they
 // appear in the doctor report without blocking the overall pass/fail result.
@@ -252,8 +251,6 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []str
 			"command -v nvim >/dev/null 2>&1", t),
 		NewSSHChecker("tmux-installed", hostname, sshPort, user, keyPath,
 			"command -v tmux >/dev/null 2>&1", t),
-		NewSSHChecker("bridge-active", hostname, sshPort, user, keyPath,
-			"systemctl is-active ai-agent-bridge", t),
 	}
 	for _, r := range repos {
 		name := repoBaseName(r)
@@ -290,9 +287,9 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
 			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
 		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
-			"pgrep -f novnc-desktop >/dev/null", t),
+			"systemctl is-active novnc-desktop", t),
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
-			"openssl x509 -in /etc/letsencrypt/live/*/fullchain.pem -noout -checkend 604800", t), // 604800 = 7 days
+			"[ -d /etc/letsencrypt/live ] && for cert in /etc/letsencrypt/live/*/fullchain.pem; do openssl x509 -in \"$cert\" -noout -checkend 604800 || exit 1; done", t), // 604800 = 7 days
 		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
 			"systemctl is-enabled certbot.timer", t),
 	}

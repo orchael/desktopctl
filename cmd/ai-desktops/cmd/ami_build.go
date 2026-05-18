@@ -67,17 +67,19 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vars file not found: %w", err)
 	}
 
-	// Determine base AMI to use (explicit flag or active from config)
+	// Only use explicit base AMI if provided; otherwise let Packer find the latest Ubuntu 22.04 LTS
 	baseAMI := amiBaseAMI
-	if baseAMI == "" && cfg.Desktop.ActiveAMI != nil {
-		// Use active AMI from first region if available
-		if len(regions) > 0 {
-			baseAMI = cfg.Desktop.ActiveAMI[regions[0]]
-		}
-	}
 
 	if baseAMI != "" {
-		fmt.Fprintf(os.Stderr, "Using base AMI: %s\n", baseAMI)
+		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
+	} else {
+		fmt.Fprintf(os.Stderr, "Using Packer-defined base (latest Ubuntu 22.04 LTS)\n")
+	}
+
+	// Initialize Packer to download required plugins
+	fmt.Fprintf(os.Stderr, "Initializing Packer plugins...\n")
+	if err := packer.Init(ctx, absPackerDir, os.Stderr); err != nil {
+		return fmt.Errorf("packer init failed: %w", err)
 	}
 
 	if err := packer.Run(ctx, absPackerDir, absVarsFile, baseAMI, os.Stderr); err != nil {

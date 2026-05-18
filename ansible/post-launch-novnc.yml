@@ -1,0 +1,148 @@
+---
+# Post-launch provisioning: Install novnc-desktop on a running EC2 instance
+# Run this after the base AMI is launched and has fully booted:
+#
+#   ansible-playbook -i <instance-ip>, \
+#     -u ubuntu \
+#     --private-key=/path/to/key.pem \
+#     ansible/post-launch-novnc.yml \
+#     -e "cert_domain=desktop.example.com cert_email=admin@example.com"
+
+- name: Install novnc-desktop post-launch
+  hosts: all
+  become: true
+  vars:
+    desktop_type: elementary
+    novnc_http_port: 8080
+    novnc_https_port: 8443
+    use_certbot: false
+    # Route53 certificate variables — must be passed at runtime:
+    #   -e "cert_domain=desktop.example.com cert_email=admin@example.com"
+    # The instance must have an IAM role with Route53 write access.
+    cert_domain: ""
+    cert_email: ""
+  pre_tasks:
+    # Wait for any background apt operations to complete
+    - name: Wait for cloud-init to complete
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    # Disable automatic updates during provisioning
+    - name: Disable automatic updates
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - unattended-upgrades
+        - apt-daily.service
+        - apt-daily-upgrade.service
+      failed_when: false
+      changed_when: false
+
+    # Clean up any dpkg state issues
+    - name: Clean up dpkg state
+      ansible.builtin.shell: |
+        set -eux
+        dpkg --configure -a || true
+        apt-get clean || true
+        apt-get autoclean || true
+      changed_when: false
+
+    # Remove stale nginx conf.d file from previous provisioning attempts
+    # (cloud-init may have written a LetsEncrypt-based config that blocks nginx reload)
+    - name: Remove stale novnc-desktop nginx conf.d file
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/novnc-desktop-tls.conf
+        state: absent
+
+  roles:
+    # Install novnc-desktop from local repo
+    - /home/marka/src/novnc-desktop
+
+  post_tasks:
+    # Create novnc-desktop.service as a meta-service that ensures the VNC+noVNC stack is running.
+    # This satisfies the health-check expectation of `systemctl is-active novnc-desktop`.
+    - name: Create novnc-desktop systemd meta-service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/novnc-desktop.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=noVNC Desktop Meta-Service (manages VNC + noVNC stack)
+          Wants=tigervncserver@:1.service novnc.service novnc-auth.service nginx.service
+          After=tigervncserver@:1.service novnc.service novnc-auth.service nginx.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/systemctl start tigervncserver@:1.service novnc.service novnc-auth.service
+          ExecStop=/bin/systemctl stop novnc.service novnc-auth.service tigervncserver@:1.service
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Reload systemd and enable novnc-desktop
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable and start novnc-desktop service
+      ansible.builtin.systemd:
+        name: novnc-desktop.service
+        enabled: true
+        state: started
+
+    # ── Route53 certificate ─────────────────────────────────────────────────
+    # Runs only when cert_domain and cert_email are provided.
+    # Requires the EC2 instance to have an IAM role with:
+    #   route53:ListHostedZones, route53:GetChange, route53:ChangeResourceRecordSets
+    - name: Obtain certificate via certbot DNS-Route53 challenge
+      ansible.builtin.command: >
+        certbot certonly
+        --dns-route53
+        --non-interactive
+        --agree-tos
+        -m {{ cert_email }}
+        -d {{ cert_domain }}
+      args:
+        creates: "/etc/letsencrypt/live/{{ cert_domain }}/fullchain.pem"
+      register: certbot_route53_out
+      changed_when: certbot_route53_out.rc == 0
+      when: cert_domain | length > 0 and cert_email | length > 0
+
+    - name: Copy Let's Encrypt certificate into nginx ssl directory
+      ansible.builtin.copy:
+        src: "/etc/letsencrypt/live/{{ cert_domain }}/fullchain.pem"
+        dest: /etc/nginx/ssl/novnc.crt
+        remote_src: true
+        mode: '0644'
+      when:
+        - cert_domain | length > 0
+        - cert_email | length > 0
+      notify: Reload nginx post-launch
+
+    - name: Copy Let's Encrypt private key into nginx ssl directory
+      ansible.builtin.copy:
+        src: "/etc/letsencrypt/live/{{ cert_domain }}/privkey.pem"
+        dest: /etc/nginx/ssl/novnc.key
+        remote_src: true
+        mode: '0600'
+      when:
+        - cert_domain | length > 0
+        - cert_email | length > 0
+      notify: Reload nginx post-launch
+
+    - name: Flush handlers to apply new certificate
+      ansible.builtin.meta: flush_handlers
+      when: cert_domain | length > 0 and cert_email | length > 0
+
+  handlers:
+    - name: Reload systemd and enable novnc-desktop
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Reload nginx post-launch
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded

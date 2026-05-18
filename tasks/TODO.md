@@ -110,6 +110,7 @@
 - [x] ISSUE: Created GitHub Issue #23 — Add WireGuard VPN support (multi-platform: iOS, macOS, Linux, Windows)
 - [x] DOCS: Updated PRD with temporary public access (SSH/HTTP/HTTPS) until WireGuard, then restrict to VPN
 - [x] IMPL: Public access model — open SSH (port 22) to 0.0.0.0/0, add HTTP (port 80), update Pulumi config
+- [ ] Install ai-agent-bridge v0.2.0 on desktops — blocked until an apt package or downloadable binary release exists (currently only a Docker image and Go module tag are published at v0.2.0)
 - [ ] SSH tunnel: make StrictHostKeyChecking configurable — https://github.com/markcallen/ai-desktops/issues/6
 - [ ] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs
 - [ ] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI)

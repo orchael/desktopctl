@@ -4,6 +4,10 @@ packer {
       version = ">= 1.2.0"
       source  = "github.com/hashicorp/amazon"
     }
+    ansible = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/ansible"
+    }
   }
 }
 
@@ -35,7 +39,7 @@ variable "aws_region" {
 variable "source_ami" {
   type        = string
   default     = ""
-  description = "Optional AMI ID to use as base. If not specified, uses latest Ubuntu 22.04 LTS from Canonical."
+  description = "Optional AMI ID to use as base. If not specified, uses latest Ubuntu 24.04 LTS from Canonical."
 }
 
 source "amazon-ebs" "ubuntu" {
@@ -47,11 +51,11 @@ source "amazon-ebs" "ubuntu" {
   # Use explicit source_ami if provided; otherwise filter for latest Ubuntu 22.04 LTS
   source_ami = var.source_ami != "" ? var.source_ami : null
 
-  # Ubuntu 22.04 LTS (Jammy) x86_64 HVM SSD — Canonical official AMI
+  # Ubuntu 24.04 LTS (Noble) x86_64 HVM SSD GP3 — Canonical official AMI
   # Only used if source_ami is not specified
   source_ami_filter {
     filters = {
-      name                = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+      name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
       root-device-type    = "ebs"
       virtualization-type = "hvm"
     }
@@ -79,21 +83,41 @@ build {
     "source.amazon-ebs.ubuntu"
   ]
 
-  # Update package lists and install base toolchain
+  # Wait for cloud-init to finish and comprehensively fix dpkg state
+  provisioner "shell" {
+    inline = [
+      "set -eux",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "echo 'Waiting for cloud-init to complete...'",
+      "cloud-init status --wait",
+      "echo 'Disabling unattended-upgrades to prevent background interference...'",
+      "sudo systemctl stop unattended-upgrades || true",
+      "sudo systemctl disable unattended-upgrades || true",
+      "sudo systemctl stop apt-daily.service || true",
+      "sudo systemctl disable apt-daily.service || true",
+      "sudo systemctl stop apt-daily-upgrade.service || true",
+      "sudo systemctl disable apt-daily-upgrade.service || true",
+      "echo 'Fixing any interrupted dpkg/apt state...'",
+      "sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* || true",
+      "sudo dpkg --configure -a || true",
+      "sudo apt-get clean || true",
+      "sudo apt-get autoclean -y || true",
+      "echo 'dpkg state recovery complete'"
+    ]
+  }
+
+  # Install base toolchain (Go, Python, Docker, etc.)
+  # novnc-desktop will be installed post-launch via Ansible
   provisioner "shell" {
     inline = [
       "set -eux",
       "export DEBIAN_FRONTEND=noninteractive",
       "echo 'Installing base toolchain...'",
-
-      # Update package lists and install base packages
       "sudo apt-get update -y",
-      "sudo apt-get upgrade -y",
       "sudo apt-get install -y software-properties-common",
       "sudo add-apt-repository -y universe",
       "sudo apt-get update -y",
-      "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release unzip build-essential",
-      "sudo apt-get install -y git docker.io tmux nginx ansible",
+      "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release unzip build-essential git docker.io tmux nginx ansible python3 python3-pip",
 
       # Install neovim via snap
       "echo 'Installing neovim...'",
@@ -121,10 +145,11 @@ build {
       "echo 'Installing AWS CLI v2...'",
       "curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip' && sudo unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install && sudo rm -rf /tmp/awscliv2.zip /tmp/aws",
 
-      # Clean up (Homebrew, novnc-desktop, and ai-agent-bridge will be installed at boot time via Ansible/cloud-init)
+      # Final cleanup
       "echo 'Cleaning up...'",
       "sudo apt-get clean",
-      "sudo apt-get autoclean -y"
+      "sudo apt-get autoclean -y",
+      "echo 'Base AMI ready. Install novnc-desktop post-launch via Ansible.'"
     ]
   }
 

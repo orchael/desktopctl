@@ -1,8 +1,9 @@
 ---
 # desktop-setup — configure a desktop instance post-boot
 #
-# This playbook runs during cloud-init to verify pre-installed tools and
-# install Homebrew for Linux. It's idempotent and safe to re-run.
+# This playbook runs during cloud-init to verify pre-installed tools
+# from the Packer AMI. Homebrew is pre-installed in the AMI — it is
+# not installed here.
 #
 # Usage (via cloud-init):
 #   Automatically during desktop boot
@@ -60,6 +61,20 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Check novnc-desktop service
+      ansible.builtin.shell: systemctl list-unit-files | grep -q novnc-desktop && echo "novnc-desktop service installed"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check ai-agent-bridge service
+      ansible.builtin.shell: systemctl list-unit-files | grep -q ai-agent-bridge && echo "ai-agent-bridge service installed"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
     - name: Locate and verify uv Python manager
       ansible.builtin.shell: |
         if [ -f /root/.local/bin/uv ]; then
@@ -91,64 +106,8 @@
         - "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
 
     # ------------------------------------------------------------------
-    # 3. Homebrew for Linux
-    # ------------------------------------------------------------------
-    - name: Check if Homebrew is installed
-      ansible.builtin.stat:
-        path: /home/linuxbrew/.linuxbrew/bin/brew
-      register: brew_check
-
-    - name: Create linuxbrew user for Homebrew installation
-      when: not brew_check.stat.exists
-      ansible.builtin.user:
-        name: linuxbrew
-        shell: /bin/bash
-        home: /home/linuxbrew
-        createhome: true
-        system: false
-
-    - name: Install Homebrew for Linux (as linuxbrew user)
-      when: not brew_check.stat.exists
-      ansible.builtin.shell: |
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      args:
-        executable: /bin/bash
-        creates: /home/linuxbrew/.linuxbrew/bin/brew
-      become: true
-      become_user: linuxbrew
-      environment:
-        HOME: /home/linuxbrew
-
-    - name: Add Homebrew to PATH via /etc/profile.d
-      ansible.builtin.copy:
-        dest: /etc/profile.d/homebrew.sh
-        mode: "0644"
-        content: |
-          if [ -d /home/linuxbrew/.linuxbrew ]; then
-            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          fi
-
-    - name: Set Homebrew directory permissions (world-readable)
-      ansible.builtin.file:
-        path: "{{ item }}"
-        owner: linuxbrew
-        group: linuxbrew
-        mode: "0755"
-        recurse: "{{ 'yes' if item == '/home/linuxbrew/.linuxbrew' else 'no' }}"
-      loop:
-        - /home/linuxbrew
-        - /home/linuxbrew/.linuxbrew
-      ignore_errors: true
-
-    # ------------------------------------------------------------------
-    # 4. Setup complete
+    # 3. Setup complete
     # ------------------------------------------------------------------
     - name: Desktop setup complete
       ansible.builtin.debug:
-        msg: |
-          AI Desktops instance configured.
-
-          Pre-installed tools from Packer verified.
-          Homebrew installed and configured.
-
-          Ready for development!
+        msg: "AI Desktops instance configured. Pre-installed tools from Packer verified."

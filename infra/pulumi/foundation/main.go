@@ -23,7 +23,10 @@ func run(ctx *pulumi.Context) error {
 	if fleetTable == "" {
 		fleetTable = "ai-desktops-fleet"
 	}
-	operatorCIDR := cfg.Require("operatorCIDR")
+	operatorCIDR := cfg.Get("operatorCIDR")
+	if operatorCIDR == "" {
+		operatorCIDR = "0.0.0.0/0"
+	}
 	vpcID := cfg.Get("vpcId")
 
 	// --- Route53 hosted zone lookup ---

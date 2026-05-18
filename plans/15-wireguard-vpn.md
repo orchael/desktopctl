@@ -4,6 +4,8 @@
 
 Add WireGuard VPN support to enable secure, authenticated operator access to desktops. WireGuard tools are installed in the base AMI; the server is configured at first boot via cloud-init with a per-desktop private key stored in AWS SSM Parameter Store. Operator/peer configurations are managed through CLI commands and persisted in `config.yaml`. When enabled, security groups restrict SSH/HTTP/HTTPS to the WireGuard tunnel network only, replacing public operator CIDR access.
 
+**Pre-WireGuard baseline**: By default (WireGuard disabled), `desktop.operator_cidr` defaults to `0.0.0.0/0`, meaning SSH port 22 is open to the internet. Operators may restrict it to their own IP in `config.yaml`. When WireGuard is enabled, this field is ignored and the SG restricts SSH to the WireGuard subnet.
+
 ## Scope
 
 - Add `WireGuardConfig` struct to config system with global settings (enabled, server port, subnet) and peer list

@@ -115,3 +115,76 @@ func TestParseManifest_fileNotFound(t *testing.T) {
 		t.Error("expected error for missing file")
 	}
 }
+
+func TestRegionAMIs_UUIDFilter_OnlyMatchingBuildReturned(t *testing.T) {
+	const lastUUID = "uuid-last-run"
+	const otherUUID = "uuid-old-run"
+
+	manifest := &Manifest{
+		LastRunUUID: lastUUID,
+		Builds: []ManifestBuild{
+			{
+				ArtifactID:    "us-east-1:ami-new",
+				PackerRunUUID: lastUUID,
+			},
+			{
+				ArtifactID:    "us-east-1:ami-old",
+				PackerRunUUID: otherUUID,
+			},
+		},
+	}
+
+	result := RegionAMIs(manifest)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(result))
+	}
+	amiID, ok := result["us-east-1"]
+	if !ok {
+		t.Fatal("us-east-1 not found in result")
+	}
+	if amiID != "ami-new" {
+		t.Errorf("expected ami-new (from last run), got %q", amiID)
+	}
+}
+
+func TestRegionAMIs_UUIDFilter_NoBuildMatchesLastRunUUID(t *testing.T) {
+	const lastUUID = "uuid-last-run"
+
+	manifest := &Manifest{
+		LastRunUUID: lastUUID,
+		Builds: []ManifestBuild{
+			{
+				ArtifactID:    "us-east-1:ami-old",
+				PackerRunUUID: "uuid-some-other-run",
+			},
+			{
+				ArtifactID:    "us-west-2:ami-also-old",
+				PackerRunUUID: "uuid-another-old-run",
+			},
+		},
+	}
+
+	result := RegionAMIs(manifest)
+	if len(result) != 0 {
+		t.Errorf("expected empty map when no build matches LastRunUUID, got %d entries", len(result))
+	}
+}
+
+func TestRegionAMIs_UUIDFilter_EmptyArtifactIDSkipped(t *testing.T) {
+	const lastUUID = "uuid-last-run"
+
+	manifest := &Manifest{
+		LastRunUUID: lastUUID,
+		Builds: []ManifestBuild{
+			{
+				ArtifactID:    "",
+				PackerRunUUID: lastUUID,
+			},
+		},
+	}
+
+	result := RegionAMIs(manifest)
+	if len(result) != 0 {
+		t.Errorf("expected empty map when ArtifactID is empty, got %d entries", len(result))
+	}
+}
