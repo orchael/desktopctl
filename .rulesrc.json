@@ -15,13 +15,31 @@
     "logging",
     "testing"
   ],
-  "ballastVersion": "5.9.3",
+  "ballastVersion": "5.10.2",
   "languages": [
-    "typescript"
+    "typescript",
+    "python",
+    "go",
+    "ansible",
+    "terraform"
   ],
   "paths": {
+    "ansible": [
+      "ansible/desktop-setup",
+      "internal/provision/ansible/desktop-setup",
+      "packer"
+    ],
+    "go": [
+      ".",
+      "infra/pulumi/desktop",
+      "infra/pulumi/foundation"
+    ],
+    "python": [
+    ],
+    "terraform": [
+    ],
     "typescript": [
-      "."
+      "apps/desktop-web"
     ]
   },
   "taskSystem": "github"
