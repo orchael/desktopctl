@@ -36,6 +36,9 @@ func init() {
 }
 
 func runTerminate(cmd *cobra.Command, args []string) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	id := args[0]
 

@@ -7,16 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/packer"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
 
+const novncAMIOwner = "819363892004"
+
 var (
-	amiRegions    string
-	amiVarsFile   string
-	amiPackerDir  string
-	amiBaseAMI    string
+	amiRegions   string
+	amiVarsFile  string
+	amiPackerDir string
+	amiBaseAMI   string
+	amiPublic    bool
 )
 
 var amiBuildCmd = &cobra.Command{
@@ -27,29 +31,31 @@ var amiBuildCmd = &cobra.Command{
 }
 
 func init() {
-	amiBuildCmd.Flags().StringVar(&amiRegions, "regions", "us-east-1", "comma-separated AWS regions to build AMIs for (default: configured region)")
+	amiBuildCmd.Flags().StringVar(&amiRegions, "regions", "", "AWS region to build AMI in (defaults to configured region)")
 	amiBuildCmd.Flags().StringVar(&amiVarsFile, "vars-file", "variables.pkrvars.hcl", "path to Packer variables file (relative to --packer-dir)")
 	amiBuildCmd.Flags().StringVar(&amiPackerDir, "packer-dir", "packer", "path to Packer configuration directory")
-	amiBuildCmd.Flags().StringVar(&amiBaseAMI, "base-ami", "", "optional base AMI ID to use as source (defaults to active AMI from config)")
+	amiBuildCmd.Flags().StringVar(&amiBaseAMI, "base-ami", "", "explicit source AMI ID (skips auto-lookup from novnc_desktop_version)")
+	amiBuildCmd.Flags().BoolVar(&amiPublic, "public", false, "make the built AMI publicly accessible")
 	amiCmd.AddCommand(amiBuildCmd)
 }
 
 func runAmiBuild(cmd *cobra.Command, args []string) error {
+	if err := requireTools("packer"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 
-	// Parse region list; if using default "us-east-1", use configured region instead
-	regions := strings.Split(strings.TrimSpace(amiRegions), ",")
-	if len(regions) == 1 && regions[0] == "us-east-1" && cfg.AWS.Region != "" && cfg.AWS.Region != "us-east-1" {
-		regions = []string{cfg.AWS.Region}
-	}
-	if len(regions) == 0 || regions[0] == "" {
-		return fmt.Errorf("no regions specified; use --regions")
-	}
-	for i := range regions {
-		regions[i] = strings.TrimSpace(regions[i])
+	// Determine target region: flag > configured region > us-east-1
+	region := strings.TrimSpace(amiRegions)
+	if region == "" {
+		if cfg.AWS.Region != "" {
+			region = cfg.AWS.Region
+		} else {
+			region = "us-east-1"
+		}
 	}
 
-	fmt.Fprintf(os.Stderr, "Building AMIs for regions: %v\n", regions)
+	fmt.Fprintf(os.Stderr, "Building AMI for region: %s\n", region)
 
 	// Run Packer
 	absPackerDir, err := filepath.Abs(amiPackerDir)
@@ -67,13 +73,39 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vars file not found: %w", err)
 	}
 
-	// Only use explicit base AMI if provided; otherwise let Packer find the latest Ubuntu 22.04 LTS
+	// Resolve the source AMI. Priority: --base-ami flag > source_ami in vars file > EC2 lookup.
 	baseAMI := amiBaseAMI
 
-	if baseAMI != "" {
-		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
+	if baseAMI == "" {
+		// Check the vars file for an explicit source_ami.
+		vars, err := packer.ParseVarsFile(absVarsFile)
+		if err != nil {
+			return fmt.Errorf("parse vars file: %w", err)
+		}
+		if v := vars["source_ami"]; v != "" {
+			baseAMI = v
+			fmt.Fprintf(os.Stderr, "Using source_ami from vars file: %s\n", baseAMI)
+		} else {
+			// No explicit AMI — look up the latest novnc-desktop elementary AMI.
+			novncVersion := vars["novnc_desktop_version"]
+			if novncVersion == "" {
+				return fmt.Errorf("novnc_desktop_version not set in vars file and --base-ami not provided")
+			}
+			namePattern := fmt.Sprintf("novnc-desktop-ubuntu-24.04-elementary-%s-*", novncVersion)
+			fmt.Fprintf(os.Stderr, "Looking up novnc-desktop AMI: %s\n", namePattern)
+
+			awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+			if err != nil {
+				return fmt.Errorf("load AWS config: %w", err)
+			}
+			baseAMI, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, novncAMIOwner)
+			if err != nil {
+				return fmt.Errorf("find novnc-desktop AMI: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Resolved novnc-desktop base AMI: %s\n", baseAMI)
+		}
 	} else {
-		fmt.Fprintf(os.Stderr, "Using Packer-defined base (latest Ubuntu 22.04 LTS)\n")
+		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
 	}
 
 	// Initialize Packer to download required plugins
@@ -82,7 +114,7 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("packer init failed: %w", err)
 	}
 
-	if err := packer.Run(ctx, absPackerDir, absVarsFile, baseAMI, os.Stderr); err != nil {
+	if err := packer.Run(ctx, absPackerDir, absVarsFile, region, baseAMI, amiPublic, os.Stderr); err != nil {
 		return fmt.Errorf("packer build failed: %w", err)
 	}
 
@@ -111,9 +143,9 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save AMIs to store and update active_ami in config
-	for region, amiID := range regionAMIs {
+	for r, amiID := range regionAMIs {
 		record := &store.AMIRecord{
-			Region: region,
+			Region: r,
 			AMIID:  amiID,
 		}
 
@@ -122,8 +154,8 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		}
 
 		// Set as active AMI for this region in config
-		cfg.Desktop.ActiveAMI[region] = amiID
-		fmt.Fprintf(os.Stderr, "  %s: %s (active)\n", region, amiID)
+		cfg.Desktop.ActiveAMI[r] = amiID
+		fmt.Fprintf(os.Stderr, "  %s: %s (active)\n", r, amiID)
 	}
 
 	// Save config (only active_ami now, history is in DynamoDB)

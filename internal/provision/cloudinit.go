@@ -11,7 +11,6 @@ import (
 var ansibleFS embed.FS
 
 const (
-	NovncDesktopVersion  = "v0.1.5"
 	AIAgentBridgeVersion = "v0.1.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
@@ -97,43 +96,30 @@ runcmd:
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
 
-  # --- TLS certificate via Route53 DNS-01 (no port 80 required) ---
-  - |
-    if command -v certbot &>/dev/null; then
-      certbot certonly --dns-route53 --non-interactive --agree-tos --email {{ .CertbotEmail }} -d {{ .Hostname }} || echo "WARNING: certbot certificate renewal may have failed"
-      systemctl enable certbot.timer 2>/dev/null || echo "WARNING: certbot.timer unit not found"
-      systemctl start certbot.timer 2>/dev/null || echo "WARNING: certbot.timer unit not available"
-    else
-      echo "ERROR: certbot not found - install it before requesting certificates"
-      exit 1
-    fi
-
 {{- if .PackagesPreInstalled}}
-  # --- configure nginx TLS proxy for pre-installed novnc-desktop ---
+  # --- TLS + nginx + /app/ route via ai-desktops-setup-tls ---
+  # Reconfigures ports (80→{{ .NoVNCHTTPPort }}, 443→{{ .NoVNCHTTPSPort }}), obtains a
+  # Let's Encrypt cert via DNS-01 (Route53), wires it into the novnc nginx
+  # config, and adds the /app/ proxy location for the ai-desktops web app.
   - |
-    mkdir -p /etc/nginx/conf.d
-    cat > /etc/nginx/conf.d/novnc-desktop-tls.conf << 'EOF'
-    server {
-        listen {{ .NoVNCHTTPSPort }} ssl;
-        server_name {{ .Hostname }};
-        ssl_certificate /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem;
-        location / {
-            proxy_pass http://127.0.0.1:{{ .NoVNCHTTPPort }};
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
-            proxy_read_timeout 86400;
-        }
-    }
-    EOF
-  - "systemctl reload nginx 2>/dev/null || echo \"WARNING: nginx reload failed\""
+    CERTBOT_DOMAIN="{{ .Hostname }}" \
+    CERTBOT_EMAIL="{{ .CertbotEmail }}" \
+    NOVNC_HTTP_PORT="{{ .NoVNCHTTPPort }}" \
+    NOVNC_HTTPS_PORT="{{ .NoVNCHTTPSPort }}" \
+    /usr/local/bin/ai-desktops-setup-tls
   - "systemctl enable novnc-desktop 2>/dev/null || echo \"WARNING: novnc-desktop.service not found\""
   - "systemctl start novnc-desktop 2>/dev/null || echo \"WARNING: could not start novnc-desktop\""
 {{- else}}
-  # --- novnc-desktop {{ .NovncVersion }} with custom ports and signed cert ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .NoVNCHTTPPort }} --https-port {{ .NoVNCHTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
+  # --- TLS certificate via Route53 DNS-01 (no port 80 required) ---
+  - |
+    if command -v certbot &>/dev/null; then
+      certbot certonly --dns-route53 --non-interactive --agree-tos --email {{ .CertbotEmail }} -d {{ .Hostname }} || echo "WARNING: certbot failed"
+      systemctl enable certbot.timer 2>/dev/null || true
+      systemctl start certbot.timer 2>/dev/null || true
+    else
+      echo "ERROR: certbot not found"
+      exit 1
+    fi
 {{- end}}
 
 {{- if not .PackagesPreInstalled}}
@@ -248,12 +234,10 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	// Expose version constants to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
-		NovncVersion  string
 		BridgeVersion string
 	}
 	data := templateData{
 		BootstrapConfig: cfg,
-		NovncVersion:    NovncDesktopVersion,
 		BridgeVersion:   AIAgentBridgeVersion,
 	}
 

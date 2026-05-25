@@ -184,7 +184,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, WireGuard configuration, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must pre-install: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 
@@ -284,7 +284,7 @@ The MVP does not include:
 ## Assumptions
 
 - The initial infrastructure target is AWS-backed remote hosts, carried forward from the prior project direction.
-- Managed desktops run on Ubuntu-based Linux hosts compatible with `novnc-desktop` and the required toolchain.
+- Managed desktops run on Ubuntu 24.04 LTS (Noble) hosts compatible with `novnc-desktop` and the required toolchain.
 - `ai-desktops` will reuse existing first-party components rather than reimplementing noVNC desktop provisioning or agent process supervision from scratch.
 
 If any of these assumptions are wrong, the PRD should be updated before implementation work proceeds.

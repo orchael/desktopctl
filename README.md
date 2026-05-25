@@ -176,13 +176,12 @@ Pre-baked AMIs reduce desktop boot time from 5-10 minutes to ~1 minute by pre-in
 ai-desktops ami build --regions us-east-2
 ```
 
-This runs Packer to build an Ubuntu 22.04 AMI with pre-installed:
-- Docker, git, curl, wget, tmux, neovim
+This runs Packer to build an AMI on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base with pre-installed:
+- Docker
 - Go 1.23.0
 - uv (Python package manager)
 - AWS CLI v2
-- Homebrew for Linux
-- nginx (for TLS proxying)
+- neovim (via snap)
 
 **Verify the AMI:**
 
@@ -370,7 +369,7 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 
 ## Known limitations
 
-- **Elementary/Pantheon reliability**: The `novnc-desktop` package targets Elementary OS; on Ubuntu 22.04 some Pantheon services may be slow to start or require a session restart. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
+- **Elementary/Pantheon reliability**: The `novnc-desktop` elementary AMI runs Pantheon on Ubuntu 24.04. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
 - **Root EBS persistence**: Workspace data lives on the root EBS volume. EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating.
 - **Failed desktops left running**: If `terminate` fails mid-way, the EC2 instance is intentionally left running so you can SSH in to diagnose. Clean up manually with `aws ec2 terminate-instances` and `pulumi destroy` from `infra/pulumi/desktop/`.
 - **Single availability zone**: Desktops land in the first public subnet from the foundation stack. Multi-AZ placement is not yet supported.

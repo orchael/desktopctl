@@ -46,6 +46,9 @@ func init() {
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 
 	// Fall back to config file owner when --github-owner not explicitly set.

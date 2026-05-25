@@ -1,6 +1,7 @@
 package packer
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -66,13 +67,38 @@ func RegionAMIs(m *Manifest) map[string]string {
 	return result
 }
 
+// ParseVarsFile reads a .pkrvars.hcl file and returns a map of string values.
+// Only simple string assignments of the form  key = "value"  are extracted;
+// other HCL constructs are silently ignored.
+func ParseVarsFile(path string) (map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open vars file: %w", err)
+	}
+	defer f.Close()
+
+	vars := make(map[string]string)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, rest, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v := strings.TrimSpace(rest)
+		if strings.HasPrefix(v, `"`) && strings.HasSuffix(v, `"`) {
+			vars[k] = v[1 : len(v)-1]
+		}
+	}
+	return vars, scanner.Err()
+}
+
 // Init runs packer init to download required plugins.
 func Init(ctx context.Context, packerDir string, w io.Writer) error {
-	// Check that packer binary exists
-	if _, err := exec.LookPath("packer"); err != nil {
-		return fmt.Errorf("packer not found in PATH: %w", err)
-	}
-
 	cmd := exec.CommandContext(ctx, "packer", "init", ".")
 	cmd.Dir = packerDir
 	cmd.Stdout = w
@@ -86,22 +112,21 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 }
 
 // Run executes packer build in the given directory.
-// It accepts the packer directory, optional vars file (absolute path), optional base AMI ID, and streams output to the provided writer.
-func Run(ctx context.Context, packerDir string, varsFile string, baseAMI string, w io.Writer) error {
-	// Check that packer binary exists
-	if _, err := exec.LookPath("packer"); err != nil {
-		return fmt.Errorf("packer not found in PATH: %w", err)
-	}
-
-	// Build packer command
-	// Note: varsFile should be an absolute path or relative to packerDir
+// baseAMI is always required; the caller must resolve it before invoking Run.
+// public controls whether the built AMI has public launch permissions.
+func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, public bool, w io.Writer) error {
 	args := []string{"build"}
 	if varsFile != "" {
-		// If varsFile is absolute, use it as-is; otherwise it will be resolved relative to packerDir
 		args = append(args, "-var-file="+varsFile)
 	}
-	if baseAMI != "" {
-		args = append(args, "-var", "source_ami="+baseAMI)
+	if region != "" {
+		args = append(args, "-var", "aws_region="+region)
+	}
+	// Always override source_ami via -var so the vars file value cannot
+	// accidentally trigger a stale lookup.
+	args = append(args, "-var", "source_ami="+baseAMI)
+	if public {
+		args = append(args, "-var", "ami_public=true")
 	}
 	args = append(args, ".")
 

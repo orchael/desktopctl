@@ -41,7 +41,64 @@
         "novnc_version": "v0.1.5",
         "uv_version": "0.4.0"
       }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779636286,
+      "files": null,
+      "artifact_id": "us-east-1:ami-063d9cfeda6f2c04b",
+      "packer_run_uuid": "b45fbe54-c91b-3eb6-e825-84ea742cc688",
+      "custom_data": {
+        "base_ami": "ami-01e447ce79508c37a",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779637128,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0d46fea95c7647244",
+      "packer_run_uuid": "f1d16b02-7e70-c038-ce28-47b7bec5e213",
+      "custom_data": {
+        "base_ami": "ami-01e447ce79508c37a",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779638053,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0e9409dd6688b15db",
+      "packer_run_uuid": "d8290073-6dd5-47fe-89e0-425774ff909d",
+      "custom_data": {
+        "base_ami": "ami-01e447ce79508c37a",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779675476,
+      "files": null,
+      "artifact_id": "us-east-2:ami-0a581d461a7f0d2bc",
+      "packer_run_uuid": "eb12312b-6de4-c36c-cd3e-ed3c9e7eb505",
+      "custom_data": {
+        "base_ami": "ami-0532a352015a91da1",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.2.2",
+        "uv_version": "0.4.0"
+      }
     }
   ],
-  "last_run_uuid": "97a201dc-a402-3cee-f081-c47fab83f21f"
+  "last_run_uuid": "eb12312b-6de4-c36c-cd3e-ed3c9e7eb505"
 }

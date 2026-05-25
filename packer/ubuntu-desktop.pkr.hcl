@@ -11,11 +11,6 @@ packer {
   }
 }
 
-variable "novnc_desktop_version" {
-  type        = string
-  description = "novnc-desktop release tag (e.g. v0.1.5)"
-}
-
 variable "ai_agent_bridge_version" {
   type        = string
   description = "ai-agent-bridge release tag (e.g. v0.1.0)"
@@ -33,135 +28,89 @@ variable "uv_version" {
 
 variable "aws_region" {
   type        = string
-  description = "AWS region for the source and target AMI (e.g. us-east-2)"
+  description = "AWS region for the source and target AMI"
 }
 
+variable "novnc_desktop_version" {
+  type        = string
+  description = "novnc-desktop release tag used for tagging the built AMI (e.g. v0.2.2)"
+}
+
+# source_ami is always required. The ai-desktops CLI resolves the correct AMI
+# before invoking packer (either from the vars file or via an EC2 lookup) and
+# passes it via -var source_ami=<id>.
 variable "source_ami" {
   type        = string
-  default     = ""
-  description = "Optional AMI ID to use as base. If not specified, uses latest Ubuntu 24.04 LTS from Canonical."
+  description = "Source AMI ID to use as the base for this build."
+}
+
+variable "ami_public" {
+  type        = bool
+  default     = false
+  description = "When true, set the built AMI's launch permissions to public."
 }
 
 source "amazon-ebs" "ubuntu" {
-  ami_name        = "ai-desktops-base-${var.novnc_desktop_version}-{{timestamp}}"
-  ami_description = "ai-desktops base AMI with pre-installed toolchain"
+  ami_name        = "ai-desktops-${var.ai_agent_bridge_version}-{{timestamp}}"
+  ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
   instance_type   = "t3.medium"
   region          = var.aws_region
+  source_ami      = var.source_ami
 
-  # Use explicit source_ami if provided; otherwise filter for latest Ubuntu 22.04 LTS
-  source_ami = var.source_ami != "" ? var.source_ami : null
+  ami_groups = var.ami_public ? ["all"] : []
 
-  # Ubuntu 24.04 LTS (Noble) x86_64 HVM SSD GP3 — Canonical official AMI
-  # Only used if source_ami is not specified
-  source_ami_filter {
-    filters = {
-      name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
-      root-device-type    = "ebs"
-      virtualization-type = "hvm"
-    }
-    most_recent = true
-    owners      = ["099720109477"] # Canonical
+  associate_public_ip_address = true
+  ebs_optimized               = true
+
+  launch_block_device_mappings {
+    device_name           = "/dev/sda1"
+    volume_size           = 20
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
+
+  tags = {
+    Name               = "ai-desktops"
+    ManagedBy          = "ai-desktops-packer"
+    BridgeVersion      = var.ai_agent_bridge_version
+    GoVersion          = var.go_version
+    UvVersion          = var.uv_version
+    NovncDesktopVersion = var.novnc_desktop_version
+    BaseAMI            = var.source_ami
+    Environment        = "base"
   }
 
   ssh_username = "ubuntu"
-
-  # Tag the AMI with component versions
-  tags = {
-    Name           = "ai-desktops-base-${var.novnc_desktop_version}"
-    ManagedBy      = "ai-desktops-packer"
-    NovncVersion   = var.novnc_desktop_version
-    BridgeVersion  = var.ai_agent_bridge_version
-    GoVersion      = var.go_version
-    UvVersion      = var.uv_version
-    Environment    = "base"
-  }
+  ssh_timeout  = "10m"
 }
 
 build {
-  name = "ai-desktops-base"
-  sources = [
-    "source.amazon-ebs.ubuntu"
-  ]
+  name    = "ai-desktops"
+  sources = ["source.amazon-ebs.ubuntu"]
 
-  # Wait for cloud-init to finish and comprehensively fix dpkg state
-  provisioner "shell" {
-    inline = [
-      "set -eux",
-      "export DEBIAN_FRONTEND=noninteractive",
-      "echo 'Waiting for cloud-init to complete...'",
-      "cloud-init status --wait",
-      "echo 'Disabling unattended-upgrades to prevent background interference...'",
-      "sudo systemctl stop unattended-upgrades || true",
-      "sudo systemctl disable unattended-upgrades || true",
-      "sudo systemctl stop apt-daily.service || true",
-      "sudo systemctl disable apt-daily.service || true",
-      "sudo systemctl stop apt-daily-upgrade.service || true",
-      "sudo systemctl disable apt-daily-upgrade.service || true",
-      "echo 'Fixing any interrupted dpkg/apt state...'",
-      "sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* || true",
-      "sudo dpkg --configure -a || true",
-      "sudo apt-get clean || true",
-      "sudo apt-get autoclean -y || true",
-      "echo 'dpkg state recovery complete'"
+  provisioner "ansible" {
+    playbook_file        = "${path.root}/playbook.yml"
+    galaxy_file          = "${path.root}/requirements.yml"
+    galaxy_force_install = true
+    extra_arguments = [
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version}",
+    ]
+    ansible_env_vars = [
+      "ANSIBLE_HOST_KEY_CHECKING=False",
+      "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
+      "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
     ]
   }
 
-  # Install base toolchain (Go, Python, Docker, etc.)
-  # novnc-desktop will be installed post-launch via Ansible
-  provisioner "shell" {
-    inline = [
-      "set -eux",
-      "export DEBIAN_FRONTEND=noninteractive",
-      "echo 'Installing base toolchain...'",
-      "sudo apt-get update -y",
-      "sudo apt-get install -y software-properties-common",
-      "sudo add-apt-repository -y universe",
-      "sudo apt-get update -y",
-      "sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release unzip build-essential git docker.io tmux nginx ansible python3 python3-pip",
-
-      # Install neovim via snap
-      "echo 'Installing neovim...'",
-      "sudo snap install nvim --classic",
-
-      # Enable and start docker
-      "sudo systemctl enable docker",
-      "sudo systemctl start docker",
-      "sudo usermod -aG docker ubuntu",
-
-      # Install Go
-      "echo 'Installing Go ${var.go_version}...'",
-      "curl -fsSL https://go.dev/dl/go${var.go_version}.linux-amd64.tar.gz | sudo tar -xzf - -C /usr/local/",
-      "echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/golang.sh > /dev/null",
-
-      # Install uv (Python package manager) to a system-wide location
-      "echo 'Installing uv...'",
-      "curl -LsSf https://astral.sh/uv/install.sh | bash",
-      "sudo mkdir -p /usr/local/bin",
-      "sudo cp ~/.local/bin/uv /usr/local/bin/uv",
-      "sudo chmod +x /usr/local/bin/uv",
-      "which uv || echo 'WARNING: uv installation may have failed'",
-
-      # Install AWS CLI v2
-      "echo 'Installing AWS CLI v2...'",
-      "curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip' && sudo unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install && sudo rm -rf /tmp/awscliv2.zip /tmp/aws",
-
-      # Final cleanup
-      "echo 'Cleaning up...'",
-      "sudo apt-get clean",
-      "sudo apt-get autoclean -y",
-      "echo 'Base AMI ready. Install novnc-desktop post-launch via Ansible.'"
-    ]
-  }
-
-  # Capture build manifest
   post-processor "manifest" {
     output     = "manifest.json"
     strip_path = true
     custom_data = {
-      novnc_version   = var.novnc_desktop_version
-      bridge_version  = var.ai_agent_bridge_version
-      go_version      = var.go_version
-      uv_version      = var.uv_version
+      bridge_version       = var.ai_agent_bridge_version
+      go_version           = var.go_version
+      uv_version           = var.uv_version
+      novnc_version        = var.novnc_desktop_version
+      base_ami             = var.source_ami
     }
   }
 }

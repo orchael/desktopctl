@@ -37,6 +37,9 @@ func init() {
 }
 
 func runInitFoundation(cmd *cobra.Command, args []string) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 
 	env := foundationEnv

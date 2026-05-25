@@ -3,9 +3,26 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"strings"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
 )
+
+// requireTools checks that every named binary exists on PATH and returns a
+// combined error listing all missing tools if any are absent.
+func requireTools(tools ...string) error {
+	var missing []string
+	for _, t := range tools {
+		if _, err := exec.LookPath(t); err != nil {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("required tool(s) not found in PATH: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
 
 // requireBackend verifies that the configured Pulumi S3 backend bucket exists
 // in AWS. Commands that drive Pulumi (init-foundation, create, terminate) call
