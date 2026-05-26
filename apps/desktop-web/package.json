@@ -24,7 +24,9 @@
   },
   "pnpm": {
     "allowedDeprecatedVersions": {},
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
