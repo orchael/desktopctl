@@ -12,11 +12,10 @@ package integration_test
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
-
-	"net"
 )
 
 // TestFR2_NoVNCHTTPSReachable verifies that the noVNC HTTPS endpoint on port

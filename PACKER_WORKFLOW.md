@@ -14,8 +14,7 @@ This avoids cloud-init race conditions and dpkg lock issues during the AMI build
 ### 1. Build Base AMI with Packer
 
 ```bash
-cd /home/marka/src/orchael/ai-desktops
-
+# Run from the repo root
 packer build \
   -var-file=packer/variables.pkrvars.hcl \
   packer/ubuntu-desktop.pkr.hcl
@@ -122,4 +121,4 @@ aws ec2 create-image \
 - Packer config: `packer/ubuntu-desktop.pkr.hcl`
 - Packer variables: `packer/variables.pkrvars.hcl`
 - Post-launch playbook: `ansible/post-launch-novnc.yml`
-- novnc-desktop role: `/home/marka/src/novnc-desktop/`
+- novnc-desktop role: installed from GitHub release during post-launch Ansible step
