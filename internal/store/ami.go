@@ -14,13 +14,13 @@ import (
 
 // AMIRecord represents a pre-baked AMI in the history.
 type AMIRecord struct {
-	Region         string `dynamodbav:"region"`
-	AMIID          string `dynamodbav:"ami_id"`
-	CreatedAt      string `dynamodbav:"created_at"`
-	NovncVersion   string `dynamodbav:"novnc_version,omitempty"`
-	BridgeVersion  string `dynamodbav:"bridge_version,omitempty"`
-	GoVersion      string `dynamodbav:"go_version,omitempty"`
-	UvVersion      string `dynamodbav:"uv_version,omitempty"`
+	Region        string `dynamodbav:"region"`
+	AMIID         string `dynamodbav:"ami_id"`
+	CreatedAt     string `dynamodbav:"created_at"`
+	NovncVersion  string `dynamodbav:"novnc_version,omitempty"`
+	BridgeVersion string `dynamodbav:"bridge_version,omitempty"`
+	GoVersion     string `dynamodbav:"go_version,omitempty"`
+	UvVersion     string `dynamodbav:"uv_version,omitempty"`
 }
 
 // AMIStore is the interface for AMI history operations.
@@ -118,9 +118,9 @@ func (s *DynamoAMIStore) SaveAMI(ctx context.Context, record *AMIRecord) error {
 
 func (s *DynamoAMIStore) ListAMIs(ctx context.Context, region string) ([]*AMIRecord, error) {
 	result, err := s.client.Scan(ctx, &dynamodb.ScanInput{
-		TableName:                 aws.String(s.tableName),
-		FilterExpression:          aws.String("#r = :region"),
-		ExpressionAttributeNames:  map[string]string{"#r": "region"},
+		TableName:                aws.String(s.tableName),
+		FilterExpression:         aws.String("#r = :region"),
+		ExpressionAttributeNames: map[string]string{"#r": "region"},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":region": &types.AttributeValueMemberS{Value: region},
 		},
@@ -140,8 +140,8 @@ func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMI
 	result, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
-			"region":  &types.AttributeValueMemberS{Value: region},
-			"ami_id":  &types.AttributeValueMemberS{Value: amiID},
+			"region": &types.AttributeValueMemberS{Value: region},
+			"ami_id": &types.AttributeValueMemberS{Value: amiID},
 		},
 	})
 	if err != nil {
@@ -163,8 +163,8 @@ func (s *DynamoAMIStore) DeleteAMI(ctx context.Context, region, amiID string) er
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
-			"region":  &types.AttributeValueMemberS{Value: region},
-			"ami_id":  &types.AttributeValueMemberS{Value: amiID},
+			"region": &types.AttributeValueMemberS{Value: region},
+			"ami_id": &types.AttributeValueMemberS{Value: amiID},
 		},
 	})
 	if err != nil {

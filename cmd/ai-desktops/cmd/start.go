@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var startCmd = &cobra.Command{

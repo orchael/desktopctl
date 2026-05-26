@@ -175,3 +175,4 @@ deps:
 	@which aws > /dev/null 2>&1 || echo "WARNING: AWS CLI not found — install from https://aws.amazon.com/cli/"
 	@which go > /dev/null 2>&1 || echo "WARNING: Go not found — install from https://go.dev/dl/"
 	@which jq > /dev/null 2>&1 || echo "WARNING: jq not found — required for clean-integration (install from https://jqlang.org)"
+	@which golangci-lint > /dev/null 2>&1 || (echo "Installing golangci-lint v2..." && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $$(go env GOPATH)/bin v2.1.6)

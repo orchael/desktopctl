@@ -11,7 +11,7 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion = "v0.1.0"
+	AIAgentBridgeVersion  = "v0.1.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )

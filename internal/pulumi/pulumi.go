@@ -16,10 +16,10 @@ import (
 
 // StackRef identifies a Pulumi stack.
 type StackRef struct {
-	Project     string
-	StackName   string
-	BackendURL  string
-	WorkDir     string
+	Project    string
+	StackName  string
+	BackendURL string
+	WorkDir    string
 }
 
 // FullName returns the full stack name as "project/stack".
@@ -105,17 +105,17 @@ func DesktopConfig(
 
 // OutputKey constants for stack outputs.
 const (
-	OutputInstanceID    = "instanceId"
-	OutputHostname      = "hostname"
-	OutputNoVNCURL      = "novncUrl"
-	OutputSSHTarget     = "sshTarget"
-	OutputWorkspacePath = "workspacePath"
-	OutputGitHubOwner   = "githubOwner"
-	OutputSubnetID      = "subnetId"
-	OutputSGID          = "securityGroupId"
+	OutputInstanceID      = "instanceId"
+	OutputHostname        = "hostname"
+	OutputNoVNCURL        = "novncUrl"
+	OutputSSHTarget       = "sshTarget"
+	OutputWorkspacePath   = "workspacePath"
+	OutputGitHubOwner     = "githubOwner"
+	OutputSubnetID        = "subnetId"
+	OutputSGID            = "securityGroupId"
 	OutputInstanceProfile = "instanceProfile"
-	OutputZoneID        = "zoneId"
-	OutputFleetTable    = "fleetTable"
+	OutputZoneID          = "zoneId"
+	OutputFleetTable      = "fleetTable"
 )
 
 // Runner drives Pulumi stacks by invoking the `pulumi` CLI as a subprocess.

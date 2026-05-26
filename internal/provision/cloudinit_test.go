@@ -70,7 +70,6 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	}
 }
 
-
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:     "d-003",

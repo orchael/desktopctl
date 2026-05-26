@@ -21,8 +21,8 @@ func openStore(ctx context.Context) (store.Store, error) {
 	return store.New(awsCfg, cfg.Fleet.TableName), nil
 }
 
-// openAMIStore returns a DynamoDB-backed AMI store when AWS config is available,
-// or an in-memory store as a fallback (local dev / no credentials).
+// openAMIStore returns a DynamoDB-backed AMI store, or an in-memory store when
+// AMITableName is empty. It returns an error if AWS config cannot be loaded.
 func openAMIStore(ctx context.Context) (store.AMIStore, error) {
 	if cfg.Fleet.AMITableName == "" {
 		return store.NewInMemoryAMIStore(), nil

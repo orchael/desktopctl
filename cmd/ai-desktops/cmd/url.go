@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var urlCmd = &cobra.Command{

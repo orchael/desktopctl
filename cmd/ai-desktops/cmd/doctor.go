@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/health"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var doctorCmd = &cobra.Command{

@@ -6,8 +6,8 @@
 //
 //	AC-9.1  `ai-desktops ami build` command exists and can be invoked
 //	AC-9.6  `ai-desktops ami build --help` succeeds (confirms command registration)
-//	AC-9.7  When config contains active_ami entries, `create --preview` uses them
-//	         (verified by checking the preview output for the AMI ID)
+//	AC-9.7  `create --preview --ami <id>` references the supplied AMI in output
+//	         (partial: flag-override path only; config-based selection requires a separate test)
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
@@ -46,15 +46,19 @@ func TestFR9_AMIListCommandExists(t *testing.T) {
 	}
 }
 
-// TestFR9_CreateUsesAMIFromConfig verifies that `create --preview` respects
-// an active AMI entry in config (AC-9.7).
+// TestFR9_CreateAMIFlagOverride verifies that `create --preview --ami <id>`
+// references the explicitly supplied AMI ID in its output.
+//
+// Note: this test exercises the --ami flag override path, not config-based
+// AMI selection (AC-9.7). A separate test wiring the AMI into config.yaml
+// is needed to cover AC-9.7 end-to-end.
 //
 // This test requires that AI_DESKTOPS_AMI_ID is set to a known AMI ID for
-// the test region.  If not set, the test is skipped.
-func TestFR9_CreateUsesAMIFromConfig(t *testing.T) {
+// the test region. If not set, the test is skipped.
+func TestFR9_CreateAMIFlagOverride(t *testing.T) {
 	amiID := os.Getenv("AI_DESKTOPS_AMI_ID")
 	if amiID == "" {
-		t.Skip("AI_DESKTOPS_AMI_ID not set — skipping AMI preference test")
+		t.Skip("AI_DESKTOPS_AMI_ID not set — skipping AMI flag-override test")
 	}
 
 	out, err := runCLI(context.Background(), 30*time.Second,

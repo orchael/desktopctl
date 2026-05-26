@@ -43,16 +43,17 @@ func TestFR3_ElementaryDesktopEnvironment(t *testing.T) {
 		t.Skip("no SSH key — cannot verify desktop environment")
 	}
 
-	// Check for pantheon greeter or io.elementary session files.
+	// Check for pantheon greeter package or the Pantheon session desktop file.
+	// dpkg -s exits non-zero when the package is not installed; the ||
+	// branch checks /usr/share/xsessions/pantheon.desktop as a fallback.
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
-		"dpkg -l pantheon-greeter 2>/dev/null | grep -c '^ii' || "+
-			"ls /usr/share/xsessions/pantheon.desktop 2>/dev/null | wc -l")
+		"dpkg -s pantheon-greeter >/dev/null 2>&1 && echo installed || "+
+			"test -f /usr/share/xsessions/pantheon.desktop && echo installed || echo missing")
 	if err != nil {
 		t.Logf("elementary check output: %s", out)
 		t.Errorf("elementary desktop environment check failed: %v", err)
 	}
-	// Either approach returns "1" when installed.
-	if !strings.Contains(strings.TrimSpace(out), "1") {
+	if strings.TrimSpace(out) != "installed" {
 		t.Errorf("elementary desktop not detected; dpkg/xsession output: %q", out)
 	}
 }

@@ -108,7 +108,8 @@ func (c *TCPChecker) Run(ctx context.Context) CheckResult {
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
 
-// HTTPSChecker verifies that an HTTPS endpoint returns a 2xx status.
+// HTTPSChecker verifies that an HTTPS endpoint returns a non-4xx/5xx status.
+// Redirects are not followed; 3xx responses are treated as a pass.
 type HTTPSChecker struct {
 	name    string
 	url     string
