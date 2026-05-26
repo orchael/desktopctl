@@ -170,3 +170,55 @@ func TestDefaults_AMIs(t *testing.T) {
 		t.Error("ActiveAMI should be nil after Defaults()")
 	}
 }
+
+func TestDefaults_GitHubSecret(t *testing.T) {
+	// No owner: fall back to legacy path
+	c := &Config{}
+	c.Defaults()
+	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+		t.Errorf("no-owner default: got %q", c.GitHub.GitHubSecret)
+	}
+
+	// Owner set: derive per-owner path
+	c = &Config{GitHub: GitHubConfig{Owner: "myorg"}}
+	c.Defaults()
+	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
+		t.Errorf("owner default: got %q", c.GitHub.GitHubSecret)
+	}
+
+	// Legacy pat_secret migrates to github_secret
+	c = &Config{GitHub: GitHubConfig{PATSecret: "/ai-desktops/github/pat"}}
+	c.Defaults()
+	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+		t.Errorf("migration: got %q", c.GitHub.GitHubSecret)
+	}
+
+	// Explicit github_secret takes priority
+	c = &Config{GitHub: GitHubConfig{GitHubSecret: "/ai-desktops/myorg/github", Owner: "myorg"}}
+	c.Defaults()
+	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
+		t.Errorf("explicit: got %q", c.GitHub.GitHubSecret)
+	}
+}
+
+func TestLoad_LegacyPATSecret(t *testing.T) {
+	yaml := `
+github:
+  owner: myorg
+  pat_secret: /ai-desktops/github/pat
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// Legacy pat_secret should be migrated to github_secret
+	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+		t.Errorf("legacy migration: got %q", c.GitHub.GitHubSecret)
+	}
+}

@@ -296,6 +296,39 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-10.6 | `wireguard-tools` is installed on the desktop (wg --version succeeds) | `TestFR10_WireGuardToolsInstalled` |
 | AC-10.7 | WireGuard kernel module is available (wg command is on PATH) | `TestFR10_WireGuardOnPath` |
 
+### FR-11 — GitHub developer tooling
+
+| ID | Requirement |
+| --- | --- |
+| FR-11.1 | Every desktop must have the `gh` CLI installed and on PATH. |
+| FR-11.2 | `gh` must be pre-authenticated for the desktop's configured GitHub owner at first boot, using the same GitHub PAT already provisioned for repository cloning. |
+| FR-11.3 | `git` must be configured with a commit identity (`user.name` and `user.email`) so that commits created on the desktop are attributed correctly. |
+| FR-11.4 | The developer must be able to create and manage pull requests from the desktop (`gh pr create`, `gh pr list`, `gh pr merge`). |
+| FR-11.5 | The developer must be able to view and inspect GitHub Actions workflow runs from the desktop (`gh run list`, `gh run view`). |
+| FR-11.6 | The developer must be able to retrieve failing Actions log output from the desktop (`gh run view --log-failed`). |
+| FR-11.7 | `python3` must be installed and on PATH to support scripted GitHub health checks that use Python for JSON parsing and date arithmetic. |
+| FR-11.8 | The developer must be able to access GitHub security APIs from the desktop: Dependabot alerts, code-scanning alerts, and secret-scanning alerts via `gh api`. |
+| FR-11.9 | The developer must be able to inspect and merge Dependabot PRs from the desktop, including auto-merge of safe minor/patch upgrades. |
+| FR-11.10 | The developer must be able to inspect branch protection rules and repository rulesets via `gh api` from the desktop. |
+| FR-11.11 | The developer must be able to push commits and branches to GitHub from the desktop without re-entering credentials. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-11.1 | `which gh && gh --version` exits 0 via SSH | `TestFR11_GHInstalled` |
+| AC-11.2 | `gh auth status` exits 0 and reports an authenticated account | `TestFR11_GHAuthStatus` |
+| AC-11.3 | `git config --global user.name` returns a non-empty value via SSH | `TestFR11_GitIdentityName` |
+| AC-11.4 | `git config --global user.email` returns a non-empty value via SSH | `TestFR11_GitIdentityEmail` |
+| AC-11.5 | `which python3 && python3 --version` exits 0 via SSH | `TestFR11_Python3Installed` |
+| AC-11.6 | `gh pr list --help` exits 0 | `TestFR11_GHPRList` |
+| AC-11.7 | `gh run list --limit 1 --json status,conclusion` exits 0 (or returns empty array for repos with no runs) | `TestFR11_GHRunList` |
+| AC-11.8 | `gh api /repos/OWNER/REPO/dependabot/alerts?state=open\&per_page=1` exits 0 or returns HTTP 403 (enabled but no admin access) rather than HTTP 404 (not enabled) | `TestFR11_DependabotAPIReachable` |
+| AC-11.9 | `gh api /repos/OWNER/REPO/code-scanning/alerts?state=open\&per_page=1` exits 0 or returns HTTP 403 | `TestFR11_CodeScanningAPIReachable` |
+| AC-11.10 | `gh api /repos/OWNER/REPO/secret-scanning/alerts?state=open\&per_page=1` exits 0 or returns HTTP 403 | `TestFR11_SecretScanningAPIReachable` |
+| AC-11.11 | `gh api /repos/OWNER/REPO/branches/main/protection` exits 0 or returns HTTP 403 | `TestFR11_BranchProtectionAPIReachable` |
+| AC-11.12 | `git push --dry-run` succeeds against the cloned workspace repo without credential prompts | `TestFR11_GitPushCredentials` |
+
 ---
 
 ## Security Requirements

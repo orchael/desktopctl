@@ -35,10 +35,10 @@ github:
   # If set here, --github-owner can be omitted from `create`.
   owner: myorg
 
-  # AWS SSM Parameter Store path or Secrets Manager secret name holding
-  # a fine-scoped GitHub PAT (repo:read, contents:read minimum).
-  # The PAT is retrieved at desktop boot by the instance role — never stored in plaintext.
-  pat_secret: /ai-desktops/github/pat
+  # AWS Secrets Manager secret path for this GitHub owner's credentials.
+  # Created automatically by `ai-desktops setup`. Contains github_token,
+  # ssh_private_key, and ssh_public_key as a JSON document.
+  github_secret: /ai-desktops/myorg/github
 
 desktop:
   # EC2 instance type for each desktop.

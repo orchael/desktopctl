@@ -61,7 +61,7 @@ type CreateRequest struct {
 	OperatorCIDR  string
 	SSHKeyPath    string
 	SSHKeyName    string // EC2 key pair name (registered in AWS)
-	PATSecret     string
+	GitHubSecret  string
 	BackendBucket string
 	Region        string
 	Profile       string

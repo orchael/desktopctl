@@ -59,8 +59,14 @@ type FleetConfig struct {
 }
 
 type GitHubConfig struct {
-	Owner     string `yaml:"owner"`
-	PATSecret string `yaml:"pat_secret"`
+	Owner string `yaml:"owner"`
+	// GitHubSecret is the AWS Secrets Manager secret path holding the JSON blob
+	// with github_token, ssh_private_key, and ssh_public_key.
+	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/github.
+	GitHubSecret string `yaml:"github_secret,omitempty"`
+	// PATSecret is the legacy field name. Loaded if github_secret is absent.
+	// Deprecated: use github_secret set by `ai-desktops setup`.
+	PATSecret string `yaml:"pat_secret,omitempty"`
 }
 
 type DesktopConfig struct {
@@ -129,8 +135,15 @@ func (c *Config) Defaults() {
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
 	}
-	if c.GitHub.PATSecret == "" {
-		c.GitHub.PATSecret = "/ai-desktops/github/pat"
+	if c.GitHub.GitHubSecret == "" {
+		if c.GitHub.PATSecret != "" {
+			// Migrate legacy config: treat pat_secret as the secret path.
+			c.GitHub.GitHubSecret = c.GitHub.PATSecret
+		} else if c.GitHub.Owner != "" {
+			c.GitHub.GitHubSecret = "/ai-desktops/" + c.GitHub.Owner + "/github"
+		} else {
+			c.GitHub.GitHubSecret = "/ai-desktops/github/pat"
+		}
 	}
 }
 

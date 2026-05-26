@@ -15,7 +15,7 @@ func TestRenderCloudInit(t *testing.T) {
 		Repos:         []string{"github.com/acme/app-one", "github.com/acme/app-two"},
 		WorkspacePath: "/workspace",
 		BridgePort:    9445,
-		PATSecretPath: "/ai-desktops/github/pat",
+		GitHubSecretPath: "/ai-desktops/acme/github",
 		AWSRegion:     "us-east-1",
 		Environment:   "dev",
 	}
@@ -33,7 +33,7 @@ func TestRenderCloudInit(t *testing.T) {
 		"app-two",
 		"/workspace",
 		"9445",
-		"/ai-desktops/github/pat",
+		"/ai-desktops/acme/github",
 		"us-east-1",
 		"ai-agent-bridge",
 		AIAgentBridgeVersion,
@@ -75,7 +75,7 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 		DesktopID:     "d-003",
 		Hostname:      "d-003.desktops.orchael.dev",
 		GitHubOwner:   "acme",
-		PATSecretPath: "/ai-desktops/github/pat",
+		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -83,8 +83,8 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	// The rendered output should reference the SSM path, not a literal secret value.
-	// In this template the PAT is retrieved at runtime via AWS CLI, so no literal
+	// The rendered output should reference the secret path, not a literal secret value.
+	// In this template the token is retrieved at runtime via AWS CLI, so no literal
 	// token should appear.
 	if strings.Contains(out, "ghp_") {
 		t.Error("rendered cloud-init must not contain a literal GitHub PAT")
@@ -100,7 +100,7 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 		WorkspacePath: "/workspace",
 		AWSRegion:     "us-east-1",
 		Environment:   "dev",
-		PATSecretPath: "/ai-desktops/github/pat",
+		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)

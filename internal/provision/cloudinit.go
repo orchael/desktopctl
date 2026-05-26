@@ -27,7 +27,7 @@ type BootstrapConfig struct {
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
-	PATSecretPath        string
+	GitHubSecretPath     string // AWS Secrets Manager path: /ai-desktops/<owner>/github
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
@@ -140,44 +140,62 @@ runcmd:
       echo "WARNING: ai-agent-bridge.service not found - bridge will not be available"
     fi
 
-  # --- retrieve github PAT and clone repos ---
+  # --- retrieve GitHub credentials and configure SSH ---
   - |
     set -e
     REGION="{{ .AWSRegion }}"
-    PAT_SECRET="{{ .PATSecretPath }}"
+    SECRET="{{ .GitHubSecretPath }}"
     WORKSPACE="{{ .WorkspacePath }}"
     OWNER="{{ .GitHubOwner }}"
 
-    # Retrieve PAT from SSM Parameter Store, falling back to Secrets Manager.
-    PAT=$(aws ssm get-parameter \
+    # Retrieve JSON secret from Secrets Manager
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
       --region "$REGION" \
-      --name "$PAT_SECRET" \
-      --with-decryption \
-      --query Parameter.Value \
-      --output text 2>/dev/null) || \
-    PAT=$(aws secretsmanager get-secret-value \
-      --region "$REGION" \
-      --secret-id "$PAT_SECRET" \
+      --secret-id "$SECRET" \
       --query SecretString \
       --output text)
 
-    if [ -z "$PAT" ]; then
-      echo "ERROR: could not retrieve GitHub PAT from $PAT_SECRET" >&2
+    if [ -z "$SECRET_JSON" ]; then
+      echo "ERROR: could not retrieve secret from $SECRET" >&2
       exit 1
     fi
 
-    # Write credentials to .netrc so the PAT never appears in process args or git URLs.
-    printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$PAT" > /root/.netrc
-    chmod 600 /root/.netrc
-    unset PAT
+    GITHUB_TOKEN=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
+    SSH_KEY=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
+    unset SECRET_JSON
 
-    # Clone repositories
+    # Install SSH private key for github.com
+    install -d -m 700 /home/ubuntu/.ssh
+    printf '%s\n' "$SSH_KEY" > /home/ubuntu/.ssh/github_ed25519
+    chmod 600 /home/ubuntu/.ssh/github_ed25519
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/github_ed25519
+    unset SSH_KEY
+
+    # Configure SSH to use the key for github.com
+    printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
+      > /home/ubuntu/.ssh/config
+    chmod 600 /home/ubuntu/.ssh/config
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/config
+
+    # Authenticate gh CLI as ubuntu user
+    sudo -u ubuntu bash -c "echo \"${GITHUB_TOKEN}\" | gh auth login --with-token"
+
+    # Configure git commit identity
+    sudo -u ubuntu git config --global user.name  "AI Desktop ({{ .DesktopID }})"
+    sudo -u ubuntu git config --global user.email "desktop-{{ .DesktopID }}@noreply.github.com"
+
+    unset GITHUB_TOKEN
+
+  # --- clone repositories ---
 {{ range .Repos }}
+  - |
+    set -e
+    OWNER="{{ $.GitHubOwner }}"
+    WORKSPACE="{{ $.WorkspacePath }}"
     REPO_URL="{{ . }}"
     REPO_NAME=$(basename "$REPO_URL" .git)
-    REPO_OWNER=$(echo "$REPO_URL" | sed 's|.*github.com/||' | cut -d/ -f1)
+    REPO_OWNER=$(echo "$REPO_URL" | sed 's|.*github\.com[/:]||' | cut -d/ -f1)
 
-    # Enforce owner boundary
     if [ "$REPO_OWNER" != "$OWNER" ]; then
       echo "ERROR: repo $REPO_URL owner $REPO_OWNER does not match desktop owner $OWNER" >&2
       exit 1
@@ -185,12 +203,9 @@ runcmd:
 
     DEST="$WORKSPACE/$REPO_NAME"
     if [ ! -d "$DEST/.git" ]; then
-      git clone "https://github.com/${OWNER}/${REPO_NAME}.git" "$DEST"
-      chown -R ubuntu:ubuntu "$DEST"
+      sudo -u ubuntu git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
     fi
 {{ end }}
-    # Remove .netrc credentials after cloning.
-    rm -f /root/.netrc
 
   # --- write desktop metadata ---
   - |
