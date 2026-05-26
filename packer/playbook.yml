@@ -129,21 +129,10 @@
 
     - name: Install Rust via rustup for ubuntu user
       ansible.builtin.shell: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       args:
         creates: /home/ubuntu/.cargo/bin/rustc
       become: false
-
-    - name: Add Cargo to login shell PATH via /etc/profile.d
-      ansible.builtin.copy:
-        dest: /etc/profile.d/rust.sh
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          if [ -f "$HOME/.cargo/env" ]; then
-            . "$HOME/.cargo/env"
-          fi
 
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
