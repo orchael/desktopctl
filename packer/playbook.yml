@@ -6,7 +6,7 @@
   vars:
     # go_version and uv_version are injected via --extra-vars from packer (variables.pkrvars.hcl).
     # These defaults are fallbacks only; the packer vars file is authoritative.
-    go_version: "1.23.0"
+    go_version: "1.24.0"
     uv_version: "0.4.0"
     ansible_python_interpreter: auto_silent
     # Minimum acceptable versions for apt-installed packages.
