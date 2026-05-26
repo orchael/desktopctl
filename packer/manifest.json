@@ -98,7 +98,67 @@
         "novnc_version": "v0.2.2",
         "uv_version": "0.4.0"
       }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779739097,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0a5227edfe2d598b0",
+      "packer_run_uuid": "17fd4445-60fb-df3a-f81e-8bec29885444",
+      "custom_data": {
+        "base_ami": "ami-0921321de0ffccdd4",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.2.2",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779743322,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0f0ae095d977c043e",
+      "packer_run_uuid": "43881177-c538-4f5c-8803-ed62f99fda8d",
+      "custom_data": {
+        "base_ami": "ami-0921321de0ffccdd4",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.2.2",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779751291,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0791259c1441ec8c9",
+      "packer_run_uuid": "2c299b76-b89b-4cc2-9c38-9e15c78dfa90",
+      "custom_data": {
+        "base_ami": "ami-0921321de0ffccdd4",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.2.2",
+        "uv_version": "0.4.0"
+      }
+    },
+    {
+      "name": "ubuntu",
+      "builder_type": "amazon-ebs",
+      "build_time": 1779761512,
+      "files": null,
+      "artifact_id": "us-east-1:ami-09ed574b4debb5b85",
+      "packer_run_uuid": "d6f9543e-ae19-7a8f-ee85-e5bc8b5ab8af",
+      "custom_data": {
+        "base_ami": "ami-0921321de0ffccdd4",
+        "bridge_version": "v0.1.0",
+        "go_version": "1.23.0",
+        "novnc_version": "v0.2.2",
+        "uv_version": "0.4.0"
+      }
     }
   ],
-  "last_run_uuid": "eb12312b-6de4-c36c-cd3e-ed3c9e7eb505"
+  "last_run_uuid": "d6f9543e-ae19-7a8f-ee85-e5bc8b5ab8af"
 }

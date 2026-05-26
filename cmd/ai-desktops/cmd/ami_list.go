@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -21,6 +22,13 @@ var amiListCmd = &cobra.Command{
 
 func init() {
 	amiCmd.AddCommand(amiListCmd)
+}
+
+type amiListEntry struct {
+	Region    string `json:"region"`
+	AMIID     string `json:"ami_id"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
 
 func runAmiList(cmd *cobra.Command, args []string) error {
@@ -48,9 +56,7 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(regions)
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "REGION\tAMI ID\tSTATUS\tCREATED")
-	fmt.Fprintln(w, "------\t------\t------\t-------")
+	var entries []amiListEntry
 
 	for _, region := range regions {
 		records, err := amiStore.ListAMIs(ctx, region)
@@ -90,8 +96,24 @@ func runAmiList(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", region, rec.AMIID, status, createdTime)
+			entries = append(entries, amiListEntry{
+				Region:    region,
+				AMIID:     rec.AMIID,
+				Status:    status,
+				CreatedAt: createdTime,
+			})
 		}
+	}
+
+	if jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(entries)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "REGION\tAMI ID\tSTATUS\tCREATED")
+	fmt.Fprintln(w, "------\t------\t------\t-------")
+	for _, e := range entries {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Region, e.AMIID, e.Status, e.CreatedAt)
 	}
 	w.Flush()
 

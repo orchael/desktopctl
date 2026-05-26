@@ -51,12 +51,13 @@ func DesktopStackRef(backendURL, desktopID, workDir string) *StackRef {
 type StackConfig map[string]string
 
 // FoundationConfig builds the Pulumi config for the foundation stack.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig {
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string) StackConfig {
 	return StackConfig{
 		"aws:region":   region,
 		"zone":         zone,
 		"fleetTable":   fleetTable,
 		"operatorCIDR": operatorCIDR,
+		"environment":  environment,
 	}
 }
 
@@ -72,7 +73,7 @@ func DesktopConfig(
 	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
 	repos []string,
 	bridgePort int,
-	amiID, userData string,
+	amiID, userData, environment string,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -85,6 +86,7 @@ func DesktopConfig(
 		"instanceProfile": instanceProfile,
 		"patSecret":       patSecret,
 		"repos":           strings.Join(repos, ","),
+		"environment":     environment,
 	}
 	if sshKeyName != "" {
 		cfg["sshKeyName"] = sshKeyName

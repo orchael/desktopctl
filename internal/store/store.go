@@ -23,23 +23,23 @@ const (
 
 // Desktop is the fleet metadata record for one managed desktop.
 type Desktop struct {
-	DesktopID     string         `dynamodbav:"desktop_id"`
-	StackName     string         `dynamodbav:"stack_name"`
-	GitHubOwner   string         `dynamodbav:"github_owner"`
-	Region        string         `dynamodbav:"region"`
-	State         LifecycleState `dynamodbav:"lifecycle_state"`
-	InstanceID    string         `dynamodbav:"instance_id"`
-	Hostname      string         `dynamodbav:"hostname"`
-	NoVNCURL      string         `dynamodbav:"novnc_url"`
-	SSHTarget     string         `dynamodbav:"ssh_target"`
-	AMIID         string         `dynamodbav:"ami_id,omitempty"`
-	Readiness     string         `dynamodbav:"readiness"`
-	FailurePhase  string         `dynamodbav:"failure_phase,omitempty"`
-	FailureMsg    string         `dynamodbav:"failure_message,omitempty"`
-	Repos         []string       `dynamodbav:"repos,omitempty"`
-	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"`
-	CreatedAt     string         `dynamodbav:"created_at"`
-	UpdatedAt     string         `dynamodbav:"updated_at"`
+	DesktopID     string         `dynamodbav:"desktop_id"       json:"desktop_id"`
+	StackName     string         `dynamodbav:"stack_name"       json:"stack_name"`
+	GitHubOwner   string         `dynamodbav:"github_owner"     json:"github_owner"`
+	Region        string         `dynamodbav:"region"           json:"region"`
+	State         LifecycleState `dynamodbav:"lifecycle_state"  json:"lifecycle_state"`
+	InstanceID    string         `dynamodbav:"instance_id"      json:"instance_id"`
+	Hostname      string         `dynamodbav:"hostname"         json:"hostname"`
+	NoVNCURL      string         `dynamodbav:"novnc_url"        json:"novnc_url"`
+	SSHTarget     string         `dynamodbav:"ssh_target"       json:"ssh_target"`
+	AMIID         string         `dynamodbav:"ami_id,omitempty" json:"ami_id,omitempty"`
+	Readiness     string         `dynamodbav:"readiness"        json:"readiness"`
+	FailurePhase  string         `dynamodbav:"failure_phase,omitempty"   json:"failure_phase,omitempty"`
+	FailureMsg    string         `dynamodbav:"failure_message,omitempty" json:"failure_message,omitempty"`
+	Repos         []string       `dynamodbav:"repos,omitempty"           json:"repos,omitempty"`
+	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
+	CreatedAt     string         `dynamodbav:"created_at"       json:"created_at"`
+	UpdatedAt     string         `dynamodbav:"updated_at"       json:"updated_at"`
 }
 
 // now returns the current time as RFC3339.

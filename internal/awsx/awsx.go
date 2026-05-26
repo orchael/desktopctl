@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -179,7 +180,8 @@ func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner strin
 	return aws.ToString(best.ImageId), nil
 }
 
-// StopInstance stops the given EC2 instance.
+// StopInstance stops the given EC2 instance and waits until it reaches the
+// stopped state (up to 10 minutes).
 func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error {
 	c := ec2.NewFromConfig(cfg)
 	_, err := c.StopInstances(ctx, &ec2.StopInstancesInput{
@@ -187,6 +189,12 @@ func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error 
 	})
 	if err != nil {
 		return fmt.Errorf("stop instance %s: %w", instanceID, err)
+	}
+	waiter := ec2.NewInstanceStoppedWaiter(c)
+	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance %s to stop: %w", instanceID, err)
 	}
 	return nil
 }

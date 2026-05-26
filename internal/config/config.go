@@ -11,8 +11,9 @@ import (
 
 
 const (
-	EnvProd = "prod"
-	EnvDev  = "dev"
+	EnvProd  = "prod"
+	EnvDev   = "dev"
+	EnvTest  = "test"
 
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
@@ -82,14 +83,15 @@ type AgentConfig struct {
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.
+// The test environment shares the dev zone so no separate hosted zone is needed.
 func (c *Config) DNSZone() (string, error) {
 	switch c.Environment() {
 	case EnvProd:
 		return ZoneProd, nil
-	case EnvDev:
+	case EnvDev, EnvTest:
 		return ZoneDev, nil
 	default:
-		return "", fmt.Errorf("unknown environment %q: must be %q or %q", c.Environment(), EnvProd, EnvDev)
+		return "", fmt.Errorf("unknown environment %q: must be one of %q, %q, %q", c.Environment(), EnvProd, EnvDev, EnvTest)
 	}
 }
 

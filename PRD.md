@@ -112,6 +112,19 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-1.4 | Starting a previously stopped desktop must restore access to the same persisted workspace. |
 | FR-1.5 | Terminating a desktop must permanently destroy its compute resources and attached state. |
 
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-1.1 | `ai-desktops create --github-owner <owner> --json` exits 0 and returns `desktop_id`, `novnc_url`, and `ssh_target` | `TestFR1_CreateOutput` |
+| AC-1.2 | DynamoDB `lifecycle_state` is `ready` immediately after create completes | `TestFR1_StateReady` |
+| AC-1.3 | `ai-desktops list --json` output includes the created desktop ID | `TestFR1_List` |
+| AC-1.4 | `ai-desktops status <id> --json` returns all required fields: id, state, hostname, novnc_url, ssh_target, github_owner, instance_id, stack_name | `TestFR1_StatusFields` |
+| AC-1.5 | `ai-desktops stop <id>` exits 0 and transitions `lifecycle_state` to `stopped` | `TestFR7_01_Stop` |
+| AC-1.6 | `ai-desktops start <id>` exits 0 and transitions `lifecycle_state` back to `ready` | `TestFR7_02_Start` |
+| AC-1.7 | After `ai-desktops terminate <id>`, the desktop no longer appears in `list` output | TestMain cleanup |
+| AC-1.8 | `create` without `--github-owner` fails with a clear error message | `TestFR1_CreateRejectsWithoutOwner` |
+
 ### FR-2 — Desktop access
 
 | ID | Requirement |
@@ -121,6 +134,15 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-2.3 | Browser access is the primary access path; SSH is a secondary operational path. |
 | FR-2.4 | The system must return both the browser URL and SSH connection details after desktop creation. |
 
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-2.1 | HTTPS GET to `novnc_url` (port 8443) returns a non-5xx response within 5 minutes of creation | `TestFR2_NoVNCHTTPSReachable` |
+| AC-2.2 | TCP connection to `hostname:22` succeeds within 3 minutes of creation | `TestFR2_SSHPortReachable` |
+| AC-2.3 | SSH key authentication to `ubuntu@hostname` succeeds | `TestFR2_SSHAuthentication` |
+| AC-2.4 | `create --json` output contains both `novnc_url` (HTTPS, port 8443) and `ssh_target` (`ubuntu@…`) | `TestFR1_CreateOutput` |
+
 ### FR-3 — Desktop substrate
 
 | ID | Requirement |
@@ -128,6 +150,16 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-3.1 | Every managed desktop must use `novnc-desktop` as the browser desktop substrate. |
 | FR-3.2 | `novnc-desktop` must be configured to use the `elementary` desktop environment for `ai-desktops` managed hosts. |
 | FR-3.3 | Failure to provision the required desktop substrate must fail desktop creation clearly rather than producing a partially usable desktop. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-3.1 | `systemctl is-active novnc-desktop` returns `active` via SSH | `TestFR3_NoVNCServiceActive` |
+| AC-3.2 | `systemctl is-active nginx` returns `active` (noVNC HTTPS proxy) | `TestFR3_NginxServiceActive` |
+| AC-3.3 | Port 8443 has a listening process (confirmed by `ss -tlnp`) | `TestFR3_NoVNCListening` |
+| AC-3.4 | Pantheon greeter package or xsession desktop file for elementary is present | `TestFR3_ElementaryDesktopEnvironment` |
+| AC-3.5 | A desktop that fails provisioning enters `failed` state, not `ready` | TestMain: `waitForState` fails cleanly |
 
 ### FR-4 — Agent runtime
 
@@ -140,6 +172,15 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-4.5 | The fleet manager must support remote agent control by creating an authenticated tunnel from the operator machine to the desktop-local `ai-agent-bridge` endpoint. |
 | FR-4.6 | `ai-agent-bridge` must not be exposed directly to the public internet in v1. |
 
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-4.1 | `systemctl is-active ai-agent-bridge` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
+| AC-4.2 | Bridge listens on `127.0.0.1:9445`, not `0.0.0.0:9445` | `TestFR4_BridgeLocalhostOnly` |
+| AC-4.3 | `ai-desktops agent <id> status` completes without error | `TestFR4_AgentStatusCommand` |
+| AC-4.4 | `ai-desktops agent <id> providers` output includes codex, claude, and gemini | `TestFR4_AgentProvidersCommand` |
+
 ### FR-5 — Base toolchain
 
 | ID | Requirement |
@@ -149,6 +190,17 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-5.3 | Every desktop must include `nvim`. |
 | FR-5.4 | Every desktop must include `tmux`. |
 | FR-5.5 | The base toolchain must be present before a desktop is reported ready. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-5.1 | `which git && git --version` exits 0 via SSH | `TestFR5_GitInstalled` |
+| AC-5.2 | `which docker && docker --version` exits 0 and `docker info` succeeds as ubuntu user | `TestFR5_DockerInstalled`, `TestFR5_DockerDaemonActive` |
+| AC-5.3 | `which nvim && nvim --version` exits 0 via SSH | `TestFR5_NvimInstalled` |
+| AC-5.4 | `which tmux && tmux -V` exits 0 via SSH | `TestFR5_TmuxInstalled` |
+| AC-5.5 | All four tools resolve via `which git docker nvim tmux` in a single SSH call | `TestFR5_AllToolsOnPath` |
+| AC-5.6 | Desktop is in state `ready` only after all tools are confirmed present (desktop tested is already ready) | Implied by all AC-5.x tests running against a ready fixture |
 
 ### FR-6 — Workspace and repository policy
 
@@ -160,6 +212,17 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-6.4 | The system must reject attempts to attach or clone repositories from a different owner into an existing desktop-managed workspace. |
 | FR-6.5 | Automatic checkout into a standard workspace location must be supported during desktop creation when repositories are provided. |
 
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-6.1 | Each repo URL passed to `create` is present under `/workspace/<repo-name>` on the desktop | `TestFR6_ReposPresent` |
+| AC-6.2 | Each `/workspace/<repo-name>` is a valid git repository (`git rev-parse HEAD` exits 0) | `TestFR6_WorkspaceIsGitRepo` |
+| AC-6.3 | Git remote URL for each cloned repo contains the desktop's GitHub owner | `TestFR6_WorkspaceOwnerBoundary` |
+| AC-6.4 | `create --preview` with repos from two different owners exits non-zero with an error | `TestFR6_MixedOwnerRejected` |
+| AC-6.5 | `create --preview` with a non-GitHub repo URL exits non-zero | `TestFR6_NonGitHubRepoRejected` |
+| AC-6.6 | `create` without `--github-owner` exits non-zero | `TestFR1_CreateRejectsWithoutOwner` |
+
 ### FR-7 — Persistence
 
 | ID | Requirement |
@@ -168,6 +231,14 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-7.2 | Installed tools, checked-out repositories, editor state, and agent workspace artifacts must remain available after restart unless explicitly deleted by the operator. |
 | FR-7.3 | Persistence semantics apply to normal desktop lifecycle operations, not to terminated desktops. |
 
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-7.1 | After `stop` + `start`, each cloned repo is still present under `/workspace/<repo-name>` | `TestFR7_03_WorkspacePersists` |
+| AC-7.2 | After `stop` + `start`, all base toolchain commands (`git`, `docker`, `nvim`, `tmux`) remain on PATH | `TestFR7_04_ToolsPersist` |
+| AC-7.3 | After `stop`, `lifecycle_state` is `stopped`; after `start`, it is `ready` | `TestFR7_01_Stop`, `TestFR7_02_Start` |
+
 ### FR-8 — External access posture
 
 | ID | Requirement |
@@ -175,6 +246,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-8.1 | v1 may optimize for a single operator workflow. |
 | FR-8.2 | The system architecture must not assume that only one human can ever access the application surface. |
 | FR-8.3 | Future authenticated access for external users must be possible without redesigning the desktop lifecycle model. |
+
+*FR-8 requirements are architectural constraints verified by design review, not integration tests.*
 
 ### FR-9 — Pre-baked AMI with Packer
 
@@ -187,6 +260,15 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-9.1 | `ai-desktops ami build --help` exits 0 and mentions packer or ami | `TestFR9_AMIBuildCommandExists` |
+| AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
+| AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateUsesAMIFromConfig` |
+| AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
 
 ### FR-10 — WireGuard VPN support
 
@@ -201,6 +283,18 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-10.7 | For running desktops, adding or removing a peer must apply the change live (without reboot) when the `--desktop` flag is provided. |
 | FR-10.8 | WireGuard peer list must be managed via the config system and persisted in `config.yaml`. |
 | FR-10.9 | The health check system must verify WireGuard server status and connectivity when enabled. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-10.1 | `ai-desktops wireguard --help` exits 0 and lists subcommands | `TestFR10_WireGuardCommandExists` |
+| AC-10.2 | `ai-desktops wireguard add-peer --help` exits 0 | `TestFR10_AddPeerCommandExists` |
+| AC-10.3 | `ai-desktops wireguard list-peers --help` exits 0 | `TestFR10_ListPeersCommandExists` |
+| AC-10.4 | `ai-desktops wireguard remove-peer --help` exits 0 | `TestFR10_RemovePeerCommandExists` |
+| AC-10.5 | `ai-desktops wireguard show-config --help` exits 0 | `TestFR10_ShowConfigCommandExists` |
+| AC-10.6 | `wireguard-tools` is installed on the desktop (wg --version succeeds) | `TestFR10_WireGuardToolsInstalled` |
+| AC-10.7 | WireGuard kernel module is available (wg command is on PATH) | `TestFR10_WireGuardOnPath` |
 
 ---
 

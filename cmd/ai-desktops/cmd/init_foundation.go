@@ -62,9 +62,10 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
-	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR)
+	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env)
 
 	fmt.Fprintf(os.Stderr, "Foundation environment : %s\n", env)
+	fmt.Fprintf(os.Stderr, "AWS region             : %s\n", cfg.AWS.Region)
 	fmt.Fprintf(os.Stderr, "DNS zone               : %s\n", zone)
 	fmt.Fprintf(os.Stderr, "Pulumi backend         : %s\n", backendURL)
 	fmt.Fprintf(os.Stderr, "Stack                  : %s\n", ref.FullName())

@@ -135,20 +135,32 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
 	userData := ""
 	hostname := desktop.Hostname(desktopID, zone)
+
+	// Read the SSH public key so cloud-init can inject it into the ubuntu user's
+	// authorized_keys.  A missing or unreadable key is non-fatal; the desktop
+	// will still boot but SSH key-based login won't work.
+	sshPubKey := ""
+	if cfg.Desktop.SSHKeyPath != "" {
+		if pubBytes, err := os.ReadFile(cfg.Desktop.SSHKeyPath + ".pub"); err == nil {
+			sshPubKey = strings.TrimSpace(string(pubBytes))
+		}
+	}
+
 	bootCfg := &provision.BootstrapConfig{
-		DesktopID:             desktopID,
-		Hostname:              hostname,
-		GitHubOwner:           owner,
-		Repos:                 req.Repos,
-		WorkspacePath:         "/workspace",
-		BridgePort:            cfg.Agent.BridgePort,
-		NoVNCHTTPPort:         provision.DefaultNoVNCHTTPPort,
-		NoVNCHTTPSPort:        provision.DefaultNoVNCHTTPSPort,
-		CertbotEmail:          "admin@orchael.ai",
-		PATSecretPath:         cfg.GitHub.PATSecret,
-		AWSRegion:             cfg.AWS.Region,
-		Environment:           env,
-		PackagesPreInstalled:  amiID != "",
+		DesktopID:            desktopID,
+		Hostname:             hostname,
+		GitHubOwner:          owner,
+		Repos:                req.Repos,
+		WorkspacePath:        "/workspace",
+		BridgePort:           cfg.Agent.BridgePort,
+		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
+		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
+		CertbotEmail:         "admin@orchael.ai",
+		PATSecretPath:        cfg.GitHub.PATSecret,
+		AWSRegion:            cfg.AWS.Region,
+		Environment:          env,
+		PackagesPreInstalled: amiID != "",
+		SSHPublicKey:         sshPubKey,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)
@@ -167,6 +179,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.Agent.BridgePort,
 		amiID,
 		userData,
+		env,
 	)
 
 	if createPreview {

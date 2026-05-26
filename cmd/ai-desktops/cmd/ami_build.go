@@ -45,14 +45,13 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	}
 	ctx := context.Background()
 
-	// Determine target region: flag > configured region > us-east-1
+	// Determine target region: flag > configured region (required).
 	region := strings.TrimSpace(amiRegions)
 	if region == "" {
-		if cfg.AWS.Region != "" {
-			region = cfg.AWS.Region
-		} else {
-			region = "us-east-1"
-		}
+		region = cfg.AWS.Region
+	}
+	if region == "" {
+		return fmt.Errorf("AWS region is required: set aws.region in config or pass --regions")
 	}
 
 	fmt.Fprintf(os.Stderr, "Building AMI for region: %s\n", region)
@@ -73,37 +72,24 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vars file not found: %w", err)
 	}
 
-	// Resolve the source AMI. Priority: --base-ami flag > source_ami in vars file > EC2 lookup.
+	// Resolve the source AMI. Priority: --base-ami flag > EC2 lookup by novnc_desktop_version + region.
+	// source_ami in the vars file is intentionally ignored: it is region-specific and would produce
+	// an InvalidAMIID error when building in a different region than it was originally recorded for.
 	baseAMI := amiBaseAMI
 
 	if baseAMI == "" {
-		// Check the vars file for an explicit source_ami.
-		vars, err := packer.ParseVarsFile(absVarsFile)
-		if err != nil {
-			return fmt.Errorf("parse vars file: %w", err)
-		}
-		if v := vars["source_ami"]; v != "" {
-			baseAMI = v
-			fmt.Fprintf(os.Stderr, "Using source_ami from vars file: %s\n", baseAMI)
-		} else {
-			// No explicit AMI — look up the latest novnc-desktop elementary AMI.
-			novncVersion := vars["novnc_desktop_version"]
-			if novncVersion == "" {
-				return fmt.Errorf("novnc_desktop_version not set in vars file and --base-ami not provided")
-			}
-			namePattern := fmt.Sprintf("novnc-desktop-ubuntu-24.04-elementary-%s-*", novncVersion)
-			fmt.Fprintf(os.Stderr, "Looking up novnc-desktop AMI: %s\n", namePattern)
+		namePattern := "novnc-desktop-ubuntu-24.04-elementary-*"
+		fmt.Fprintf(os.Stderr, "Looking up novnc-desktop AMI (%s) in %s...\n", namePattern, region)
 
-			awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
-			if err != nil {
-				return fmt.Errorf("load AWS config: %w", err)
-			}
-			baseAMI, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, novncAMIOwner)
-			if err != nil {
-				return fmt.Errorf("find novnc-desktop AMI: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "Resolved novnc-desktop base AMI: %s\n", baseAMI)
+		awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config: %w", err)
 		}
+		baseAMI, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, novncAMIOwner)
+		if err != nil {
+			return fmt.Errorf("find novnc-desktop AMI: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Resolved novnc-desktop base AMI: %s\n", baseAMI)
 	} else {
 		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
 	}

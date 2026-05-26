@@ -179,6 +179,10 @@ func run(ctx *pulumi.Context) error {
 		repos = strings.Split(reposRaw, ",")
 	}
 	sshKeyName := cfg.Get("sshKeyName")
+	environment := cfg.Get("environment")
+	if environment == "" {
+		environment = "dev"
+	}
 	bridgePort := cfg.GetInt("bridgePort")
 	if bridgePort == 0 {
 		bridgePort = defaultBridgePort
@@ -239,6 +243,7 @@ func run(ctx *pulumi.Context) error {
 			"managed-by":   pulumi.String("ai-desktops"),
 			"desktop-id":   pulumi.String(desktopID),
 			"github-owner": pulumi.String(githubOwner),
+			"environment":  pulumi.String(environment),
 		},
 	}
 	if sshKeyName != "" {
