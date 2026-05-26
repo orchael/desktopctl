@@ -140,6 +140,8 @@ func (c *Config) Validate() error {
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
+	// TODO(wireguard): defaulting to open ingress is a temporary convenience;
+	// require an explicit operator_cidr once WireGuard replaces direct SSH access.
 	if c.Desktop.OperatorCIDR == "" {
 		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}

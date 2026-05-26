@@ -92,7 +92,6 @@
 
     - name: Add Homebrew to PATH via /etc/profile.d
       become: true
-      when: brew_check.stat.exists
       ansible.builtin.copy:
         dest: /etc/profile.d/homebrew.sh
         mode: "0644"

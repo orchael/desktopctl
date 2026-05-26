@@ -32,7 +32,7 @@ Run with --preview to describe what would be applied without making changes.`,
 func init() {
 	initFoundationCmd.Flags().BoolVar(&foundationPreview, "preview", false, "preview changes without applying")
 	initFoundationCmd.Flags().BoolVar(&foundationRefresh, "refresh", false, "sync Pulumi state with AWS before applying (use after manual AWS changes)")
-	initFoundationCmd.Flags().StringVar(&foundationEnv, "env", "", "environment (prod|dev), overrides config")
+	initFoundationCmd.Flags().StringVar(&foundationEnv, "env", "", "environment (prod|dev|test), overrides config")
 	rootCmd.AddCommand(initFoundationCmd)
 }
 
@@ -55,6 +55,8 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if err := requireBackend(ctx); err != nil {
 		return err
 	}
+	// TODO(wireguard): defaulting to open ingress is a temporary convenience;
+	// require an explicit operator_cidr once WireGuard replaces direct SSH access.
 	if cfg.Desktop.OperatorCIDR == "" {
 		cfg.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}

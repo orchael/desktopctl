@@ -289,7 +289,7 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
 			"systemctl is-active novnc-desktop", t),
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
-			`sudo bash -c 'for cert in /etc/letsencrypt/live/*/fullchain.pem; do [ -f "$cert" ] || continue; openssl x509 -in "$cert" -noout -checkend 604800 || exit 1; done'`, t), // 604800 = 7 days
+			`sudo bash -c 'found=0; for cert in /etc/letsencrypt/live/*/fullchain.pem; do [ -f "$cert" ] || continue; found=1; openssl x509 -in "$cert" -noout -checkend 604800 || exit 1; done; [ $found -eq 1 ] || exit 1'`, t), // 604800 = 7 days; fails if no certs exist
 		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
 			"systemctl is-enabled certbot.timer", t),
 	}
