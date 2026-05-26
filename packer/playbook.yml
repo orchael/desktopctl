@@ -99,6 +99,52 @@
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
 
+    - name: Get latest nvm release version
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
+        method: GET
+        return_content: true
+        headers:
+          Accept: application/vnd.github.v3+json
+      register: nvm_latest_release
+      changed_when: false
+
+    - name: Install nvm for ubuntu user
+      ansible.builtin.shell: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash
+      args:
+        creates: /home/ubuntu/.nvm/nvm.sh
+      become: false
+
+    - name: Add nvm to login shell PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/nvm.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
+    - name: Install Rust via rustup for ubuntu user
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+      args:
+        creates: /home/ubuntu/.cargo/bin/rustc
+      become: false
+
+    - name: Add Cargo to login shell PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/rust.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          if [ -f "$HOME/.cargo/env" ]; then
+            . "$HOME/.cargo/env"
+          fi
+
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
         src: files/ai-desktops-setup-tls
@@ -151,6 +197,27 @@
           WARNING: uv version mismatch — expected {{ uv_version }},
           got {{ uv_ver_out.stdout }}
       when: "uv_version not in uv_ver_out.stdout"
+
+    - name: Verify nvm is installed
+      ansible.builtin.shell: |
+        bash -c 'source /home/ubuntu/.nvm/nvm.sh && nvm --version'
+      register: nvm_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show nvm version
+      ansible.builtin.debug:
+        msg: "nvm version: {{ nvm_ver_out.stdout }}"
+
+    - name: Verify rustc is installed
+      ansible.builtin.command: /home/ubuntu/.cargo/bin/rustc --version
+      register: rust_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show Rust version
+      ansible.builtin.debug:
+        msg: "Rust version: {{ rust_ver_out.stdout }}"
 
     - name: Clean up apt cache
       ansible.builtin.apt:
