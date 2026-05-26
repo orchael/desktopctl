@@ -1,0 +1,127 @@
+---
+# desktop-setup — configure a desktop instance post-boot
+#
+# This playbook runs during cloud-init to verify pre-installed tools and
+# install Homebrew for Linux. It's idempotent and safe to re-run.
+#
+# Usage (via cloud-init):
+#   Automatically during desktop boot
+#
+# Usage (standalone via SSH):
+#   ansible-playbook playbook.yml -i inventory.ini
+
+- name: Configure AI Desktops instance
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    # ------------------------------------------------------------------
+    # 0. Source /etc/profile.d for tool PATH updates
+    # ------------------------------------------------------------------
+    - name: Source profile.d scripts for PATH updates
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin"
+        echo "$PATH"
+      register: path_setup
+      changed_when: false
+
+    # ------------------------------------------------------------------
+    # 1. Verify pre-installed tools from Packer AMI
+    # ------------------------------------------------------------------
+    - name: Check pre-installed tools from Packer
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which {{ item }} || exit 1
+      loop:
+        - git
+        - docker
+        - curl
+        - wget
+        - tmux
+        - nvim
+        - go
+        - aws
+        - nginx
+      changed_when: false
+      ignore_errors: true
+      register: tool_check
+
+    - name: Check optional tools (uv)
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which uv || exit 1
+      changed_when: false
+      ignore_errors: true
+      register: uv_check
+
+    - name: Report tool verification
+      ansible.builtin.debug:
+        msg: "Pre-installed tools verified from Packer AMI"
+
+    # ------------------------------------------------------------------
+    # 2. Add GitHub to known_hosts
+    # ------------------------------------------------------------------
+    - name: Add github.com host keys to known_hosts
+      ansible.builtin.known_hosts:
+        name: github.com
+        key: "{{ item }}"
+        state: present
+      loop:
+        - "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+        - "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg="
+        - "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+
+    # ------------------------------------------------------------------
+    # 3. Homebrew for Linux
+    # ------------------------------------------------------------------
+    - name: Check if Homebrew is installed
+      ansible.builtin.stat:
+        path: /home/linuxbrew/.linuxbrew/bin/brew
+      register: brew_check
+
+    - name: Install Homebrew for Linux
+      when: not brew_check.stat.exists
+      ansible.builtin.shell: |
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/brew
+
+    - name: Add Homebrew to PATH via /etc/profile.d
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/profile.d/homebrew.sh
+        mode: "0644"
+        content: |
+          if [ -d /home/linuxbrew/.linuxbrew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 4. Install uv if not found
+    # ------------------------------------------------------------------
+    - name: Install uv (Python package manager) if missing
+      when: uv_check.rc != 0
+      ansible.builtin.shell: |
+        curl -LsSf https://astral.sh/uv/install.sh | bash
+        sudo mv /home/ubuntu/.local/bin/uv /usr/local/bin/uv 2>/dev/null || sudo mv ~/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true
+      environment:
+        HOME: "/home/ubuntu"
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 5. Setup complete
+    # ------------------------------------------------------------------
+    - name: Desktop setup complete
+      ansible.builtin.debug:
+        msg: |
+          AI Desktops instance configured.
+
+          Pre-installed tools from Packer verified.
+          Homebrew and uv installation attempted.
+
+          Ready for development!

@@ -1,0 +1,225 @@
+---
+- name: Install ai-desktops toolchain on novnc-desktop base AMI
+  hosts: all
+  become: true
+
+  vars:
+    # go_version and uv_version are injected via --extra-vars from packer (variables.pkrvars.hcl).
+    # These defaults are fallbacks only; the packer vars file is authoritative.
+    go_version: "1.24.0"
+    uv_version: "0.4.0"
+    ansible_python_interpreter: auto_silent
+    # Minimum acceptable versions for apt-installed packages.
+    # Update these when the minimum supported version changes.
+    min_versions:
+      ansible: "2.10"
+      docker.io: "24.0"
+      certbot: "1.21"
+      python3-certbot-dns-route53: "1.0"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
+    # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
+    - name: Install ansible and certbot Route53 plugin
+      ansible.builtin.apt:
+        name:
+          - ansible
+          - python3-certbot-dns-route53
+        state: present
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add ubuntu user to docker group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    - name: Install Go
+      ansible.builtin.shell: |
+        curl -fsSL https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz | \
+          tar -xzf - -C /usr/local/
+        echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/golang.sh
+      args:
+        creates: /usr/local/go/bin/go
+
+    - name: Install uv (Python package manager) at pinned version
+      ansible.builtin.shell: |
+        curl -LsSf "https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+          | tar -xzf - -C /tmp/
+        install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv
+        rm -rf /tmp/uv-x86_64-unknown-linux-gnu
+      args:
+        creates: /usr/local/bin/uv
+
+    - name: Install AWS CLI v2
+      ansible.builtin.shell: |
+        curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip'
+        unzip -q /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install
+        rm -rf /tmp/awscliv2.zip /tmp/aws
+      args:
+        creates: /usr/local/bin/aws
+
+    - name: Install neovim via snap
+      community.general.snap:
+        name: nvim
+        classic: true
+        state: present
+
+    - name: Install Homebrew for Linux
+      ansible.builtin.shell: |
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/brew
+      become: false
+
+    - name: Add Homebrew to PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/homebrew.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          if [ -d /home/linuxbrew/.linuxbrew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+
+    - name: Get latest nvm release version
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
+        method: GET
+        return_content: true
+        headers:
+          Accept: application/vnd.github.v3+json
+      register: nvm_latest_release
+      changed_when: false
+
+    - name: Install nvm for ubuntu user
+      ansible.builtin.shell: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash
+      args:
+        creates: /home/ubuntu/.nvm/nvm.sh
+      become: false
+
+    - name: Add nvm to login shell PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/nvm.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
+    - name: Install Rust via rustup for ubuntu user
+      ansible.builtin.shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+      args:
+        creates: /home/ubuntu/.cargo/bin/rustc
+      become: false
+
+    - name: Add Cargo to login shell PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/rust.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          if [ -f "$HOME/.cargo/env" ]; then
+            . "$HOME/.cargo/env"
+          fi
+
+    - name: Install ai-desktops-setup-tls wrapper script
+      ansible.builtin.copy:
+        src: files/ai-desktops-setup-tls
+        dest: /usr/local/bin/ai-desktops-setup-tls
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Collect installed package facts
+      ansible.builtin.package_facts:
+        manager: apt
+
+    - name: Warn if apt package versions are below minimum
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ item.key }} installed version
+          {{ ansible_facts.packages[item.key][0].version | default('unknown') }}
+          is below minimum {{ item.value }}
+      when:
+        - ansible_facts.packages[item.key] is defined
+        - (ansible_facts.packages[item.key][0].version | default('0')) is version(item.value, '<')
+      loop: "{{ min_versions | dict2items }}"
+
+    - name: Fail if required apt packages are missing
+      ansible.builtin.fail:
+        msg: "Required package {{ item.key }} is not installed"
+      when: ansible_facts.packages[item.key] is not defined
+      loop: "{{ min_versions | dict2items }}"
+
+    - name: Verify Go version
+      ansible.builtin.command: /usr/local/go/bin/go version
+      register: go_ver_out
+      changed_when: false
+
+    - name: Warn if Go version does not match expected
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Go version mismatch — expected go{{ go_version }},
+          got {{ go_ver_out.stdout }}
+      when: "'go' + go_version not in go_ver_out.stdout"
+
+    - name: Verify uv is installed
+      ansible.builtin.command: /usr/local/bin/uv --version
+      register: uv_ver_out
+      changed_when: false
+
+    - name: Warn if uv version does not match expected
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: uv version mismatch — expected {{ uv_version }},
+          got {{ uv_ver_out.stdout }}
+      when: "uv_version not in uv_ver_out.stdout"
+
+    - name: Verify nvm is installed
+      ansible.builtin.shell: |
+        bash -c 'source /home/ubuntu/.nvm/nvm.sh && nvm --version'
+      register: nvm_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show nvm version
+      ansible.builtin.debug:
+        msg: "nvm version: {{ nvm_ver_out.stdout }}"
+
+    - name: Verify rustc is installed
+      ansible.builtin.command: /home/ubuntu/.cargo/bin/rustc --version
+      register: rust_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show Rust version
+      ansible.builtin.debug:
+        msg: "Rust version: {{ rust_ver_out.stdout }}"
+
+    - name: Clean up apt cache
+      ansible.builtin.apt:
+        autoclean: true
+        autoremove: true

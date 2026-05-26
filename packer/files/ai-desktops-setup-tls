@@ -1,0 +1,160 @@
+#!/bin/bash
+# ai-desktops-setup-tls — configure TLS and nginx for the ai-desktops stack.
+#
+# Wraps novnc-setup-tls to obtain a Let's Encrypt certificate via DNS-01
+# (Route53), then extends the nginx configuration to also serve the
+# ai-desktops web application at /app/.
+#
+# The EC2 instance must have an IAM role with Route53 permissions:
+#   route53:ListHostedZones
+#   route53:GetChange
+#   route53:ChangeResourceRecordSets
+#
+# Usage (EC2 user-data or interactive):
+#   export CERTBOT_DOMAIN=myapp.example.com
+#   export CERTBOT_EMAIL=admin@example.com
+#   sudo /usr/local/bin/ai-desktops-setup-tls
+#
+# Environment variables:
+#   CERTBOT_DOMAIN        (required) Public domain pointing to this instance.
+#   CERTBOT_EMAIL         Email for Let's Encrypt expiry notices.
+#                         Default: admin@example.com
+#   NOVNC_HTTP_PORT       HTTP port nginx listens on. Default: 8080
+#   NOVNC_HTTPS_PORT      HTTPS port nginx listens on. Default: 8443
+#   NOVNC_SERVICE         systemd meta-service name. Default: novnc-desktop
+#   AI_DESKTOPS_WEB_PORT  Local port the ai-desktops web app listens on.
+#                         Default: 3001
+
+set -euo pipefail
+
+export CERTBOT_DOMAIN="${CERTBOT_DOMAIN:-}"
+export CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@example.com}"
+export NOVNC_HTTP_PORT="${NOVNC_HTTP_PORT:-8080}"
+export NOVNC_HTTPS_PORT="${NOVNC_HTTPS_PORT:-8443}"
+export NOVNC_SERVICE="${NOVNC_SERVICE:-novnc-desktop}"
+export AI_DESKTOPS_WEB_PORT="${AI_DESKTOPS_WEB_PORT:-3001}"
+
+NGINX_SITE="/etc/nginx/sites-available/novnc"
+LOG_FILE="/var/log/ai-desktops-setup-tls.log"
+
+log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
+die() { log "ERROR: $*"; exit 1; }
+
+[[ "$(id -u)" -eq 0 ]] || die "This script must be run as root"
+[[ -n "$CERTBOT_DOMAIN" ]] || die "CERTBOT_DOMAIN is required"
+
+log "=== ai-desktops-setup-tls starting ==="
+log "Domain:       $CERTBOT_DOMAIN"
+log "HTTP port:    $NOVNC_HTTP_PORT"
+log "HTTPS port:   $NOVNC_HTTPS_PORT"
+log "Web app port: $AI_DESKTOPS_WEB_PORT"
+
+# --- Step 1: reconfigure nginx ports from AMI defaults (80/443) to runtime ports ---
+# The novnc-desktop AMI is built with ports 80/443. ai-desktops runs on 8080/8443.
+log "Reconfiguring nginx ports (80→${NOVNC_HTTP_PORT}, 443→${NOVNC_HTTPS_PORT})..."
+
+python3 - <<PYEOF
+import os, sys, re
+
+nginx_site = "/etc/nginx/sites-available/novnc"
+http_port  = os.environ["NOVNC_HTTP_PORT"]
+https_port = os.environ["NOVNC_HTTPS_PORT"]
+marker     = "# ai-desktops port reconfiguration"
+
+with open(nginx_site) as fh:
+    content = fh.read()
+
+if marker in content:
+    print("Port reconfiguration already applied — skipping")
+    sys.exit(0)
+
+# Replace listen 80 (HTTP redirect server) with the runtime HTTP port.
+# Replace listen 443 ssl (HTTPS server) with the runtime HTTPS port.
+content = re.sub(r'(\blisten\s+)80(\b)', r'\g<1>' + http_port + r'\2', content)
+content = re.sub(r'(\blisten\s+)443(\s)', r'\g<1>' + https_port + r'\2', content)
+
+# Inject marker at the top so the check above is reliable on re-runs.
+content = "# " + marker + "\n" + content
+
+with open(nginx_site, "w") as fh:
+    fh.write(content)
+
+print(f"Ports updated: 80->{http_port}, 443->{https_port} in {nginx_site}")
+PYEOF
+
+# Update UFW to allow the runtime ports.
+ufw allow "${NOVNC_HTTP_PORT}/tcp" 2>/dev/null || true
+ufw allow "${NOVNC_HTTPS_PORT}/tcp" 2>/dev/null || true
+
+nginx -t 2>&1 | tee -a "$LOG_FILE"
+systemctl reload nginx
+log "nginx reloaded with updated ports"
+
+# --- Step 2: obtain TLS certificate and wire it into novnc nginx -----------
+# novnc-setup-tls uses the certbot dns-route53 plugin (DNS-01), so port 80
+# does not need to be publicly accessible.
+log "Running novnc-setup-tls..."
+/usr/local/bin/novnc-setup-tls
+
+# --- Step 3: add /app/ location to the novnc nginx site -------------------
+# Inject an auth-protected proxy location for the ai-desktops web app into
+# the existing novnc nginx server block. The insert point is the @unauthorized
+# named location — the last item inside the HTTPS server block.
+log "Adding /app/ location to nginx for ai-desktops web app (port $AI_DESKTOPS_WEB_PORT)..."
+
+python3 - <<'PYEOF'
+import os, sys
+
+nginx_site = "/etc/nginx/sites-available/novnc"
+web_port   = os.environ["AI_DESKTOPS_WEB_PORT"]
+marker     = "# ai-desktops web application"
+anchor     = "    location @unauthorized {"
+
+with open(nginx_site) as fh:
+    content = fh.read()
+
+if marker in content:
+    print("ai-desktops /app/ location already present in nginx config — skipping")
+    sys.exit(0)
+
+if anchor not in content:
+    print(f"ERROR: expected anchor '{anchor}' not found in {nginx_site}", file=sys.stderr)
+    sys.exit(1)
+
+block = f"""
+    {marker}
+    location /app/ {{
+        auth_request /_auth/verify;
+        error_page 401 = @unauthorized;
+
+        proxy_pass         http://127.0.0.1:{web_port}/;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Host  $host;
+    }}
+
+"""
+
+content = content.replace(anchor, block + anchor, 1)
+
+with open(nginx_site, "w") as fh:
+    fh.write(content)
+
+print(f"Added /app/ → http://127.0.0.1:{web_port}/ in {nginx_site}")
+PYEOF
+
+nginx -t 2>&1 | tee -a "$LOG_FILE"
+systemctl reload nginx
+log "nginx reloaded"
+
+# --- Done ------------------------------------------------------------------
+DOMAIN_WITH_PORT="$CERTBOT_DOMAIN"
+[[ "$NOVNC_HTTPS_PORT" != "443" ]] && DOMAIN_WITH_PORT="${CERTBOT_DOMAIN}:${NOVNC_HTTPS_PORT}"
+
+log "=== ai-desktops-setup-tls complete ==="
+log "noVNC:    https://${DOMAIN_WITH_PORT}/"
+log "Web app:  https://${DOMAIN_WITH_PORT}/app/"
+log ""
+log "Run: sudo novnc-desktop-url"
+log "     to get a signed HTTPS access URL."

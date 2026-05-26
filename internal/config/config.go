@@ -11,8 +11,9 @@ import (
 
 
 const (
-	EnvProd = "prod"
-	EnvDev  = "dev"
+	EnvProd  = "prod"
+	EnvDev   = "dev"
+	EnvTest  = "test"
 
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
@@ -53,8 +54,9 @@ type PulumiConfig struct {
 }
 
 type FleetConfig struct {
-	TableName   string `yaml:"table_name"`
-	Environment string `yaml:"environment"`
+	TableName     string `yaml:"table_name"`
+	AMITableName  string `yaml:"ami_table_name"`
+	Environment   string `yaml:"environment"`
 }
 
 type GitHubConfig struct {
@@ -63,14 +65,13 @@ type GitHubConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string `yaml:"default_profile"`
-	InstanceType   string `yaml:"instance_type"`
-	OperatorCIDR   string `yaml:"operator_cidr"`
-	SSHKeyPath     string `yaml:"ssh_key_path"`
-	// SSHKeyName is the EC2 key pair name to attach to desktops. This is the
-	// name registered in AWS (not a local file path). Optional — desktops work
-	// without it but cannot be accessed over plain SSH without SSM.
-	SSHKeyName string `yaml:"ssh_key_name"`
+	DefaultProfile string            `yaml:"default_profile"`
+	InstanceType   string            `yaml:"instance_type"`
+	OperatorCIDR   string            `yaml:"operator_cidr"`
+	SSHKeyPath     string            `yaml:"ssh_key_path"`
+	SSHKeyName     string            `yaml:"ssh_key_name"`
+	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
+	ActiveAMI      map[string]string `yaml:"active_ami,omitempty"`
 }
 
 type AgentConfig struct {
@@ -82,14 +83,15 @@ type AgentConfig struct {
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.
+// The test environment shares the dev zone so no separate hosted zone is needed.
 func (c *Config) DNSZone() (string, error) {
 	switch c.Environment() {
 	case EnvProd:
 		return ZoneProd, nil
-	case EnvDev:
+	case EnvDev, EnvTest:
 		return ZoneDev, nil
 	default:
-		return "", fmt.Errorf("unknown environment %q: must be %q or %q", c.Environment(), EnvProd, EnvDev)
+		return "", fmt.Errorf("unknown environment %q: must be one of %q, %q, %q", c.Environment(), EnvProd, EnvDev, EnvTest)
 	}
 }
 
@@ -138,11 +140,25 @@ func (c *Config) Validate() error {
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
+	// TODO(wireguard): defaulting to open ingress is a temporary convenience;
+	// require an explicit operator_cidr once WireGuard replaces direct SSH access.
 	if c.Desktop.OperatorCIDR == "" {
-		return errors.New("desktop.operator_cidr must be set (e.g. your public IP with /32)")
+		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
 	if _, err := c.DNSZone(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// Save writes the config to the given file path as YAML.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write config to %s: %w", path, err)
 	}
 	return nil
 }

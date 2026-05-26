@@ -21,7 +21,6 @@ var doctorCmd = &cobra.Command{
 Network checks (always run):
   - ssh-port      — SSH port reachable (TCP)
   - novnc-https   — noVNC HTTPS endpoint responding on port 8443
-  - agent-bridge  — ai-agent-bridge reachable via SSM tunnel (127.0.0.1:<bridge_port>)
 
 SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
@@ -29,7 +28,6 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - docker-active   — Docker daemon is active
     - nvim-installed  — nvim is on PATH
     - tmux-installed  — tmux is on PATH
-    - bridge-active   — ai-agent-bridge systemd unit is active
 
   System Resources:
     - disk-space      — /workspace has >1GB free
@@ -67,7 +65,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	checkers := health.StandardCheckers(d.Hostname, 22, cfg.Agent.BridgePort)
+	checkers := health.StandardCheckers(d.Hostname, 22)
 	checkers = append(checkers, health.SSHCheckers(
 		d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos,
 	)...)

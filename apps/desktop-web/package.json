@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "api": "node api-server.js",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -20,6 +21,12 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "pnpm": {
+    "allowedDeprecatedVersions": {},
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

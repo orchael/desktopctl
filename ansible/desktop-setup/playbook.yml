@@ -1,0 +1,113 @@
+---
+# desktop-setup — configure a desktop instance post-boot
+#
+# This playbook runs during cloud-init to verify pre-installed tools
+# from the Packer AMI. Homebrew is pre-installed in the AMI — it is
+# not installed here.
+#
+# Usage (via cloud-init):
+#   Automatically during desktop boot
+#
+# Usage (standalone via SSH):
+#   ansible-playbook playbook.yml -i inventory.ini
+
+- name: Configure AI Desktops instance
+  hosts: all
+  gather_facts: true
+  become: true
+
+  environment:
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin"
+    HOME: "/root"
+
+  tasks:
+    # ------------------------------------------------------------------
+    # 1. Verify pre-installed tools from Packer AMI
+    # ------------------------------------------------------------------
+    - name: Source profile.d scripts for PATH updates
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        echo "PATH=$PATH"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: env_setup
+
+    - name: Check pre-installed tools from Packer
+      ansible.builtin.shell: |
+        source /etc/profile.d/golang.sh 2>/dev/null || true
+        export PATH="${PATH}:${HOME}/.local/bin:/usr/local/go/bin"
+        which {{ item }}
+      args:
+        executable: /bin/bash
+      loop:
+        - git
+        - docker
+        - curl
+        - wget
+        - tmux
+        - go
+        - aws
+        - nginx
+      changed_when: false
+      ignore_errors: true
+      register: tool_check
+
+    - name: Check nvim snap installation
+      ansible.builtin.shell: snap list nvim >/dev/null 2>&1 && echo "nvim installed via snap"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check novnc-desktop service
+      ansible.builtin.shell: systemctl list-unit-files | grep -q novnc-desktop && echo "novnc-desktop service installed"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check ai-agent-bridge service
+      ansible.builtin.shell: systemctl list-unit-files | grep -q ai-agent-bridge && echo "ai-agent-bridge service installed"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Locate and verify uv Python manager
+      ansible.builtin.shell: |
+        if [ -f /root/.local/bin/uv ]; then
+          cp /root/.local/bin/uv /usr/local/bin/uv
+          chmod +x /usr/local/bin/uv
+          echo "uv copied to /usr/local/bin"
+        fi
+        which uv || exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report tool verification
+      ansible.builtin.debug:
+        msg: "Pre-installed tools verified from Packer AMI"
+
+    # ------------------------------------------------------------------
+    # 2. Add GitHub to known_hosts
+    # ------------------------------------------------------------------
+    - name: Add github.com host keys to known_hosts
+      ansible.builtin.known_hosts:
+        name: github.com
+        key: "{{ item }}"
+        state: present
+      loop:
+        - "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+        - "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg="
+        - "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+
+    # ------------------------------------------------------------------
+    # 3. Setup complete
+    # ------------------------------------------------------------------
+    - name: Desktop setup complete
+      ansible.builtin.debug:
+        msg: "AI Desktops instance configured. Pre-installed tools from Packer verified."

@@ -86,7 +86,7 @@ func TestRunner(t *testing.T) {
 }
 
 func TestStandardCheckers(t *testing.T) {
-	checkers := StandardCheckers("d-001.desktops.orchael.dev", 22, 9445)
+	checkers := StandardCheckers("d-001.desktops.orchael.dev", 22)
 	if len(checkers) == 0 {
 		t.Error("expected at least one standard checker")
 	}
@@ -100,7 +100,7 @@ func TestStandardCheckers(t *testing.T) {
 func TestStandardCheckers_noVNCPort(t *testing.T) {
 	// Verify the noVNC URL uses port 8443, not the default 443.
 	hostname := "d-001.desktops.orchael.dev"
-	checkers := StandardCheckers(hostname, 22, 9445)
+	checkers := StandardCheckers(hostname, 22)
 	found := false
 	for _, c := range checkers {
 		if c.Name() == "novnc-https" {
@@ -137,7 +137,7 @@ func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
 		names[c.Name()] = true
 	}
 
-	required := []string{"docker-active", "nvim-installed", "tmux-installed", "bridge-active", "repo-app-one", "repo-app-two"}
+	required := []string{"docker-active", "nvim-installed", "tmux-installed", "repo-app-one", "repo-app-two"}
 	for _, n := range required {
 		if !names[n] {
 			t.Errorf("SSHCheckers missing expected checker %q", n)

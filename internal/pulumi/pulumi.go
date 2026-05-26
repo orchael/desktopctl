@@ -51,12 +51,13 @@ func DesktopStackRef(backendURL, desktopID, workDir string) *StackRef {
 type StackConfig map[string]string
 
 // FoundationConfig builds the Pulumi config for the foundation stack.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig {
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string) StackConfig {
 	return StackConfig{
 		"aws:region":   region,
 		"zone":         zone,
 		"fleetTable":   fleetTable,
 		"operatorCIDR": operatorCIDR,
+		"environment":  environment,
 	}
 }
 
@@ -65,11 +66,14 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR string) StackConfig
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
+// amiID is the pre-baked AMI ID; empty string means use hardcoded Ubuntu map.
+// userData is the pre-rendered cloud-init user-data; empty string means Pulumi renders inline template.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
 	repos []string,
 	bridgePort int,
+	amiID, userData, environment string,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -82,12 +86,19 @@ func DesktopConfig(
 		"instanceProfile": instanceProfile,
 		"patSecret":       patSecret,
 		"repos":           strings.Join(repos, ","),
+		"environment":     environment,
 	}
 	if sshKeyName != "" {
 		cfg["sshKeyName"] = sshKeyName
 	}
 	if bridgePort > 0 {
 		cfg["bridgePort"] = fmt.Sprintf("%d", bridgePort)
+	}
+	if amiID != "" {
+		cfg["amiId"] = amiID
+	}
+	if userData != "" {
+		cfg["userData"] = userData
 	}
 	return cfg
 }
@@ -120,6 +131,19 @@ type Runner struct {
 
 // NewRunner returns a Runner with default settings.
 func NewRunner() *Runner { return &Runner{} }
+
+// Refresh syncs Pulumi state with the actual cloud provider state for the stack.
+// Use this when AWS resources have been modified outside of Pulumi.
+func (r *Runner) Refresh(ctx context.Context, ref *StackRef, progress io.Writer) error {
+	env := r.env(ref.BackendURL)
+	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", "--create", ref.StackName); err != nil {
+		return fmt.Errorf("stack select: %w", err)
+	}
+	if err := r.run(ctx, ref.WorkDir, env, progress, "refresh", "--yes", "--non-interactive", "--color", "never"); err != nil {
+		return fmt.Errorf("pulumi refresh: %w", err)
+	}
+	return nil
+}
 
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.

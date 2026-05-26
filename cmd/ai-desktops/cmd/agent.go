@@ -81,6 +81,17 @@ func init() {
 }
 
 func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent.Client, func(), error) {
+	switch tunnel.Mode(agentTunnelMode) {
+	case tunnel.ModeSSM:
+		if err := requireTools("aws"); err != nil {
+			return nil, nil, nil, err
+		}
+	case tunnel.ModeSSH:
+		if err := requireTools("ssh"); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
 	s, err := openStore(ctx)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("open store: %w", err)

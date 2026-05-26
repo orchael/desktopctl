@@ -31,6 +31,14 @@ func init() {
 }
 
 func runSSH(cmd *cobra.Command, args []string) error {
+	tools := []string{"ssh"}
+	if sshTunnelMode == "ssm" {
+		tools = append(tools, "aws")
+	}
+	if err := requireTools(tools...); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	id := args[0]
 
@@ -46,11 +54,6 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	sshPath, err := exec.LookPath("ssh")
-	if err != nil {
-		return fmt.Errorf("ssh not found on PATH: %w", err)
-	}
-
 	// If no tunnel mode specified, SSH directly to the hostname
 	if sshTunnelMode == "" {
 		sshArgs := []string{
@@ -59,7 +62,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 			"-o", "UserKnownHostsFile=/dev/null",
 			d.SSHTarget,
 		}
-		sshProc := exec.Command(sshPath, sshArgs...)
+		sshProc := exec.Command("ssh", sshArgs...)
 		sshProc.Stdin = os.Stdin
 		sshProc.Stdout = os.Stdout
 		sshProc.Stderr = os.Stderr
@@ -142,7 +145,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		"ubuntu@127.0.0.1",
 	}
 
-	sshProc := exec.Command(sshPath, sshArgs...)
+	sshProc := exec.Command("ssh", sshArgs...)
 	sshProc.Stdin = os.Stdin
 	sshProc.Stdout = os.Stdout
 	sshProc.Stderr = os.Stderr

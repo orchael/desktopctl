@@ -1,0 +1,116 @@
+packer {
+  required_plugins {
+    amazon = {
+      version = ">= 1.2.0"
+      source  = "github.com/hashicorp/amazon"
+    }
+    ansible = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/ansible"
+    }
+  }
+}
+
+variable "ai_agent_bridge_version" {
+  type        = string
+  description = "ai-agent-bridge release tag (e.g. v0.1.0)"
+}
+
+variable "go_version" {
+  type        = string
+  description = "Go version to install (e.g. 1.23.0)"
+}
+
+variable "uv_version" {
+  type        = string
+  description = "uv version to install (e.g. 0.4.0)"
+}
+
+variable "aws_region" {
+  type        = string
+  description = "AWS region for the source and target AMI"
+}
+
+variable "novnc_desktop_version" {
+  type        = string
+  description = "novnc-desktop release tag used for tagging the built AMI (e.g. v0.2.2)"
+}
+
+# source_ami is always required. The ai-desktops CLI resolves the correct AMI
+# before invoking packer (either from the vars file or via an EC2 lookup) and
+# passes it via -var source_ami=<id>.
+variable "source_ami" {
+  type        = string
+  description = "Source AMI ID to use as the base for this build."
+}
+
+variable "ami_public" {
+  type        = bool
+  default     = false
+  description = "When true, set the built AMI's launch permissions to public."
+}
+
+source "amazon-ebs" "ubuntu" {
+  ami_name        = "ai-desktops-${var.ai_agent_bridge_version}-{{timestamp}}"
+  ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
+  instance_type   = "t3.medium"
+  region          = var.aws_region
+  source_ami      = var.source_ami
+
+  ami_groups = var.ami_public ? ["all"] : []
+
+  associate_public_ip_address = true
+  ebs_optimized               = true
+
+  launch_block_device_mappings {
+    device_name           = "/dev/sda1"
+    volume_size           = 20
+    volume_type           = "gp3"
+    delete_on_termination = true
+  }
+
+  tags = {
+    Name               = "ai-desktops"
+    ManagedBy          = "ai-desktops-packer"
+    BridgeVersion      = var.ai_agent_bridge_version
+    GoVersion          = var.go_version
+    UvVersion          = var.uv_version
+    NovncDesktopVersion = var.novnc_desktop_version
+    BaseAMI            = var.source_ami
+    Environment        = "base"
+  }
+
+  ssh_username = "ubuntu"
+  ssh_timeout  = "10m"
+}
+
+build {
+  name    = "ai-desktops"
+  sources = ["source.amazon-ebs.ubuntu"]
+
+  provisioner "ansible" {
+    playbook_file        = "${path.root}/playbook.yml"
+    galaxy_file          = "${path.root}/requirements.yml"
+    galaxy_force_install = true
+    extra_arguments = [
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version}",
+    ]
+    ansible_env_vars = [
+      "ANSIBLE_HOST_KEY_CHECKING=False",
+      "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
+      "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
+    ]
+  }
+
+  post-processor "manifest" {
+    output     = "manifest.json"
+    strip_path = true
+    custom_data = {
+      bridge_version       = var.ai_agent_bridge_version
+      go_version           = var.go_version
+      uv_version           = var.uv_version
+      novnc_version        = var.novnc_desktop_version
+      base_ami             = var.source_ami
+    }
+  }
+}

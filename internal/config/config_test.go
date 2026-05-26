@@ -54,8 +54,11 @@ func TestValidate(t *testing.T) {
 	}
 
 	c.Pulumi.BackendBucket = "my-bucket"
-	if err := c.Validate(); err == nil {
-		t.Error("expected error when operator_cidr is empty")
+	if err := c.Validate(); err != nil {
+		t.Errorf("unexpected error with empty operator_cidr (should default to 0.0.0.0/0): %v", err)
+	}
+	if c.Desktop.OperatorCIDR != "0.0.0.0/0" {
+		t.Errorf("expected operator_cidr to default to 0.0.0.0/0, got %q", c.Desktop.OperatorCIDR)
 	}
 
 	c.Desktop.OperatorCIDR = "203.0.113.1/32"
@@ -110,5 +113,60 @@ fleet:
 	}
 	if c.Fleet.TableName != "my-fleet" {
 		t.Errorf("table: got %q", c.Fleet.TableName)
+	}
+}
+
+func TestSave_roundTrip(t *testing.T) {
+	c := &Config{
+		AWS: AWSConfig{Region: "us-west-2", Profile: "prod"},
+		Pulumi: PulumiConfig{BackendBucket: "my-bucket"},
+		Desktop: DesktopConfig{
+			InstanceType: "t3.large",
+			OperatorCIDR: "203.0.113.1/32",
+			ActiveAMI: map[string]string{
+				"us-east-1": "ami-0abc123",
+				"us-west-2": "ami-0def456",
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Save config
+	if err := c.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Load it back
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Verify round-trip
+	if loaded.AWS.Region != "us-west-2" {
+		t.Errorf("region round-trip: got %q", loaded.AWS.Region)
+	}
+	if loaded.Desktop.InstanceType != "t3.large" {
+		t.Errorf("instance type round-trip: got %q", loaded.Desktop.InstanceType)
+	}
+	if loaded.Desktop.ActiveAMI == nil {
+		t.Error("ActiveAMI should not be nil after round-trip")
+	} else {
+		if amiID, ok := loaded.Desktop.ActiveAMI["us-east-1"]; !ok {
+			t.Error("us-east-1 AMI not found in round-trip")
+		} else if amiID != "ami-0abc123" {
+			t.Errorf("us-east-1 AMI round-trip: got %q", amiID)
+		}
+	}
+}
+
+func TestDefaults_AMIs(t *testing.T) {
+	c := &Config{}
+	c.Defaults()
+	// Defaults should not initialize an empty ActiveAMI map
+	if c.Desktop.ActiveAMI != nil {
+		t.Error("ActiveAMI should be nil after Defaults()")
 	}
 }

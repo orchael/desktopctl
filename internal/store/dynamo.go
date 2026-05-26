@@ -13,7 +13,7 @@ import (
 
 // DynamoStore is a DynamoDB-backed fleet metadata store.
 type DynamoStore struct {
-	client    *dynamodb.Client
+	client    dynamoClientAPI
 	tableName string
 }
 

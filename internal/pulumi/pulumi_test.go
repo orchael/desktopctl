@@ -30,7 +30,8 @@ func TestDesktopStackRef(t *testing.T) {
 func TestDesktopConfig(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
-		"/ai-desktops/github/pat", []string{"github.com/acme/app"}, 9445)
+		"/ai-desktops/github/pat", []string{"github.com/acme/app"}, 9445,
+		"", "", "dev")
 
 	if cfg["desktopId"] != "d-001" {
 		t.Errorf("desktopId: got %q", cfg["desktopId"])
@@ -46,8 +47,25 @@ func TestDesktopConfig(t *testing.T) {
 	}
 }
 
+func TestDesktopConfig_withAMI(t *testing.T) {
+	cfg := DesktopConfig("us-east-1", "d-ami", "acme", "desktops.orchael.dev",
+		"t3.large", "subnet-abc", "sg-abc", "my-profile", "",
+		"/ai-desktops/github/pat", []string{}, 9445,
+		"ami-0abc123", "my-user-data", "dev")
+
+	if cfg["amiId"] != "ami-0abc123" {
+		t.Errorf("amiId: got %q", cfg["amiId"])
+	}
+	if cfg["userData"] != "my-user-data" {
+		t.Errorf("userData: got %q", cfg["userData"])
+	}
+	if _, ok := cfg["sshKeyName"]; ok {
+		t.Error("sshKeyName should not be set when empty")
+	}
+}
+
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev")
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
 	}

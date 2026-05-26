@@ -110,6 +110,18 @@
 - [x] ISSUE: Created GitHub Issue #23 — Add WireGuard VPN support (multi-platform: iOS, macOS, Linux, Windows)
 - [x] DOCS: Updated PRD with temporary public access (SSH/HTTP/HTTPS) until WireGuard, then restrict to VPN
 - [x] IMPL: Public access model — open SSH (port 22) to 0.0.0.0/0, add HTTP (port 80), update Pulumi config
+- [ ] Install ai-agent-bridge v0.2.0 on desktops — blocked until an apt package or downloadable binary release exists (currently only a Docker image and Go module tag are published at v0.2.0)
 - [ ] SSH tunnel: make StrictHostKeyChecking configurable — https://github.com/markcallen/ai-desktops/issues/6
 - [ ] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs
 - [ ] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI)
+
+## Copilot review follow-ups (PR #31, commit 48f3e48)
+
+- [ ] `cmd/ai-desktops/cmd/stores.go` — `openAMIStore` comment says it falls back to in-memory store but actually returns an error when AWS config fails; fix comment or implement the documented fallback
+- [ ] `tests/integration/fr03_substrate_test.go` — `grep -c` always exits 0 so the `|| ls ...` fallback never runs; replace with `dpkg -s` or `grep -q` for reliable elementary-desktop detection
+- [ ] `tests/integration/fr03_substrate_test.go` — `strings.Contains(..., "1")` can false-positive on output like `"10"`; use exact equality check on the trimmed count
+- [ ] `tests/integration/fr02_access_test.go` — import block not gofmt-formatted; run `gofmt` to merge into a single alphabetised stdlib group
+- [ ] `tests/integration/fr09_ami_test.go` — test for `create --preview` using active AMI from config passes `--ami` explicitly, making the assertion meaningless; remove `--ami` or rename the test to reflect it is testing flag override
+- [ ] `PACKER_WORKFLOW.md` — replace contributor-specific absolute paths (`/home/marka/src/orchael/ai-desktops`, `/home/marka/src/novnc-desktop/`) with repo-relative or remote-URL references
+- [ ] `internal/provision/ansible/desktop-setup/inventory.ini` — appears to be an unused duplicate of `ansible/desktop-setup/inventory.ini`; remove or consolidate so the embed path is consistent
+- [ ] `internal/health/health.go` — `certbot-cert-valid` checker comment says "2xx" but redirects are disabled so 3xx also passes; update the doc comment to reflect actual semantics (non-4xx/5xx)

@@ -55,6 +55,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("noVNC URL    : %s\n", d.NoVNCURL)
 	fmt.Printf("SSH target   : %s\n", d.SSHTarget)
 	fmt.Printf("Instance ID  : %s\n", d.InstanceID)
+	if d.AMIID != "" {
+		fmt.Printf("AMI ID       : %s\n", d.AMIID)
+	}
 	fmt.Printf("Pulumi stack : %s\n", d.StackName)
 	fmt.Printf("Readiness    : %s\n", d.Readiness)
 	fmt.Printf("Created      : %s\n", d.CreatedAt)

@@ -49,8 +49,9 @@ desktop:
   # root_volume_size: 40
 
   # CIDR range from which SSH (port 22) is allowed in the security group.
-  # Restrict to your public IP for least-privilege access.
-  operator_cidr: 203.0.113.42/32
+  # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.
+  # When WireGuard (plan 15) is enabled this will be restricted to the VPN subnet.
+  operator_cidr: 0.0.0.0/0
 
 agent:
   # Port where ai-agent-bridge listens on the desktop (localhost-only).

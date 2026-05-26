@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/repo"
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ var (
 	createRepos   []string
 	createPreview bool
 	createEnv     string
+	createAMI     string
 )
 
 var createCmd = &cobra.Command{
@@ -39,10 +41,14 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
+	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	rootCmd.AddCommand(createCmd)
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 
 	// Fall back to config file owner when --github-owner not explicitly set.
@@ -73,6 +79,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Detect pre-baked AMI for this region (used for both request and cloud-init)
+	amiID := ""
+	if createAMI != "" {
+		amiID = createAMI
+	} else if cfg.Desktop.ActiveAMI != nil {
+		if ami, ok := cfg.Desktop.ActiveAMI[cfg.AWS.Region]; ok {
+			amiID = ami
+		}
+	}
+
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
@@ -84,6 +100,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		BackendBucket: cfg.Pulumi.BackendBucket,
 		Region:        cfg.AWS.Region,
 		Profile:       cfg.AWS.Profile,
+		AMIID:         amiID,
 	}
 
 	if err := req.Validate(); err != nil {
@@ -114,6 +131,43 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
+
+	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
+	userData := ""
+	hostname := desktop.Hostname(desktopID, zone)
+
+	// Read the SSH public key so cloud-init can inject it into the ubuntu user's
+	// authorized_keys.  A missing or unreadable key is non-fatal; the desktop
+	// will still boot but SSH key-based login won't work.
+	sshPubKey := ""
+	if cfg.Desktop.SSHKeyPath != "" {
+		if pubBytes, err := os.ReadFile(cfg.Desktop.SSHKeyPath + ".pub"); err == nil {
+			sshPubKey = strings.TrimSpace(string(pubBytes))
+		}
+	}
+
+	bootCfg := &provision.BootstrapConfig{
+		DesktopID:            desktopID,
+		Hostname:             hostname,
+		GitHubOwner:          owner,
+		Repos:                req.Repos,
+		WorkspacePath:        "/workspace",
+		BridgePort:           cfg.Agent.BridgePort,
+		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
+		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
+		CertbotEmail:         "admin@orchael.ai",
+		PATSecretPath:        cfg.GitHub.PATSecret,
+		AWSRegion:            cfg.AWS.Region,
+		Environment:          env,
+		PackagesPreInstalled: amiID != "",
+		SSHPublicKey:         sshPubKey,
+	}
+	var renderErr error
+	userData, renderErr = provision.RenderCloudInit(bootCfg)
+	if renderErr != nil {
+		return fmt.Errorf("render cloud-init: %w", renderErr)
+	}
+
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
 		foundationOutputs[pulumi.OutputSubnetID],
@@ -123,13 +177,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.GitHub.PATSecret,
 		req.Repos,
 		cfg.Agent.BridgePort,
+		amiID,
+		userData,
+		env,
 	)
 
 	if createPreview {
 		fmt.Printf("Desktop ID  : %s\n", desktopID)
 		fmt.Printf("Zone        : %s\n", zone)
-		fmt.Printf("Hostname    : %s\n", desktop.Hostname(desktopID, zone))
+		fmt.Printf("Hostname    : %s\n", hostname)
 		fmt.Printf("Repos       : %v\n", createRepos)
+		if amiID != "" {
+			fmt.Printf("AMI         : %s (pre-baked, ~1min boot)\n", amiID)
+		} else {
+			fmt.Printf("AMI         : none (cloud-init bootstrap, ~5-10min boot)\n")
+		}
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
 
@@ -158,7 +220,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("mark ready: %w", err)
 	}
 
-	hostname := desktop.Hostname(desktopID, zone)
 	result := map[string]string{
 		"desktop_id": desktopID,
 		"hostname":   hostname,

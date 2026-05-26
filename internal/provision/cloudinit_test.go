@@ -35,8 +35,6 @@ func TestRenderCloudInit(t *testing.T) {
 		"9445",
 		"/ai-desktops/github/pat",
 		"us-east-1",
-		"novnc-desktop",
-		NovncDesktopVersion,
 		"ai-agent-bridge",
 		AIAgentBridgeVersion,
 		"docker",
@@ -44,8 +42,6 @@ func TestRenderCloudInit(t *testing.T) {
 		"certbot",
 		"dns-route53",
 		"d-001.desktops.orchael.dev",
-		"8443",
-		"8080",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -72,13 +68,8 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	if !strings.Contains(out, "9445") {
 		t.Error("expected default bridge port 9445")
 	}
-	if !strings.Contains(out, "8443") {
-		t.Error("expected default noVNC HTTPS port 8443")
-	}
-	if !strings.Contains(out, "8080") {
-		t.Error("expected default noVNC HTTP port 8080")
-	}
 }
+
 
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
@@ -140,10 +131,111 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 	if strings.Contains(out, "/main/install.sh") {
 		t.Error("install scripts must not reference the 'main' branch; pin to a release tag")
 	}
-	if !strings.Contains(out, NovncDesktopVersion) {
-		t.Errorf("novnc-desktop install must reference version %s", NovncDesktopVersion)
-	}
 	if !strings.Contains(out, AIAgentBridgeVersion) {
 		t.Errorf("ai-agent-bridge install must reference version %s", AIAgentBridgeVersion)
+	}
+}
+
+func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-ami",
+		Hostname:             "d-ami.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		Repos:                []string{"github.com/acme/repo"},
+		PackagesPreInstalled: true,
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	// Package list should be absent when pre-installed
+	if strings.Contains(out, "packages:") {
+		t.Error("packages: block should be absent when PackagesPreInstalled is true")
+	}
+
+	// package_update should be absent
+	if strings.Contains(out, "package_update:") {
+		t.Error("package_update should be absent when PackagesPreInstalled is true")
+	}
+
+	// Snap nvim install should be absent
+	if strings.Contains(out, "snap install nvim") {
+		t.Error("snap nvim install should be absent when PackagesPreInstalled is true")
+	}
+
+	// novnc-desktop curl install should be absent
+	if strings.Contains(out, "raw.githubusercontent.com/orchael/novnc-desktop") {
+		t.Error("novnc-desktop install curl should be absent when PackagesPreInstalled is true")
+	}
+
+	// ai-agent-bridge curl install should be absent
+	if strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
+		t.Error("ai-agent-bridge install curl should be absent when PackagesPreInstalled is true")
+	}
+
+	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
+	if !strings.Contains(out, "ai-desktops-setup-tls") {
+		t.Error("ai-desktops-setup-tls should be invoked when PackagesPreInstalled is true")
+	}
+	if !strings.Contains(out, "NOVNC_HTTP_PORT") {
+		t.Error("NOVNC_HTTP_PORT should be set for ai-desktops-setup-tls")
+	}
+
+	// systemctl enable/start for novnc-desktop and bridge should be present
+	if !strings.Contains(out, "systemctl enable novnc-desktop") {
+		t.Error("should enable novnc-desktop service when PackagesPreInstalled is true")
+	}
+	if !strings.Contains(out, "systemctl start novnc-desktop") {
+		t.Error("should start novnc-desktop service when PackagesPreInstalled is true")
+	}
+	if !strings.Contains(out, "systemctl enable ai-agent-bridge") {
+		t.Error("should enable ai-agent-bridge service")
+	}
+	if !strings.Contains(out, "systemctl start ai-agent-bridge") {
+		t.Error("should start ai-agent-bridge service")
+	}
+
+	// Repo cloning should still be present
+	if !strings.Contains(out, "github.com/acme/repo") {
+		t.Error("repo cloning should still be present")
+	}
+}
+
+func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-cloud",
+		Hostname:             "d-cloud.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		PackagesPreInstalled: false,
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	// Package list should be present when not pre-installed
+	if !strings.Contains(out, "packages:") {
+		t.Error("packages: block should be present when PackagesPreInstalled is false")
+	}
+	if !strings.Contains(out, "package_update:") {
+		t.Error("package_update should be present when PackagesPreInstalled is false")
+	}
+
+	// Snap nvim install should be present
+	if !strings.Contains(out, "snap install nvim") {
+		t.Error("snap nvim install should be present when PackagesPreInstalled is false")
+	}
+
+	// ai-agent-bridge curl install should be present
+	if !strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
+		t.Error("ai-agent-bridge install curl should be present when PackagesPreInstalled is false")
+	}
+
+	// nginx TLS config should be absent (novnc-desktop install handles it)
+	if strings.Contains(out, "novnc-desktop-tls.conf") {
+		t.Error("nginx TLS config should be absent when PackagesPreInstalled is false")
 	}
 }

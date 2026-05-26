@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,6 +18,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 // LoadConfig loads AWS configuration for the given region and optional profile.
@@ -149,7 +151,37 @@ func EnsureTable(ctx context.Context, cfg aws.Config, tableName string) error {
 
 // --- EC2 ---
 
-// StopInstance stops the given EC2 instance.
+// FindLatestAMI returns the most-recent AMI matching the given name pattern and
+// owner. namePattern supports the EC2 wildcard syntax (e.g. "my-ami-v1.2.*").
+func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner string) (string, error) {
+	c := ec2.NewFromConfig(cfg)
+	out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Owners: []string{owner},
+		Filters: []ec2types.Filter{
+			{Name: aws.String("name"), Values: []string{namePattern}},
+			{Name: aws.String("root-device-type"), Values: []string{"ebs"}},
+			{Name: aws.String("virtualization-type"), Values: []string{"hvm"}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("describe images: %w", err)
+	}
+	if len(out.Images) == 0 {
+		return "", fmt.Errorf("no AMI found matching pattern %q owned by %s", namePattern, owner)
+	}
+	// Pick most recent by CreationDate.
+	best := out.Images[0]
+	for _, img := range out.Images[1:] {
+		if aws.ToString(img.CreationDate) > aws.ToString(best.CreationDate) {
+			best = img
+		}
+	}
+	return aws.ToString(best.ImageId), nil
+}
+
+// StopInstance stops the given EC2 instance and waits until it reaches the
+// stopped state (up to 10 minutes).
 func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error {
 	c := ec2.NewFromConfig(cfg)
 	_, err := c.StopInstances(ctx, &ec2.StopInstancesInput{
@@ -157,6 +189,12 @@ func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error 
 	})
 	if err != nil {
 		return fmt.Errorf("stop instance %s: %w", instanceID, err)
+	}
+	waiter := ec2.NewInstanceStoppedWaiter(c)
+	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance %s to stop: %w", instanceID, err)
 	}
 	return nil
 }
@@ -202,6 +240,18 @@ func InstanceRunning(ctx context.Context, cfg aws.Config, instanceID string) (bo
 }
 
 // --- SSM / Secrets Manager ---
+
+// GetCallerIdentity returns a human-readable identity string for the current
+// AWS credentials in the form "account/arn". It is used to verify that
+// credentials are valid and functional.
+func GetCallerIdentity(ctx context.Context, cfg aws.Config) (string, error) {
+	stsClient := sts.NewFromConfig(cfg)
+	out, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s (%s)", aws.ToString(out.Account), aws.ToString(out.Arn)), nil
+}
 
 // GetSecret retrieves a secret value from AWS SSM Parameter Store (with
 // decryption) or Secrets Manager, trying SSM first.

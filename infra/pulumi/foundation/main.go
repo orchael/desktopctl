@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
@@ -23,7 +24,14 @@ func run(ctx *pulumi.Context) error {
 	if fleetTable == "" {
 		fleetTable = "ai-desktops-fleet"
 	}
-	operatorCIDR := cfg.Require("operatorCIDR")
+	operatorCIDR := cfg.Get("operatorCIDR")
+	if operatorCIDR == "" {
+		operatorCIDR = "0.0.0.0/0"
+	}
+	environment := cfg.Get("environment")
+	if environment == "" {
+		environment = "dev"
+	}
 	vpcID := cfg.Get("vpcId")
 
 	// --- Route53 hosted zone lookup ---
@@ -61,8 +69,9 @@ func run(ctx *pulumi.Context) error {
 			EnableDnsHostnames: pulumi.Bool(true),
 			EnableDnsSupport:   pulumi.Bool(true),
 			Tags: pulumi.StringMap{
-				"Name":       pulumi.String("ai-desktops-vpc"),
-				"managed-by": pulumi.String("ai-desktops"),
+				"Name":        pulumi.String("ai-desktops-vpc"),
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
 			},
 		})
 		if err != nil {
@@ -71,19 +80,34 @@ func run(ctx *pulumi.Context) error {
 
 		igw, err := ec2.NewInternetGateway(ctx, "ai-desktops-igw", &ec2.InternetGatewayArgs{
 			VpcId: vpc.ID(),
-			Tags:  pulumi.StringMap{"Name": pulumi.String("ai-desktops-igw"), "managed-by": pulumi.String("ai-desktops")},
+			Tags:  pulumi.StringMap{"Name": pulumi.String("ai-desktops-igw"), "managed-by": pulumi.String("ai-desktops"), "environment": pulumi.String(environment)},
 		})
 		if err != nil {
 			return err
 		}
 
+		// Pin to the first available AZ (alphabetically) to avoid AZs that
+		// don't support common instance types (e.g. us-east-1d for t3.large).
+		azs, err := aws.GetAvailabilityZones(ctx, &aws.GetAvailabilityZonesArgs{
+			State: pulumi.StringRef("available"),
+		})
+		if err != nil {
+			return fmt.Errorf("list availability zones: %w", err)
+		}
+		if len(azs.Names) == 0 {
+			return fmt.Errorf("no available AZs found in region")
+		}
+		subnetAZ := azs.Names[0]
+
 		subnet, err := ec2.NewSubnet(ctx, "ai-desktops-subnet", &ec2.SubnetArgs{
 			VpcId:               vpc.ID(),
 			CidrBlock:           pulumi.String("10.10.1.0/24"),
+			AvailabilityZone:    pulumi.String(subnetAZ),
 			MapPublicIpOnLaunch: pulumi.Bool(true),
 			Tags: pulumi.StringMap{
-				"Name":       pulumi.String("ai-desktops-subnet"),
-				"managed-by": pulumi.String("ai-desktops"),
+				"Name":        pulumi.String("ai-desktops-subnet"),
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
 			},
 		})
 		if err != nil {
@@ -162,8 +186,9 @@ func run(ctx *pulumi.Context) error {
 			},
 		},
 		Tags: pulumi.StringMap{
-			"Name":       pulumi.String("ai-desktops-sg"),
-			"managed-by": pulumi.String("ai-desktops"),
+			"Name":        pulumi.String("ai-desktops-sg"),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
 		},
 	})
 	if err != nil {
@@ -183,7 +208,8 @@ func run(ctx *pulumi.Context) error {
 	role, err := iam.NewRole(ctx, "ai-desktops-role", &iam.RoleArgs{
 		AssumeRolePolicy: pulumi.String(assumeRolePolicy),
 		Tags: pulumi.StringMap{
-			"managed-by": pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
 		},
 	})
 	if err != nil {
@@ -241,7 +267,8 @@ func run(ctx *pulumi.Context) error {
 	instanceProfile, err := iam.NewInstanceProfile(ctx, "ai-desktops-profile", &iam.InstanceProfileArgs{
 		Role: role.Name,
 		Tags: pulumi.StringMap{
-			"managed-by": pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
 		},
 	})
 	if err != nil {
@@ -260,7 +287,8 @@ func run(ctx *pulumi.Context) error {
 			},
 		},
 		Tags: pulumi.StringMap{
-			"managed-by": pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
 		},
 	})
 	if err != nil {
