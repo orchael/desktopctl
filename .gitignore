@@ -42,4 +42,5 @@ pnpm-debug.log*
 .env.*
 !.env.example
 packer/.ansible/
+packer/manifest.json
 t.t
