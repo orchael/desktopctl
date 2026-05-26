@@ -81,6 +81,25 @@
         classic: true
         state: present
 
+    - name: Install Homebrew for Linux
+      ansible.builtin.shell: |
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/brew
+      environment:
+        HOME: /root
+
+    - name: Add Homebrew to PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/homebrew.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          if [ -d /home/linuxbrew/.linuxbrew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
         src: files/ai-desktops-setup-tls

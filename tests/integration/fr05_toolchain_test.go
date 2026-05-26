@@ -10,9 +10,12 @@
 //	AC-5.4  `tmux` is on PATH and reports a version
 //	AC-5.5  Desktop is in state=ready only after all tools are confirmed present
 //	         (verified by AC-5.1–5.4 running against a ready desktop)
+//	AC-5.6  `brew` binary is present at /home/linuxbrew/.linuxbrew/bin/brew
+//	AC-5.7  `brew` is on PATH in a login shell and reports a version
 package integration_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -87,6 +90,33 @@ func TestFR5_AllToolsOnPath(t *testing.T) {
 		if !found {
 			t.Errorf("tool %q not on PATH; which output:\n%s", tool, out)
 		}
+	}
+}
+
+// TestFR5_BrewBinaryPresent verifies that the Homebrew binary was installed
+// into the AMI at the expected Linuxbrew path (AC-5.6).
+func TestFR5_BrewBinaryPresent(t *testing.T) {
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify Homebrew")
+	}
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey, "test -x /home/linuxbrew/.linuxbrew/bin/brew && echo ok")
+	if err != nil || strings.TrimSpace(out) != "ok" {
+		t.Errorf("brew binary not present at /home/linuxbrew/.linuxbrew/bin/brew: err=%v output=%q", err, out)
+	}
+}
+
+// TestFR5_BrewOnLoginPath verifies that `brew` is on PATH in a login shell
+// (i.e. /etc/profile.d/homebrew.sh is sourced) and reports a version (AC-5.7).
+func TestFR5_BrewOnLoginPath(t *testing.T) {
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify Homebrew")
+	}
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey, "bash -l -c 'brew --version 2>&1 | head -1'")
+	if err != nil {
+		t.Errorf("brew not on PATH in login shell: %v\noutput: %s", err, out)
+	}
+	if !strings.Contains(out, "Homebrew") {
+		t.Errorf("brew --version output does not contain 'Homebrew': %q", out)
 	}
 }
 
