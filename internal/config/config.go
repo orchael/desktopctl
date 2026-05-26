@@ -9,17 +9,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-
 const (
-	EnvProd  = "prod"
-	EnvDev   = "dev"
-	EnvTest  = "test"
+	EnvProd = "prod"
+	EnvDev  = "dev"
+	EnvTest = "test"
 
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
 
-	DefaultFleetTable  = "ai-desktops-fleet"
-	DefaultBridgePort  = 9445
+	DefaultFleetTable   = "ai-desktops-fleet"
+	DefaultBridgePort   = 9445
 	DefaultInstanceType = "t3.large"
 )
 
@@ -54,9 +53,9 @@ type PulumiConfig struct {
 }
 
 type FleetConfig struct {
-	TableName     string `yaml:"table_name"`
-	AMITableName  string `yaml:"ami_table_name"`
-	Environment   string `yaml:"environment"`
+	TableName    string `yaml:"table_name"`
+	AMITableName string `yaml:"ami_table_name"`
+	Environment  string `yaml:"environment"`
 }
 
 type GitHubConfig struct {
@@ -65,21 +64,21 @@ type GitHubConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string            `yaml:"default_profile"`
-	InstanceType   string            `yaml:"instance_type"`
-	OperatorCIDR   string            `yaml:"operator_cidr"`
-	SSHKeyPath     string            `yaml:"ssh_key_path"`
-	SSHKeyName     string            `yaml:"ssh_key_name"`
+	DefaultProfile string `yaml:"default_profile"`
+	InstanceType   string `yaml:"instance_type"`
+	OperatorCIDR   string `yaml:"operator_cidr"`
+	SSHKeyPath     string `yaml:"ssh_key_path"`
+	SSHKeyName     string `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
-	ActiveAMI      map[string]string `yaml:"active_ami,omitempty"`
+	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
 }
 
 type AgentConfig struct {
-	BridgePort int  `yaml:"bridge_port"`
+	BridgePort int `yaml:"bridge_port"`
 	// TrustHost disables SSH host key verification for SSH tunnel connections.
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.
-	TrustHost  bool `yaml:"trust_host"`
+	TrustHost bool `yaml:"trust_host"`
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.

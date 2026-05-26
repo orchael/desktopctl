@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/spf13/cobra"
 )
 
 var (

@@ -34,9 +34,9 @@ func (c *Config) Validate() error {
 // TableSchema returns the DynamoDB attribute definitions and key schema for the
 // fleet table.
 type TableSchema struct {
-	TableName  string
-	PKName     string
-	PKType     string
+	TableName string
+	PKName    string
+	PKType    string
 }
 
 // FleetTableSchema returns the schema for the ai-desktops fleet table.
@@ -51,11 +51,11 @@ func FleetTableSchema(tableName string) *TableSchema {
 // BucketConfig returns a description of the S3 bucket configuration that will
 // be applied during bootstrap.
 type BucketConfig struct {
-	BucketName         string
-	Region             string
-	Versioning         bool
-	SSEEnabled         bool
-	BlockPublicAccess  bool
+	BucketName        string
+	Region            string
+	Versioning        bool
+	SSEEnabled        bool
+	BlockPublicAccess bool
 }
 
 // DefaultBucketConfig returns the recommended S3 bucket configuration for the

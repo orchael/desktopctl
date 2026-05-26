@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	novncDesktopVersion   = "v0.1.5"
-	aiAgentBridgeVersion  = "v0.1.0"
-	novncHTTPPort         = 8080
-	novncHTTPSPort        = 8443
-	defaultBridgePort     = 9445
+	novncDesktopVersion  = "v0.1.5"
+	aiAgentBridgeVersion = "v0.1.0"
+	novncHTTPPort        = 8080
+	novncHTTPSPort       = 8443
+	defaultBridgePort    = 9445
 )
 
 // Ubuntu 22.04 LTS (Jammy) x86_64 — update per region as needed.

@@ -16,7 +16,10 @@ import (
 // stdout+stderr.  It uses the operator SSH key from the fixture.
 // StrictHostKeyChecking is disabled because test desktops are freshly
 // provisioned with unknown host keys.
-func sshRun(t interface{ Helper(); Fatalf(string, ...any) }, host, keyPath, command string) string {
+func sshRun(t interface {
+	Helper()
+	Fatalf(string, ...any)
+}, host, keyPath, command string) string {
 	t.Helper()
 	out, err := sshRunE(host, keyPath, command)
 	if err != nil {

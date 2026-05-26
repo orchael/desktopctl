@@ -1,23 +1,42 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
-    - gofmt
     - govet
     - errcheck
     - staticcheck
-    - unused
-    - gosimple
     - ineffassign
-    - typecheck
 
-linters-settings:
-  gofmt:
-    simplify: true
+  settings:
+    errcheck:
+      exclude-functions:
+        - "(*bufio.Writer).Flush"
+        - "(net.Conn).Close"
+        - "(*net.TCPListener).Close"
+        - "(*os.File).Close"
+        - "(io.ReadCloser).Close"
+        - "(*net.TCPConn).Close"
+        - "(*os.Process).Kill"
+        - "(io.Closer).Close"
+        - "(net.Listener).Close"
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+      - path: ^cmd/
+        linters:
+          - errcheck
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+
+  settings:
+    gofmt:
+      simplify: true

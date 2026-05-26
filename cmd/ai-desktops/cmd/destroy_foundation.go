@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	destroyFoundationEnv  string
-	destroyFoundationYes  bool
+	destroyFoundationEnv string
+	destroyFoundationYes bool
 )
 
 var destroyFoundationCmd = &cobra.Command{

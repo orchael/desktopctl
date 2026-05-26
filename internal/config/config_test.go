@@ -118,7 +118,7 @@ fleet:
 
 func TestSave_roundTrip(t *testing.T) {
 	c := &Config{
-		AWS: AWSConfig{Region: "us-west-2", Profile: "prod"},
+		AWS:    AWSConfig{Region: "us-west-2", Profile: "prod"},
 		Pulumi: PulumiConfig{BackendBucket: "my-bucket"},
 		Desktop: DesktopConfig{
 			InstanceType: "t3.large",
