@@ -1,9 +1,13 @@
 package packer
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +190,195 @@ func TestRegionAMIs_UUIDFilter_EmptyArtifactIDSkipped(t *testing.T) {
 	result := RegionAMIs(manifest)
 	if len(result) != 0 {
 		t.Errorf("expected empty map when ArtifactID is empty, got %d entries", len(result))
+	}
+}
+
+// writeFakePacker creates a shell script named "packer" in dir that exits with exitCode.
+func writeFakePacker(t *testing.T, dir string, exitCode int) {
+	t.Helper()
+	path := filepath.Join(dir, "packer")
+	content := fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatalf("writeFakePacker: %v", err)
+	}
+}
+
+func TestParseVarsFile_BasicParsing(t *testing.T) {
+	f, err := os.CreateTemp("", "*.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString("aws_region = \"us-east-1\"\nsource_ami = \"ami-12345678\"\n")
+	f.Close()
+
+	vars, err := ParseVarsFile(f.Name())
+	if err != nil {
+		t.Fatalf("ParseVarsFile: %v", err)
+	}
+	if vars["aws_region"] != "us-east-1" {
+		t.Errorf("aws_region: got %q", vars["aws_region"])
+	}
+	if vars["source_ami"] != "ami-12345678" {
+		t.Errorf("source_ami: got %q", vars["source_ami"])
+	}
+}
+
+func TestParseVarsFile_IgnoresCommentsAndBlanks(t *testing.T) {
+	f, err := os.CreateTemp("", "*.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString("# this is a comment\n\nname = \"my-ami\"\n")
+	f.Close()
+
+	vars, err := ParseVarsFile(f.Name())
+	if err != nil {
+		t.Fatalf("ParseVarsFile: %v", err)
+	}
+	if len(vars) != 1 {
+		t.Errorf("expected 1 var, got %d", len(vars))
+	}
+	if vars["name"] != "my-ami" {
+		t.Errorf("name: got %q", vars["name"])
+	}
+}
+
+func TestParseVarsFile_IgnoresNonStringValues(t *testing.T) {
+	f, err := os.CreateTemp("", "*.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString("count = 3\nenabled = true\nname = \"ami\"\n")
+	f.Close()
+
+	vars, err := ParseVarsFile(f.Name())
+	if err != nil {
+		t.Fatalf("ParseVarsFile: %v", err)
+	}
+	if _, ok := vars["count"]; ok {
+		t.Error("count should not be parsed (not a quoted string)")
+	}
+	if _, ok := vars["enabled"]; ok {
+		t.Error("enabled should not be parsed (not a quoted string)")
+	}
+	if vars["name"] != "ami" {
+		t.Errorf("name: got %q", vars["name"])
+	}
+}
+
+func TestParseVarsFile_MissingFile(t *testing.T) {
+	_, err := ParseVarsFile(filepath.Join(os.TempDir(), "nonexistent-vars.pkrvars.hcl"))
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestParseVarsFile_EmptyFile(t *testing.T) {
+	f, err := os.CreateTemp("", "*.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.Close()
+
+	vars, err := ParseVarsFile(f.Name())
+	if err != nil {
+		t.Fatalf("ParseVarsFile: %v", err)
+	}
+	if len(vars) != 0 {
+		t.Errorf("expected empty map, got %d vars", len(vars))
+	}
+}
+
+func TestParseVarsFile_IgnoresLineWithoutEquals(t *testing.T) {
+	f, err := os.CreateTemp("", "*.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString("justakeynovalue\nname = \"ok\"\n")
+	f.Close()
+
+	vars, err := ParseVarsFile(f.Name())
+	if err != nil {
+		t.Fatalf("ParseVarsFile: %v", err)
+	}
+	if _, ok := vars["justakeynovalue"]; ok {
+		t.Error("line without '=' should be ignored")
+	}
+	if vars["name"] != "ok" {
+		t.Errorf("name: got %q", vars["name"])
+	}
+}
+
+func TestInit_Success(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakePacker(t, binDir, 0)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	if err := Init(context.Background(), t.TempDir(), &buf); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+}
+
+func TestInit_Failure(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakePacker(t, binDir, 1)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	err := Init(context.Background(), t.TempDir(), &buf)
+	if err == nil {
+		t.Fatal("expected error from Init")
+	}
+	if !strings.Contains(err.Error(), "packer init failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestRun_Success(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakePacker(t, binDir, 0)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	if err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", false, &buf); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestRun_Failure(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakePacker(t, binDir, 1)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var buf bytes.Buffer
+	err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", false, &buf)
+	if err == nil {
+		t.Fatal("expected error from Run")
+	}
+	if !strings.Contains(err.Error(), "packer build failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestRun_WithVarsFileAndPublic(t *testing.T) {
+	binDir := t.TempDir()
+	writeFakePacker(t, binDir, 0)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	workDir := t.TempDir()
+	varsFile := filepath.Join(workDir, "test.pkrvars.hcl")
+	if err := os.WriteFile(varsFile, []byte("name = \"test\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := Run(context.Background(), workDir, varsFile, "us-west-2", "ami-base2", true, &buf); err != nil {
+		t.Fatalf("Run with vars and public: %v", err)
 	}
 }

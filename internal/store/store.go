@@ -5,7 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
+
+// dynamoClientAPI is the subset of the DynamoDB client used by DynamoStore and DynamoAMIStore.
+type dynamoClientAPI interface {
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	Scan(ctx context.Context, params *dynamodb.ScanInput, optFns ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
+	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+}
 
 // LifecycleState represents the known state of a desktop.
 type LifecycleState string
@@ -58,14 +69,6 @@ type Store interface {
 	Update(ctx context.Context, d *Desktop) error
 	MarkTerminated(ctx context.Context, id string) error
 	RecordFailure(ctx context.Context, id, phase, message string) error
-}
-
-// DynamoAPI is the subset of the DynamoDB client used by DynamoStore.
-type DynamoAPI interface {
-	PutItem(ctx context.Context, input interface{}) (interface{}, error)
-	GetItem(ctx context.Context, input interface{}) (interface{}, error)
-	Scan(ctx context.Context, input interface{}) (interface{}, error)
-	UpdateItem(ctx context.Context, input interface{}) (interface{}, error)
 }
 
 // InMemoryStore is a non-persistent Store implementation used in tests and

@@ -84,7 +84,7 @@ func (s *InMemoryAMIStore) DeleteAMI(ctx context.Context, region, amiID string) 
 
 // DynamoAMIStore is a DynamoDB-backed AMI history store.
 type DynamoAMIStore struct {
-	client    *dynamodb.Client
+	client    dynamoClientAPI
 	tableName string
 }
 
