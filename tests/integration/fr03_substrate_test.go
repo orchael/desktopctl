@@ -43,9 +43,9 @@ func TestFR3_ElementaryDesktopEnvironment(t *testing.T) {
 		t.Skip("no SSH key — cannot verify desktop environment")
 	}
 
-	// Check for pantheon greeter package or the io.elementary session file.
+	// Check for pantheon greeter package or the Pantheon session desktop file.
 	// dpkg -s exits non-zero when the package is not installed; the ||
-	// branch checks the xsession file as a fallback.
+	// branch checks /usr/share/xsessions/pantheon.desktop as a fallback.
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
 		"dpkg -s pantheon-greeter >/dev/null 2>&1 && echo installed || "+
 			"test -f /usr/share/xsessions/pantheon.desktop && echo installed || echo missing")

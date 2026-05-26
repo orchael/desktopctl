@@ -7,7 +7,7 @@
 //	AC-9.1  `ai-desktops ami build` command exists and can be invoked
 //	AC-9.6  `ai-desktops ami build --help` succeeds (confirms command registration)
 //	AC-9.7  `create --preview --ami <id>` references the supplied AMI in output
-//	         (flag-override path; config-based selection requires a separate test)
+//	         (partial: flag-override path only; config-based selection requires a separate test)
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
