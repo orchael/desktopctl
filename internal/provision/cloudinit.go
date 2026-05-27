@@ -131,7 +131,8 @@ runcmd:
 
 {{- if not .PackagesPreInstalled}}
   # --- ai-agent-bridge {{ .BridgeVersion }} ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }} || echo "WARNING: ai-agent-bridge installation failed"
+  - |
+    curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }} || echo "WARNING: ai-agent-bridge installation failed"
 {{- end}}
   - |
     if systemctl list-unit-files | grep -q ai-agent-bridge.service; then

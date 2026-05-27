@@ -108,9 +108,46 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	var v interface{}
+	var v any
 	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
 		t.Errorf("rendered cloud-init is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
+	for _, preInstalled := range []bool{false, true} {
+		cfg := &BootstrapConfig{
+			DesktopID:            "d-runcmd",
+			Hostname:             "d-runcmd.desktops.orchael.dev",
+			GitHubOwner:          "acme",
+			Repos:                []string{"github.com/acme/repo"},
+			WorkspacePath:        "/workspace",
+			AWSRegion:            "us-east-1",
+			GitHubSecretPath:     "/ai-desktops/acme/github",
+			PackagesPreInstalled: preInstalled,
+		}
+		out, err := RenderCloudInit(cfg)
+		if err != nil {
+			t.Fatalf("RenderCloudInit (preInstalled=%v): %v", preInstalled, err)
+		}
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("YAML parse (preInstalled=%v): %v", preInstalled, err)
+		}
+		runcmd, ok := doc["runcmd"].([]any)
+		if !ok {
+			t.Fatalf("runcmd is not a list (preInstalled=%v)", preInstalled)
+		}
+		for i, entry := range runcmd {
+			switch entry.(type) {
+			case string:
+				// valid
+			case []any:
+				// valid — array form
+			default:
+				t.Errorf("runcmd[%d] is %T, not a string or array (preInstalled=%v); value: %v", i, entry, preInstalled, entry)
+			}
+		}
 	}
 }
 
