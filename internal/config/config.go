@@ -18,6 +18,7 @@ const (
 	ZoneDev  = "desktops.orchael.dev"
 
 	DefaultFleetTable   = "ai-desktops-fleet"
+	DefaultAMITable     = "ai-desktops-ami"
 	DefaultBridgePort   = 9445
 	DefaultInstanceType = "t3.large"
 )
@@ -110,6 +111,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Fleet.TableName == "" {
 		c.Fleet.TableName = DefaultFleetTable
+	}
+	if c.Fleet.AMITableName == "" {
+		c.Fleet.AMITableName = DefaultAMITable
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
