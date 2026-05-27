@@ -66,6 +66,7 @@ packages:
   - certbot
   - python3-certbot-dns-route53
   - ansible
+  - gh
 {{- end}}
 
 write_files:
@@ -165,7 +166,7 @@ runcmd:
     unset SECRET_JSON
 
     # Install SSH private key for github.com
-    install -d -m 700 /home/ubuntu/.ssh
+    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
     printf '%s\n' "$SSH_KEY" > /home/ubuntu/.ssh/github_ed25519
     chmod 600 /home/ubuntu/.ssh/github_ed25519
     chown ubuntu:ubuntu /home/ubuntu/.ssh/github_ed25519

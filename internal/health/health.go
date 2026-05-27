@@ -259,7 +259,8 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []str
 		NewSSHChecker("python3-installed", hostname, sshPort, user, keyPath,
 			"command -v python3 >/dev/null 2>&1", t),
 		NewSSHChecker("git-identity", hostname, sshPort, user, keyPath,
-			`test -n "$(sudo -u ubuntu git config --global user.name 2>/dev/null)"`, t),
+			`test -n "$(sudo -u ubuntu git config --global user.name 2>/dev/null)" && `+
+				`test -n "$(sudo -u ubuntu git config --global user.email 2>/dev/null)"`, t),
 		NewSSHChecker("ssh-key-present", hostname, sshPort, user, keyPath,
 			"test -f /home/ubuntu/.ssh/github_ed25519", t),
 	}

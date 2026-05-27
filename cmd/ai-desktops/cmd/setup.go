@@ -14,6 +14,9 @@ import (
 	"strings"
 	"syscall"
 
+	"errors"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -239,11 +242,12 @@ func validateGitHubToken(ctx context.Context, token string) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d — check token scopes", resp.StatusCode)
 	}
@@ -325,6 +329,12 @@ func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner 
 			SecretString: aws.String(value),
 		})
 		return err
+	}
+
+	// Only create if the secret doesn't exist; propagate other errors (permissions, throttling, etc.)
+	var notFound *types.ResourceNotFoundException
+	if !errors.As(err, &notFound) {
+		return fmt.Errorf("describe secret: %w", err)
 	}
 
 	// Create new secret

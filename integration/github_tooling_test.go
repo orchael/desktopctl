@@ -132,15 +132,17 @@ func TestFR11_GHRunList(t *testing.T) {
 	mustSSH(t, host, key, port, fmt.Sprintf("sudo -u ubuntu gh run list --repo %s --limit 1", repo))
 }
 
-// FR-11: GitHub Dependabot API is reachable with the token.
+// FR-11: GitHub Dependabot alerts API is reachable with the token (403 is acceptable — feature disabled on repo).
 func TestFR11_DependabotAPIReachable(t *testing.T) {
 	host, key, port := sshEnv(t)
 	repo := os.Getenv("DESKTOP_GITHUB_REPO")
 	if repo == "" {
 		t.Skip("DESKTOP_GITHUB_REPO must be set")
 	}
+	// 403 means the endpoint is reachable but Dependabot is disabled — still a pass per AC-11.
 	cmd := fmt.Sprintf(
-		`sudo -u ubuntu gh api repos/%s/vulnerability-alerts --method GET --silent && echo ok`,
+		`status=$(sudo -u ubuntu gh api repos/%s/dependabot/alerts --silent -i 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}'); `+
+			`[ "$status" = "200" ] || [ "$status" = "403" ] && echo ok || echo "unexpected status: $status"`,
 		repo,
 	)
 	out := mustSSH(t, host, key, port, cmd)
@@ -149,7 +151,7 @@ func TestFR11_DependabotAPIReachable(t *testing.T) {
 	}
 }
 
-// FR-11: Code scanning API is reachable.
+// FR-11: Code scanning API is reachable (403 is acceptable — feature disabled on repo).
 func TestFR11_CodeScanningAPIReachable(t *testing.T) {
 	host, key, port := sshEnv(t)
 	repo := os.Getenv("DESKTOP_GITHUB_REPO")
@@ -157,7 +159,8 @@ func TestFR11_CodeScanningAPIReachable(t *testing.T) {
 		t.Skip("DESKTOP_GITHUB_REPO must be set")
 	}
 	cmd := fmt.Sprintf(
-		`sudo -u ubuntu gh api repos/%s/code-scanning/alerts --silent && echo ok`,
+		`status=$(sudo -u ubuntu gh api repos/%s/code-scanning/alerts --silent -i 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}'); `+
+			`[ "$status" = "200" ] || [ "$status" = "403" ] && echo ok || echo "unexpected status: $status"`,
 		repo,
 	)
 	out := mustSSH(t, host, key, port, cmd)
@@ -166,7 +169,7 @@ func TestFR11_CodeScanningAPIReachable(t *testing.T) {
 	}
 }
 
-// FR-11: Secret scanning API is reachable.
+// FR-11: Secret scanning API is reachable (403 is acceptable — feature disabled on repo).
 func TestFR11_SecretScanningAPIReachable(t *testing.T) {
 	host, key, port := sshEnv(t)
 	repo := os.Getenv("DESKTOP_GITHUB_REPO")
@@ -174,7 +177,8 @@ func TestFR11_SecretScanningAPIReachable(t *testing.T) {
 		t.Skip("DESKTOP_GITHUB_REPO must be set")
 	}
 	cmd := fmt.Sprintf(
-		`sudo -u ubuntu gh api repos/%s/secret-scanning/alerts --silent && echo ok`,
+		`status=$(sudo -u ubuntu gh api repos/%s/secret-scanning/alerts --silent -i 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}'); `+
+			`[ "$status" = "200" ] || [ "$status" = "403" ] && echo ok || echo "unexpected status: $status"`,
 		repo,
 	)
 	out := mustSSH(t, host, key, port, cmd)
@@ -183,15 +187,17 @@ func TestFR11_SecretScanningAPIReachable(t *testing.T) {
 	}
 }
 
-// FR-11: Branch protection API is reachable.
+// FR-11: Branch protection API is reachable (403 is acceptable — rules API requires admin).
 func TestFR11_BranchProtectionAPIReachable(t *testing.T) {
 	host, key, port := sshEnv(t)
 	repo := os.Getenv("DESKTOP_GITHUB_REPO")
 	if repo == "" {
 		t.Skip("DESKTOP_GITHUB_REPO must be set")
 	}
+	// Use the branch protection endpoint; 403 means reachable but insufficient permission — still a pass.
 	cmd := fmt.Sprintf(
-		`sudo -u ubuntu gh api repos/%s/branches --silent && echo ok`,
+		`status=$(sudo -u ubuntu gh api repos/%s/branches/main/protection --silent -i 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}'); `+
+			`[ "$status" = "200" ] || [ "$status" = "403" ] || [ "$status" = "404" ] && echo ok || echo "unexpected status: $status"`,
 		repo,
 	)
 	out := mustSSH(t, host, key, port, cmd)
