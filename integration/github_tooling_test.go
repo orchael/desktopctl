@@ -197,7 +197,7 @@ func TestFR11_BranchProtectionAPIReachable(t *testing.T) {
 	// Use the branch protection endpoint; 403 means reachable but insufficient permission — still a pass.
 	cmd := fmt.Sprintf(
 		`status=$(sudo -u ubuntu gh api repos/%s/branches/main/protection --silent -i 2>&1 | grep -m1 '^HTTP/' | awk '{print $2}'); `+
-			`[ "$status" = "200" ] || [ "$status" = "403" ] || [ "$status" = "404" ] && echo ok || echo "unexpected status: $status"`,
+			`[ "$status" = "200" ] || [ "$status" = "403" ] && echo ok || echo "unexpected status: $status"`,
 		repo,
 	)
 	out := mustSSH(t, host, key, port, cmd)
@@ -206,18 +206,32 @@ func TestFR11_BranchProtectionAPIReachable(t *testing.T) {
 	}
 }
 
-// FR-11: SSH-based git push credentials work (non-destructive: only checks SSH auth to github.com).
+// FR-11: SSH-based git push credentials have write access (non-destructive dry-run).
 func TestFR11_GitPushCredentials(t *testing.T) {
 	host, key, port := sshEnv(t)
-	// ssh -T git@github.com exits 1 but prints "Hi <user>!" — that's a pass.
-	out, err := sshRun(t, host, key, port,
-		`sudo -u ubuntu ssh -T -o StrictHostKeyChecking=accept-new git@github.com 2>&1 || true`)
+	repo := os.Getenv("DESKTOP_GITHUB_REPO")
+	if repo == "" {
+		t.Skip("DESKTOP_GITHUB_REPO must be set")
+	}
+	// Clone the configured repo into a temp dir and attempt a dry-run push.
+	// A dry-run push verifies that the SSH key has write access without modifying
+	// any refs. Exit code 0 means the push would succeed; any other exit means
+	// auth or permission failure.
+	cmd := fmt.Sprintf(
+		`set -e; `+
+			`TMPDIR=$(sudo -u ubuntu mktemp -d); `+
+			`sudo -u ubuntu git clone --depth 1 git@github.com:%s.git "$TMPDIR/repo" 2>&1; `+
+			`cd "$TMPDIR/repo"; `+
+			`sudo -u ubuntu git push --dry-run origin HEAD 2>&1 && echo ok || echo "push dry-run failed"; `+
+			`rm -rf "$TMPDIR"`,
+		repo,
+	)
+	out, err := sshRun(t, host, key, port, cmd)
 	if err != nil {
-		// The command itself (outer ssh) failed — infra problem.
 		t.Fatalf("outer ssh failed: %v", err)
 	}
-	if !strings.Contains(out, "Hi ") {
-		t.Errorf("expected 'Hi <user>!' from github.com SSH auth, got: %q", out)
+	if !strings.Contains(out, "ok") {
+		t.Errorf("git push --dry-run did not succeed, output: %q", out)
 	}
 }
 

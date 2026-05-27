@@ -134,6 +134,18 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Print("\nUpdate GitHub token and SSH key? [y/N]: ")
 		answer, _ := reader.ReadString('\n')
 		updateToken = strings.TrimSpace(strings.ToLower(answer)) == "y"
+		if updateToken {
+			fmt.Println()
+			fmt.Println("WARNING: a new SSH key will be generated and registered with GitHub.")
+			fmt.Println("The previous SSH key will remain registered and should be removed manually")
+			fmt.Println("from https://github.com/settings/keys to avoid orphaned credentials.")
+			fmt.Print("Continue? [y/N]: ")
+			confirm, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(confirm)) != "y" {
+				fmt.Println("Credential rotation cancelled.")
+				updateToken = false
+			}
+		}
 	}
 
 	if updateToken {
@@ -215,25 +227,22 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  GitHub token unchanged.")
 	}
 
-	// Write config (always — idempotent)
+	// Write config (always — idempotent).
+	// Start from the existing loaded config so fields not touched by the wizard
+	// (active_ami, operator_cidr, ssh_key_name, infra_dir, agent settings, etc.)
+	// are preserved.
 	fmt.Println()
 	fmt.Printf("── Writing config ───────────────────────────────────\n")
-	newCfg := &config.Config{
-		AWS: config.AWSConfig{
-			Region:  a.AWSRegion,
-			Profile: a.AWSProfile,
-		},
-		Pulumi: config.PulumiConfig{
-			BackendBucket: a.BackendBucket,
-		},
-		Fleet: config.FleetConfig{
-			Environment: a.Environment,
-		},
-		GitHub: config.GitHubConfig{
-			Owner:        a.GitHubOwner,
-			GitHubSecret: secretPath,
-		},
+	newCfg := cfg
+	if newCfg == nil {
+		newCfg = &config.Config{}
 	}
+	newCfg.AWS.Region = a.AWSRegion
+	newCfg.AWS.Profile = a.AWSProfile
+	newCfg.Pulumi.BackendBucket = a.BackendBucket
+	newCfg.Fleet.Environment = a.Environment
+	newCfg.GitHub.Owner = a.GitHubOwner
+	newCfg.GitHub.GitHubSecret = secretPath
 	newCfg.Defaults()
 
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0700); err != nil {
@@ -267,6 +276,8 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	return line
 }
 
+var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key"}
+
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
 	if err != nil {
@@ -283,6 +294,26 @@ func validateGitHubToken(ctx context.Context, token string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d — check token scopes", resp.StatusCode)
 	}
+
+	// Verify required scopes from the X-OAuth-Scopes response header.
+	// Fine-grained tokens don't expose this header; skip scope check in that case.
+	scopeHeader := resp.Header.Get("X-OAuth-Scopes")
+	if scopeHeader != "" {
+		grantedScopes := make(map[string]bool)
+		for _, s := range strings.Split(scopeHeader, ",") {
+			grantedScopes[strings.TrimSpace(s)] = true
+		}
+		var missing []string
+		for _, required := range requiredScopes {
+			if !grantedScopes[required] {
+				missing = append(missing, required)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("token is missing required scopes: %s", strings.Join(missing, ", "))
+		}
+	}
+
 	return nil
 }
 

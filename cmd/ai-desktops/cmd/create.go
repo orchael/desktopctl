@@ -88,6 +88,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			amiID = ami
 		}
 	}
+	if amiID == "" {
+		return fmt.Errorf("no AMI configured for region %s: run `ai-desktops ami build` first or supply --ami", cfg.AWS.Region)
+	}
 
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
