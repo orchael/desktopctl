@@ -85,12 +85,14 @@
 
     - name: Install Homebrew for Linux
       when: not brew_check.stat.exists
+      become: true
+      become_user: ubuntu
       ansible.builtin.shell: |
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/brew
       environment:
-        HOME: /root
+        HOME: /home/ubuntu
 
     - name: Add Homebrew to PATH via /etc/profile.d
       become: true
