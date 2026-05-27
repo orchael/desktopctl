@@ -242,7 +242,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.Pulumi.BackendBucket = a.BackendBucket
 	newCfg.Fleet.Environment = a.Environment
 	newCfg.GitHub.Owner = a.GitHubOwner
-	newCfg.GitHub.GitHubSecret = secretPath
+	// Preserve the existing secret path when the operator declined rotation;
+	// overwrite only when a new token was stored (or on first run).
+	if updateToken || cfg == nil || cfg.GitHub.GitHubSecret == "" {
+		newCfg.GitHub.GitHubSecret = secretPath
+	}
 	newCfg.Defaults()
 
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0700); err != nil {

@@ -183,7 +183,7 @@ runcmd:
     chown ubuntu:ubuntu /home/ubuntu/.ssh/config
 
     # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
-    sudo -u ubuntu bash -c "echo \"${GITHUB_TOKEN}\" | gh auth login --with-token" || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
+    printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
 
     # Configure git commit identity
     sudo -u ubuntu git config --global user.name  "AI Desktop ({{ .DesktopID }})"

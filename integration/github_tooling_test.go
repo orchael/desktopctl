@@ -41,6 +41,7 @@ func sshRun(t *testing.T, host, keyPath string, port int, command string) (strin
 		"-o", "ConnectTimeout=15",
 		"-o", "BatchMode=yes",
 		"-o", "PasswordAuthentication=no",
+		"-o", "LogLevel=ERROR",
 		"-i", keyPath,
 		"-p", fmt.Sprintf("%d", port),
 		fmt.Sprintf("ubuntu@%s", host),
