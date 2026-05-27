@@ -146,6 +146,7 @@ runcmd:
 
   # --- retrieve GitHub credentials and configure SSH ---
   - |
+    (
     set -e
     REGION="{{ .AWSRegion }}"
     SECRET="{{ .GitHubSecretPath }}"
@@ -189,10 +190,12 @@ runcmd:
     sudo -u ubuntu git config --global user.email "desktop-{{ .DesktopID }}@noreply.github.com"
 
     unset GITHUB_TOKEN
+    ) || echo "ERROR: GitHub credentials setup failed"
 
   # --- clone repositories ---
 {{ range .Repos }}
   - |
+    (
     set -e
     OWNER="{{ $.GitHubOwner }}"
     WORKSPACE="{{ $.WorkspacePath }}"
@@ -209,6 +212,7 @@ runcmd:
     if [ ! -d "$DEST/.git" ]; then
       sudo -u ubuntu git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
     fi
+    ) || echo "ERROR: failed to clone {{ . }}"
 {{ end }}
 
   # --- write desktop metadata ---
