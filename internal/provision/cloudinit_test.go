@@ -206,9 +206,9 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("novnc-desktop install curl should be absent when PackagesPreInstalled is true")
 	}
 
-	// ai-agent-bridge curl install should be absent
-	if strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
-		t.Error("ai-agent-bridge install curl should be absent when PackagesPreInstalled is true")
+	// ai-agent-bridge Docker pull should be absent for AMI path (bridge is pre-installed)
+	if strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
+		t.Error("ai-agent-bridge Docker pull should be absent when PackagesPreInstalled is true")
 	}
 
 	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
@@ -265,9 +265,9 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 		t.Error("snap nvim install should be present when PackagesPreInstalled is false")
 	}
 
-	// ai-agent-bridge curl install should be present
-	if !strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
-		t.Error("ai-agent-bridge install curl should be present when PackagesPreInstalled is false")
+	// ai-agent-bridge Docker pull should be present (no curl installer; Docker image used)
+	if !strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
+		t.Error("ai-agent-bridge Docker pull should be present when PackagesPreInstalled is false")
 	}
 
 	// nginx TLS config should be absent (novnc-desktop install handles it)

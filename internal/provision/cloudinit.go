@@ -11,7 +11,7 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion  = "v0.1.0"
+	AIAgentBridgeVersion  = "v0.2.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -130,9 +130,11 @@ runcmd:
 {{- end}}
 
 {{- if not .PackagesPreInstalled}}
-  # --- ai-agent-bridge {{ .BridgeVersion }} ---
+  # --- ai-agent-bridge {{ .BridgeVersion }} (Docker image; no curl installer available) ---
+  # The bridge requires TLS certs and config; pre-install via AMI for full bridge support.
+  # Pull the image so it is cached for manual setup later.
   - |
-    curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }} || echo "WARNING: ai-agent-bridge installation failed"
+    docker pull ghcr.io/markcallen/ai-agent-bridge:{{ .BridgeVersion }} 2>/dev/null || true
 {{- end}}
   - |
     if systemctl list-unit-files | grep -q ai-agent-bridge.service; then
@@ -162,8 +164,8 @@ runcmd:
       exit 1
     fi
 
-    GITHUB_TOKEN=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
-    SSH_KEY=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
+    GITHUB_TOKEN=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
+    SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
 
     # Install SSH private key for github.com

@@ -89,6 +89,8 @@
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/brew
+      environment:
+        HOME: /root
 
     - name: Add Homebrew to PATH via /etc/profile.d
       become: true
