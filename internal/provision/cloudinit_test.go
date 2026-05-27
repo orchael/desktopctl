@@ -9,15 +9,15 @@ import (
 
 func TestRenderCloudInit(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-001",
-		Hostname:      "d-001.desktops.orchael.dev",
-		GitHubOwner:   "acme",
-		Repos:         []string{"github.com/acme/app-one", "github.com/acme/app-two"},
-		WorkspacePath: "/workspace",
-		BridgePort:    9445,
+		DesktopID:        "d-001",
+		Hostname:         "d-001.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		Repos:            []string{"github.com/acme/app-one", "github.com/acme/app-two"},
+		WorkspacePath:    "/workspace",
+		BridgePort:       9445,
 		GitHubSecretPath: "/ai-desktops/acme/github",
-		AWSRegion:     "us-east-1",
-		Environment:   "dev",
+		AWSRegion:        "us-east-1",
+		Environment:      "dev",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -72,9 +72,9 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-003",
-		Hostname:      "d-003.desktops.orchael.dev",
-		GitHubOwner:   "acme",
+		DesktopID:        "d-003",
+		Hostname:         "d-003.desktops.orchael.dev",
+		GitHubOwner:      "acme",
 		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
@@ -93,13 +93,13 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 
 func TestRenderCloudInit_validYAML(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-yaml",
-		Hostname:      "d-yaml.desktops.orchael.dev",
-		GitHubOwner:   "acme",
-		Repos:         []string{"github.com/acme/myrepo"},
-		WorkspacePath: "/workspace",
-		AWSRegion:     "us-east-1",
-		Environment:   "dev",
+		DesktopID:        "d-yaml",
+		Hostname:         "d-yaml.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		Repos:            []string{"github.com/acme/myrepo"},
+		WorkspacePath:    "/workspace",
+		AWSRegion:        "us-east-1",
+		Environment:      "dev",
 		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
