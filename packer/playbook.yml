@@ -16,6 +16,7 @@
       docker.io: "24.0"
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
+      gh: "2.0"
 
   tasks:
     - name: Update apt cache
@@ -144,6 +145,23 @@
           if [ -f "$HOME/.cargo/env" ]; then
             . "$HOME/.cargo/env"
           fi
+
+    - name: Add GitHub CLI apt repository
+      ansible.builtin.shell: |
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+          | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+          | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        apt-get update -qq
+      args:
+        creates: /etc/apt/sources.list.d/github-cli.list
+
+    - name: Install GitHub CLI and python3
+      ansible.builtin.apt:
+        name:
+          - gh
+          - python3
+        state: present
 
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:

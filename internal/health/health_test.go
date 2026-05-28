@@ -137,10 +137,38 @@ func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
 		names[c.Name()] = true
 	}
 
-	required := []string{"docker-active", "nvim-installed", "tmux-installed", "repo-app-one", "repo-app-two"}
+	required := []string{
+		"docker-active", "nvim-installed", "tmux-installed",
+		"gh-installed", "gh-auth", "python3-installed",
+		"git-identity", "ssh-key-present",
+		"repo-app-one", "repo-app-two",
+	}
 	for _, n := range required {
 		if !names[n] {
 			t.Errorf("SSHCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestSSHCheckers_githubToolingPresent(t *testing.T) {
+	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"gh-installed", "gh-auth", "python3-installed", "git-identity", "ssh-key-present"} {
+		if !names[n] {
+			t.Errorf("SSHCheckers missing github-tooling checker %q", n)
+		}
+	}
+}
+
+func TestSSHCheckers_allSkippedWithNoKey(t *testing.T) {
+	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	for _, c := range checkers {
+		result := c.Run(context.Background())
+		if result.Status != StatusSkipped {
+			t.Errorf("checker %q: expected skipped with empty key, got %q", c.Name(), result.Status)
 		}
 	}
 }

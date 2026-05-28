@@ -9,15 +9,15 @@ import (
 
 func TestRenderCloudInit(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-001",
-		Hostname:      "d-001.desktops.orchael.dev",
-		GitHubOwner:   "acme",
-		Repos:         []string{"github.com/acme/app-one", "github.com/acme/app-two"},
-		WorkspacePath: "/workspace",
-		BridgePort:    9445,
-		PATSecretPath: "/ai-desktops/github/pat",
-		AWSRegion:     "us-east-1",
-		Environment:   "dev",
+		DesktopID:        "d-001",
+		Hostname:         "d-001.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		Repos:            []string{"github.com/acme/app-one", "github.com/acme/app-two"},
+		WorkspacePath:    "/workspace",
+		BridgePort:       9445,
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+		Environment:      "dev",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -33,7 +33,7 @@ func TestRenderCloudInit(t *testing.T) {
 		"app-two",
 		"/workspace",
 		"9445",
-		"/ai-desktops/github/pat",
+		"/ai-desktops/acme/github",
 		"us-east-1",
 		"ai-agent-bridge",
 		AIAgentBridgeVersion,
@@ -72,10 +72,10 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-003",
-		Hostname:      "d-003.desktops.orchael.dev",
-		GitHubOwner:   "acme",
-		PATSecretPath: "/ai-desktops/github/pat",
+		DesktopID:        "d-003",
+		Hostname:         "d-003.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -83,8 +83,8 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	// The rendered output should reference the SSM path, not a literal secret value.
-	// In this template the PAT is retrieved at runtime via AWS CLI, so no literal
+	// The rendered output should reference the secret path, not a literal secret value.
+	// In this template the token is retrieved at runtime via AWS CLI, so no literal
 	// token should appear.
 	if strings.Contains(out, "ghp_") {
 		t.Error("rendered cloud-init must not contain a literal GitHub PAT")
@@ -93,14 +93,14 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 
 func TestRenderCloudInit_validYAML(t *testing.T) {
 	cfg := &BootstrapConfig{
-		DesktopID:     "d-yaml",
-		Hostname:      "d-yaml.desktops.orchael.dev",
-		GitHubOwner:   "acme",
-		Repos:         []string{"github.com/acme/myrepo"},
-		WorkspacePath: "/workspace",
-		AWSRegion:     "us-east-1",
-		Environment:   "dev",
-		PATSecretPath: "/ai-desktops/github/pat",
+		DesktopID:        "d-yaml",
+		Hostname:         "d-yaml.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		Repos:            []string{"github.com/acme/myrepo"},
+		WorkspacePath:    "/workspace",
+		AWSRegion:        "us-east-1",
+		Environment:      "dev",
+		GitHubSecretPath: "/ai-desktops/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)
