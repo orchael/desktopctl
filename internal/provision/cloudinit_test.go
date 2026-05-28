@@ -108,9 +108,46 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	var v interface{}
+	var v any
 	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
 		t.Errorf("rendered cloud-init is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
+	for _, preInstalled := range []bool{false, true} {
+		cfg := &BootstrapConfig{
+			DesktopID:            "d-runcmd",
+			Hostname:             "d-runcmd.desktops.orchael.dev",
+			GitHubOwner:          "acme",
+			Repos:                []string{"github.com/acme/repo"},
+			WorkspacePath:        "/workspace",
+			AWSRegion:            "us-east-1",
+			GitHubSecretPath:     "/ai-desktops/acme/github",
+			PackagesPreInstalled: preInstalled,
+		}
+		out, err := RenderCloudInit(cfg)
+		if err != nil {
+			t.Fatalf("RenderCloudInit (preInstalled=%v): %v", preInstalled, err)
+		}
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("YAML parse (preInstalled=%v): %v", preInstalled, err)
+		}
+		runcmd, ok := doc["runcmd"].([]any)
+		if !ok {
+			t.Fatalf("runcmd is not a list (preInstalled=%v)", preInstalled)
+		}
+		for i, entry := range runcmd {
+			switch entry.(type) {
+			case string:
+				// valid
+			case []any:
+				// valid — array form
+			default:
+				t.Errorf("runcmd[%d] is %T, not a string or array (preInstalled=%v); value: %v", i, entry, preInstalled, entry)
+			}
+		}
 	}
 }
 
@@ -169,9 +206,9 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("novnc-desktop install curl should be absent when PackagesPreInstalled is true")
 	}
 
-	// ai-agent-bridge curl install should be absent
-	if strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
-		t.Error("ai-agent-bridge install curl should be absent when PackagesPreInstalled is true")
+	// ai-agent-bridge Docker pull should be absent for AMI path (bridge is pre-installed)
+	if strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
+		t.Error("ai-agent-bridge Docker pull should be absent when PackagesPreInstalled is true")
 	}
 
 	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
@@ -228,9 +265,9 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 		t.Error("snap nvim install should be present when PackagesPreInstalled is false")
 	}
 
-	// ai-agent-bridge curl install should be present
-	if !strings.Contains(out, "raw.githubusercontent.com/orchael/ai-agent-bridge") {
-		t.Error("ai-agent-bridge install curl should be present when PackagesPreInstalled is false")
+	// ai-agent-bridge Docker pull should be present (no curl installer; Docker image used)
+	if !strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
+		t.Error("ai-agent-bridge Docker pull should be present when PackagesPreInstalled is false")
 	}
 
 	// nginx TLS config should be absent (novnc-desktop install handles it)

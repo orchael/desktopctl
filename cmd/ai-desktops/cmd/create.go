@@ -88,6 +88,17 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			amiID = ami
 		}
 	}
+	if amiID == "" {
+		return fmt.Errorf("no AMI configured for region %s: run `ai-desktops ami build` first or supply --ami", cfg.AWS.Region)
+	}
+
+	// cfg.GitHub.GitHubSecret defaults to /ai-desktops/github/pat when github.owner
+	// is absent from the config file. Re-derive from the effective owner so that
+	// --github-owner on the CLI resolves to the correct path.
+	gitHubSecret := cfg.GitHub.GitHubSecret
+	if cfg.GitHub.Owner == "" {
+		gitHubSecret = "/ai-desktops/" + owner + "/github"
+	}
 
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
@@ -96,7 +107,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
-		GitHubSecret:  cfg.GitHub.GitHubSecret,
+		GitHubSecret:  gitHubSecret,
 		BackendBucket: cfg.Pulumi.BackendBucket,
 		Region:        cfg.AWS.Region,
 		Profile:       cfg.AWS.Profile,
@@ -156,7 +167,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
-		GitHubSecretPath:     cfg.GitHub.GitHubSecret,
+		GitHubSecretPath:     gitHubSecret,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",

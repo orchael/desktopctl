@@ -151,6 +151,35 @@ func EnsureTable(ctx context.Context, cfg aws.Config, tableName string) error {
 
 // --- EC2 ---
 
+// AMIInfo holds basic descriptive metadata for an EC2 AMI.
+type AMIInfo struct {
+	ID          string
+	Name        string
+	Description string
+	CreatedAt   string
+}
+
+// DescribeAMI returns metadata for the given AMI ID.
+func DescribeAMI(ctx context.Context, cfg aws.Config, amiID string) (*AMIInfo, error) {
+	c := ec2.NewFromConfig(cfg)
+	out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		ImageIds: []string{amiID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe AMI %s: %w", amiID, err)
+	}
+	if len(out.Images) == 0 {
+		return nil, fmt.Errorf("AMI %s not found", amiID)
+	}
+	img := out.Images[0]
+	return &AMIInfo{
+		ID:          aws.ToString(img.ImageId),
+		Name:        aws.ToString(img.Name),
+		Description: aws.ToString(img.Description),
+		CreatedAt:   aws.ToString(img.CreationDate),
+	}, nil
+}
+
 // FindLatestAMI returns the most-recent AMI matching the given name pattern and
 // owner. namePattern supports the EC2 wildcard syntax (e.g. "my-ami-v1.2.*").
 func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner string) (string, error) {

@@ -29,17 +29,18 @@ import (
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Interactive first-time configuration wizard",
+	Short: "Interactive configuration wizard (safe to re-run)",
 	Long: `setup walks through configuring ~/.ai-desktops/config.yaml and provisioning
 GitHub credentials (token + SSH key) in AWS Secrets Manager.
 
+When run on an existing configuration all current values are used as defaults.
+The GitHub token and SSH key are only rotated when explicitly requested.
+
 The wizard will:
   1. Collect AWS and GitHub configuration interactively
-  2. Validate the GitHub token
-  3. Generate an Ed25519 SSH key pair
-  4. Register the public key with GitHub
-  5. Store all credentials in AWS Secrets Manager
-  6. Write ~/.ai-desktops/config.yaml`,
+  2. Optionally validate and rotate the GitHub token + SSH key
+  3. Store updated credentials in AWS Secrets Manager
+  4. Write ~/.ai-desktops/config.yaml`,
 	RunE: runSetup,
 }
 
@@ -60,32 +61,32 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("Welcome to ai-desktops setup.")
-	fmt.Println("This wizard will create ~/.ai-desktops/config.yaml and provision your GitHub credentials.")
-	fmt.Println()
-
-	// Determine config path and check if it exists
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
 	}
 	cfgPath := filepath.Join(home, ".ai-desktops", "config.yaml")
 
-	if _, err := os.Stat(cfgPath); err == nil {
-		fmt.Printf("config.yaml already exists at %s. Overwrite? [y/N]: ", cfgPath)
-		answer, _ := reader.ReadString('\n')
-		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
-			fmt.Println("Aborted.")
-			return nil
-		}
+	_, statErr := os.Stat(cfgPath)
+	isExisting := statErr == nil
+
+	if isExisting {
+		fmt.Println("Welcome to ai-desktops setup — updating existing configuration.")
+		fmt.Println("Press Enter to keep the current value shown in brackets.")
+	} else {
+		fmt.Println("Welcome to ai-desktops setup.")
+		fmt.Println("This wizard will create ~/.ai-desktops/config.yaml and provision your GitHub credentials.")
 	}
+	fmt.Println()
 
 	a := &setupAnswers{}
 
-	// Use existing config values as defaults where available
+	// Seed defaults from the loaded config (cfg is the package-level loaded config).
 	existingRegion := "us-east-1"
 	existingProfile := "default"
 	existingEnv := "dev"
+	existingBucket := ""
+	existingOwner := ""
 	if cfg != nil {
 		if cfg.AWS.Region != "" {
 			existingRegion = cfg.AWS.Region
@@ -96,114 +97,155 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if cfg.Fleet.Environment != "" {
 			existingEnv = cfg.Fleet.Environment
 		}
+		if cfg.Pulumi.BackendBucket != "" {
+			existingBucket = cfg.Pulumi.BackendBucket
+		}
+		if cfg.GitHub.Owner != "" {
+			existingOwner = cfg.GitHub.Owner
+		}
 	}
 
 	fmt.Println("── AWS ──────────────────────────────────────────────")
 	a.AWSRegion = prompt(reader, fmt.Sprintf("AWS region [%s]", existingRegion), existingRegion)
 	a.AWSProfile = prompt(reader, fmt.Sprintf("AWS profile [%s]", existingProfile), existingProfile)
-	a.BackendBucket = prompt(reader, "Pulumi state S3 bucket", "")
+	bucketLabel := "Pulumi state S3 bucket"
+	if existingBucket != "" {
+		bucketLabel = fmt.Sprintf("Pulumi state S3 bucket [%s]", existingBucket)
+	}
+	a.BackendBucket = prompt(reader, bucketLabel, existingBucket)
 	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod) [%s]", existingEnv), existingEnv)
 
 	fmt.Println()
 	fmt.Println("── GitHub ───────────────────────────────────────────")
-	a.GitHubOwner = prompt(reader, "GitHub owner (org or user)", "")
+	ownerLabel := "GitHub owner (org or user)"
+	if existingOwner != "" {
+		ownerLabel = fmt.Sprintf("GitHub owner (org or user) [%s]", existingOwner)
+	}
+	a.GitHubOwner = prompt(reader, ownerLabel, existingOwner)
 	if a.GitHubOwner == "" {
 		return fmt.Errorf("github owner is required")
 	}
 
-	fmt.Println()
-	fmt.Println("Before continuing, create a GitHub personal access token with these scopes:")
-	fmt.Println("  • admin:public_key  (register SSH keys)")
-	fmt.Println("  • repo              (clone, push, PRs)")
-	fmt.Println("  • workflow          (GitHub Actions)")
-	fmt.Println("  • security_events   (code scanning, secret scanning)")
-	fmt.Println("  • read:user         (identity)")
-	fmt.Println()
-	fmt.Println("Create the token at: https://github.com/settings/tokens/new")
-	fmt.Print("Paste the token here (input hidden): ")
-
-	tokenBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
-	fmt.Println()
-	if err != nil {
-		return fmt.Errorf("read token: %w", err)
-	}
-	a.GitHubToken = strings.TrimSpace(string(tokenBytes))
-	if a.GitHubToken == "" {
-		return fmt.Errorf("token is required")
-	}
-
-	// Validate token
-	fmt.Print("Validating GitHub token... ")
-	if err := validateGitHubToken(ctx, a.GitHubToken); err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("token validation failed: %w", err)
-	}
-	fmt.Println("✓")
-
-	// Generate SSH key pair
-	fmt.Println()
-	fmt.Printf("── Generating SSH key ───────────────────────────────\n")
-	fmt.Printf("Generating Ed25519 SSH key pair for owner: %s\n", a.GitHubOwner)
-
-	pub, priv, err := generateSSHKeyPair(a.GitHubOwner)
-	if err != nil {
-		return fmt.Errorf("generate SSH key pair: %w", err)
-	}
-	fmt.Printf("  Public key:  %s\n", strings.TrimSpace(pub))
-
-	// Register SSH key with GitHub
-	fmt.Printf("Registering SSH public key with GitHub account '%s'... ", a.GitHubOwner)
-	if err := registerGitHubSSHKey(ctx, a.GitHubToken, "ai-desktops/"+a.GitHubOwner, pub); err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("register SSH key: %w", err)
-	}
-	fmt.Println("✓")
-
-	// Store secret in AWS Secrets Manager
 	secretPath := "/ai-desktops/" + a.GitHubOwner + "/github"
-	fmt.Println()
-	fmt.Printf("── Storing secret ───────────────────────────────────\n")
-	fmt.Printf("Storing secret at %s in %s... ", secretPath, a.AWSRegion)
 
-	awsCfg, err := awscfg.LoadDefaultConfig(ctx,
-		awscfg.WithRegion(a.AWSRegion),
-		awscfg.WithSharedConfigProfile(a.AWSProfile),
-	)
-	if err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("load AWS config: %w", err)
+	// On an existing setup ask whether to rotate the token; on first run always collect it.
+	updateToken := true
+	if isExisting {
+		fmt.Print("\nUpdate GitHub token and SSH key? [y/N]: ")
+		answer, _ := reader.ReadString('\n')
+		updateToken = strings.TrimSpace(strings.ToLower(answer)) == "y"
+		if updateToken {
+			fmt.Println()
+			fmt.Println("WARNING: a new SSH key will be generated and registered with GitHub.")
+			fmt.Println("The previous SSH key will remain registered and should be removed manually")
+			fmt.Println("from https://github.com/settings/keys to avoid orphaned credentials.")
+			fmt.Print("Continue? [y/N]: ")
+			confirm, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(confirm)) != "y" {
+				fmt.Println("Credential rotation cancelled.")
+				updateToken = false
+			}
+		}
 	}
 
-	secretValue, err := buildSecretJSON(a.GitHubToken, priv, pub)
-	if err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("build secret JSON: %w", err)
+	if updateToken {
+		fmt.Println()
+		fmt.Println("Before continuing, create a GitHub personal access token with these scopes:")
+		fmt.Println("  • admin:public_key  (register SSH keys)")
+		fmt.Println("  • repo              (clone, push, PRs)")
+		fmt.Println("  • workflow          (GitHub Actions)")
+		fmt.Println("  • security_events   (code scanning, secret scanning)")
+		fmt.Println("  • read:user         (identity)")
+		fmt.Println("  • read:org          (required by gh CLI auth)")
+		fmt.Println()
+		fmt.Println("Create the token at: https://github.com/settings/tokens/new")
+		fmt.Print("Paste the token here (input hidden): ")
+
+		tokenBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("read token: %w", err)
+		}
+		a.GitHubToken = strings.TrimSpace(string(tokenBytes))
+		if a.GitHubToken == "" {
+			return fmt.Errorf("token is required")
+		}
+
+		// Validate token
+		fmt.Print("Validating GitHub token... ")
+		if err := validateGitHubToken(ctx, a.GitHubToken); err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("token validation failed: %w", err)
+		}
+		fmt.Println("✓")
+
+		// Generate SSH key pair
+		fmt.Println()
+		fmt.Printf("── Generating SSH key ───────────────────────────────\n")
+		fmt.Printf("Generating Ed25519 SSH key pair for owner: %s\n", a.GitHubOwner)
+
+		pub, priv, err := generateSSHKeyPair(a.GitHubOwner)
+		if err != nil {
+			return fmt.Errorf("generate SSH key pair: %w", err)
+		}
+		fmt.Printf("  Public key:  %s\n", strings.TrimSpace(pub))
+
+		// Register SSH key with GitHub
+		fmt.Printf("Registering SSH public key with GitHub account '%s'... ", a.GitHubOwner)
+		if err := registerGitHubSSHKey(ctx, a.GitHubToken, "ai-desktops/"+a.GitHubOwner, pub); err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("register SSH key: %w", err)
+		}
+		fmt.Println("✓")
+
+		// Store/update secret in AWS Secrets Manager
+		fmt.Println()
+		fmt.Printf("── Storing secret ───────────────────────────────────\n")
+		fmt.Printf("Storing secret at %s in %s... ", secretPath, a.AWSRegion)
+
+		awsCfg, err := awscfg.LoadDefaultConfig(ctx,
+			awscfg.WithRegion(a.AWSRegion),
+			awscfg.WithSharedConfigProfile(a.AWSProfile),
+		)
+		if err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("load AWS config: %w", err)
+		}
+
+		secretValue, err := buildSecretJSON(a.GitHubToken, priv, pub)
+		if err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("build secret JSON: %w", err)
+		}
+
+		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner); err != nil {
+			fmt.Println("✗")
+			return fmt.Errorf("store secret: %w", err)
+		}
+		fmt.Println("✓")
+	} else {
+		fmt.Println("  GitHub token unchanged.")
 	}
 
-	if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner); err != nil {
-		fmt.Println("✗")
-		return fmt.Errorf("store secret: %w", err)
-	}
-	fmt.Println("✓")
-
-	// Write config
+	// Write config (always — idempotent).
+	// Start from the existing loaded config so fields not touched by the wizard
+	// (active_ami, operator_cidr, ssh_key_name, infra_dir, agent settings, etc.)
+	// are preserved.
 	fmt.Println()
 	fmt.Printf("── Writing config ───────────────────────────────────\n")
-	newCfg := &config.Config{
-		AWS: config.AWSConfig{
-			Region:  a.AWSRegion,
-			Profile: a.AWSProfile,
-		},
-		Pulumi: config.PulumiConfig{
-			BackendBucket: a.BackendBucket,
-		},
-		Fleet: config.FleetConfig{
-			Environment: a.Environment,
-		},
-		GitHub: config.GitHubConfig{
-			Owner:        a.GitHubOwner,
-			GitHubSecret: secretPath,
-		},
+	newCfg := cfg
+	if newCfg == nil {
+		newCfg = &config.Config{}
+	}
+	newCfg.AWS.Region = a.AWSRegion
+	newCfg.AWS.Profile = a.AWSProfile
+	newCfg.Pulumi.BackendBucket = a.BackendBucket
+	newCfg.Fleet.Environment = a.Environment
+	newCfg.GitHub.Owner = a.GitHubOwner
+	// Preserve the existing secret path when the operator declined rotation;
+	// overwrite only when a new token was stored (or on first run).
+	if updateToken || cfg == nil || cfg.GitHub.GitHubSecret == "" {
+		newCfg.GitHub.GitHubSecret = secretPath
 	}
 	newCfg.Defaults()
 
@@ -218,9 +260,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Println("✓")
 
 	fmt.Println()
-	fmt.Println("Setup complete. Next steps:")
-	fmt.Println("  ai-desktops bootstrap       # create S3 Pulumi state bucket")
-	fmt.Println("  ai-desktops init-foundation # deploy shared AWS infrastructure")
+	fmt.Println("Setup complete.")
+	if !isExisting {
+		fmt.Println("Next steps:")
+		fmt.Println("  ai-desktops bootstrap       # create S3 Pulumi state bucket")
+		fmt.Println("  ai-desktops init-foundation # deploy shared AWS infrastructure")
+	}
 	fmt.Printf("  ai-desktops create --github-owner %s --repo <owner/repo>\n", a.GitHubOwner)
 	return nil
 }
@@ -234,6 +279,8 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	}
 	return line
 }
+
+var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
@@ -251,6 +298,26 @@ func validateGitHubToken(ctx context.Context, token string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d — check token scopes", resp.StatusCode)
 	}
+
+	// Verify required scopes from the X-OAuth-Scopes response header.
+	// Fine-grained tokens don't expose this header; skip scope check in that case.
+	scopeHeader := resp.Header.Get("X-OAuth-Scopes")
+	if scopeHeader != "" {
+		grantedScopes := make(map[string]bool)
+		for _, s := range strings.Split(scopeHeader, ",") {
+			grantedScopes[strings.TrimSpace(s)] = true
+		}
+		var missing []string
+		for _, required := range requiredScopes {
+			if !grantedScopes[required] {
+				missing = append(missing, required)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("token is missing required scopes: %s", strings.Join(missing, ", "))
+		}
+	}
+
 	return nil
 }
 

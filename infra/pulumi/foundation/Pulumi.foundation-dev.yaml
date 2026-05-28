@@ -4,3 +4,4 @@ config:
   foundation:zone: desktops.orchael.dev
   foundation:fleetTable: ai-desktops-fleet
   foundation:operatorCIDR: 0.0.0.0/0
+  foundation:environment: dev

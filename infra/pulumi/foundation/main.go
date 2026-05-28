@@ -295,6 +295,26 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
+	// --- DynamoDB AMI history table ---
+	amiTable, err := dynamodb.NewTable(ctx, "ai-desktops-ami", &dynamodb.TableArgs{
+		Name:        pulumi.String("ai-desktops-ami"),
+		BillingMode: pulumi.String("PAY_PER_REQUEST"),
+		HashKey:     pulumi.String("ami_id"),
+		Attributes: dynamodb.TableAttributeArray{
+			&dynamodb.TableAttributeArgs{
+				Name: pulumi.String("ami_id"),
+				Type: pulumi.String("S"),
+			},
+		},
+		Tags: pulumi.StringMap{
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
 	// --- Outputs ---
 	ctx.Export("vpcId", vpcIDOutput)
 	ctx.Export("subnetId", subnetID)
@@ -303,6 +323,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("zoneId", pulumi.String(zoneData.ZoneId))
 	ctx.Export("zone", pulumi.String(zone))
 	ctx.Export("fleetTable", table.Name)
+	ctx.Export("amiTable", amiTable.Name)
 
 	return nil
 }

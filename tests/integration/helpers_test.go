@@ -36,6 +36,7 @@ func sshRunE(host, keyPath, command string) (string, error) {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=30",
 		"-o", "BatchMode=yes",
+		"-o", "LogLevel=ERROR",
 		host, // ubuntu@hostname
 		command,
 	}

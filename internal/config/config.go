@@ -18,6 +18,7 @@ const (
 	ZoneDev  = "desktops.orchael.dev"
 
 	DefaultFleetTable   = "ai-desktops-fleet"
+	DefaultAMITable     = "ai-desktops-ami"
 	DefaultBridgePort   = 9445
 	DefaultInstanceType = "t3.large"
 )
@@ -111,6 +112,9 @@ func (c *Config) Defaults() {
 	if c.Fleet.TableName == "" {
 		c.Fleet.TableName = DefaultFleetTable
 	}
+	if c.Fleet.AMITableName == "" {
+		c.Fleet.AMITableName = DefaultAMITable
+	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
 	}
@@ -138,6 +142,14 @@ func (c *Config) Defaults() {
 	if c.GitHub.GitHubSecret == "" {
 		if c.GitHub.PATSecret != "" {
 			// Migrate legacy config: treat pat_secret as the secret path.
+			// WARNING: the legacy pat_secret value stored a plain GitHub token in SSM
+			// Parameter Store. Cloud-init expects a Secrets Manager JSON blob with
+			// github_token, ssh_private_key, and ssh_public_key. If this path still
+			// points at the old SSM plain-PAT, desktop provisioning will fail when it
+			// tries to parse the secret. Run `ai-desktops setup` to re-provision
+			// credentials in the correct format and update your config.
+			fmt.Fprintf(os.Stderr, "WARNING: config uses deprecated pat_secret field (%s).\n"+
+				"Run `ai-desktops setup` to migrate to github_secret format.\n", c.GitHub.PATSecret)
 			c.GitHub.GitHubSecret = c.GitHub.PATSecret
 		} else if c.GitHub.Owner != "" {
 			c.GitHub.GitHubSecret = "/ai-desktops/" + c.GitHub.Owner + "/github"

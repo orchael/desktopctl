@@ -11,7 +11,7 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion  = "v0.1.0"
+	AIAgentBridgeVersion  = "v0.2.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -130,8 +130,11 @@ runcmd:
 {{- end}}
 
 {{- if not .PackagesPreInstalled}}
-  # --- ai-agent-bridge {{ .BridgeVersion }} ---
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }} || echo "WARNING: ai-agent-bridge installation failed"
+  # --- ai-agent-bridge {{ .BridgeVersion }} (Docker image; no curl installer available) ---
+  # The bridge requires TLS certs and config; pre-install via AMI for full bridge support.
+  # Pull the image so it is cached for manual setup later.
+  - |
+    docker pull ghcr.io/markcallen/ai-agent-bridge:{{ .BridgeVersion }} 2>/dev/null || true
 {{- end}}
   - |
     if systemctl list-unit-files | grep -q ai-agent-bridge.service; then
@@ -143,6 +146,7 @@ runcmd:
 
   # --- retrieve GitHub credentials and configure SSH ---
   - |
+    (
     set -e
     REGION="{{ .AWSRegion }}"
     SECRET="{{ .GitHubSecretPath }}"
@@ -161,8 +165,8 @@ runcmd:
       exit 1
     fi
 
-    GITHUB_TOKEN=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
-    SSH_KEY=$(echo "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
+    GITHUB_TOKEN=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
+    SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
 
     # Install SSH private key for github.com
@@ -178,18 +182,20 @@ runcmd:
     chmod 600 /home/ubuntu/.ssh/config
     chown ubuntu:ubuntu /home/ubuntu/.ssh/config
 
-    # Authenticate gh CLI as ubuntu user
-    sudo -u ubuntu bash -c "echo \"${GITHUB_TOKEN}\" | gh auth login --with-token"
+    # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
+    printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
 
     # Configure git commit identity
     sudo -u ubuntu git config --global user.name  "AI Desktop ({{ .DesktopID }})"
     sudo -u ubuntu git config --global user.email "desktop-{{ .DesktopID }}@noreply.github.com"
 
     unset GITHUB_TOKEN
+    )
 
   # --- clone repositories ---
 {{ range .Repos }}
   - |
+    (
     set -e
     OWNER="{{ $.GitHubOwner }}"
     WORKSPACE="{{ $.WorkspacePath }}"
@@ -206,6 +212,7 @@ runcmd:
     if [ ! -d "$DEST/.git" ]; then
       sudo -u ubuntu git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
     fi
+    )
 {{ end }}
 
   # --- write desktop metadata ---

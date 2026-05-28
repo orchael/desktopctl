@@ -20,18 +20,6 @@ const (
 	defaultBridgePort    = 9445
 )
 
-// Ubuntu 22.04 LTS (Jammy) x86_64 — update per region as needed.
-// These are official Canonical AMIs.
-var ubuntuAMIs = map[string]string{
-	"us-east-1":      "ami-0c7217cdde317cfec",
-	"us-east-2":      "ami-05fb0b8c1424f266b",
-	"us-west-1":      "ami-0ce2cb35386fc22e9",
-	"us-west-2":      "ami-008fe2fc65df48dac",
-	"eu-west-1":      "ami-0694d931cee176e7d",
-	"eu-central-1":   "ami-06dd92ecc74fdfb36",
-	"ap-southeast-1": "ami-078c1149d8ad719a7",
-	"ap-northeast-1": "ami-0d52744d6551d851e",
-}
 
 const cloudInitTmpl = `#cloud-config
 package_update: true
@@ -188,14 +176,10 @@ func run(ctx *pulumi.Context) error {
 		bridgePort = defaultBridgePort
 	}
 
-	// Select AMI: prefer amiId from config (pre-baked AMI), fall back to hardcoded map.
+	// amiId must be set to a Packer-built novnc-desktop AMI; plain Ubuntu AMIs are not supported.
 	amiID := cfg.Get("amiId")
 	if amiID == "" {
-		var ok bool
-		amiID, ok = ubuntuAMIs[region]
-		if !ok {
-			return fmt.Errorf("no Ubuntu 22.04 AMI configured for region %s; add it to ubuntuAMIs or provide amiId", region)
-		}
+		return fmt.Errorf("amiId is required: set it to a Packer-built ai-desktops AMI (see packer/ubuntu-desktop.pkr.hcl)")
 	}
 
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)

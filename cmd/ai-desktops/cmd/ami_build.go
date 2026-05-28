@@ -77,14 +77,15 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	// an InvalidAMIID error when building in a different region than it was originally recorded for.
 	baseAMI := amiBaseAMI
 
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("load AWS config: %w", err)
+	}
+
 	if baseAMI == "" {
 		namePattern := "novnc-desktop-ubuntu-24.04-elementary-*"
 		fmt.Fprintf(os.Stderr, "Looking up novnc-desktop AMI (%s) in %s...\n", namePattern, region)
 
-		awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
-		if err != nil {
-			return fmt.Errorf("load AWS config: %w", err)
-		}
 		baseAMI, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, novncAMIOwner)
 		if err != nil {
 			return fmt.Errorf("find novnc-desktop AMI: %w", err)
@@ -92,6 +93,15 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Resolved novnc-desktop base AMI: %s\n", baseAMI)
 	} else {
 		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
+	}
+
+	info, err := awsx.DescribeAMI(ctx, awsCfg, baseAMI)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not describe base AMI: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "Base AMI name:        %s\n", info.Name)
+		fmt.Fprintf(os.Stderr, "Base AMI description: %s\n", info.Description)
+		fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
 	}
 
 	// Initialize Packer to download required plugins

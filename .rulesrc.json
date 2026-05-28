@@ -15,6 +15,9 @@
     "logging",
     "testing"
   ],
+  "skills": [
+    "github-health-check"
+  ],
   "ballastVersion": "5.10.2",
   "languages": [
     "typescript",
