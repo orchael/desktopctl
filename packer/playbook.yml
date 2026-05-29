@@ -4,10 +4,12 @@
   become: true
 
   vars:
-    # go_version and uv_version are injected via --extra-vars from packer (variables.pkrvars.hcl).
-    # These defaults are fallbacks only; the packer vars file is authoritative.
+    # go_version, uv_version, and ai_agent_bridge_version are injected via --extra-vars from
+    # packer (variables.pkrvars.hcl). These defaults are fallbacks only; the packer vars file
+    # is authoritative.
     go_version: "1.24.0"
     uv_version: "0.4.0"
+    ai_agent_bridge_version: "v0.3.3"
     ansible_python_interpreter: auto_silent
     # Minimum acceptable versions for apt-installed packages.
     # Update these when the minimum supported version changes.
@@ -17,6 +19,7 @@
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
+      ai-agent-bridge: "0.3.3"
 
   tasks:
     - name: Update apt cache
@@ -163,6 +166,45 @@
           - python3
         state: present
 
+    - name: Check ai-agent-bridge apt keyring is reachable
+      ansible.builtin.uri:
+        url: https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc
+        method: GET
+        status_code: 200
+      changed_when: false
+
+    - name: Get Debian package architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: dpkg_arch
+      changed_when: false
+
+    - name: Ensure /etc/apt/keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Add ai-agent-bridge apt repository key
+      ansible.builtin.shell: |
+        curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc \
+          | gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg
+      args:
+        creates: /etc/apt/keyrings/ai-agent-bridge.gpg
+
+    - name: Add ai-agent-bridge apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt {{ ansible_distribution_release }} main"
+        state: present
+        filename: ai-agent-bridge
+
+    - name: Install ai-agent-bridge at pinned version
+      ansible.builtin.apt:
+        name: "ai-agent-bridge={{ ai_agent_bridge_version | regex_replace('^v', '') }}"
+        state: present
+        update_cache: true
+
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
         src: files/ai-desktops-setup-tls
@@ -216,6 +258,18 @@
           got {{ uv_ver_out.stdout }}
       when: "uv_version not in uv_ver_out.stdout"
 
+    - name: Verify ai-agent-bridge is installed
+      ansible.builtin.command: dpkg-query -W -f='${Version}' ai-agent-bridge
+      register: bridge_ver_out
+      changed_when: false
+
+    - name: Warn if ai-agent-bridge version does not match expected
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: ai-agent-bridge version mismatch — expected {{ ai_agent_bridge_version }},
+          got {{ bridge_ver_out.stdout }}
+      when: "(ai_agent_bridge_version | regex_replace('^v', '')) not in bridge_ver_out.stdout"
+
     - name: Verify nvm is installed
       ansible.builtin.shell: |
         bash -c 'source /home/ubuntu/.nvm/nvm.sh && nvm --version'
@@ -236,6 +290,16 @@
     - name: Show Rust version
       ansible.builtin.debug:
         msg: "Rust version: {{ rust_ver_out.stdout }}"
+
+    - name: Re-enable unattended-upgrades timers so launched instances get security updates
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+        - unattended-upgrades.service
 
     - name: Clean up apt cache
       ansible.builtin.apt:
