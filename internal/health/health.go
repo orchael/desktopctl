@@ -62,22 +62,66 @@ type Checker interface {
 	Run(ctx context.Context) CheckResult
 }
 
-// Runner executes a list of Checkers and aggregates results.
-type Runner struct {
-	desktopID string
-	checkers  []Checker
+// CheckGroup is a labelled collection of checkers shown as a section in output.
+type CheckGroup struct {
+	Label    string
+	Checkers []Checker
 }
 
-// NewRunner returns a Runner.
+// Runner executes a list of CheckGroups and aggregates results.
+type Runner struct {
+	desktopID  string
+	groups     []CheckGroup
+	OnStart    func(name string, idx, total int)
+	OnComplete func(result CheckResult, idx, total int)
+}
+
+// NewRunner returns a Runner from a flat list of checkers under a single unlabelled group.
 func NewRunner(desktopID string, checkers ...Checker) *Runner {
-	return &Runner{desktopID: desktopID, checkers: checkers}
+	return &Runner{
+		desktopID: desktopID,
+		groups:    []CheckGroup{{Checkers: checkers}},
+	}
+}
+
+// NewRunnerGroups returns a Runner from an ordered list of named CheckGroups.
+func NewRunnerGroups(desktopID string, groups ...CheckGroup) *Runner {
+	return &Runner{desktopID: desktopID, groups: groups}
+}
+
+// Groups returns the check groups.
+func (r *Runner) Groups() []CheckGroup {
+	return r.groups
+}
+
+// Names returns the name of every checker across all groups in order.
+func (r *Runner) Names() []string {
+	var out []string
+	for _, g := range r.groups {
+		for _, c := range g.Checkers {
+			out = append(out, c.Name())
+		}
+	}
+	return out
 }
 
 // Run executes all checks and returns the aggregated report.
 func (r *Runner) Run(ctx context.Context) *Report {
-	results := make([]CheckResult, 0, len(r.checkers))
-	for _, c := range r.checkers {
-		results = append(results, c.Run(ctx))
+	var checkers []Checker
+	for _, g := range r.groups {
+		checkers = append(checkers, g.Checkers...)
+	}
+	results := make([]CheckResult, 0, len(checkers))
+	total := len(checkers)
+	for i, c := range checkers {
+		if r.OnStart != nil {
+			r.OnStart(c.Name(), i, total)
+		}
+		result := c.Run(ctx)
+		results = append(results, result)
+		if r.OnComplete != nil {
+			r.OnComplete(result, i, total)
+		}
 	}
 	return buildReport(r.desktopID, results)
 }
@@ -243,9 +287,9 @@ func StandardCheckers(hostname string, sshPort int) []Checker {
 //
 // If keyPath is empty all checks are returned in the skipped state so they
 // appear in the doctor report without blocking the overall pass/fail result.
-func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []string) []Checker {
+func SSHCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
-	checkers := []Checker{
+	return []Checker{
 		NewSSHChecker("docker-active", hostname, sshPort, user, keyPath,
 			"systemctl is-active docker", t),
 		NewSSHChecker("nvim-installed", hostname, sshPort, user, keyPath,
@@ -264,6 +308,12 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string, repos []str
 		NewSSHChecker("ssh-key-present", hostname, sshPort, user, keyPath,
 			"test -f /home/ubuntu/.ssh/github_ed25519", t),
 	}
+}
+
+// RepoCheckers returns one check per repository confirming it is cloned under /workspace.
+func RepoCheckers(hostname string, sshPort int, user, keyPath string, repos []string) []Checker {
+	t := 20 * time.Second
+	checkers := make([]Checker, 0, len(repos))
 	for _, r := range repos {
 		name := repoBaseName(r)
 		checkers = append(checkers, NewSSHChecker(
