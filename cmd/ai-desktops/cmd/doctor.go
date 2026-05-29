@@ -42,7 +42,10 @@ var doctorCmd = &cobra.Command{
 
 Network checks (always run):
   - ssh-port      — SSH port reachable (TCP)
-  - novnc-https   — noVNC HTTPS endpoint responding on port 8443
+
+  noVNC Desktop:
+    - novnc-https   — noVNC HTTPS endpoint responding on port 8443
+    - novnc-running — novnc-desktop systemd service is active
 
 SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
@@ -52,13 +55,18 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - tmux-installed  — tmux is on PATH
 
   System Resources:
-    - disk-space      — /workspace has >1GB free
+    - disk-space       — /workspace has >1GB free
     - memory-available — system has >512MB free memory
-    - novnc-running   — novnc-desktop process is running
 
   Certificate & TLS:
-    - certbot-cert-valid   — TLS certificate is valid (>7 days until expiry)
+    - certbot-cert-valid    — TLS certificate is valid (>7 days until expiry)
     - certbot-timer-enabled — certbot auto-renewal timer is enabled
+
+  AI Agent Bridge:
+    - bridge-service-active   — ai-agent-bridge systemd service is running
+    - bridge-config-exists    — /etc/ai-agent-bridge/bridge.yaml is present
+    - bridge-port-open        — gRPC port 9445 is listening
+    - bridge-claude-installed — claude CLI is installed under /var/lib/ai-agent-bridge
 
   Workspace:
     - workspace-mounted    — /workspace is mounted and writable
@@ -93,8 +101,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	groups := []health.CheckGroup{
 		{Label: "Network", Checkers: health.StandardCheckers(d.Hostname, 22)},
+		{Label: "noVNC Desktop", Checkers: health.NoVNCCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Services", Checkers: health.SSHCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "AI Agent Bridge", Checkers: health.BridgeCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}

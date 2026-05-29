@@ -160,15 +160,28 @@ func TestStandardCheckers(t *testing.T) {
 	}
 }
 
-func TestStandardCheckers_noVNCPort(t *testing.T) {
+func TestNoVNCCheckers_returnsExpectedChecks(t *testing.T) {
+	hostname := "d-001.desktops.orchael.dev"
+	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"novnc-https", "novnc-running"} {
+		if !names[n] {
+			t.Errorf("NoVNCCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestNoVNCCheckers_httpsPort8443(t *testing.T) {
 	// Verify the noVNC URL uses port 8443, not the default 443.
 	hostname := "d-001.desktops.orchael.dev"
-	checkers := StandardCheckers(hostname, 22)
+	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
 	found := false
 	for _, c := range checkers {
 		if c.Name() == "novnc-https" {
 			found = true
-			// HTTPSChecker exposes the url field for verification.
 			h, ok := c.(*HTTPSChecker)
 			if !ok {
 				t.Fatal("novnc-https checker is not an HTTPSChecker")
@@ -179,7 +192,7 @@ func TestStandardCheckers_noVNCPort(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("novnc-https checker not found in StandardCheckers output")
+		t.Error("novnc-https checker not found in NoVNCCheckers output")
 	}
 }
 
@@ -254,6 +267,35 @@ func TestRepoCheckers_emptyRepos(t *testing.T) {
 	checkers := RepoCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
 	if len(checkers) != 0 {
 		t.Errorf("expected 0 checkers for empty repos, got %d", len(checkers))
+	}
+}
+
+func TestBridgeCheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	required := []string{
+		"bridge-service-active",
+		"bridge-config-exists",
+		"bridge-port-open",
+		"bridge-claude-installed",
+	}
+	for _, n := range required {
+		if !names[n] {
+			t.Errorf("BridgeCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestBridgeCheckers_allSkippedWithNoKey(t *testing.T) {
+	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	for _, c := range checkers {
+		result := c.Run(context.Background())
+		if result.Status != StatusSkipped {
+			t.Errorf("checker %q: expected skipped with empty key, got %q", c.Name(), result.Status)
+		}
 	}
 }
 

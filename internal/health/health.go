@@ -270,14 +270,21 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 }
 
 // StandardCheckers returns the set of network-reachability checks run against a
-// provisioned desktop. noVNC is probed on HTTPS port 8443 (novnc-desktop v0.1.5+).
+// provisioned desktop.
 func StandardCheckers(hostname string, sshPort int) []Checker {
 	sshAddr := fmt.Sprintf("%s:%d", hostname, sshPort)
-	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", hostname)
-
 	return []Checker{
 		NewTCPChecker("ssh-port", sshAddr, 10*time.Second),
+	}
+}
+
+// NoVNCCheckers returns checks for the novnc-desktop service.
+func NoVNCCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", hostname)
+	return []Checker{
 		NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second),
+		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
+			"systemctl is-active novnc-desktop", 20*time.Second),
 	}
 }
 
@@ -348,14 +355,31 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
 			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
-		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
-			"systemctl is-active novnc-desktop", t),
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
 			`sudo bash -c 'found=0; for cert in /etc/letsencrypt/live/*/fullchain.pem; do [ -f "$cert" ] || continue; found=1; openssl x509 -in "$cert" -noout -checkend 604800 || exit 1; done; [ $found -eq 1 ] || exit 1'`, t), // 604800 = 7 days; fails if no certs exist
 		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
 			"systemctl is-enabled certbot.timer", t),
 	}
 	return checkers
+}
+
+// BridgeCheckers returns checks for the ai-agent-bridge daemon and its AI agent CLIs.
+//
+// ai-agent-bridge runs as a systemd service and exposes a gRPC API on port 9445.
+// The AI agent CLIs (claude, codex, gemini, opencode) must be installed separately
+// via npm in /var/lib/ai-agent-bridge before the bridge can spawn agent sessions.
+func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("bridge-service-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active ai-agent-bridge", t),
+		NewSSHChecker("bridge-config-exists", hostname, sshPort, user, keyPath,
+			"test -f /etc/ai-agent-bridge/bridge.yaml", t),
+		NewSSHChecker("bridge-port-open", hostname, sshPort, user, keyPath,
+			"ss -tlnp 2>/dev/null | grep -q ':9445'", t),
+		NewSSHChecker("bridge-claude-installed", hostname, sshPort, user, keyPath,
+			"test -f /var/lib/ai-agent-bridge/node_modules/.bin/claude", t),
+	}
 }
 
 // WorkspaceCheckers returns checks for workspace integrity.
