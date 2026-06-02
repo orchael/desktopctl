@@ -85,6 +85,69 @@ func TestRunner(t *testing.T) {
 	}
 }
 
+func TestRunner_Names(t *testing.T) {
+	a := NewFnChecker("alpha", func(ctx context.Context) error { return nil })
+	b := NewFnChecker("beta", func(ctx context.Context) error { return nil })
+	r := NewRunner("d-test", a, b)
+	names := r.Names()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 names, got %d", len(names))
+	}
+	if names[0] != "alpha" || names[1] != "beta" {
+		t.Errorf("unexpected names: %v", names)
+	}
+}
+
+func TestRunner_Callbacks(t *testing.T) {
+	pass := NewFnChecker("p", func(ctx context.Context) error { return nil })
+	fail := NewFnChecker("f", func(ctx context.Context) error { return errors.New("oops") })
+
+	var started, completed []string
+	r := NewRunner("d-cb", pass, fail)
+	r.OnStart = func(name string, idx, total int) {
+		started = append(started, name)
+	}
+	r.OnComplete = func(result CheckResult, idx, total int) {
+		completed = append(completed, result.Name)
+	}
+
+	r.Run(context.Background())
+
+	if len(started) != 2 {
+		t.Errorf("OnStart called %d times, want 2", len(started))
+	}
+	if len(completed) != 2 {
+		t.Errorf("OnComplete called %d times, want 2", len(completed))
+	}
+	if started[0] != "p" || started[1] != "f" {
+		t.Errorf("unexpected start order: %v", started)
+	}
+}
+
+func TestSystemCheckers_returnsCheckers(t *testing.T) {
+	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	if len(checkers) == 0 {
+		t.Error("SystemCheckers must return at least one checker")
+	}
+	for _, c := range checkers {
+		if c.Name() == "" {
+			t.Error("checker must have a name")
+		}
+	}
+}
+
+func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
+	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	if len(checkers) == 0 {
+		t.Error("WorkspaceCheckers must return at least one checker")
+	}
+	for _, c := range checkers {
+		if c.Name() == "" {
+			t.Error("checker must have a name")
+		}
+	}
+}
+
 func TestStandardCheckers(t *testing.T) {
 	checkers := StandardCheckers("d-001.desktops.orchael.dev", 22)
 	if len(checkers) == 0 {
@@ -97,15 +160,28 @@ func TestStandardCheckers(t *testing.T) {
 	}
 }
 
-func TestStandardCheckers_noVNCPort(t *testing.T) {
+func TestNoVNCCheckers_returnsExpectedChecks(t *testing.T) {
+	hostname := "d-001.desktops.orchael.dev"
+	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"novnc-https", "novnc-running"} {
+		if !names[n] {
+			t.Errorf("NoVNCCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestNoVNCCheckers_httpsPort8443(t *testing.T) {
 	// Verify the noVNC URL uses port 8443, not the default 443.
 	hostname := "d-001.desktops.orchael.dev"
-	checkers := StandardCheckers(hostname, 22)
+	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
 	found := false
 	for _, c := range checkers {
 		if c.Name() == "novnc-https" {
 			found = true
-			// HTTPSChecker exposes the url field for verification.
 			h, ok := c.(*HTTPSChecker)
 			if !ok {
 				t.Fatal("novnc-https checker is not an HTTPSChecker")
@@ -116,7 +192,7 @@ func TestStandardCheckers_noVNCPort(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("novnc-https checker not found in StandardCheckers output")
+		t.Error("novnc-https checker not found in NoVNCCheckers output")
 	}
 }
 
@@ -129,8 +205,7 @@ func TestSSHChecker_skippedWhenNoKey(t *testing.T) {
 }
 
 func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
-	repos := []string{"github.com/acme/app-one", "github.com/acme/app-two"}
-	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", repos)
+	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 
 	names := make(map[string]bool)
 	for _, c := range checkers {
@@ -141,7 +216,6 @@ func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
 		"docker-active", "nvim-installed", "tmux-installed",
 		"gh-installed", "gh-auth", "python3-installed",
 		"git-identity", "ssh-key-present",
-		"repo-app-one", "repo-app-two",
 	}
 	for _, n := range required {
 		if !names[n] {
@@ -151,7 +225,7 @@ func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
 }
 
 func TestSSHCheckers_githubToolingPresent(t *testing.T) {
-	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 	names := make(map[string]bool)
 	for _, c := range checkers {
 		names[c.Name()] = true
@@ -164,7 +238,59 @@ func TestSSHCheckers_githubToolingPresent(t *testing.T) {
 }
 
 func TestSSHCheckers_allSkippedWithNoKey(t *testing.T) {
-	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	for _, c := range checkers {
+		result := c.Run(context.Background())
+		if result.Status != StatusSkipped {
+			t.Errorf("checker %q: expected skipped with empty key, got %q", c.Name(), result.Status)
+		}
+	}
+}
+
+func TestRepoCheckers_returnsExpectedChecks(t *testing.T) {
+	repos := []string{"github.com/acme/app-one", "github.com/acme/app-two"}
+	checkers := RepoCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", repos)
+
+	if len(checkers) != 2 {
+		t.Fatalf("expected 2 repo checkers, got %d", len(checkers))
+	}
+	names := map[string]bool{}
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	if !names["repo-app-one"] || !names["repo-app-two"] {
+		t.Errorf("unexpected checker names: %v", names)
+	}
+}
+
+func TestRepoCheckers_emptyRepos(t *testing.T) {
+	checkers := RepoCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	if len(checkers) != 0 {
+		t.Errorf("expected 0 checkers for empty repos, got %d", len(checkers))
+	}
+}
+
+func TestBridgeCheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	required := []string{
+		"bridge-service-active",
+		"bridge-config-exists",
+		"bridge-port-open",
+		"bridge-claude-installed",
+	}
+	for _, n := range required {
+		if !names[n] {
+			t.Errorf("BridgeCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestBridgeCheckers_allSkippedWithNoKey(t *testing.T) {
+	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 	for _, c := range checkers {
 		result := c.Run(context.Background())
 		if result.Status != StatusSkipped {

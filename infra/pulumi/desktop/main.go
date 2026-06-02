@@ -269,6 +269,8 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("sshTarget", pulumi.Sprintf("ubuntu@%s", hostname))
 	ctx.Export("workspacePath", pulumi.String("/workspace"))
 	ctx.Export("githubOwner", pulumi.String(githubOwner))
+	ctx.Export("amiId", pulumi.String(amiID))
+	ctx.Export("region", pulumi.String(region))
 
 	return nil
 }

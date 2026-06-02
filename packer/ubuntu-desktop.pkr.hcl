@@ -31,11 +31,6 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
-variable "novnc_desktop_version" {
-  type        = string
-  description = "novnc-desktop release tag used for tagging the built AMI (e.g. v0.2.2)"
-}
-
 # source_ami is always required. The ai-desktops CLI resolves the correct AMI
 # before invoking packer (either from the vars file or via an EC2 lookup) and
 # passes it via -var source_ami=<id>.
@@ -75,7 +70,6 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
-    NovncDesktopVersion = var.novnc_desktop_version
     BaseAMI            = var.source_ami
     Environment        = "base"
   }
@@ -88,12 +82,25 @@ build {
   name    = "ai-desktops"
   sources = ["source.amazon-ebs.ubuntu"]
 
+  # Stop unattended-upgrades before Ansible runs so apt installs don't race
+  # with the background upgrade process holding /var/lib/dpkg/lock-frontend.
+  # The playbook re-enables these services at the end so launched instances
+  # still receive automatic security updates.
+  provisioner "shell" {
+    inline = [
+      "sudo systemctl stop apt-daily.timer apt-daily-upgrade.timer || true",
+      "sudo systemctl stop unattended-upgrades.service apt-daily.service || true",
+      "sudo systemctl kill --kill-who=all apt-daily.service unattended-upgrades.service || true",
+      "timeout 120 bash -c 'while sudo fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock >/dev/null 2>&1; do echo \"Waiting for dpkg lock...\"; sleep 5; done'",
+    ]
+  }
+
   provisioner "ansible" {
     playbook_file        = "${path.root}/playbook.yml"
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
@@ -109,7 +116,6 @@ build {
       bridge_version       = var.ai_agent_bridge_version
       go_version           = var.go_version
       uv_version           = var.uv_version
-      novnc_version        = var.novnc_desktop_version
       base_ami             = var.source_ami
     }
   }
