@@ -31,11 +31,6 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
-variable "novnc_desktop_version" {
-  type        = string
-  description = "novnc-desktop release tag used for tagging the built AMI (e.g. v0.2.2)"
-}
-
 # source_ami is always required. The ai-desktops CLI resolves the correct AMI
 # before invoking packer (either from the vars file or via an EC2 lookup) and
 # passes it via -var source_ami=<id>.
@@ -75,7 +70,6 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
-    NovncDesktopVersion = var.novnc_desktop_version
     BaseAMI            = var.source_ami
     Environment        = "base"
   }
@@ -122,7 +116,6 @@ build {
       bridge_version       = var.ai_agent_bridge_version
       go_version           = var.go_version
       uv_version           = var.uv_version
-      novnc_version        = var.novnc_desktop_version
       base_ami             = var.source_ami
     }
   }

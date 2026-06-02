@@ -4,22 +4,33 @@
   become: true
 
   vars:
-    # go_version, uv_version, and ai_agent_bridge_version are injected via --extra-vars from
-    # packer (variables.pkrvars.hcl). These defaults are fallbacks only; the packer vars file
-    # is authoritative.
-    go_version: "1.24.0"
-    uv_version: "0.4.0"
-    ai_agent_bridge_version: "v0.3.3"
+    # go_version, uv_version, and ai_agent_bridge_version must be injected via --extra-vars
+    # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
     # Minimum acceptable versions for apt-installed packages.
-    # Update these when the minimum supported version changes.
     min_versions:
       ansible: "2.10"
       docker.io: "24.0"
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
-      ai-agent-bridge: "0.3.3"
+      ai-agent-bridge: "{{ ai_agent_bridge_version | regex_replace('^v', '') }}"
+
+  pre_tasks:
+    - name: Require go_version
+      ansible.builtin.assert:
+        that: go_version is defined and go_version | length > 0
+        fail_msg: "go_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
+    - name: Require uv_version
+      ansible.builtin.assert:
+        that: uv_version is defined and uv_version | length > 0
+        fail_msg: "uv_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
+    - name: Require ai_agent_bridge_version
+      ansible.builtin.assert:
+        that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
+        fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
   tasks:
     - name: Update apt cache
