@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -54,6 +55,9 @@ func purgeTerminated(ctx context.Context, s store.Store, desktops []*store.Deskt
 		fmt.Println(desktop.DesktopID)
 		if !dryRun {
 			if err := s.Delete(ctx, desktop.DesktopID); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					continue
+				}
 				return purged, fmt.Errorf("delete desktop %q: %w", desktop.DesktopID, err)
 			}
 		}

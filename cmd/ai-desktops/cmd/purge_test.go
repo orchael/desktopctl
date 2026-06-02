@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -45,6 +46,40 @@ func TestPurgeTerminatedDryRun(t *testing.T) {
 	}
 }
 
+func TestPurgeTerminatedIgnoresConcurrentDelete(t *testing.T) {
+	ctx := context.Background()
+	s := &deleteStore{
+		Store: store.NewInMemoryStore(),
+		deleteFn: func(_ context.Context, _ string) error {
+			return store.ErrNotFound
+		},
+	}
+	desktops := []*store.Desktop{{DesktopID: "d-gone", State: store.StateTerminated}}
+
+	purged, err := purgeTerminated(ctx, s, desktops, false)
+	if err != nil {
+		t.Fatalf("purgeTerminated: %v", err)
+	}
+	if purged != 0 {
+		t.Fatalf("purged: got %d, want 0", purged)
+	}
+}
+
+func TestPurgeTerminatedReturnsDeleteError(t *testing.T) {
+	ctx := context.Background()
+	s := &deleteStore{
+		Store: store.NewInMemoryStore(),
+		deleteFn: func(_ context.Context, _ string) error {
+			return errors.New("delete failed")
+		},
+	}
+	desktops := []*store.Desktop{{DesktopID: "d-error", State: store.StateTerminated}}
+
+	if _, err := purgeTerminated(ctx, s, desktops, false); err == nil {
+		t.Fatal("expected delete error")
+	}
+}
+
 func mustList(t *testing.T, ctx context.Context, s store.Store) []*store.Desktop {
 	t.Helper()
 	desktops, err := s.List(ctx)
@@ -52,4 +87,13 @@ func mustList(t *testing.T, ctx context.Context, s store.Store) []*store.Desktop
 		t.Fatal(err)
 	}
 	return desktops
+}
+
+type deleteStore struct {
+	store.Store
+	deleteFn func(context.Context, string) error
+}
+
+func (s *deleteStore) Delete(ctx context.Context, id string) error {
+	return s.deleteFn(ctx, id)
 }

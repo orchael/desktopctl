@@ -69,20 +69,27 @@ func (s *DynamoStore) Get(ctx context.Context, id string) (*Desktop, error) {
 }
 
 func (s *DynamoStore) List(ctx context.Context) ([]*Desktop, error) {
-	out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
-		TableName: aws.String(s.tableName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scan fleet table: %w", err)
-	}
-
-	desktops := make([]*Desktop, 0, len(out.Items))
-	for _, item := range out.Items {
-		var d Desktop
-		if err := attributevalue.UnmarshalMap(item, &d); err != nil {
-			return nil, fmt.Errorf("unmarshal desktop record: %w", err)
+	var desktops []*Desktop
+	var exclusiveStartKey map[string]types.AttributeValue
+	for {
+		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
+			TableName:         aws.String(s.tableName),
+			ExclusiveStartKey: exclusiveStartKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scan fleet table: %w", err)
 		}
-		desktops = append(desktops, &d)
+		for _, item := range out.Items {
+			var d Desktop
+			if err := attributevalue.UnmarshalMap(item, &d); err != nil {
+				return nil, fmt.Errorf("unmarshal desktop record: %w", err)
+			}
+			desktops = append(desktops, &d)
+		}
+		if len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		exclusiveStartKey = out.LastEvaluatedKey
 	}
 	return desktops, nil
 }
