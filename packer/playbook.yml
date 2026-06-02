@@ -177,6 +177,16 @@
           - python3
         state: present
 
+    - name: Add NodeSource Node.js 24 apt repository
+      ansible.builtin.shell: |
+        curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+
+    - name: Install Node.js 24
+      ansible.builtin.apt:
+        name: nodejs
+        state: latest
+        update_cache: true
+
     - name: Check ai-agent-bridge apt keyring is reachable
       ansible.builtin.uri:
         url: https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc
@@ -215,6 +225,11 @@
         name: "ai-agent-bridge={{ ai_agent_bridge_version | regex_replace('^v', '') }}"
         state: present
         update_cache: true
+
+    - name: Run install-provider-runtime to install Claude and other provider CLIs
+      ansible.builtin.command: /usr/lib/ai-agent-bridge/install-provider-runtime
+      args:
+        creates: /opt/ai-agent-bridge/node_modules/.bin/claude
 
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
@@ -280,6 +295,26 @@
           WARNING: ai-agent-bridge version mismatch — expected {{ ai_agent_bridge_version }},
           got {{ bridge_ver_out.stdout }}
       when: "(ai_agent_bridge_version | regex_replace('^v', '')) not in bridge_ver_out.stdout"
+
+    - name: Verify Node.js 24 is installed
+      ansible.builtin.command: node --version
+      register: node_ver_out
+      changed_when: false
+
+    - name: Warn if Node.js major version is not 24
+      ansible.builtin.debug:
+        msg: "WARNING: Node.js version is {{ node_ver_out.stdout }}, expected v24.x"
+      when: "not node_ver_out.stdout.startswith('v24.')"
+
+    - name: Verify claude CLI is installed by install-provider-runtime
+      ansible.builtin.stat:
+        path: /opt/ai-agent-bridge/node_modules/.bin/claude
+      register: claude_bin
+
+    - name: Fail if claude CLI is missing after install-provider-runtime
+      ansible.builtin.fail:
+        msg: "claude CLI not found at /opt/ai-agent-bridge/node_modules/.bin/claude — install-provider-runtime may have failed"
+      when: not claude_bin.stat.exists
 
     - name: Verify nvm is installed
       ansible.builtin.shell: |
