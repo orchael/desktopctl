@@ -67,6 +67,7 @@ type Store interface {
 	Get(ctx context.Context, id string) (*Desktop, error)
 	List(ctx context.Context) ([]*Desktop, error)
 	Update(ctx context.Context, d *Desktop) error
+	Delete(ctx context.Context, id string) error
 	MarkTerminated(ctx context.Context, id string) error
 	RecordFailure(ctx context.Context, id, phase, message string) error
 }
@@ -120,6 +121,14 @@ func (s *InMemoryStore) Update(ctx context.Context, d *Desktop) error {
 	d.UpdatedAt = now()
 	cp := *d
 	s.records[d.DesktopID] = &cp
+	return nil
+}
+
+func (s *InMemoryStore) Delete(ctx context.Context, id string) error {
+	if _, ok := s.records[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.records, id)
 	return nil
 }
 

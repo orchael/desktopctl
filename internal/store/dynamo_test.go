@@ -204,6 +204,43 @@ func TestDynamoStore_List_Empty(t *testing.T) {
 	}
 }
 
+func TestDynamoStore_List_Paginates(t *testing.T) {
+	d1 := &Desktop{DesktopID: "d-001", StackName: "s1", State: StateReady}
+	d2 := &Desktop{DesktopID: "d-002", StackName: "s2", State: StateTerminated}
+	item1, _ := attributevalue.MarshalMap(d1)
+	item2, _ := attributevalue.MarshalMap(d2)
+	lastKey := map[string]types.AttributeValue{
+		"desktop_id": &types.AttributeValueMemberS{Value: "d-001"},
+	}
+	calls := 0
+	mock := &mockDynamoClient{
+		scanFn: func(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+			calls++
+			if calls == 1 {
+				if input.ExclusiveStartKey != nil {
+					t.Fatalf("first page start key: got %#v", input.ExclusiveStartKey)
+				}
+				return &dynamodb.ScanOutput{Items: []map[string]types.AttributeValue{item1}, LastEvaluatedKey: lastKey}, nil
+			}
+			if len(input.ExclusiveStartKey) == 0 {
+				t.Fatal("second page missing exclusive start key")
+			}
+			return &dynamodb.ScanOutput{Items: []map[string]types.AttributeValue{item2}}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	list, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("scan calls: got %d, want 2", calls)
+	}
+	if len(list) != 2 {
+		t.Fatalf("items: got %d, want 2", len(list))
+	}
+}
+
 func TestDynamoStore_List_Error(t *testing.T) {
 	mock := &mockDynamoClient{
 		scanFn: func(_ *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
@@ -248,6 +285,50 @@ func TestDynamoStore_Update_Error(t *testing.T) {
 	s := &DynamoStore{client: mock, tableName: "fleet"}
 	if err := s.Update(context.Background(), newDesktop("d-err")); err == nil {
 		t.Fatal("expected error from PutItem failure")
+	}
+}
+
+func TestDynamoStore_Delete_Success(t *testing.T) {
+	var input *dynamodb.DeleteItemInput
+	mock := &mockDynamoClient{
+		deleteFn: func(params *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			input = params
+			return &dynamodb.DeleteItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "d-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if aws.ToString(input.TableName) != "fleet" {
+		t.Errorf("table: got %q", aws.ToString(input.TableName))
+	}
+	if input.ConditionExpression == nil {
+		t.Fatal("expected condition expression")
+	}
+}
+
+func TestDynamoStore_Delete_NotFound(t *testing.T) {
+	mock := &mockDynamoClient{
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDynamoStore_Delete_Error(t *testing.T) {
+	mock := &mockDynamoClient{
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, errors.New("delete failed")
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "d-error"); err == nil {
+		t.Fatal("expected error from DeleteItem failure")
 	}
 }
 

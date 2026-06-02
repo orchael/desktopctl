@@ -14,6 +14,7 @@
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
+      wireguard-tools: "1.0"
       ai-agent-bridge: "{{ ai_agent_bridge_version | regex_replace('^v', '') }}"
 
   pre_tasks:
@@ -40,11 +41,12 @@
 
     # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
     # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
-    - name: Install ansible and certbot Route53 plugin
+    - name: Install ansible, certbot Route53 plugin, and WireGuard tools
       ansible.builtin.apt:
         name:
           - ansible
           - python3-certbot-dns-route53
+          - wireguard-tools
         state: present
 
     - name: Install Docker

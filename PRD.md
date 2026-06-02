@@ -111,6 +111,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-1.3 | Stopping a desktop must preserve its disk state so work can continue after restart. |
 | FR-1.4 | Starting a previously stopped desktop must restore access to the same persisted workspace. |
 | FR-1.5 | Terminating a desktop must permanently destroy its compute resources and attached state. |
+| FR-1.6 | Fleet listing must hide terminated desktop records by default while allowing operators to include them explicitly. |
+| FR-1.7 | Operators must be able to preview and purge terminated desktop records from fleet metadata. |
 
 **Acceptance criteria:**
 
@@ -124,6 +126,9 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-1.6 | `ai-desktops start <id>` exits 0 and transitions `lifecycle_state` back to `ready` | `TestFR7_02_Start` |
 | AC-1.7 | After `ai-desktops terminate <id>`, the desktop no longer appears in `list` output | TestMain cleanup |
 | AC-1.8 | `create` without `--github-owner` fails with a clear error message | `TestFR1_CreateRejectsWithoutOwner` |
+| AC-1.9 | `ai-desktops list --all` includes terminated desktop records | Unit and manual CLI verification |
+| AC-1.10 | `ai-desktops purge --dry-run` previews terminated records without deleting them | Unit and manual CLI verification |
+| AC-1.11 | `ai-desktops purge` deletes terminated records and reports the number deleted | Unit and manual CLI verification |
 
 ### FR-2 — Desktop access
 
@@ -486,9 +491,17 @@ Persistent desktops imply ongoing cloud cost. Failed desktop creation should lea
 
 ### Pre-baked AMI provisioning
 
-Desktop provisioning performance is critical for interactive operator workflows. v1 uses cloud-init to install the baseline toolchain (docker, git, nvim, tmux, novnc-desktop, ai-agent-bridge) at boot time, which can add 5–10 minutes to desktop creation. After initial MVP, `ai-desktops` supports pre-baked AMIs built with Packer to include all toolchain components pre-installed, reducing boot time to minutes and eliminating package installation failures.
+Desktop provisioning performance is critical for interactive operator workflows. `ai-desktops`
+uses pre-baked AMIs built with Packer so package installation and toolchain setup do not run during
+desktop creation. This reduces boot time and removes package-install failures from the runtime path.
 
-The `ai-desktops ami build` command invokes Packer to build per-region AMIs containing the baseline toolchain with pinned versions. The resulting AMI IDs are stored in `config.yaml`. When creating a desktop with a pre-baked AMI, cloud-init is reduced to runtime-only steps: TLS certificate generation via certbot, nginx reverse-proxy configuration, GitHub PAT retrieval, and repository cloning. This approach keeps the stateless parts (application installs) in the AMI and the instance-specific parts (certs, secrets, repos) in cloud-init.
+The `ai-desktops ami build` command invokes Packer to build one or more regions sequentially.
+Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
+`config.yaml`. The baked image includes the baseline development toolchain, WireGuard tools,
+`novnc-desktop`, and `ai-agent-bridge`. Cloud-init is reduced to runtime-only steps: TLS certificate
+generation via certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and
+repository cloning. Additional desktop applications such as `ai-agent-browser` and
+`android-emulator-webapp` can be added to the image when they become required by a shipped workflow.
 
 ---
 

@@ -6,7 +6,7 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 
 ## Scope
 
-- Create a Packer HCL2 configuration to build per-region AMIs for Ubuntu 22.04 LTS
+- Create a Packer HCL2 configuration to build per-region AMIs for Ubuntu 24.04 LTS
 - Add a new `ami build` CLI command that invokes Packer and persists resulting AMI IDs in `config.yaml`
 - Refactor Pulumi desktop stack to accept pre-baked AMI IDs from config instead of hardcoded Ubuntu map
 - Eliminate the duplicate cloud-init template in the Pulumi program by passing pre-rendered user-data from the CLI
@@ -19,7 +19,7 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 
 ## Acceptance Criteria
 
-1. `packer/ubuntu-desktop.pkr.hcl` exists and successfully builds Ubuntu 22.04 AMIs for us-east-2.
+1. `packer/ubuntu-desktop.pkr.hcl` exists and successfully builds Ubuntu 24.04 AMIs for us-east-2.
 2. Built AMI includes pre-installed: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew`, `ai-agent-bridge` (pinned version), `novnc-desktop` (installed without TLS certificates).
 3. `ai-desktops ami build --regions us-east-1,us-west-2 --vars-file packer/variables.pkrvars.hcl` succeeds and updates `config.yaml` with AMI IDs.
 4. `ai-desktops ami list` displays a table of region → AMI ID.
@@ -89,7 +89,7 @@ Built AMIs are named `ai-desktops-base-{novnc_desktop_version}-{timestamp}`. Thi
 | Trade-off | Rationale |
 |---|---|
 | AMI build is CLI-initiated, not CI/CD | v1 trades automation for simplicity. Operator runs `ami build` when component versions are ready. CI/CD-driven rebuilds can follow once the Packer config is stable. |
-| Cross-region AMI copy via Packer (not manual) | Packer handles the copy; no need for custom scripts. Cost is the AMI size × regions; acceptable at MVP scale. |
+| Sequential per-region Packer builds | Each region resolves its own source AMI and receives an independently built image. This avoids cross-region source AMI mismatches while keeping the CLI workflow simple. |
 | No AMI versioning scheme (latest per build) | The config stores AMI IDs directly, not version pointers. Operator can keep old AMI IDs in config if they want fallback. Future: AMI tagging and version management. |
 | `PackagesPreInstalled` flag instead of auto-detect | The CLI must know whether an AMI is pre-baked to render slim cloud-init correctly. Detecting this from AMI metadata is harder; a config flag is explicit and controllable. |
 
@@ -112,5 +112,5 @@ Built AMIs are named `ai-desktops-base-{novnc_desktop_version}-{timestamp}`. Thi
 - CI/CD-triggered AMI rebuilds on version bumps
 - AMI tagging and version management beyond AMI IDs in config
 - AMI marketplace publishing
-- Multi-region simultaneous builds (Packer handles this, but no custom orchestration)
+- Multi-region simultaneous builds (the CLI builds requested regions sequentially)
 - Signing or encryption of AMIs
