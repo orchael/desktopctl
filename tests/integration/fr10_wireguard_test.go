@@ -75,7 +75,6 @@ func TestFR10_ShowConfigCommandExists(t *testing.T) {
 // desktop (AC-10.6).  The `wg --version` command exits 0 when the package is
 // installed.
 func TestFR10_WireGuardToolsInstalled(t *testing.T) {
-	t.Skip("wireguard-tools not yet provisioned on desktops — unskip when FR-10 AMI support lands")
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify wireguard-tools installation")
 	}
@@ -92,7 +91,6 @@ func TestFR10_WireGuardToolsInstalled(t *testing.T) {
 
 // TestFR10_WireGuardOnPath verifies wg is on PATH (AC-10.7).
 func TestFR10_WireGuardOnPath(t *testing.T) {
-	t.Skip("wireguard-tools not yet provisioned on desktops — unskip when FR-10 AMI support lands")
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify wg on PATH")
 	}

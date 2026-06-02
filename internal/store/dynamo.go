@@ -108,6 +108,24 @@ func (s *DynamoStore) Update(ctx context.Context, d *Desktop) error {
 	return nil
 }
 
+func (s *DynamoStore) Delete(ctx context.Context, id string) error {
+	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"desktop_id": &types.AttributeValueMemberS{Value: id},
+		},
+		ConditionExpression: aws.String("attribute_exists(desktop_id)"),
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("delete desktop %q: %w", id, err)
+	}
+	return nil
+}
+
 func (s *DynamoStore) MarkTerminated(ctx context.Context, id string) error {
 	ts := now()
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{

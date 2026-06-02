@@ -162,9 +162,11 @@ Preview without applying:
 ai-desktops init-foundation --preview
 ```
 
-### 4. Build a pre-baked AMI (optional but recommended)
+### 4. Build a pre-baked AMI
 
-Pre-baked AMIs reduce desktop boot time from 5-10 minutes to ~1 minute by pre-installing all toolchain packages. Skip this step to use the default cloud-init-only approach.
+Pre-baked AMIs reduce desktop boot time by pre-installing the toolchain. Desktop creation
+requires an active AMI for its AWS region; cloud-init handles runtime-only work such as
+TLS setup, secret injection, workspace creation, and repository cloning.
 
 **Prerequisites for Packer:**
 - [Packer](https://www.packer.com/downloads) installed
@@ -176,12 +178,21 @@ Pre-baked AMIs reduce desktop boot time from 5-10 minutes to ~1 minute by pre-in
 ai-desktops ami build --regions us-east-2
 ```
 
+Build multiple regions sequentially with a comma-separated list:
+
+```bash
+ai-desktops ami build --regions us-east-1,us-west-2
+```
+
 This runs Packer to build an AMI on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base with pre-installed:
 - Docker
-- Go 1.23.0
+- Go
 - uv (Python package manager)
 - AWS CLI v2
 - neovim (via snap)
+- WireGuard tools
+- Homebrew
+- `ai-agent-bridge`
 
 **Verify the AMI:**
 
@@ -216,7 +227,17 @@ ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app -
 
 ```bash
 ai-desktops list
+ai-desktops list --all
 ai-desktops status d-a1b2c3d4
+```
+
+`list` hides terminated desktop records by default. Use `list --all` to include them.
+
+Delete accumulated terminated records after reviewing them:
+
+```bash
+ai-desktops purge --dry-run
+ai-desktops purge
 ```
 
 ### 7. Open noVNC

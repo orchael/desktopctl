@@ -2,123 +2,75 @@
 
 ## Overview
 
-The AMI build is now split into two stages:
+`ai-desktops` builds pre-baked Ubuntu 24.04 desktop AMIs with Packer. The AMI contains the
+stateless toolchain and services needed by every desktop. Cloud-init remains responsible for
+runtime-only work: TLS certificates, secret injection, workspace setup, and repository cloning.
 
-1. **Packer Stage** (fast, ~5-10 min): Build base AMI with toolchain
-2. **Post-Launch Stage** (manual, ~5-10 min): Install novnc-desktop on running instance
+## Version Pins
 
-This avoids cloud-init race conditions and dpkg lock issues during the AMI build.
+Review `packer/variables.pkrvars.hcl` before building:
 
-## Workflow
-
-### 1. Build Base AMI with Packer
-
-```bash
-# Run from the repo root
-packer build \
-  -var-file=packer/variables.pkrvars.hcl \
-  packer/ubuntu-desktop.pkr.hcl
+```hcl
+ai_agent_bridge_version = "v0.4.0"
+go_version              = "1.24.0"
+uv_version              = "0.4.0"
 ```
 
-This creates an AMI with:
-- Go (specified version)
-- Python + uv
-- Docker
-- Ansible
-- AWS CLI v2
-- nginx, tmux, git, build tools
-- neovim (snap)
+The Packer build starts from the latest public `novnc-desktop-ubuntu-24.04-elementary-*` AMI in
+each requested region. The resulting image adds Docker, GitHub CLI, Python, Go, uv, Homebrew,
+WireGuard tools, Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned
+`ai-agent-bridge` package.
 
-**No novnc-desktop** — that's installed post-launch.
+## Build
 
-### 2. Launch EC2 Instance from Base AMI
-
-Use the AMI ID from Packer output to launch an instance:
+Run from the repository root:
 
 ```bash
-aws ec2 run-instances \
-  --image-id ami-xxxxxxxxx \
-  --instance-type t3.medium \
-  --key-name your-key \
-  --security-groups default \
-  --region us-east-2
+ai-desktops ami build --regions us-east-2
 ```
 
-Wait for the instance to fully boot and stabilize (~1-2 min).
-
-### 3. Install novnc-desktop via Post-Launch Ansible
-
-Once the instance is running and stable, provision novnc-desktop:
+Build multiple regions sequentially with a comma-separated list:
 
 ```bash
-INSTANCE_IP=<instance-public-ip>
-
-ansible-playbook \
-  -i "${INSTANCE_IP}," \
-  -u ubuntu \
-  --private-key /path/to/key.pem \
-  ansible/post-launch-novnc.yml \
-  -e "novnc_version=v0.1.5 bridge_version=v0.1.0"
+ai-desktops ami build --regions us-east-1,us-west-2
 ```
 
-**Required variables:**
-- `novnc_version`: Release tag (e.g., `v0.1.5`)
-- `bridge_version`: Release tag (e.g., `v0.1.0`)
+The CLI initializes the Packer plugins once, then for each region:
 
-### 4. Create Final AMI from Provisioned Instance
+1. Resolves the latest matching public `novnc-desktop` base AMI.
+2. Runs the Packer build with the region-specific source AMI.
+3. Parses `packer/manifest.json`.
+4. Saves the AMI record to DynamoDB and marks it active in `config.yaml`.
 
-Once novnc-desktop is installed and tested, create a new AMI:
+Use `--base-ami <id>` to override source AMI lookup for a single-region build.
+
+## Verify
 
 ```bash
-aws ec2 create-image \
-  --instance-id i-xxxxxxxxx \
-  --name "ai-desktops-novnc-$(date +%Y%m%d)" \
-  --description "ai-desktops with novnc-desktop pre-installed"
+ai-desktops ami list
+ai-desktops create --repo myorg/myrepo --preview
 ```
 
-## Why This Approach?
+The preview must reference the active AMI ID. After creating a desktop, verify the baked tools:
 
-**Problem with Packer-based installation:**
-- Ubuntu's cloud-init runs unattended-upgrades in background during boot
-- Packer starts provisioning immediately after SSH is available
-- Race condition: Packer and cloud-init both try to use dpkg/apt
-- Result: "dpkg was interrupted" errors
-
-**Solution: Post-launch provisioning**
-- Wait for cloud-init to fully complete before provisioning
-- Instance is stable and ready for apt operations
-- No dpkg lock conflicts
-- Faster Packer build (skips novnc-desktop complexity)
-- Cleaner separation of concerns
+```bash
+ai-desktops doctor <desktop-id>
+ai-desktops ssh <desktop-id> -- 'wg --version'
+```
 
 ## Troubleshooting
 
-**If Ansible provisioning fails:**
+Packer stops unattended-upgrades before Ansible runs and waits for dpkg locks to clear. If a
+build fails:
 
-1. SSH into the instance manually:
-   ```bash
-   ssh -i /path/to/key.pem ubuntu@<instance-ip>
-   ```
-
-2. Run the post-launch playbook with more verbosity:
-   ```bash
-   ansible-playbook \
-     -i "${INSTANCE_IP}," \
-     -u ubuntu \
-     --private-key /path/to/key.pem \
-     ansible/post-launch-novnc.yml \
-     -e "novnc_version=v0.1.5 bridge_version=v0.1.0" \
-     -vvv
-   ```
-
-3. Check the instance's cloud-init status:
-   ```bash
-   ssh -i /path/to/key.pem ubuntu@<instance-ip> cloud-init status
-   ```
+1. Review the Packer and Ansible error output.
+2. Confirm the version pins exist in `packer/variables.pkrvars.hcl`.
+3. Confirm the matching public `novnc-desktop` base AMI exists in the requested region.
+4. Re-run one region at a time with `--regions <region>` while diagnosing.
 
 ## File Locations
 
 - Packer config: `packer/ubuntu-desktop.pkr.hcl`
 - Packer variables: `packer/variables.pkrvars.hcl`
-- Post-launch playbook: `ansible/post-launch-novnc.yml`
-- novnc-desktop role: installed from GitHub release during post-launch Ansible step
+- Packer Ansible playbook: `packer/playbook.yml`
+- Generated manifest: `packer/manifest.json`

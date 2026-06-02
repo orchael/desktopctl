@@ -91,6 +91,22 @@ func TestInMemoryStore_Update(t *testing.T) {
 	}
 }
 
+func TestInMemoryStore_Delete(t *testing.T) {
+	s := NewInMemoryStore()
+	ctx := context.Background()
+
+	_ = s.Create(ctx, newDesktop("d-delete"))
+	if err := s.Delete(ctx, "d-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := s.Get(ctx, "d-delete"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+	if err := s.Delete(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestInMemoryStore_MarkTerminated(t *testing.T) {
 	s := NewInMemoryStore()
 	ctx := context.Background()

@@ -21,8 +21,6 @@ config:
     default: ""
   sshKeyName:
     default: ""
-  patSecret:
-    default: "/ai-desktops/github/pat"
   repos:
     default: ""
   bridgePort:

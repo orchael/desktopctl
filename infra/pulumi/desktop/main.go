@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"strings"
-	"text/template"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/route53"
@@ -13,130 +10,9 @@ import (
 )
 
 const (
-	novncDesktopVersion  = "v0.1.5"
-	aiAgentBridgeVersion = "v0.1.0"
-	novncHTTPPort        = 8080
-	novncHTTPSPort       = 8443
-	defaultBridgePort    = 9445
+	defaultBridgePort = 9445
+	novncHTTPSPort    = 8443
 )
-
-
-const cloudInitTmpl = `#cloud-config
-package_update: true
-package_upgrade: false
-
-packages:
-  - git
-  - docker.io
-  - tmux
-  - curl
-  - wget
-  - unzip
-  - ca-certificates
-  - apt-transport-https
-  - gnupg
-  - software-properties-common
-  - awscli
-  - snapd
-  - certbot
-  - python3-certbot-dns-route53
-
-runcmd:
-  - systemctl enable docker
-  - systemctl start docker
-  - usermod -aG docker ubuntu
-  - snap install nvim --classic
-  - mkdir -p /workspace
-  - chown ubuntu:ubuntu /workspace
-  - mkdir -p /opt/ai-desktops
-  - chown ubuntu:ubuntu /opt/ai-desktops
-
-  # Obtain TLS certificate via Route53 DNS-01 challenge (no port 80 required).
-  - certbot certonly --dns-route53 --non-interactive --agree-tos --email admin@orchael.ai -d {{ .Hostname }}
-
-  # Enable certbot auto-renewal.
-  - systemctl enable certbot.timer
-  - systemctl start certbot.timer
-
-  # Install novnc-desktop {{ .NovncVersion }} with custom ports and Let's Encrypt cert.
-  - curl -fsSL https://raw.githubusercontent.com/orchael/novnc-desktop/{{ .NovncVersion }}/install.sh | bash -s -- --desktop-type elementary --http-port {{ .HTTPPort }} --https-port {{ .HTTPSPort }} --cert-file /etc/letsencrypt/live/{{ .Hostname }}/fullchain.pem --key-file /etc/letsencrypt/live/{{ .Hostname }}/privkey.pem
-
-  # Install ai-agent-bridge {{ .BridgeVersion }}, bound to localhost only.
-  - curl -fsSL https://raw.githubusercontent.com/orchael/ai-agent-bridge/{{ .BridgeVersion }}/install.sh | bash -s -- --bind 127.0.0.1 --port {{ .BridgePort }}
-  - systemctl enable ai-agent-bridge
-  - systemctl start ai-agent-bridge
-  - |
-    set -e
-    REGION="{{ .Region }}"
-    PAT_SECRET="{{ .PATSecret }}"
-    WORKSPACE="/workspace"
-    OWNER="{{ .GitHubOwner }}"
-
-    # Retrieve PAT from AWS SSM or Secrets Manager.
-    PAT=$(aws ssm get-parameter --region "$REGION" --name "$PAT_SECRET" --with-decryption --query Parameter.Value --output text 2>/dev/null || \
-          aws secretsmanager get-secret-value --region "$REGION" --secret-id "$PAT_SECRET" --query SecretString --output text)
-    if [ -z "$PAT" ]; then
-      echo "ERROR: could not retrieve GitHub PAT from $PAT_SECRET" >&2
-      exit 1
-    fi
-
-    # Write credentials to .netrc so the PAT never appears in process args or git URLs.
-    printf 'machine github.com\nlogin x-access-token\npassword %s\n' "$PAT" > /root/.netrc
-    chmod 600 /root/.netrc
-    unset PAT
-
-    {{- range .Repos }}
-    REPO="{{ . }}"
-    REPO_NAME=$(basename "$REPO" .git | sed 's|.*/||')
-    REPO_OWNER=$(echo "$REPO" | sed 's|.*github\.com/||' | cut -d/ -f1)
-    if [ "$REPO_OWNER" != "$OWNER" ]; then
-      echo "ERROR: repo $REPO owner $REPO_OWNER != desktop owner $OWNER" >&2
-      exit 1
-    fi
-    if [ ! -d "$WORKSPACE/$REPO_NAME/.git" ]; then
-      git clone "https://github.com/${OWNER}/${REPO_NAME}.git" "$WORKSPACE/$REPO_NAME"
-      chown -R ubuntu:ubuntu "$WORKSPACE/$REPO_NAME"
-    fi
-    {{- end }}
-
-    # Remove .netrc credentials after cloning.
-    rm -f /root/.netrc
-  - |
-    {
-      printf 'DESKTOP_ID="%s"\n' "{{ .DesktopID }}"
-      printf 'GITHUB_OWNER="%s"\n' "{{ .GitHubOwner }}"
-      printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
-    } > /opt/ai-desktops/desktop.env
-    chmod 600 /opt/ai-desktops/desktop.env
-
-final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
-`
-
-type cloudInitData struct {
-	DesktopID     string
-	GitHubOwner   string
-	Region        string
-	PATSecret     string
-	Repos         []string
-	BridgePort    int
-	Hostname      string
-	NovncVersion  string
-	BridgeVersion string
-	HTTPPort      int
-	HTTPSPort     int
-}
-
-func renderCloudInit(data cloudInitData) (string, error) {
-	tmpl, err := template.New("cloud-init").Parse(cloudInitTmpl)
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
 
 func main() {
 	pulumi.Run(run)
@@ -157,15 +33,6 @@ func run(ctx *pulumi.Context) error {
 	sgID := cfg.Require("securityGroupId")
 	instanceProfile := cfg.Require("instanceProfile")
 	region := awsCfg.Require("region")
-	patSecret := cfg.Get("patSecret")
-	if patSecret == "" {
-		patSecret = "/ai-desktops/github/pat"
-	}
-	reposRaw := cfg.Get("repos")
-	repos := []string{}
-	if reposRaw != "" {
-		repos = strings.Split(reposRaw, ",")
-	}
 	sshKeyName := cfg.Get("sshKeyName")
 	environment := cfg.Get("environment")
 	if environment == "" {
@@ -184,26 +51,10 @@ func run(ctx *pulumi.Context) error {
 
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
-	// Use pre-rendered userData if provided, otherwise render cloud-init locally.
+	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
 	userData := cfg.Get("userData")
 	if userData == "" {
-		var err error
-		userData, err = renderCloudInit(cloudInitData{
-			DesktopID:     desktopID,
-			GitHubOwner:   githubOwner,
-			Region:        region,
-			PATSecret:     patSecret,
-			Repos:         repos,
-			BridgePort:    bridgePort,
-			Hostname:      hostname,
-			NovncVersion:  novncDesktopVersion,
-			BridgeVersion: aiAgentBridgeVersion,
-			HTTPPort:      novncHTTPPort,
-			HTTPSPort:     novncHTTPSPort,
-		})
-		if err != nil {
-			return fmt.Errorf("render cloud-init: %w", err)
-		}
+		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
 	}
 
 	// The Pulumi AWS provider base64-encodes UserData automatically;

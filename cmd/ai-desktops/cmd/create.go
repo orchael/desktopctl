@@ -185,7 +185,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		foundationOutputs[pulumi.OutputSGID],
 		foundationOutputs[pulumi.OutputInstanceProfile],
 		cfg.Desktop.SSHKeyName,
-		cfg.GitHub.GitHubSecret,
 		req.Repos,
 		cfg.Agent.BridgePort,
 		amiID,

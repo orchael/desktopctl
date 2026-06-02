@@ -251,6 +251,50 @@ func TestDynamoStore_Update_Error(t *testing.T) {
 	}
 }
 
+func TestDynamoStore_Delete_Success(t *testing.T) {
+	var input *dynamodb.DeleteItemInput
+	mock := &mockDynamoClient{
+		deleteFn: func(params *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			input = params
+			return &dynamodb.DeleteItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "d-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if aws.ToString(input.TableName) != "fleet" {
+		t.Errorf("table: got %q", aws.ToString(input.TableName))
+	}
+	if input.ConditionExpression == nil {
+		t.Fatal("expected condition expression")
+	}
+}
+
+func TestDynamoStore_Delete_NotFound(t *testing.T) {
+	mock := &mockDynamoClient{
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDynamoStore_Delete_Error(t *testing.T) {
+	mock := &mockDynamoClient{
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, errors.New("delete failed")
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.Delete(context.Background(), "d-error"); err == nil {
+		t.Fatal("expected error from DeleteItem failure")
+	}
+}
+
 func TestDynamoStore_MarkTerminated_Success(t *testing.T) {
 	mock := &mockDynamoClient{}
 	s := &DynamoStore{client: mock, tableName: "fleet"}

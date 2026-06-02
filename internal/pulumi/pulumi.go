@@ -66,11 +66,11 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
-// amiID is the pre-baked AMI ID; empty string means use hardcoded Ubuntu map.
-// userData is the pre-rendered cloud-init user-data; empty string means Pulumi renders inline template.
+// amiID is the pre-baked AMI ID.
+// userData is the pre-rendered cloud-init user-data.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
-	subnetID, sgID, instanceProfile, sshKeyName, patSecret string,
+	subnetID, sgID, instanceProfile, sshKeyName string,
 	repos []string,
 	bridgePort int,
 	amiID, userData, environment string,
@@ -84,7 +84,6 @@ func DesktopConfig(
 		"subnetId":        subnetID,
 		"securityGroupId": sgID,
 		"instanceProfile": instanceProfile,
-		"patSecret":       patSecret,
 		"repos":           strings.Join(repos, ","),
 		"environment":     environment,
 	}
