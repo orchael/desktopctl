@@ -363,11 +363,11 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 	return checkers
 }
 
-// BridgeCheckers returns checks for the ai-agent-bridge daemon and its AI agent CLIs.
+// BridgeCheckers returns checks for the ai-agent-bridge daemon and the Claude CLI.
 //
 // ai-agent-bridge runs as a systemd service and exposes a gRPC API on port 9445.
-// The AI agent CLIs (claude, codex, gemini, opencode) are installed by
-// install-provider-runtime into /opt/ai-agent-bridge/node_modules.
+// Only the Claude binary is verified here; other provider CLIs (codex, gemini,
+// opencode) are installed by install-provider-runtime but not checked individually.
 func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
 	return []Checker{

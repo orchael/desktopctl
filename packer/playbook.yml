@@ -179,7 +179,10 @@
 
     - name: Add NodeSource Node.js 24 apt repository
       ansible.builtin.shell: |
+        set -eo pipefail
         curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+      args:
+        executable: /bin/bash
 
     - name: Install Node.js 24
       ansible.builtin.apt:
