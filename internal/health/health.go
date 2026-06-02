@@ -366,8 +366,8 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 // BridgeCheckers returns checks for the ai-agent-bridge daemon and its AI agent CLIs.
 //
 // ai-agent-bridge runs as a systemd service and exposes a gRPC API on port 9445.
-// The AI agent CLIs (claude, codex, gemini, opencode) must be installed separately
-// via npm in /var/lib/ai-agent-bridge before the bridge can spawn agent sessions.
+// The AI agent CLIs (claude, codex, gemini, opencode) are installed by
+// install-provider-runtime into /opt/ai-agent-bridge/node_modules.
 func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
 	return []Checker{
@@ -378,7 +378,7 @@ func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHChecker("bridge-port-open", hostname, sshPort, user, keyPath,
 			"ss -tlnp 2>/dev/null | grep -q ':9445'", t),
 		NewSSHChecker("bridge-claude-installed", hostname, sshPort, user, keyPath,
-			"test -f /var/lib/ai-agent-bridge/node_modules/.bin/claude", t),
+			"test -f /opt/ai-agent-bridge/node_modules/.bin/claude", t),
 	}
 }
 

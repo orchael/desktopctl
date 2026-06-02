@@ -66,7 +66,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - bridge-service-active   — ai-agent-bridge systemd service is running
     - bridge-config-exists    — /etc/ai-agent-bridge/bridge.yaml is present
     - bridge-port-open        — gRPC port 9445 is listening
-    - bridge-claude-installed — claude CLI is installed under /var/lib/ai-agent-bridge
+    - bridge-claude-installed — claude CLI is installed under /opt/ai-agent-bridge
 
   Workspace:
     - workspace-mounted    — /workspace is mounted and writable
