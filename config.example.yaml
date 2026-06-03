@@ -48,6 +48,15 @@ desktop:
   # Root EBS volume size in GiB. 40 GiB is the default.
   # root_volume_size: 40
 
+  # Pre-baked AMI IDs per region, populated automatically by `ai-desktops ami build`.
+  # When present, desktop creation uses these AMIs instead of the default Ubuntu map,
+  # and cloud-init skips package installation (tools are already baked in).
+  # Run `ai-desktops ami list` to see current values.
+  # active_ami:
+  #   us-east-1: ami-0123456789abcdef0
+  #   us-east-2: ami-0123456789abcdef1
+  #   us-west-2: ami-0123456789abcdef2
+
   # CIDR range from which SSH (port 22) is allowed in the security group.
   # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.
   # When WireGuard (plan 15) is enabled this will be restricted to the VPN subnet.

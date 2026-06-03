@@ -28,6 +28,7 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 7. Cloud-init template omits package installation steps when `PackagesPreInstalled` flag is true.
 8. Existing test suite still passes; new tests added for AMI config validation and Packer manifest parsing.
 9. Desktop provisioning with pre-baked AMI is noticeably faster than cloud-init-only path.
+10. A desktop booted from the AMI passes `TestFR3_ElementaryDesktopEnvironment`: the Pantheon greeter package (`pantheon-greeter`) or an Elementary xsession desktop file is present, confirming the Elementary desktop environment is correctly installed in the image.
 
 ## Verification Steps
 

@@ -19,6 +19,10 @@ Each task is intended to be handed to another coding agent as a self-contained w
 11. `11-bridge-tunnel-agent-control.md`
 12. `12-vite-desktop-webapp.md`
 13. `13-mvp-smoke-and-docs.md`
+14. `14-pre-baked-ami.md`
+15. `15-wireguard-vpn.md`
+16. `16-desktop-web-root-welcome-page.md`
+17. `17-github-developer-tooling.md`
 
 ## Global Constraints
 

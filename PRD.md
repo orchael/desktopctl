@@ -371,6 +371,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 - External-user access, when implemented, must layer on top of authenticated application access rather than direct unauthenticated desktop URLs.
 - Full RBAC is deferred, but the architecture must leave room for per-user or per-role authorization later.
 
+**v1 decision (deferred):** v1 is single-operator only. Future access will require an authentication gateway in front of port 8443 (e.g. OAuth2 proxy, Cloudflare Access, or a purpose-built auth service). The desktop lifecycle model does not change — auth is a layer inserted in front of nginx. The nginx routing layout established in Plan 16 (`/`, `/novnc/`, `/api/`) must remain compatible with a future `auth_request` directive or proxy insertion at the root without restructuring.
+
 ---
 
 ## Non-Functional Requirements
