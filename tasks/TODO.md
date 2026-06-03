@@ -128,11 +128,11 @@ per-desktop server keys, runtime configuration, restricted network access, and h
 Summary: implement Plan 16 so the desktop root URL serves the status app, noVNC moves under
 `/novnc/`, and the dashboard reads live state from a small production backend baked into the AMI.
 
-- [ ] Change `desktop.NoVNCURL` and related health/tests to use `https://<hostname>:8443/novnc/vnc.html`.
-- [ ] Split the current mock `apps/desktop-web/api-server.js` into local mock data and a production stdlib Python `/api/desktop` backend that reads live desktop state.
-- [ ] Add and enable `ai-desktops-web.service` in the Packer AMI.
-- [ ] Reconfigure `ai-desktops-setup-tls` so `/` serves the built welcome page, `/novnc/` proxies noVNC, and `/api/` proxies the live backend.
-- [ ] Bake `apps/desktop-web` static assets into `/opt/ai-desktops/web/dist/`; add `pnpm run dev:mock` and align the Vite proxy with the mock/backend port.
+- [x] Change `desktop.NoVNCURL` and related health/tests to use `https://<hostname>:8443/novnc/vnc.html`.
+- [x] Split the current mock `apps/desktop-web/api-server.js` into local mock data and a production stdlib Python `/api/desktop` backend that reads live desktop state.
+- [x] Add and enable `ai-desktops-web.service` in the Packer AMI.
+- [x] Reconfigure `ai-desktops-setup-tls` so `/` serves the built welcome page, `/novnc/` proxies noVNC, and `/api/` proxies the live backend.
+- [x] Bake `apps/desktop-web` static assets into `/opt/ai-desktops/web/dist/`; add `pnpm run dev:mock` and align the Vite proxy with the mock/backend port.
 
 ### 4. GitHub Developer Tooling
 
@@ -140,7 +140,7 @@ Summary: Plan 17 is mostly present, but the final Pulumi secret path and setup c
 coverage still need to be closed out.
 
 - [x] Remove the remaining legacy `patSecret` Pulumi contract with the inline cloud-init fallback; CLI-rendered user data now owns per-owner `gitHubSecret` injection.
-- [ ] Add focused unit tests for `setup` SSH-key generation, secret JSON construction, token-scope validation, GitHub key registration, and Secrets Manager create/update behavior.
+- [x] Add focused unit tests for `setup` SSH-key generation, secret JSON construction, token-scope validation, GitHub key registration, and Secrets Manager create/update behavior.
 
 ### 5. Documentation and Plan Index
 

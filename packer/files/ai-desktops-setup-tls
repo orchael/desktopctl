@@ -2,8 +2,10 @@
 # ai-desktops-setup-tls — configure TLS and nginx for the ai-desktops stack.
 #
 # Wraps novnc-setup-tls to obtain a Let's Encrypt certificate via DNS-01
-# (Route53), then extends the nginx configuration to also serve the
-# ai-desktops web application at /app/.
+# (Route53), then reconfigures nginx to serve:
+#   /         → desktop-web React SPA (static files from /opt/ai-desktops/web/dist/)
+#   /novnc/   → noVNC browser VNC client (proxied to upstream)
+#   /api/     → ai-desktops Python API backend (127.0.0.1:3001)
 #
 # The EC2 instance must have an IAM role with Route53 permissions:
 #   route53:ListHostedZones
@@ -96,25 +98,26 @@ log "nginx reloaded with updated ports"
 log "Running novnc-setup-tls..."
 /usr/local/bin/novnc-setup-tls
 
-# --- Step 3: add /app/ location to the novnc nginx site -------------------
-# Inject an auth-protected proxy location for the ai-desktops web app into
-# the existing novnc nginx server block. The insert point is the @unauthorized
-# named location — the last item inside the HTTPS server block.
-log "Adding /app/ location to nginx for ai-desktops web app (port $AI_DESKTOPS_WEB_PORT)..."
+# --- Step 3: reconfigure nginx to serve desktop-web and proxy noVNC/API ----
+# Replace the novnc nginx site with:
+#   /         → static files from /opt/ai-desktops/web/dist/
+#   /novnc/   → proxy to noVNC upstream (already configured by novnc-setup-tls)
+#   /api/     → proxy to the ai-desktops-web Python API on 127.0.0.1:3001
+log "Reconfiguring nginx locations for desktop-web (static + /novnc/ + /api/)..."
 
 python3 - <<'PYEOF'
 import os, sys
 
 nginx_site = "/etc/nginx/sites-available/novnc"
 web_port   = os.environ["AI_DESKTOPS_WEB_PORT"]
-marker     = "# ai-desktops web application"
+marker     = "# ai-desktops location reconfiguration"
 anchor     = "    location @unauthorized {"
 
 with open(nginx_site) as fh:
     content = fh.read()
 
 if marker in content:
-    print("ai-desktops /app/ location already present in nginx config — skipping")
+    print("ai-desktops location reconfiguration already applied — skipping")
     sys.exit(0)
 
 if anchor not in content:
@@ -123,11 +126,18 @@ if anchor not in content:
 
 block = f"""
     {marker}
-    location /app/ {{
-        auth_request /_auth/verify;
-        error_page 401 = @unauthorized;
 
-        proxy_pass         http://127.0.0.1:{web_port}/;
+    # Serve the desktop-web React SPA from the baked dist directory.
+    root /opt/ai-desktops/web/dist;
+    index index.html;
+
+    location / {{
+        try_files $uri $uri/ /index.html;
+    }}
+
+    # Proxy the ai-desktops API backend.
+    location /api/ {{
+        proxy_pass         http://127.0.0.1:{web_port}/api/;
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Forwarded-Proto $scheme;
@@ -141,7 +151,7 @@ content = content.replace(anchor, block + anchor, 1)
 with open(nginx_site, "w") as fh:
     fh.write(content)
 
-print(f"Added /app/ → http://127.0.0.1:{web_port}/ in {nginx_site}")
+print(f"Added static + /api/ locations in {nginx_site}")
 PYEOF
 
 nginx -t 2>&1 | tee -a "$LOG_FILE"
@@ -153,8 +163,9 @@ DOMAIN_WITH_PORT="$CERTBOT_DOMAIN"
 [[ "$NOVNC_HTTPS_PORT" != "443" ]] && DOMAIN_WITH_PORT="${CERTBOT_DOMAIN}:${NOVNC_HTTPS_PORT}"
 
 log "=== ai-desktops-setup-tls complete ==="
-log "noVNC:    https://${DOMAIN_WITH_PORT}/"
-log "Web app:  https://${DOMAIN_WITH_PORT}/app/"
+log "Desktop:  https://${DOMAIN_WITH_PORT}/"
+log "noVNC:    https://${DOMAIN_WITH_PORT}/novnc/vnc.html"
+log "API:      https://${DOMAIN_WITH_PORT}/api/desktop"
 log ""
 log "Run: sudo novnc-desktop-url"
 log "     to get a signed HTTPS access URL."
