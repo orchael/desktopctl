@@ -259,23 +259,39 @@
         group: ubuntu
         mode: "0755"
 
-    - name: Copy desktop-web source for build
-      ansible.builtin.copy:
+    - name: Copy desktop-web source for build (excluding node_modules and dist)
+      ansible.posix.synchronize:
         src: ../apps/desktop-web/
         dest: /tmp/desktop-web-build/
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=dist"
+          - "--exclude=.git"
+
+    - name: Set ownership of desktop-web build directory
+      ansible.builtin.file:
+        path: /tmp/desktop-web-build
+        state: directory
         owner: ubuntu
         group: ubuntu
+        recurse: true
 
     - name: Install desktop-web npm dependencies
       ansible.builtin.shell: |
+        export PATH="/usr/local/bin:$PATH"
         cd /tmp/desktop-web-build
         pnpm install --frozen-lockfile
+      args:
+        executable: /bin/bash
       become: false
 
     - name: Build desktop-web
       ansible.builtin.shell: |
+        export PATH="/usr/local/bin:$PATH"
         cd /tmp/desktop-web-build
         pnpm run build
+      args:
+        executable: /bin/bash
       become: false
 
     - name: Copy built desktop-web dist to /opt/ai-desktops/web/dist
