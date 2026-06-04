@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 ENV_FILE = "/opt/ai-desktops/desktop.env"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 3001
+NOVNC_HTTPS_PORT = os.environ.get("NOVNC_HTTPS_PORT", "8443")
 
 
 def read_env_file(path: str) -> dict:
@@ -60,7 +61,7 @@ def scan_repos(workspace: str) -> list:
     return sorted(repos)
 
 
-def build_desktop_info() -> dict:
+def build_desktop_info(request_host: str | None = None) -> dict:
     env = read_env_file(ENV_FILE)
 
     desktop_id = env.get("DESKTOP_ID", "unknown")
@@ -69,8 +70,10 @@ def build_desktop_info() -> dict:
     environment = env.get("ENVIRONMENT", "dev")
     bridge_port = int(env.get("BRIDGE_PORT", "9445"))
 
-    hostname = os.environ.get("HOSTNAME") or socket.gethostname()
-    novnc_url = f"https://{hostname}:8443/novnc/vnc.html"
+    # Use the Host header forwarded by nginx so the URL contains the public
+    # DNS name the browser used, not the internal EC2 hostname.
+    hostname = request_host or os.environ.get("HOSTNAME") or socket.gethostname()
+    novnc_url = f"https://{hostname}:{NOVNC_HTTPS_PORT}/novnc/vnc.html"
 
     services = [
         {"name": "docker", "active": service_active("docker")},
@@ -98,7 +101,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path == "/api/desktop":
             try:
-                data = build_desktop_info()
+                # X-Forwarded-Host is set by nginx to $host (public DNS name, no port).
+                request_host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host")
+                data = build_desktop_info(request_host=request_host)
                 body = json.dumps(data).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
