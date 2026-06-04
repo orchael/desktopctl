@@ -99,19 +99,20 @@ log "Running novnc-setup-tls..."
 /usr/local/bin/novnc-setup-tls
 
 # --- Step 3: reconfigure nginx to serve desktop-web and proxy noVNC/API ----
-# Replace the novnc nginx site with:
-#   /         → static files from /opt/ai-desktops/web/dist/
-#   /novnc/   → proxy to noVNC upstream (already configured by novnc-setup-tls)
-#   /api/     → proxy to the ai-desktops-web Python API on 127.0.0.1:3001
+# The novnc-desktop nginx config has "location / { proxy_pass noVNC; }".
+# We need to:
+#   1. Rename that block to "location /novnc/" so noVNC moves under /novnc/.
+#   2. Add "location / { try_files ... }" to serve the React SPA.
+#   3. Add "location /api/ { proxy_pass ... }" for the Python API backend.
 log "Reconfiguring nginx locations for desktop-web (static + /novnc/ + /api/)..."
 
 python3 - <<'PYEOF'
-import os, sys
+import os, sys, re
 
 nginx_site = "/etc/nginx/sites-available/novnc"
 web_port   = os.environ["AI_DESKTOPS_WEB_PORT"]
 marker     = "# ai-desktops location reconfiguration"
-anchor     = "    location @unauthorized {"
+anchor     = "  location @unauthorized {"
 
 with open(nginx_site) as fh:
     content = fh.read()
@@ -124,34 +125,67 @@ if anchor not in content:
     print(f"ERROR: expected anchor '{anchor}' not found in {nginx_site}", file=sys.stderr)
     sys.exit(1)
 
-block = f"""
-    {marker}
+# --- Part A: rename "location / { ... proxy_pass http://127.0.0.1:6080/ ... }"
+#             to "location /novnc/ { ... }" so noVNC lives under /novnc/.
+def find_location_block(text, path, required_content):
+    """Return (start, end) byte range of 'location <path> { ... }' containing required_content."""
+    pattern = re.compile(r'(\blocation\s+' + re.escape(path) + r'\s*\{)')
+    for m in pattern.finditer(text):
+        brace_pos = m.end() - 1  # position of opening {
+        depth = 0
+        i = brace_pos
+        while i < len(text):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    block = text[m.start():i + 1]
+                    if required_content in block:
+                        return m.start(), i + 1
+                    break
+            i += 1
+    return None, None
 
-    # Serve the desktop-web React SPA from the baked dist directory.
-    root /opt/ai-desktops/web/dist;
-    index index.html;
+loc_start, loc_end = find_location_block(content, '/', 'proxy_pass http://127.0.0.1:6080/')
+if loc_start is None:
+    print("ERROR: could not find 'location / { ... proxy_pass http://127.0.0.1:6080/ ... }' block",
+          file=sys.stderr)
+    sys.exit(1)
 
-    location / {{
-        try_files $uri $uri/ /index.html;
-    }}
+novnc_block = content[loc_start:loc_end]
+novnc_block = re.sub(r'\blocation\s+/\s*\{', 'location /novnc/ {', novnc_block, count=1)
+content = content[:loc_start] + novnc_block + content[loc_end:]
 
-    # Proxy the ai-desktops API backend.
-    location /api/ {{
-        proxy_pass         http://127.0.0.1:{web_port}/api/;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_set_header   X-Forwarded-Host  $host;
-    }}
+# --- Part B: insert root, index, location /, and location /api/ before @unauthorized.
+spa_block = f"""
+  {marker}
+
+  # Serve the desktop-web React SPA.
+  root /opt/ai-desktops/web/dist;
+  index index.html;
+
+  location / {{
+    try_files $uri $uri/ /index.html;
+  }}
+
+  # Proxy the ai-desktops API backend.
+  location /api/ {{
+    proxy_pass         http://127.0.0.1:{web_port}/api/;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_set_header   X-Forwarded-Host  $host;
+  }}
 
 """
 
-content = content.replace(anchor, block + anchor, 1)
+content = content.replace(anchor, spa_block + anchor, 1)
 
 with open(nginx_site, "w") as fh:
     fh.write(content)
 
-print(f"Added static + /api/ locations in {nginx_site}")
+print(f"Reconfigured nginx: /novnc/ proxies to noVNC, / serves React SPA, /api/ proxies to port {web_port}")
 PYEOF
 
 nginx -t 2>&1 | tee -a "$LOG_FILE"
