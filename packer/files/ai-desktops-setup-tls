@@ -169,6 +169,13 @@ spa_block = f"""
     try_files $uri $uri/ /index.html;
   }}
 
+  # novnc-auth redirects to /vnc.html after a successful token exchange
+  # (DEFAULT_REDIRECT in novnc-auth.py). Forward that to /novnc/ where
+  # noVNC now lives, preserving any query string.
+  location = /vnc.html {{
+    return 301 /novnc/vnc.html$is_args$args;
+  }}
+
   # Proxy the ai-desktops API backend.
   location /api/ {{
     proxy_pass         http://127.0.0.1:{web_port}/api/;
