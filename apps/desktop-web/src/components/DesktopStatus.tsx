@@ -45,35 +45,7 @@ export default function DesktopStatus({ info }: Props) {
             <ServiceRow key={s.name} service={s} />
           ))}
         </div>
-        <p
-          style={{
-            fontSize: '0.8rem',
-            color: 'var(--muted)',
-            marginTop: '0.5rem'
-          }}
-        >
-          Bridge port: {info.bridge_port}
-        </p>
       </Section>
-
-      <div style={{ marginBottom: '1rem' }}>
-        <a
-          href={info.novnc_url}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            display: 'inline-block',
-            background: 'var(--blue)',
-            color: '#fff',
-            borderRadius: 6,
-            padding: '0.5rem 1.25rem',
-            fontSize: '0.9rem',
-            textDecoration: 'none'
-          }}
-        >
-          Open noVNC Desktop
-        </a>
-      </div>
     </div>
   );
 }
