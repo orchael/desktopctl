@@ -259,6 +259,33 @@
         group: ubuntu
         mode: "0755"
 
+    - name: Install desktop-web dist into /opt/ai-desktops/web/dist
+      ansible.builtin.copy:
+        src: /tmp/desktop-web-dist/
+        dest: /opt/ai-desktops/web/dist/
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Install api-server.py into /opt/ai-desktops/web
+      ansible.builtin.copy:
+        src: /tmp/desktop-web-api-server.py
+        dest: /opt/ai-desktops/web/api-server.py
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Remove temporary desktop-web dist upload
+      ansible.builtin.file:
+        path: /tmp/desktop-web-dist
+        state: absent
+
+    - name: Remove temporary desktop-web api-server upload
+      ansible.builtin.file:
+        path: /tmp/desktop-web-api-server.py
+        state: absent
+
     - name: Install ai-desktops-web systemd service
       ansible.builtin.copy:
         src: files/ai-desktops-web.service
