@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 )
 
 func TestGenerateSSHKeyPair(t *testing.T) {
@@ -208,6 +211,109 @@ func TestRegisterGitHubSSHKey_Failure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "422") {
 		t.Errorf("error should mention HTTP 422, got: %v", err)
+	}
+}
+
+// makeSecretsManagerConfig returns an aws.Config wired to a local httptest server URL.
+func makeSecretsManagerConfig(serverURL string) aws.Config {
+	return aws.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
+			func(service, region string, _ ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{URL: serverURL, HostnameImmutable: true}, nil
+			},
+		),
+	}
+}
+
+func TestStoreSecret_Create(t *testing.T) {
+	var describeCalled, createCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "DescribeSecret"):
+			describeCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"ResourceNotFoundException","Message":"secret not found"}`))
+		case strings.HasSuffix(target, "CreateSecret"):
+			createCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123456789012:secret:test","Name":"test"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"InvalidRequestException","Message":"unexpected target"}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !describeCalled {
+		t.Error("expected DescribeSecret to be called")
+	}
+	if !createCalled {
+		t.Error("expected CreateSecret to be called")
+	}
+}
+
+func TestStoreSecret_Update(t *testing.T) {
+	var describeCalled, putCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "DescribeSecret"):
+			describeCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123456789012:secret:test","Name":"test"}`))
+		case strings.HasSuffix(target, "PutSecretValue"):
+			putCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123456789012:secret:test","Name":"test"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"InvalidRequestException","Message":"unexpected target"}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !describeCalled {
+		t.Error("expected DescribeSecret to be called")
+	}
+	if !putCalled {
+		t.Error("expected PutSecretValue to be called")
+	}
+}
+
+func TestStoreSecret_DescribeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"__type":"AccessDeniedException","Message":"access denied"}`))
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	if err == nil {
+		t.Fatal("expected error for non-NotFound DescribeSecret failure")
+	}
+	if !strings.Contains(err.Error(), "describe secret") {
+		t.Errorf("error should mention 'describe secret', got: %v", err)
 	}
 }
 

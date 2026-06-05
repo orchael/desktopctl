@@ -118,79 +118,13 @@
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # 5. Build and install desktop-web
+    # 5. Start desktop-web service
     # ------------------------------------------------------------------
-    - name: Check if desktop-web is already built
-      ansible.builtin.stat:
-        path: /opt/ai-desktops/web/dist/index.html
-      register: desktop_web_built
-
-    - name: Clone ai-desktops repo for desktop-web build
-      become: true
-      become_user: ubuntu
-      ansible.builtin.git:
-        repo: git@github.com:orchael/ai-desktops.git
-        dest: /tmp/ai-desktops-build
-        depth: 1
-        accept_hostkey: true
-      when: not desktop_web_built.stat.exists
-
-    - name: Install desktop-web npm dependencies
-      become: true
-      become_user: ubuntu
-      ansible.builtin.shell: |
-        export PATH="/usr/local/bin:$PATH"
-        cd /tmp/ai-desktops-build/apps/desktop-web
-        pnpm install --frozen-lockfile
-      args:
-        executable: /bin/bash
-      when: not desktop_web_built.stat.exists
-
-    - name: Build desktop-web
-      become: true
-      become_user: ubuntu
-      ansible.builtin.shell: |
-        export PATH="/usr/local/bin:$PATH"
-        cd /tmp/ai-desktops-build/apps/desktop-web
-        pnpm run build
-      args:
-        executable: /bin/bash
-      when: not desktop_web_built.stat.exists
-
-    - name: Copy built desktop-web dist to /opt/ai-desktops/web/dist
-      become: true
-      become_user: ubuntu
-      ansible.builtin.copy:
-        src: /tmp/ai-desktops-build/apps/desktop-web/dist/
-        dest: /opt/ai-desktops/web/dist/
-        remote_src: true
-        owner: ubuntu
-        group: ubuntu
-      when: not desktop_web_built.stat.exists
-
-    - name: Copy api-server.py to /opt/ai-desktops/web
-      become: true
-      become_user: ubuntu
-      ansible.builtin.copy:
-        src: /tmp/ai-desktops-build/apps/desktop-web/api-server.py
-        dest: /opt/ai-desktops/web/api-server.py
-        owner: ubuntu
-        group: ubuntu
-        mode: "0755"
-      when: not desktop_web_built.stat.exists
-
-    - name: Clean up ai-desktops build directory
-      ansible.builtin.file:
-        path: /tmp/ai-desktops-build
-        state: absent
-      when: not desktop_web_built.stat.exists
-
     - name: Start ai-desktops-web service
       become: true
       ansible.builtin.systemd:
         name: ai-desktops-web
         state: started
-      when: not desktop_web_built.stat.exists
 
     # ------------------------------------------------------------------
     # 6. Setup complete
@@ -202,6 +136,6 @@
 
           Pre-installed tools from Packer verified.
           Homebrew and uv installation attempted.
-          desktop-web built and ai-desktops-web service started.
+          ai-desktops-web service started.
 
           Ready for development!

@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.27.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "dev": "vite",
-    "dev:mock": "node api-server.mock.js & vite",
+    "dev:mock": "node api-server.mock.js & MOCK=$!; vite; kill $MOCK 2>/dev/null; wait $MOCK 2>/dev/null",
     "api": "node api-server.mock.js",
     "api:prod": "python3 api-server.py",
     "build": "tsc && vite build",

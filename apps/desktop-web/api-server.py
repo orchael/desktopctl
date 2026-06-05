@@ -72,7 +72,9 @@ def build_desktop_info(request_host: str | None = None) -> dict:
 
     # Use the Host header forwarded by nginx so the URL contains the public
     # DNS name the browser used, not the internal EC2 hostname.
-    hostname = request_host or os.environ.get("HOSTNAME") or socket.gethostname()
+    # Strip any port suffix (present when accessed directly via Vite proxy).
+    raw_host = request_host or os.environ.get("HOSTNAME") or socket.gethostname()
+    hostname = raw_host.split(':')[0]
     novnc_url = f"https://{hostname}:{NOVNC_HTTPS_PORT}/novnc/vnc.html"
 
     services = [

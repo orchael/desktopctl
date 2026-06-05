@@ -12,7 +12,7 @@ const mockDesktopInfo = {
     { name: 'bridge', active: true },
     { name: 'novnc', active: true }
   ],
-  novnc_url: 'https://desktop-dev-001.desktops.orchael.dev:8443/vnc.html'
+  novnc_url: 'https://desktop-dev-001.desktops.orchael.dev:8443/novnc/vnc.html'
 };
 
 const server = http.createServer((req, res) => {
@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const PORT = 3000;
+const PORT = 3001;
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Mock API server running on http://127.0.0.1:${PORT}`);
 });

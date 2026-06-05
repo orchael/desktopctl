@@ -247,7 +247,7 @@
     - name: Install pnpm globally via corepack
       ansible.builtin.shell: |
         corepack enable
-        corepack prepare pnpm@latest --activate
+        corepack prepare pnpm@10 --activate
       args:
         creates: /usr/local/bin/pnpm
 
