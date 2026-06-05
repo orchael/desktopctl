@@ -224,7 +224,8 @@ runcmd:
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
     } > /opt/ai-desktops/desktop.env
-    chmod 600 /opt/ai-desktops/desktop.env
+    chgrp ubuntu /opt/ai-desktops/desktop.env
+    chmod 640 /opt/ai-desktops/desktop.env
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 `

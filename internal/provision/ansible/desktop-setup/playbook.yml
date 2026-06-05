@@ -118,7 +118,16 @@
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # 5. Setup complete
+    # 5. Start desktop-web service
+    # ------------------------------------------------------------------
+    - name: Start ai-desktops-web service
+      become: true
+      ansible.builtin.systemd:
+        name: ai-desktops-web
+        state: started
+
+    # ------------------------------------------------------------------
+    # 6. Setup complete
     # ------------------------------------------------------------------
     - name: Desktop setup complete
       ansible.builtin.debug:
@@ -127,5 +136,6 @@
 
           Pre-installed tools from Packer verified.
           Homebrew and uv installation attempted.
+          ai-desktops-web service started.
 
           Ready for development!

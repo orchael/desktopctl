@@ -27,6 +27,9 @@ import (
 	"golang.org/x/term"
 )
 
+// githubAPIBase is the GitHub REST API base URL. Overridden in tests.
+var githubAPIBase = "https://api.github.com"
+
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Interactive configuration wizard (safe to re-run)",
@@ -283,7 +286,7 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
 	if err != nil {
 		return err
 	}
@@ -350,7 +353,7 @@ func registerGitHubSSHKey(ctx context.Context, token, title, pubKey string) erro
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.github.com/user/keys",
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, githubAPIBase+"/user/keys",
 		strings.NewReader(string(body)))
 	if err != nil {
 		return err

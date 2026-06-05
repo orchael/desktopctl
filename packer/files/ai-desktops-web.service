@@ -1,0 +1,15 @@
+[Unit]
+Description=ai-desktops desktop web API server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/bin/python3 /opt/ai-desktops/web/api-server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

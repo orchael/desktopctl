@@ -82,6 +82,30 @@ build {
   name    = "ai-desktops"
   sources = ["source.amazon-ebs.ubuntu"]
 
+  # Build the desktop-web React app locally before provisioning the AMI so
+  # the compiled dist can be uploaded directly without requiring a GitHub
+  # SSH key on the launched instance.
+  provisioner "shell-local" {
+    command = "cd ${path.root}/../apps/desktop-web && pnpm install --frozen-lockfile && pnpm run build"
+  }
+
+  # scp requires the destination directory to exist before uploading into it.
+  provisioner "shell" {
+    inline = ["mkdir -p /tmp/desktop-web-dist"]
+  }
+
+  # Upload the pre-built dist and the API server to the instance so the
+  # Ansible playbook can move them into place without re-building on the AMI.
+  provisioner "file" {
+    source      = "${path.root}/../apps/desktop-web/dist/"
+    destination = "/tmp/desktop-web-dist/"
+  }
+
+  provisioner "file" {
+    source      = "${path.root}/../apps/desktop-web/api-server.py"
+    destination = "/tmp/desktop-web-api-server.py"
+  }
+
   # Stop unattended-upgrades before Ansible runs so apt installs don't race
   # with the background upgrade process holding /var/lib/dpkg/lock-frontend.
   # The playbook re-enables these services at the end so launched instances

@@ -46,37 +46,6 @@ export default function DesktopStatus({ info }: Props) {
           ))}
         </div>
       </Section>
-
-      <Section title="Quick Access">
-        <a
-          href={info.novnc_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            background: 'var(--accent)',
-            color: '#fff',
-            padding: '0.5rem 1rem',
-            borderRadius: 6,
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            textDecoration: 'none'
-          }}
-        >
-          Open noVNC Desktop
-        </a>
-        <p
-          style={{
-            color: 'var(--muted)',
-            fontSize: '0.75rem',
-            marginTop: '0.5rem'
-          }}
-        >
-          Bridge port: {info.bridge_port}
-        </p>
-      </Section>
     </div>
   );
 }

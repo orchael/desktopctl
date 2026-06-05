@@ -244,6 +244,62 @@
         group: root
         mode: "0755"
 
+    - name: Install pnpm globally via corepack
+      ansible.builtin.shell: |
+        corepack enable
+        corepack prepare pnpm@10 --activate
+      args:
+        creates: /usr/local/bin/pnpm
+
+    - name: Create /opt/ai-desktops/web directory
+      ansible.builtin.file:
+        path: /opt/ai-desktops/web
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Install desktop-web dist into /opt/ai-desktops/web/dist
+      ansible.builtin.copy:
+        src: /tmp/desktop-web-dist/
+        dest: /opt/ai-desktops/web/dist/
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Install api-server.py into /opt/ai-desktops/web
+      ansible.builtin.copy:
+        src: /tmp/desktop-web-api-server.py
+        dest: /opt/ai-desktops/web/api-server.py
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Remove temporary desktop-web dist upload
+      ansible.builtin.file:
+        path: /tmp/desktop-web-dist
+        state: absent
+
+    - name: Remove temporary desktop-web api-server upload
+      ansible.builtin.file:
+        path: /tmp/desktop-web-api-server.py
+        state: absent
+
+    - name: Install ai-desktops-web systemd service
+      ansible.builtin.copy:
+        src: files/ai-desktops-web.service
+        dest: /etc/systemd/system/ai-desktops-web.service
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable ai-desktops-web service
+      ansible.builtin.systemd:
+        name: ai-desktops-web
+        enabled: true
+        daemon_reload: true
+
     - name: Collect installed package facts
       ansible.builtin.package_facts:
         manager: apt
