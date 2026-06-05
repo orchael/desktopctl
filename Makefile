@@ -1,3 +1,4 @@
+SHELL   := /bin/bash
 BINARY := ai-desktops
 CMD     := ./cmd/ai-desktops
 
@@ -54,9 +55,25 @@ test-integration: check-deps build
 	  echo ""; \
 	  exit 1; \
 	}
+	@set -o pipefail; \
+	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
 	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
 	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
-	  go test -v -tags=integration -timeout=3h ./tests/integration/...
+	  go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	testret=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "=== Integration Test Summary ==="; \
+	printf "%-6s  %-55s  %s\n" "STATUS" "TEST" "DURATION"; \
+	printf "%-6s  %-55s  %s\n" "------" "-------------------------------------------------------" "--------"; \
+	grep -E '^--- (PASS|FAIL|SKIP):' "$$tmpout" | \
+	  awk '{status=substr($$2,1,length($$2)-1); name=$$3; dur=$$4; gsub(/[()]/,"",dur); printf "%-6s  %-55s  %s\n", status, name, dur}'; \
+	echo ""; \
+	passed=$$(grep -c '^--- PASS:' "$$tmpout" || true); \
+	failed=$$(grep -c '^--- FAIL:' "$$tmpout" || true); \
+	skipped=$$(grep -c '^--- SKIP:' "$$tmpout" || true); \
+	printf "Results: %d passed, %d failed, %d skipped\n" "$$passed" "$$failed" "$$skipped"; \
+	rm -f "$$tmpout"; \
+	exit $$testret
 
 # test-integration-adopt re-runs the integration suite against an existing
 # desktop, skipping the create step.  The suite still bootstraps and runs
@@ -68,10 +85,26 @@ test-integration-adopt: check-deps build
 	$(if $(DESKTOP_ID),,$(error DESKTOP_ID is required — e.g. make test-integration-adopt DESKTOP_ID=d-abc123))
 	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; exit 1; }
 	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; exit 1; }
+	@set -o pipefail; \
+	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
 	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
 	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
 	  AI_DESKTOPS_EXISTING_ID=$(DESKTOP_ID) \
-	  go test -v -tags=integration -timeout=30m ./tests/integration/...
+	  go test -v -tags=integration -timeout=30m ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	testret=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "=== Integration Test Summary ==="; \
+	printf "%-6s  %-55s  %s\n" "STATUS" "TEST" "DURATION"; \
+	printf "%-6s  %-55s  %s\n" "------" "-------------------------------------------------------" "--------"; \
+	grep -E '^--- (PASS|FAIL|SKIP):' "$$tmpout" | \
+	  awk '{status=substr($$2,1,length($$2)-1); name=$$3; dur=$$4; gsub(/[()]/,"",dur); printf "%-6s  %-55s  %s\n", status, name, dur}'; \
+	echo ""; \
+	passed=$$(grep -c '^--- PASS:' "$$tmpout" || true); \
+	failed=$$(grep -c '^--- FAIL:' "$$tmpout" || true); \
+	skipped=$$(grep -c '^--- SKIP:' "$$tmpout" || true); \
+	printf "Results: %d passed, %d failed, %d skipped\n" "$$passed" "$$failed" "$$skipped"; \
+	rm -f "$$tmpout"; \
+	exit $$testret
 
 # test-integration-fr runs a single FR's tests.
 # Set FR to the functional requirement number (1–10).
@@ -83,11 +116,27 @@ test-integration-fr: check-deps build
 	$(if $(FR),,$(error FR is required — e.g. make test-integration-fr FR=5))
 	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; exit 1; }
 	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; exit 1; }
+	@set -o pipefail; \
+	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
 	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
 	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
 	  $(if $(DESKTOP_ID),AI_DESKTOPS_EXISTING_ID=$(DESKTOP_ID),) \
 	  go test -v -tags=integration -timeout=30m \
-	  -run 'TestFR$(FR)_' ./tests/integration/...
+	  -run 'TestFR$(FR)_' ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	testret=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "=== Integration Test Summary ==="; \
+	printf "%-6s  %-55s  %s\n" "STATUS" "TEST" "DURATION"; \
+	printf "%-6s  %-55s  %s\n" "------" "-------------------------------------------------------" "--------"; \
+	grep -E '^--- (PASS|FAIL|SKIP):' "$$tmpout" | \
+	  awk '{status=substr($$2,1,length($$2)-1); name=$$3; dur=$$4; gsub(/[()]/,"",dur); printf "%-6s  %-55s  %s\n", status, name, dur}'; \
+	echo ""; \
+	passed=$$(grep -c '^--- PASS:' "$$tmpout" || true); \
+	failed=$$(grep -c '^--- FAIL:' "$$tmpout" || true); \
+	skipped=$$(grep -c '^--- SKIP:' "$$tmpout" || true); \
+	printf "Results: %d passed, %d failed, %d skipped\n" "$$passed" "$$failed" "$$skipped"; \
+	rm -f "$$tmpout"; \
+	exit $$testret
 
 clean:
 	rm -f $(BINARY)

@@ -138,18 +138,22 @@ func getDesktopAndTunnel(ctx context.Context, id string) (*store.Desktop, *agent
 		return nil, nil, nil, fmt.Errorf("unknown tunnel mode %q (use ssm or ssh)", agentTunnelMode)
 	}
 
-	// Give the tunnel a moment to establish.
-	time.Sleep(500 * time.Millisecond)
-
-	bridgeURL := tunnel.BridgeURL(localPort)
-	c := agent.NewClient(bridgeURL)
-
 	cleanup := func() {
 		if tunnelProc != nil && tunnelProc.Process != nil {
 			_ = tunnelProc.Process.Kill()
 			_ = tunnelProc.Wait()
 		}
 	}
+
+	// Wait until the local port is actually accepting connections before
+	// sending the first bridge request — avoids "connection refused" races.
+	if err := tunnel.WaitForPort(localPort, 30*time.Second); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("tunnel not ready on port %d: %w", localPort, err)
+	}
+
+	bridgeURL := tunnel.BridgeURL(localPort)
+	c := agent.NewClient(bridgeURL)
 
 	return d, c, cleanup, nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"time"
 )
 
 // Mode selects the tunneling mechanism.
@@ -102,4 +103,21 @@ func SSHCommand(cfg *Config, localPort int) *exec.Cmd {
 // BridgeURL returns the URL for reaching the bridge through the local tunnel.
 func BridgeURL(localPort int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", localPort)
+}
+
+// WaitForPort polls localPort until it accepts a TCP connection or timeout
+// elapses. Call this after starting a tunnel process to avoid sending bridge
+// requests before the port-forward is open.
+func WaitForPort(localPort int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("local port %d not accepting connections after %s", localPort, timeout)
 }

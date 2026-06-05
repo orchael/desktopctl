@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -438,6 +439,10 @@ func terminateDesktop(id string) error {
 // waitForState polls `ai-desktops status <id>` until lifecycle_state matches
 // want or the deadline elapses. It prints progress every 30 seconds so CI logs
 // do not appear to hang during long-running operations like TLS provisioning.
+//
+// When want is "ready" and the fixture has an SSH key, it also probes TCP port
+// 22 after DynamoDB reports the state, so callers do not race against sshd
+// startup after an EC2 start.
 func waitForState(id, want string, timeout time.Duration) error {
 	start := time.Now()
 	deadline := start.Add(timeout)
@@ -447,10 +452,29 @@ func waitForState(id, want string, timeout time.Duration) error {
 			"status", id, "--config", configPath, "--json")
 		if err == nil {
 			var d struct {
-				State string `json:"lifecycle_state"`
+				State    string `json:"lifecycle_state"`
+				Hostname string `json:"hostname"`
 			}
 			if json.Unmarshal(out, &d) == nil {
 				if d.State == want {
+					// For "ready", also verify SSH port is reachable so callers
+					// don't race sshd startup after an EC2 start.
+					if want == "ready" && fx != nil && fx.SSHKey != "" {
+						host := d.Hostname
+						if host == "" {
+							host = fx.Hostname
+						}
+						if host != "" && !tcpReachable(host, 22, 5*time.Second) {
+							if time.Since(lastLog) >= 30*time.Second {
+								fmt.Fprintf(os.Stderr,
+									"integration: desktop %s state=%q but SSH not yet reachable (elapsed %s)\n",
+									id, want, time.Since(start).Round(time.Second))
+								lastLog = time.Now()
+							}
+							time.Sleep(15 * time.Second)
+							continue
+						}
+					}
 					fmt.Fprintf(os.Stderr, "integration: desktop %s reached state %q (elapsed %s)\n",
 						id, want, time.Since(start).Round(time.Second))
 					return nil
@@ -465,6 +489,16 @@ func waitForState(id, want string, timeout time.Duration) error {
 		time.Sleep(15 * time.Second)
 	}
 	return fmt.Errorf("timed out waiting for desktop %s to reach state %q after %s", id, want, timeout)
+}
+
+// tcpReachable returns true if host:port accepts a TCP connection within timeout.
+func tcpReachable(host string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // runCLI executes the compiled CLI binary with the given arguments and returns
