@@ -169,6 +169,22 @@ spa_block = f"""
     try_files $uri $uri/ /index.html;
   }}
 
+  # noVNC WebSocket — the browser client connects here for the VNC session.
+  # noVNC defaults to /websockify (absolute path) regardless of page path,
+  # so this must be a top-level location rather than living under /novnc/.
+  location /websockify {{
+    auth_request /_auth/verify;
+    error_page 401 = @unauthorized;
+
+    proxy_pass http://127.0.0.1:6080/websockify;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host       $host;
+    proxy_read_timeout 24h;
+    proxy_send_timeout 24h;
+  }}
+
   # novnc-auth redirects to /vnc.html after a successful token exchange
   # (DEFAULT_REDIRECT in novnc-auth.py). Forward that to /novnc/ where
   # noVNC now lives, preserving any query string.
