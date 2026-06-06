@@ -373,6 +373,8 @@ func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 	return []Checker{
 		NewSSHChecker("bridge-service-active", hostname, sshPort, user, keyPath,
 			"systemctl is-active ai-agent-bridge", t),
+		NewSSHChecker("bridge-bridgectl-installed", hostname, sshPort, user, keyPath,
+			"which bridgectl", t),
 		NewSSHChecker("bridge-config-exists", hostname, sshPort, user, keyPath,
 			"test -f /etc/ai-agent-bridge/bridge.yaml", t),
 		NewSSHChecker("bridge-port-open", hostname, sshPort, user, keyPath,
