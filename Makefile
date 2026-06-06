@@ -1,4 +1,4 @@
-SHELL   := /bin/bash
+SHELL   := bash
 BINARY := ai-desktops
 CMD     := ./cmd/ai-desktops
 

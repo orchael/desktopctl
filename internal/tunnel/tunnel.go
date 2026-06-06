@@ -112,7 +112,8 @@ func WaitForPort(localPort int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		dialTimeout := min(time.Until(deadline), time.Second)
+		conn, err := net.DialTimeout("tcp", addr, dialTimeout)
 		if err == nil {
 			conn.Close()
 			return nil

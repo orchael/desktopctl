@@ -459,7 +459,7 @@ func waitForState(id, want string, timeout time.Duration) error {
 				if d.State == want {
 					// For "ready", also verify SSH port is reachable so callers
 					// don't race sshd startup after an EC2 start.
-					if want == "ready" && fx != nil && fx.SSHKey != "" {
+					if want == "ready" {
 						host := d.Hostname
 						if host == "" {
 							host = fx.Hostname
