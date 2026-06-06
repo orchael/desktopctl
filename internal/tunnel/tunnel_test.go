@@ -1,8 +1,10 @@
 package tunnel
 
 import (
+	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 var testCfg = &Config{
@@ -105,5 +107,34 @@ func TestEphemeralPort(t *testing.T) {
 	}
 	if port <= 0 || port > 65535 {
 		t.Errorf("port out of range: %d", port)
+	}
+}
+
+func TestWaitForPort_succeeds(t *testing.T) {
+	// Open a real listener so WaitForPort has something to connect to.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	if err := WaitForPort(port, 2*time.Second); err != nil {
+		t.Errorf("WaitForPort: %v", err)
+	}
+}
+
+func TestWaitForPort_timesOut(t *testing.T) {
+	// Find a port that is definitely not listening.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close() // close immediately so nothing is listening
+
+	err = WaitForPort(port, 300*time.Millisecond)
+	if err == nil {
+		t.Error("expected timeout error, got nil")
 	}
 }
