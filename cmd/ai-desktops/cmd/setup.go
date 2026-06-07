@@ -52,15 +52,15 @@ func init() {
 }
 
 type setupAnswers struct {
-	AWSRegion      string
-	AWSProfile     string
-	BackendBucket  string
-	Environment    string
-	GitHubOwner    string
-	GitHubToken    string
-	AnthropicKey   string
-	OpenAIKey      string
-	GeminiKey      string
+	AWSRegion     string
+	AWSProfile    string
+	BackendBucket string
+	Environment   string
+	GitHubOwner   string
+	GitHubToken   string
+	AnthropicKey  string
+	OpenAIKey     string
+	GeminiKey     string
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {

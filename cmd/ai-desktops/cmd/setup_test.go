@@ -400,7 +400,7 @@ func TestMergeAgentKeys(t *testing.T) {
 			want:     map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
 		},
 		{
-			name: "no existing, all new",
+			name:         "no existing, all new",
 			existing:     map[string]string{},
 			anthropicKey: "claude-new",
 			openaiKey:    "sk-new",
