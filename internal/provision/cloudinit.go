@@ -28,6 +28,7 @@ type BootstrapConfig struct {
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
 	GitHubSecretPath     string // AWS Secrets Manager path: /ai-desktops/<owner>/github
+	AgentSecretPath      string // AWS Secrets Manager path: /ai-desktops/<owner>/agents
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
@@ -191,6 +192,45 @@ runcmd:
 
     unset GITHUB_TOKEN
     )
+
+{{- if .AgentSecretPath}}
+  # --- retrieve AI provider API keys and write agents.env ---
+  - |
+    (
+    set -e
+    REGION="{{ .AWSRegion }}"
+    AGENT_SECRET="{{ .AgentSecretPath }}"
+
+    # Retrieve JSON secret from Secrets Manager
+    AGENT_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "$AGENT_SECRET" \
+      --query SecretString \
+      --output text 2>/dev/null) || { echo "WARNING: could not retrieve agent secret from $AGENT_SECRET" >&2; exit 0; }
+
+    if [ -z "$AGENT_JSON" ]; then
+      echo "WARNING: agent secret $AGENT_SECRET was empty — agents.env not written" >&2
+      exit 0
+    fi
+
+    # Write env file from JSON keys
+    mkdir -p /etc/ai-agent-bridge
+    python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+lines = '\n'.join(f'{k}={v}' for k, v in data.items() if v)
+print(lines)
+" <<< "$AGENT_JSON" > /etc/ai-agent-bridge/agents.env
+    chmod 600 /etc/ai-agent-bridge/agents.env
+    chown root:root /etc/ai-agent-bridge/agents.env
+    unset AGENT_JSON
+
+    # Restart the bridge so it picks up the new keys
+    if systemctl is-active --quiet ai-agent-bridge 2>/dev/null; then
+      systemctl restart ai-agent-bridge
+    fi
+    )
+{{- end}}
 
   # --- clone repositories ---
 {{ range .Repos }}

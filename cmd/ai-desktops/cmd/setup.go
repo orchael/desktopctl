@@ -52,12 +52,15 @@ func init() {
 }
 
 type setupAnswers struct {
-	AWSRegion     string
-	AWSProfile    string
-	BackendBucket string
-	Environment   string
-	GitHubOwner   string
-	GitHubToken   string
+	AWSRegion      string
+	AWSProfile     string
+	BackendBucket  string
+	Environment    string
+	GitHubOwner    string
+	GitHubToken    string
+	AnthropicKey   string
+	OpenAIKey      string
+	GeminiKey      string
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
@@ -230,6 +233,80 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  GitHub token unchanged.")
 	}
 
+	// Collect AI provider API keys.
+	agentSecretPath := "/ai-desktops/" + a.GitHubOwner + "/agents"
+	updateAgentKeys := true
+	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+		fmt.Println()
+		fmt.Print("Update AI provider API keys? [y/N]: ")
+		answer, _ := reader.ReadString('\n')
+		updateAgentKeys = strings.TrimSpace(strings.ToLower(answer)) == "y"
+	}
+
+	if updateAgentKeys {
+		fmt.Println()
+		fmt.Println("── AI Provider Keys ─────────────────────────────────")
+		fmt.Println("Enter API keys for AI providers (press Enter to skip any key).")
+		fmt.Println("Keys are stored in AWS Secrets Manager at:", agentSecretPath)
+		fmt.Println()
+
+		fmt.Print("Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN) [hidden, Enter to skip]: ")
+		anthropicBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("read anthropic key: %w", err)
+		}
+		a.AnthropicKey = strings.TrimSpace(string(anthropicBytes))
+
+		fmt.Print("OpenAI API key (OPENAI_API_KEY) [hidden, Enter to skip]: ")
+		openaiBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("read openai key: %w", err)
+		}
+		a.OpenAIKey = strings.TrimSpace(string(openaiBytes))
+
+		fmt.Print("Gemini API key (GEMINI_API_KEY) [hidden, Enter to skip]: ")
+		geminiBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("read gemini key: %w", err)
+		}
+		a.GeminiKey = strings.TrimSpace(string(geminiBytes))
+
+		if a.AnthropicKey == "" && a.OpenAIKey == "" && a.GeminiKey == "" {
+			fmt.Println("  No AI provider keys provided — skipping agent secret.")
+			updateAgentKeys = false
+		} else {
+			fmt.Println()
+			fmt.Printf("── Storing agent secret ─────────────────────────────\n")
+			fmt.Printf("Storing agent secret at %s in %s... ", agentSecretPath, a.AWSRegion)
+
+			agentAwsCfg, err := awscfg.LoadDefaultConfig(ctx,
+				awscfg.WithRegion(a.AWSRegion),
+				awscfg.WithSharedConfigProfile(a.AWSProfile),
+			)
+			if err != nil {
+				fmt.Println("✗")
+				return fmt.Errorf("load AWS config: %w", err)
+			}
+
+			agentSecretValue, err := buildAgentSecretJSON(a.AnthropicKey, a.OpenAIKey, a.GeminiKey)
+			if err != nil {
+				fmt.Println("✗")
+				return fmt.Errorf("build agent secret JSON: %w", err)
+			}
+
+			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, agentSecretValue, a.GitHubOwner); err != nil {
+				fmt.Println("✗")
+				return fmt.Errorf("store agent secret: %w", err)
+			}
+			fmt.Println("✓")
+		}
+	} else {
+		fmt.Println("  AI provider keys unchanged.")
+	}
+
 	// Write config (always — idempotent).
 	// Start from the existing loaded config so fields not touched by the wizard
 	// (active_ami, operator_cidr, ssh_key_name, infra_dir, agent settings, etc.)
@@ -249,6 +326,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	// overwrite only when a new token was stored (or on first run).
 	if updateToken || cfg == nil || cfg.GitHub.GitHubSecret == "" {
 		newCfg.GitHub.GitHubSecret = secretPath
+	}
+	if updateAgentKeys {
+		newCfg.GitHub.AgentSecret = agentSecretPath
 	}
 	newCfg.Defaults()
 
@@ -383,6 +463,55 @@ func buildSecretJSON(token, privKey, pubKey string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, error) {
+	m := map[string]string{}
+	if anthropicKey != "" {
+		m["CLAUDE_CODE_OAUTH_TOKEN"] = anthropicKey
+	}
+	if openaiKey != "" {
+		m["OPENAI_API_KEY"] = openaiKey
+	}
+	if geminiKey != "" {
+		m["GEMINI_API_KEY"] = geminiKey
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {
+	svc := secretsmanager.NewFromConfig(awsCfg)
+
+	_, err := svc.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
+		SecretId: aws.String(secretID),
+	})
+	if err == nil {
+		_, err = svc.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
+			SecretId:     aws.String(secretID),
+			SecretString: aws.String(value),
+		})
+		return err
+	}
+
+	var notFound *types.ResourceNotFoundException
+	if !errors.As(err, &notFound) {
+		return fmt.Errorf("describe secret: %w", err)
+	}
+
+	_, err = svc.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         aws.String(secretID),
+		SecretString: aws.String(value),
+		Description:  aws.String("AI provider API keys for ai-desktops owner: " + owner),
+		Tags: []types.Tag{
+			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+			{Key: aws.String("github-owner"), Value: aws.String(owner)},
+		},
+	})
+	return err
 }
 
 func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {

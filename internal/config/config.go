@@ -65,6 +65,10 @@ type GitHubConfig struct {
 	// with github_token, ssh_private_key, and ssh_public_key.
 	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/github.
 	GitHubSecret string `yaml:"github_secret,omitempty"`
+	// AgentSecret is the AWS Secrets Manager secret path holding the JSON blob
+	// with AI provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).
+	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/agents.
+	AgentSecret string `yaml:"agent_secret,omitempty"`
 	// PATSecret is the legacy field name. Loaded if github_secret is absent.
 	// Deprecated: use github_secret set by `ai-desktops setup`.
 	PATSecret string `yaml:"pat_secret,omitempty"`
@@ -138,6 +142,9 @@ func (c *Config) Defaults() {
 
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
+	}
+	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
+		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"
 	}
 	if c.GitHub.GitHubSecret == "" {
 		if c.GitHub.PATSecret != "" {
