@@ -331,17 +331,17 @@ func TestBuildAgentSecretJSON(t *testing.T) {
 			anthropicKey: "sk-ant-123",
 			openaiKey:    "sk-openai-456",
 			geminiKey:    "AIza-789",
-			wantKeys:     []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 		{
 			name:         "only anthropic",
 			anthropicKey: "sk-ant-123",
-			wantKeys:     []string{"ANTHROPIC_API_KEY"},
+			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN"},
 			wantMissing:  []string{"OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 		{
 			name:        "no keys",
-			wantMissing: []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+			wantMissing: []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 	}
 
@@ -363,6 +363,65 @@ func TestBuildAgentSecretJSON(t *testing.T) {
 			for _, k := range tc.wantMissing {
 				if _, ok := m[k]; ok {
 					t.Errorf("expected key %q to be absent", k)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeAgentKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		existing     map[string]string
+		anthropicKey string
+		openaiKey    string
+		geminiKey    string
+		want         map[string]string
+	}{
+		{
+			name:         "new key added, existing preserved",
+			existing:     map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+			anthropicKey: "claude-new",
+			want: map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "claude-new",
+				"OPENAI_API_KEY":          "sk-old",
+				"GEMINI_API_KEY":          "gem-old",
+			},
+		},
+		{
+			name:      "existing key updated",
+			existing:  map[string]string{"OPENAI_API_KEY": "sk-old"},
+			openaiKey: "sk-new",
+			want:      map[string]string{"OPENAI_API_KEY": "sk-new"},
+		},
+		{
+			name:     "empty input preserves all existing",
+			existing: map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+			want:     map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+		},
+		{
+			name: "no existing, all new",
+			existing:     map[string]string{},
+			anthropicKey: "claude-new",
+			openaiKey:    "sk-new",
+			geminiKey:    "gem-new",
+			want: map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "claude-new",
+				"OPENAI_API_KEY":          "sk-new",
+				"GEMINI_API_KEY":          "gem-new",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mergeAgentKeys(tc.existing, tc.anthropicKey, tc.openaiKey, tc.geminiKey)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d keys, want %d: %v", len(got), len(tc.want), got)
+			}
+			for k, wantV := range tc.want {
+				if got[k] != wantV {
+					t.Errorf("key %q: got %q, want %q", k, got[k], wantV)
 				}
 			}
 		})
@@ -392,7 +451,7 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"ANTHROPIC_API_KEY":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -424,7 +483,7 @@ func TestStoreAgentSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"ANTHROPIC_API_KEY":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

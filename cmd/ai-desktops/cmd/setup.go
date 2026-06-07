@@ -246,11 +246,31 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if updateAgentKeys {
 		fmt.Println()
 		fmt.Println("── AI Provider Keys ─────────────────────────────────")
-		fmt.Println("Enter API keys for AI providers (press Enter to skip any key).")
+		fmt.Println("Enter API keys for AI providers (press Enter to keep existing value).")
 		fmt.Println("Keys are stored in AWS Secrets Manager at:", agentSecretPath)
 		fmt.Println()
 
-		fmt.Print("Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN) [hidden, Enter to skip]: ")
+		agentAwsCfg, err := awscfg.LoadDefaultConfig(ctx,
+			awscfg.WithRegion(a.AWSRegion),
+			awscfg.WithSharedConfigProfile(a.AWSProfile),
+		)
+		if err != nil {
+			return fmt.Errorf("load AWS config: %w", err)
+		}
+
+		existing, err := fetchAgentSecret(ctx, agentAwsCfg, agentSecretPath)
+		if err != nil {
+			return fmt.Errorf("fetch existing agent secret: %w", err)
+		}
+
+		hint := func(key string) string {
+			if existing[key] != "" {
+				return " [set, Enter to keep]"
+			}
+			return " [not set, Enter to skip]"
+		}
+
+		fmt.Printf("Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN)%s: ", hint("CLAUDE_CODE_OAUTH_TOKEN"))
 		anthropicBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
 		fmt.Println()
 		if err != nil {
@@ -258,7 +278,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		a.AnthropicKey = strings.TrimSpace(string(anthropicBytes))
 
-		fmt.Print("OpenAI API key (OPENAI_API_KEY) [hidden, Enter to skip]: ")
+		fmt.Printf("OpenAI API key (OPENAI_API_KEY)%s: ", hint("OPENAI_API_KEY"))
 		openaiBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
 		fmt.Println()
 		if err != nil {
@@ -266,7 +286,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		a.OpenAIKey = strings.TrimSpace(string(openaiBytes))
 
-		fmt.Print("Gemini API key (GEMINI_API_KEY) [hidden, Enter to skip]: ")
+		fmt.Printf("Gemini API key (GEMINI_API_KEY)%s: ", hint("GEMINI_API_KEY"))
 		geminiBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
 		fmt.Println()
 		if err != nil {
@@ -274,30 +294,22 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		a.GeminiKey = strings.TrimSpace(string(geminiBytes))
 
-		if a.AnthropicKey == "" && a.OpenAIKey == "" && a.GeminiKey == "" {
-			fmt.Println("  No AI provider keys provided — skipping agent secret.")
+		merged := mergeAgentKeys(existing, a.AnthropicKey, a.OpenAIKey, a.GeminiKey)
+		if len(merged) == 0 {
+			fmt.Println("  No AI provider keys set — skipping agent secret.")
 			updateAgentKeys = false
 		} else {
 			fmt.Println()
 			fmt.Printf("── Storing agent secret ─────────────────────────────\n")
 			fmt.Printf("Storing agent secret at %s in %s... ", agentSecretPath, a.AWSRegion)
 
-			agentAwsCfg, err := awscfg.LoadDefaultConfig(ctx,
-				awscfg.WithRegion(a.AWSRegion),
-				awscfg.WithSharedConfigProfile(a.AWSProfile),
-			)
-			if err != nil {
-				fmt.Println("✗")
-				return fmt.Errorf("load AWS config: %w", err)
-			}
-
-			agentSecretValue, err := buildAgentSecretJSON(a.AnthropicKey, a.OpenAIKey, a.GeminiKey)
+			b, err := json.Marshal(merged)
 			if err != nil {
 				fmt.Println("✗")
 				return fmt.Errorf("build agent secret JSON: %w", err)
 			}
 
-			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, agentSecretValue, a.GitHubOwner); err != nil {
+			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, string(b), a.GitHubOwner); err != nil {
 				fmt.Println("✗")
 				return fmt.Errorf("store agent secret: %w", err)
 			}
@@ -465,10 +477,48 @@ func buildSecretJSON(token, privKey, pubKey string) (string, error) {
 	return string(b), nil
 }
 
+func fetchAgentSecret(ctx context.Context, awsCfg aws.Config, secretID string) (map[string]string, error) {
+	svc := secretsmanager.NewFromConfig(awsCfg)
+	out, err := svc.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(secretID),
+	})
+	if err != nil {
+		var notFound *types.ResourceNotFoundException
+		if errors.As(err, &notFound) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	m := map[string]string{}
+	if out.SecretString != nil {
+		if err := json.Unmarshal([]byte(*out.SecretString), &m); err != nil {
+			return nil, fmt.Errorf("parse existing secret: %w", err)
+		}
+	}
+	return m, nil
+}
+
+func mergeAgentKeys(existing map[string]string, anthropicKey, openaiKey, geminiKey string) map[string]string {
+	m := make(map[string]string, len(existing))
+	for k, v := range existing {
+		m[k] = v
+	}
+	if anthropicKey != "" {
+		m["CLAUDE_CODE_OAUTH_TOKEN"] = anthropicKey
+	}
+	if openaiKey != "" {
+		m["OPENAI_API_KEY"] = openaiKey
+	}
+	if geminiKey != "" {
+		m["GEMINI_API_KEY"] = geminiKey
+	}
+	return m
+}
+
 func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, error) {
 	m := map[string]string{}
 	if anthropicKey != "" {
-		m["ANTHROPIC_API_KEY"] = anthropicKey
+		m["CLAUDE_CODE_OAUTH_TOKEN"] = anthropicKey
 	}
 	if openaiKey != "" {
 		m["OPENAI_API_KEY"] = openaiKey
