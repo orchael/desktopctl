@@ -215,12 +215,7 @@ runcmd:
 
     # Write env file from JSON keys
     mkdir -p /etc/ai-agent-bridge
-    python3 -c "
-import json, sys
-data = json.loads(sys.stdin.read())
-lines = '\n'.join(f'{k}={v}' for k, v in data.items() if v)
-print(lines)
-" <<< "$AGENT_JSON" > /etc/ai-agent-bridge/agents.env
+    printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /etc/ai-agent-bridge/agents.env
     chmod 600 /etc/ai-agent-bridge/agents.env
     chown root:root /etc/ai-agent-bridge/agents.env
     unset AGENT_JSON
