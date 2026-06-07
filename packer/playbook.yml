@@ -34,6 +34,14 @@
         fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
   tasks:
+    - name: Wait for unattended-upgrades to release the dpkg lock
+      ansible.builtin.shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+          sleep 5
+        done
+      changed_when: false
+      timeout: 300
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
@@ -287,8 +295,8 @@
 
           providers:
             claude:
-              binary: "/usr/bin/node"
-              args: ["/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/cli.js"]
+              binary: "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+              args: []
               startup_timeout: "60s"
               startup_probe: "output"
               required_env: ["CLAUDE_CODE_OAUTH_TOKEN"]
