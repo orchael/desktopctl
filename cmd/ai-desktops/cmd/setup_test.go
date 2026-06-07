@@ -331,17 +331,17 @@ func TestBuildAgentSecretJSON(t *testing.T) {
 			anthropicKey: "sk-ant-123",
 			openaiKey:    "sk-openai-456",
 			geminiKey:    "AIza-789",
-			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+			wantKeys:     []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 		{
 			name:         "only anthropic",
 			anthropicKey: "sk-ant-123",
-			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN"},
+			wantKeys:     []string{"ANTHROPIC_API_KEY"},
 			wantMissing:  []string{"OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 		{
 			name:        "no keys",
-			wantMissing: []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+			wantMissing: []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"},
 		},
 	}
 
@@ -392,7 +392,7 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"ANTHROPIC_API_KEY":"sk"}`, "testowner")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestStoreAgentSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"ANTHROPIC_API_KEY":"sk"}`, "testowner")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

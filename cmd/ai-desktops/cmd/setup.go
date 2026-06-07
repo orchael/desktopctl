@@ -468,7 +468,7 @@ func buildSecretJSON(token, privKey, pubKey string) (string, error) {
 func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, error) {
 	m := map[string]string{}
 	if anthropicKey != "" {
-		m["CLAUDE_CODE_OAUTH_TOKEN"] = anthropicKey
+		m["ANTHROPIC_API_KEY"] = anthropicKey
 	}
 	if openaiKey != "" {
 		m["OPENAI_API_KEY"] = openaiKey
