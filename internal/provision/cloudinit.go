@@ -11,7 +11,7 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion  = "v0.2.0"
+	AIAgentBridgeVersion  = "v0.6.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -208,21 +208,27 @@ runcmd:
       --query SecretString \
       --output text 2>/dev/null) || { echo "WARNING: could not retrieve agent secret from $AGENT_SECRET" >&2; exit 0; }
 
-    if [ -z "$AGENT_JSON" ]; then
+    # --output text returns the literal string "None" when SecretString is null
+    if [ -z "$AGENT_JSON" ] || [ "$AGENT_JSON" = "None" ]; then
       echo "WARNING: agent secret $AGENT_SECRET was empty — agents.env not written" >&2
       exit 0
     fi
 
-    # Write env file from JSON keys
+    # Write env file from JSON keys; non-fatal on parse errors
     mkdir -p /etc/ai-agent-bridge
-    printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /etc/ai-agent-bridge/agents.env
+    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /etc/ai-agent-bridge/agents.env; then
+      echo "WARNING: failed to parse agent secret JSON — agents.env not written" >&2
+      exit 0
+    fi
     chmod 600 /etc/ai-agent-bridge/agents.env
     chown root:root /etc/ai-agent-bridge/agents.env
     unset AGENT_JSON
 
-    # Restart the bridge so it picks up the new keys
+    # Start or restart the bridge so it picks up the new keys
     if systemctl is-active --quiet ai-agent-bridge 2>/dev/null; then
       systemctl restart ai-agent-bridge
+    else
+      systemctl start ai-agent-bridge 2>/dev/null || echo "WARNING: could not start ai-agent-bridge"
     fi
     )
 {{- end}}

@@ -234,7 +234,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	// Collect AI provider API keys.
+	// Preserve any existing custom secret path; only derive the default on first run.
 	agentSecretPath := "/ai-desktops/" + a.GitHubOwner + "/agents"
+	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+		agentSecretPath = cfg.GitHub.AgentSecret
+	}
 	updateAgentKeys := true
 	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
 		fmt.Println()
@@ -274,7 +278,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		anthropicBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
 		fmt.Println()
 		if err != nil {
-			return fmt.Errorf("read anthropic key: %w", err)
+			return fmt.Errorf("read claude code oauth token: %w", err)
 		}
 		a.AnthropicKey = strings.TrimSpace(string(anthropicBytes))
 

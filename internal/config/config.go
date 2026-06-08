@@ -66,7 +66,7 @@ type GitHubConfig struct {
 	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/github.
 	GitHubSecret string `yaml:"github_secret,omitempty"`
 	// AgentSecret is the AWS Secrets Manager secret path holding the JSON blob
-	// with AI provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).
+	// with AI provider API keys (CLAUDE_CODE_OAUTH_TOKEN, OPENAI_API_KEY, GEMINI_API_KEY).
 	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/agents.
 	AgentSecret string `yaml:"agent_secret,omitempty"`
 	// PATSecret is the legacy field name. Loaded if github_secret is absent.
