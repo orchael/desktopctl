@@ -227,6 +227,15 @@ runcmd:
     )
 {{- end}}
 
+  # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
+  - |
+    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.claude
+    if [ ! -f /home/ubuntu/.claude.json ]; then
+      printf '{"hasCompletedOnboarding":true}\n' > /home/ubuntu/.claude.json
+      chown ubuntu:ubuntu /home/ubuntu/.claude.json
+      chmod 600 /home/ubuntu/.claude.json
+    fi
+
   # --- clone repositories ---
 {{ range .Repos }}
   - |
