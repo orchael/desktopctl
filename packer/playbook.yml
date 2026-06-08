@@ -384,6 +384,14 @@
         group: root
         mode: "0755"
 
+    - name: Install ai-desktops-doctor script
+      ansible.builtin.copy:
+        src: files/ai-desktops-doctor
+        dest: /usr/local/bin/ai-desktops-doctor
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Install pnpm globally via corepack
       ansible.builtin.shell: |
         corepack enable
