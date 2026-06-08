@@ -49,12 +49,13 @@
 
     # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
     # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
-    - name: Install ansible, certbot Route53 plugin, and WireGuard tools
+    - name: Install ansible, certbot Route53 plugin, WireGuard tools, and ACL support
       ansible.builtin.apt:
         name:
           - ansible
           - python3-certbot-dns-route53
           - wireguard-tools
+          - acl
         state: present
 
     - name: Install Docker
@@ -339,6 +340,39 @@
     - name: Reload systemd after drop-in install
       ansible.builtin.systemd:
         daemon_reload: true
+
+    - name: Create desktop group for shared /workspace access
+      ansible.builtin.group:
+        name: desktop
+        state: present
+
+    - name: Add ubuntu to desktop group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: desktop
+        append: true
+
+    - name: Add bridge to desktop group
+      ansible.builtin.user:
+        name: bridge
+        groups: desktop
+        append: true
+
+    - name: Create /workspace directory owned by desktop group
+      ansible.builtin.file:
+        path: /workspace
+        state: directory
+        owner: root
+        group: desktop
+        mode: "2775"
+
+    - name: Set default ACL on /workspace so new files inherit group r/w
+      ansible.builtin.shell: |
+        setfacl -d -m g:desktop:rwX /workspace
+        setfacl -m g:desktop:rwX /workspace
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
