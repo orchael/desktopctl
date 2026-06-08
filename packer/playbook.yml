@@ -289,7 +289,7 @@
             send_input_per_session_burst: 20
 
           persistence:
-            db_path: "/var/lib/ai-agent-bridge/sessions.db"
+            db_path: "/var/lib/bridge/sessions.db"
 
           runtime:
             provider_root: "/opt/ai-agent-bridge"
@@ -330,12 +330,14 @@
 
     - name: Install ai-desktops systemd drop-in (ReadWritePaths + EnvironmentFile)
       ansible.builtin.copy:
-        src: /usr/share/doc/ai-agent-bridge/examples/ai-desktops.conf
         dest: /etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf
         owner: root
         group: root
         mode: "0644"
-        remote_src: true
+        content: |
+          [Service]
+          EnvironmentFile=-/etc/ai-agent-bridge/agents.env
+          ReadWritePaths=/var/lib/bridge /workspace /tmp /var/tmp
 
     - name: Reload systemd after drop-in install
       ansible.builtin.systemd:
