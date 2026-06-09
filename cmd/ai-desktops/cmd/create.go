@@ -173,6 +173,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
 		SSHPublicKey:         sshPubKey,
+		GitUserName:          cfg.GitHub.GitUserName,
+		GitUserEmail:         cfg.GitHub.GitUserEmail,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)

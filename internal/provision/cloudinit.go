@@ -35,6 +35,8 @@ type BootstrapConfig struct {
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
 	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
+	GitUserName          string // git config user.name written to ubuntu's global git config
+	GitUserEmail         string // git config user.email written to ubuntu's global git config
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -187,8 +189,8 @@ runcmd:
     printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
 
     # Configure git commit identity
-    sudo -u ubuntu git config --global user.name  "AI Desktop ({{ .DesktopID }})"
-    sudo -u ubuntu git config --global user.email "desktop-{{ .DesktopID }}@noreply.github.com"
+    sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
+    sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
 
     unset GITHUB_TOKEN
     )

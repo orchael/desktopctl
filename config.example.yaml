@@ -40,6 +40,11 @@ github:
   # ssh_private_key, and ssh_public_key as a JSON document.
   github_secret: /ai-desktops/myorg/github
 
+  # Git commit identity written to the desktop's global git config.
+  # Used as the author name and email for all commits made on the desktop.
+  git_user_name: Your Name
+  git_user_email: you@example.com
+
 desktop:
   # EC2 instance type for each desktop.
   # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.

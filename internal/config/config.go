@@ -72,6 +72,10 @@ type GitHubConfig struct {
 	// PATSecret is the legacy field name. Loaded if github_secret is absent.
 	// Deprecated: use github_secret set by `ai-desktops setup`.
 	PATSecret string `yaml:"pat_secret,omitempty"`
+	// GitUserName is the git commit author name written to the desktop's global git config.
+	GitUserName string `yaml:"git_user_name,omitempty"`
+	// GitUserEmail is the git commit author email written to the desktop's global git config.
+	GitUserEmail string `yaml:"git_user_email,omitempty"`
 }
 
 type DesktopConfig struct {
