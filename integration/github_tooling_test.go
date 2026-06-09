@@ -239,13 +239,13 @@ func TestFR11_GitPushCredentials(t *testing.T) {
 // FR-11: Ed25519 SSH key file is present for the bridge user.
 func TestFR11_BridgeSSHKeyPresent(t *testing.T) {
 	host, key, port := sshEnv(t)
-	mustSSH(t, host, key, port, "test -f /var/lib/bridge/.ssh/github_ed25519")
+	mustSSH(t, host, key, port, "test -f /home/bridge/.ssh/github_ed25519")
 }
 
 // FR-11: SSH config contains the github.com stanza for the bridge user.
 func TestFR11_BridgeSSHConfigPresent(t *testing.T) {
 	host, key, port := sshEnv(t)
-	out := mustSSH(t, host, key, port, "grep -q 'Host github.com' /var/lib/bridge/.ssh/config && echo ok")
+	out := mustSSH(t, host, key, port, "grep -q 'Host github.com' /home/bridge/.ssh/config && echo ok")
 	if out != "ok" {
 		t.Errorf("expected 'ok' from bridge ssh config grep, got %q", out)
 	}

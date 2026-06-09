@@ -36,8 +36,8 @@ type BootstrapConfig struct {
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
 	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
-	GitUserName          string // git config user.name written to ubuntu's global git config
-	GitUserEmail         string // git config user.email written to ubuntu's global git config
+	GitUserName          string // git config user.name written to bridge's global git config
+	GitUserEmail         string // git config user.email written to bridge's global git config
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -101,11 +101,12 @@ runcmd:
 
   # --- workspace ---
   - mkdir -p {{ .WorkspacePath }}
-  - chown ubuntu:ubuntu {{ .WorkspacePath }}
+  - chown bridge:desktop {{ .WorkspacePath }}
+  - chmod 0755 {{ .WorkspacePath }}
 
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
-  - chown ubuntu:ubuntu /opt/ai-desktops
+  - chown ai-desktops:ai-desktops /opt/ai-desktops
 
 {{- if .PackagesPreInstalled}}
   # --- TLS + nginx + /app/ route via ai-desktops-setup-tls ---
@@ -173,37 +174,17 @@ runcmd:
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
 
-    # Install SSH private key for github.com (ubuntu)
-    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
-    printf '%s\n' "$SSH_KEY" > /home/ubuntu/.ssh/github_ed25519
-    chmod 600 /home/ubuntu/.ssh/github_ed25519
-    chown ubuntu:ubuntu /home/ubuntu/.ssh/github_ed25519
-
-    # Configure SSH to use the key for github.com (ubuntu)
-    printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
-      > /home/ubuntu/.ssh/config
-    chmod 600 /home/ubuntu/.ssh/config
-    chown ubuntu:ubuntu /home/ubuntu/.ssh/config
-
-    # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
-    printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
-
-    # Configure git commit identity (ubuntu)
-    sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
-    sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
-    sudo -u ubuntu git config --global --add safe.directory '*'
-
     # Install SSH private key for github.com (bridge)
-    install -d -o bridge -g bridge -m 700 /var/lib/bridge/.ssh
-    printf '%s\n' "$SSH_KEY" > /var/lib/bridge/.ssh/github_ed25519
-    chmod 600 /var/lib/bridge/.ssh/github_ed25519
-    chown bridge:bridge /var/lib/bridge/.ssh/github_ed25519
+    install -d -o bridge -g bridge -m 700 /home/bridge/.ssh
+    printf '%s\n' "$SSH_KEY" > /home/bridge/.ssh/github_ed25519
+    chmod 600 /home/bridge/.ssh/github_ed25519
+    chown bridge:bridge /home/bridge/.ssh/github_ed25519
 
     # Configure SSH to use the key for github.com (bridge)
     printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
-      > /var/lib/bridge/.ssh/config
-    chmod 600 /var/lib/bridge/.ssh/config
-    chown bridge:bridge /var/lib/bridge/.ssh/config
+      > /home/bridge/.ssh/config
+    chmod 600 /home/bridge/.ssh/config
+    chown bridge:bridge /home/bridge/.ssh/config
 
     # Authenticate gh CLI as bridge user (non-fatal: token may lack read:org scope)
     printf '%s\n' "$GITHUB_TOKEN" | sudo -u bridge gh auth login --with-token || echo "WARNING: gh auth login failed for bridge - gh CLI may not be fully authenticated"
@@ -259,10 +240,10 @@ runcmd:
 
   # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
   - |
-    if [ ! -f /var/lib/bridge/.claude.json ]; then
-      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /var/lib/bridge/.claude.json
-      chown bridge:bridge /var/lib/bridge/.claude.json
-      chmod 600 /var/lib/bridge/.claude.json
+    if [ ! -f /home/bridge/.claude.json ]; then
+      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /home/bridge/.claude.json
+      chown bridge:bridge /home/bridge/.claude.json
+      chmod 600 /home/bridge/.claude.json
     fi
 
   # --- clone repositories ---
@@ -283,7 +264,7 @@ runcmd:
 
     DEST="$WORKSPACE/$REPO_NAME"
     if [ ! -d "$DEST/.git" ]; then
-      sudo -u ubuntu git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
+      sudo -u bridge git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
     fi
     )
 {{ end }}
@@ -297,7 +278,7 @@ runcmd:
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
     } > /opt/ai-desktops/desktop.env
-    chgrp ubuntu /opt/ai-desktops/desktop.env
+    chgrp ai-desktops /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"

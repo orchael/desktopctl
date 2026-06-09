@@ -289,7 +289,7 @@
             send_input_per_session_burst: 20
 
           persistence:
-            db_path: "/var/lib/bridge/sessions.db"
+            db_path: "/home/bridge/sessions.db"
 
           runtime:
             provider_root: "/opt/ai-agent-bridge"
@@ -337,11 +337,20 @@
         content: |
           [Service]
           EnvironmentFile=-/etc/ai-agent-bridge/agents.env
-          ReadWritePaths=/var/lib/bridge /workspace /tmp /var/tmp
+          ReadWritePaths=/home/bridge /workspace /tmp /var/tmp
 
     - name: Reload systemd after drop-in install
       ansible.builtin.systemd:
         daemon_reload: true
+
+    - name: Create ai-desktops system user for the web API server
+      ansible.builtin.user:
+        name: ai-desktops
+        system: true
+        shell: /usr/sbin/nologin
+        home: /opt/ai-desktops
+        create_home: false
+        comment: ai-desktops web API server
 
     - name: Create desktop group for shared /workspace access
       ansible.builtin.group:
@@ -360,18 +369,39 @@
         groups: desktop
         append: true
 
-    - name: Create /workspace directory owned by desktop group
+    - name: Add bridge to docker group
+      ansible.builtin.user:
+        name: bridge
+        groups: docker
+        append: true
+
+    - name: Move bridge user home directory to /home/bridge
+      ansible.builtin.shell: |
+        usermod --home /home/bridge --move-home bridge
+      args:
+        creates: /home/bridge
+      register: bridge_home_move
+
+    - name: Ensure /home/bridge has correct ownership and permissions
+      ansible.builtin.file:
+        path: /home/bridge
+        state: directory
+        owner: bridge
+        group: bridge
+        mode: "0750"
+
+    - name: Create /workspace directory owned by bridge
       ansible.builtin.file:
         path: /workspace
         state: directory
-        owner: root
+        owner: bridge
         group: desktop
-        mode: "2775"
+        mode: "0755"
 
-    - name: Set default ACL on /workspace so new files inherit group r/w
+    - name: Set default ACL on /workspace so desktop group members can read new files
       ansible.builtin.shell: |
-        setfacl -d -m g:desktop:rwX /workspace
-        setfacl -m g:desktop:rwX /workspace
+        setfacl -d -m g:desktop:rX /workspace
+        setfacl -m g:desktop:rX /workspace
       args:
         executable: /bin/bash
       changed_when: false
@@ -403,8 +433,8 @@
       ansible.builtin.file:
         path: /opt/ai-desktops/web
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: ai-desktops
+        group: ai-desktops
         mode: "0755"
 
     - name: Install desktop-web dist into /opt/ai-desktops/web/dist
@@ -412,16 +442,16 @@
         src: /tmp/desktop-web-dist/
         dest: /opt/ai-desktops/web/dist/
         remote_src: true
-        owner: ubuntu
-        group: ubuntu
+        owner: ai-desktops
+        group: ai-desktops
 
     - name: Install api-server.py into /opt/ai-desktops/web
       ansible.builtin.copy:
         src: /tmp/desktop-web-api-server.py
         dest: /opt/ai-desktops/web/api-server.py
         remote_src: true
-        owner: ubuntu
-        group: ubuntu
+        owner: ai-desktops
+        group: ai-desktops
         mode: "0755"
 
     - name: Remove temporary desktop-web dist upload
