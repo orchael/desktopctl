@@ -188,7 +188,9 @@ func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string,
 
 // Destroy selects the stack and runs `pulumi destroy`. Progress is streamed to
 // progress if non-nil. If the stack does not exist in the backend, Destroy
-// returns nil (nothing to destroy).
+// returns nil (nothing to destroy). If the stack is locked by a previous
+// interrupted operation, Destroy automatically runs `pulumi cancel` to release
+// the lock and retries the destroy once.
 func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer) error {
 	env := r.env(ref.BackendURL)
 	out, err := r.runCapture(ctx, ref.WorkDir, env, "stack", "select", ref.StackName)
@@ -201,7 +203,20 @@ func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer)
 		}
 		return fmt.Errorf("stack select: %w", err)
 	}
-	if err := r.run(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never"); err != nil {
+	out, err = r.runCaptureTee(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never")
+	if err != nil {
+		if strings.Contains(out, "currently locked") {
+			if progress != nil {
+				_, _ = fmt.Fprintln(progress, "stack is locked by a previous operation; running pulumi cancel to release lock...")
+			}
+			if cancelErr := r.run(ctx, ref.WorkDir, env, progress, "cancel", "--yes"); cancelErr != nil {
+				return fmt.Errorf("pulumi destroy (locked; cancel failed: %v): %w", cancelErr, err)
+			}
+			if err2 := r.run(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never"); err2 != nil {
+				return fmt.Errorf("pulumi destroy: %w", err2)
+			}
+			return nil
+		}
 		return fmt.Errorf("pulumi destroy: %w", err)
 	}
 	return nil
@@ -238,6 +253,25 @@ func (r *Runner) runCapture(ctx context.Context, workDir string, env []string, a
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// runCaptureTee runs a pulumi command, streaming combined output to progress
+// while also capturing it for error classification.
+func (r *Runner) runCaptureTee(ctx context.Context, workDir string, env []string, progress io.Writer, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "pulumi", args...) //nolint:gosec
+	cmd.Dir = workDir
+	cmd.Env = env
+	var buf strings.Builder
+	if progress != nil {
+		w := io.MultiWriter(&buf, progress)
+		cmd.Stdout = w
+		cmd.Stderr = w
+	} else {
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+	}
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 func (r *Runner) outputs(ctx context.Context, workDir string, env []string) (map[string]string, error) {

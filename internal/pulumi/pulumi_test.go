@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -177,5 +178,66 @@ func TestRunnerDestroy_Failure(t *testing.T) {
 	ref := DesktopStackRef("s3://bucket", "d-test", workDir)
 	if err := NewRunner().Destroy(context.Background(), ref, nil); err == nil {
 		t.Error("expected error when pulumi exits non-zero")
+	}
+}
+
+func TestRunnerDestroy_LockedCancelRetrySuccess(t *testing.T) {
+	// First destroy attempt fails with lock error; cancel succeeds; retry succeeds.
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "destroy_count")
+	script := `#!/bin/sh
+cmd="$1"
+if [ "$cmd" = "stack" ]; then exit 0; fi
+if [ "$cmd" = "cancel" ]; then exit 0; fi
+if [ "$cmd" = "destroy" ]; then
+  count=0
+  [ -f "` + counter + `" ] && count=$(cat "` + counter + `")
+  count=$((count+1))
+  printf '%d' $count > "` + counter + `"
+  if [ "$count" = "1" ]; then
+    printf 'error: the stack is currently locked by 1 lock(s)'
+    exit 1
+  fi
+  exit 0
+fi
+exit 0
+`
+	p := filepath.Join(dir, "pulumi")
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	workDir := t.TempDir()
+	ref := DesktopStackRef("s3://bucket", "d-locked", workDir)
+	if err := NewRunner().Destroy(context.Background(), ref, nil); err != nil {
+		t.Fatalf("expected success after cancel+retry, got: %v", err)
+	}
+}
+
+func TestRunnerDestroy_LockedCancelFails(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+cmd="$1"
+if [ "$cmd" = "stack" ]; then exit 0; fi
+if [ "$cmd" = "cancel" ]; then exit 1; fi
+if [ "$cmd" = "destroy" ]; then
+  printf 'error: the stack is currently locked by 1 lock(s)'
+  exit 1
+fi
+exit 0
+`
+	p := filepath.Join(dir, "pulumi")
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	workDir := t.TempDir()
+	ref := DesktopStackRef("s3://bucket", "d-locked", workDir)
+	err := NewRunner().Destroy(context.Background(), ref, nil)
+	if err == nil {
+		t.Fatal("expected error when cancel fails")
+	}
+	if !strings.Contains(err.Error(), "locked") {
+		t.Errorf("error should mention lock, got: %v", err)
 	}
 }
