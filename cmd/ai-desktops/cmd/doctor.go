@@ -63,10 +63,18 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - certbot-timer-enabled — certbot auto-renewal timer is enabled
 
   AI Agent Bridge:
-    - bridge-service-active   — ai-agent-bridge systemd service is running
-    - bridge-config-exists    — /etc/ai-agent-bridge/bridge.yaml is present
-    - bridge-port-open        — gRPC port 9445 is listening
-    - bridge-claude-installed — claude CLI is installed under /opt/ai-agent-bridge
+    - bridge-package-installed  — ai-agent-bridge deb package is installed
+    - bridge-service-active     — ai-agent-bridge systemd service is running
+    - bridge-port-open          — port 9445 bound on 127.0.0.1 (loopback only)
+    - bridge-config-exists      — /etc/ai-agent-bridge/bridge.yaml is present
+    - bridge-workspace-allowed  — /workspace is in bridge allowed_paths
+    - bridge-dropin-workspace   — systemd drop-in sets ReadWritePaths for /workspace
+    - bridge-nodejs-version     — Node.js v24 is on PATH
+    - bridge-runtime-modules    — /opt/ai-agent-bridge/node_modules is present
+    - bridge-claude-installed   — claude CLI is installed under /opt/ai-agent-bridge
+    - bridge-bridgectl-installed — bridgectl CLI is installed under /opt/ai-agent-bridge
+    - bridge-providers-configured — at least one provider defined in bridge.yaml
+    - bridge-credentials-env    — /etc/ai-agent-bridge/agents.env exists
 
   Workspace:
     - workspace-mounted    — /workspace is mounted and writable

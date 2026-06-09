@@ -92,25 +92,51 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 }
 
 func TestRenderCloudInit_validYAML(t *testing.T) {
-	cfg := &BootstrapConfig{
-		DesktopID:        "d-yaml",
-		Hostname:         "d-yaml.desktops.orchael.dev",
-		GitHubOwner:      "acme",
-		Repos:            []string{"github.com/acme/myrepo"},
-		WorkspacePath:    "/workspace",
-		AWSRegion:        "us-east-1",
-		Environment:      "dev",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+	cases := []struct {
+		name string
+		cfg  *BootstrapConfig
+	}{
+		{
+			name: "without agent secret",
+			cfg: &BootstrapConfig{
+				DesktopID:        "d-yaml",
+				Hostname:         "d-yaml.desktops.orchael.dev",
+				GitHubOwner:      "acme",
+				Repos:            []string{"github.com/acme/myrepo"},
+				WorkspacePath:    "/workspace",
+				AWSRegion:        "us-east-1",
+				Environment:      "dev",
+				GitHubSecretPath: "/ai-desktops/acme/github",
+			},
+		},
+		{
+			name: "with agent secret",
+			cfg: &BootstrapConfig{
+				DesktopID:        "d-yaml",
+				Hostname:         "d-yaml.desktops.orchael.dev",
+				GitHubOwner:      "acme",
+				Repos:            []string{"github.com/acme/myrepo"},
+				WorkspacePath:    "/workspace",
+				AWSRegion:        "us-east-1",
+				Environment:      "dev",
+				GitHubSecretPath: "/ai-desktops/acme/github",
+				AgentSecretPath:  "/ai-desktops/acme/agents",
+			},
+		},
 	}
 
-	out, err := RenderCloudInit(cfg)
-	if err != nil {
-		t.Fatalf("RenderCloudInit: %v", err)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := RenderCloudInit(tc.cfg)
+			if err != nil {
+				t.Fatalf("RenderCloudInit: %v", err)
+			}
 
-	var v any
-	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
-		t.Errorf("rendered cloud-init is not valid YAML: %v", err)
+			var v any
+			if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+				t.Errorf("rendered cloud-init is not valid YAML: %v", err)
+			}
+		})
 	}
 }
 

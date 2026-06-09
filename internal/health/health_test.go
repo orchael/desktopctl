@@ -277,10 +277,18 @@ func TestBridgeCheckers_returnsExpectedChecks(t *testing.T) {
 		names[c.Name()] = true
 	}
 	required := []string{
+		"bridge-package-installed",
 		"bridge-service-active",
-		"bridge-config-exists",
 		"bridge-port-open",
+		"bridge-config-exists",
+		"bridge-workspace-allowed",
+		"bridge-dropin-workspace",
+		"bridge-nodejs-version",
+		"bridge-runtime-modules",
 		"bridge-claude-installed",
+		"bridge-bridgectl-installed",
+		"bridge-providers-configured",
+		"bridge-credentials-env",
 	}
 	for _, n := range required {
 		if !names[n] {

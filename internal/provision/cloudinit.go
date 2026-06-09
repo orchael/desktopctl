@@ -11,7 +11,8 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion  = "v0.2.0"
+	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
+	AIAgentBridgeVersion  = "v0.6.2"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -28,12 +29,15 @@ type BootstrapConfig struct {
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
 	GitHubSecretPath     string // AWS Secrets Manager path: /ai-desktops/<owner>/github
+	AgentSecretPath      string // AWS Secrets Manager path: /ai-desktops/<owner>/agents
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
 	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
+	GitUserName          string // git config user.name written to ubuntu's global git config
+	GitUserEmail         string // git config user.email written to ubuntu's global git config
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -169,14 +173,13 @@ runcmd:
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
 
-    # Install SSH private key for github.com
+    # Install SSH private key for github.com (ubuntu)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
     printf '%s\n' "$SSH_KEY" > /home/ubuntu/.ssh/github_ed25519
     chmod 600 /home/ubuntu/.ssh/github_ed25519
     chown ubuntu:ubuntu /home/ubuntu/.ssh/github_ed25519
-    unset SSH_KEY
 
-    # Configure SSH to use the key for github.com
+    # Configure SSH to use the key for github.com (ubuntu)
     printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
       > /home/ubuntu/.ssh/config
     chmod 600 /home/ubuntu/.ssh/config
@@ -185,12 +188,82 @@ runcmd:
     # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
     printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
 
-    # Configure git commit identity
-    sudo -u ubuntu git config --global user.name  "AI Desktop ({{ .DesktopID }})"
-    sudo -u ubuntu git config --global user.email "desktop-{{ .DesktopID }}@noreply.github.com"
+    # Configure git commit identity (ubuntu)
+    sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
+    sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
+    sudo -u ubuntu git config --global --add safe.directory '*'
 
+    # Install SSH private key for github.com (bridge)
+    install -d -o bridge -g bridge -m 700 /var/lib/bridge/.ssh
+    printf '%s\n' "$SSH_KEY" > /var/lib/bridge/.ssh/github_ed25519
+    chmod 600 /var/lib/bridge/.ssh/github_ed25519
+    chown bridge:bridge /var/lib/bridge/.ssh/github_ed25519
+
+    # Configure SSH to use the key for github.com (bridge)
+    printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
+      > /var/lib/bridge/.ssh/config
+    chmod 600 /var/lib/bridge/.ssh/config
+    chown bridge:bridge /var/lib/bridge/.ssh/config
+
+    # Authenticate gh CLI as bridge user (non-fatal: token may lack read:org scope)
+    printf '%s\n' "$GITHUB_TOKEN" | sudo -u bridge gh auth login --with-token || echo "WARNING: gh auth login failed for bridge - gh CLI may not be fully authenticated"
+
+    # Configure git commit identity (bridge)
+    sudo -u bridge git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
+    sudo -u bridge git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
+    sudo -u bridge git config --global --add safe.directory '*'
+
+    unset SSH_KEY
     unset GITHUB_TOKEN
     )
+
+{{- if .AgentSecretPath}}
+  # --- retrieve AI provider API keys and write agents.env ---
+  - |
+    (
+    set -e
+    REGION="{{ .AWSRegion }}"
+    AGENT_SECRET="{{ .AgentSecretPath }}"
+
+    # Retrieve JSON secret from Secrets Manager
+    AGENT_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "$AGENT_SECRET" \
+      --query SecretString \
+      --output text 2>/dev/null) || { echo "WARNING: could not retrieve agent secret from $AGENT_SECRET" >&2; exit 0; }
+
+    # --output text returns the literal string "None" when SecretString is null
+    if [ -z "$AGENT_JSON" ] || [ "$AGENT_JSON" = "None" ]; then
+      echo "WARNING: agent secret $AGENT_SECRET was empty — agents.env not written" >&2
+      exit 0
+    fi
+
+    # Write env file from JSON keys; non-fatal on parse errors
+    mkdir -p /etc/ai-agent-bridge
+    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /etc/ai-agent-bridge/agents.env; then
+      echo "WARNING: failed to parse agent secret JSON — agents.env not written" >&2
+      exit 0
+    fi
+    chmod 600 /etc/ai-agent-bridge/agents.env
+    chown root:root /etc/ai-agent-bridge/agents.env
+    unset AGENT_JSON
+
+    # Start or restart the bridge so it picks up the new keys
+    if systemctl is-active --quiet ai-agent-bridge 2>/dev/null; then
+      systemctl restart ai-agent-bridge
+    else
+      systemctl start ai-agent-bridge 2>/dev/null || echo "WARNING: could not start ai-agent-bridge"
+    fi
+    )
+{{- end}}
+
+  # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
+  - |
+    if [ ! -f /var/lib/bridge/.claude.json ]; then
+      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /var/lib/bridge/.claude.json
+      chown bridge:bridge /var/lib/bridge/.claude.json
+      chmod 600 /var/lib/bridge/.claude.json
+    fi
 
   # --- clone repositories ---
 {{ range .Repos }}

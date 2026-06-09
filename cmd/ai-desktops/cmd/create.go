@@ -168,10 +168,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
+		AgentSecretPath:      cfg.GitHub.AgentSecret,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
 		SSHPublicKey:         sshPubKey,
+		GitUserName:          cfg.GitHub.GitUserName,
+		GitUserEmail:         cfg.GitHub.GitUserEmail,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)

@@ -34,6 +34,14 @@
         fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
   tasks:
+    - name: Wait for unattended-upgrades to release the dpkg lock
+      ansible.builtin.shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+          sleep 5
+        done
+      changed_when: false
+      timeout: 300
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true
@@ -41,12 +49,13 @@
 
     # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
     # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
-    - name: Install ansible, certbot Route53 plugin, and WireGuard tools
+    - name: Install ansible, certbot Route53 plugin, WireGuard tools, and ACL support
       ansible.builtin.apt:
         name:
           - ansible
           - python3-certbot-dns-route53
           - wireguard-tools
+          - acl
         state: present
 
     - name: Install Docker
@@ -236,10 +245,149 @@
       args:
         creates: /opt/ai-agent-bridge/node_modules/.bin/claude
 
+    - name: Install ai-desktops bridge config (adds /workspace to allowed_paths)
+      ansible.builtin.copy:
+        dest: /etc/ai-agent-bridge/bridge.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          server:
+            listen: "127.0.0.1:9445"
+
+          tls:
+            ca_bundle: ""
+            cert: ""
+            key: ""
+
+          auth:
+            jwt_public_keys: []
+            jwt_audience: "bridge"
+            jwt_max_ttl: "5m"
+
+          feature_flags:
+            provider_fallbacks: true
+
+          sessions:
+            max_per_project: 5
+            max_global: 20
+            idle_timeout: "30m"
+            stop_grace_period: "10s"
+            event_buffer_size: 10000
+            max_subscribers_per_session: 10
+            subscriber_ttl: "30m"
+
+          input:
+            max_size_bytes: 65536
+
+          rate_limits:
+            global_rps: 50
+            global_burst: 100
+            start_session_per_client_rps: 1
+            start_session_per_client_burst: 3
+            send_input_per_session_rps: 5
+            send_input_per_session_burst: 20
+
+          persistence:
+            db_path: "/var/lib/bridge/sessions.db"
+
+          runtime:
+            provider_root: "/opt/ai-agent-bridge"
+
+          providers:
+            claude:
+              binary: "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+              args: []
+              startup_timeout: "60s"
+              startup_probe: "output"
+              required_env: ["CLAUDE_CODE_OAUTH_TOKEN"]
+              prompt_pattern: '(?m)(❯|>\s*$)'
+            codex:
+              binary: "/usr/bin/node"
+              args: ["/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"]
+              startup_timeout: "60s"
+              startup_probe: "output"
+              required_env: ["OPENAI_API_KEY"]
+              prompt_pattern: '(?m)(❯|>\s*$)'
+
+          allowed_paths:
+            - "/home"
+            - "/workspace"
+
+          logging:
+            level: "info"
+            format: "json"
+            redact_patterns:
+              - '(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+'
+
+    - name: Create ai-agent-bridge systemd drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/ai-agent-bridge.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install ai-desktops systemd drop-in (ReadWritePaths + EnvironmentFile)
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Service]
+          EnvironmentFile=-/etc/ai-agent-bridge/agents.env
+          ReadWritePaths=/var/lib/bridge /workspace /tmp /var/tmp
+
+    - name: Reload systemd after drop-in install
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Create desktop group for shared /workspace access
+      ansible.builtin.group:
+        name: desktop
+        state: present
+
+    - name: Add ubuntu to desktop group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: desktop
+        append: true
+
+    - name: Add bridge to desktop group
+      ansible.builtin.user:
+        name: bridge
+        groups: desktop
+        append: true
+
+    - name: Create /workspace directory owned by desktop group
+      ansible.builtin.file:
+        path: /workspace
+        state: directory
+        owner: root
+        group: desktop
+        mode: "2775"
+
+    - name: Set default ACL on /workspace so new files inherit group r/w
+      ansible.builtin.shell: |
+        setfacl -d -m g:desktop:rwX /workspace
+        setfacl -m g:desktop:rwX /workspace
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
         src: files/ai-desktops-setup-tls
         dest: /usr/local/bin/ai-desktops-setup-tls
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install ai-desktops-doctor script
+      ansible.builtin.copy:
+        src: files/ai-desktops-doctor
+        dest: /usr/local/bin/ai-desktops-doctor
         owner: root
         group: root
         mode: "0755"

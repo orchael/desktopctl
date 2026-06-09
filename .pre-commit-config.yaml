@@ -10,13 +10,18 @@ repos:
   - repo: https://github.com/dnephin/pre-commit-golang
     rev: v0.5.1
     hooks:
-      - id: go-fmt
-        stages: [pre-commit]
       - id: go-vet
         stages: [pre-commit]
 
   - repo: local
     hooks:
+      - id: gofmt-check
+        name: gofmt check
+        entry: bash -c 'bad=$(gofmt -l "$@"); [ -z "$bad" ] || { printf "Run gofmt on:\n%s\n" "$bad"; exit 1; }' --
+        language: system
+        types: [go]
+        stages: [pre-commit]
+
       - id: go-test
         name: Go tests
         entry: go test ./...

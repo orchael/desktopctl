@@ -317,6 +317,181 @@ func TestStoreSecret_DescribeError(t *testing.T) {
 	}
 }
 
+func TestBuildAgentSecretJSON(t *testing.T) {
+	tests := []struct {
+		name         string
+		anthropicKey string
+		openaiKey    string
+		geminiKey    string
+		wantKeys     []string
+		wantMissing  []string
+	}{
+		{
+			name:         "all keys",
+			anthropicKey: "sk-ant-123",
+			openaiKey:    "sk-openai-456",
+			geminiKey:    "AIza-789",
+			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+		},
+		{
+			name:         "only anthropic",
+			anthropicKey: "sk-ant-123",
+			wantKeys:     []string{"CLAUDE_CODE_OAUTH_TOKEN"},
+			wantMissing:  []string{"OPENAI_API_KEY", "GEMINI_API_KEY"},
+		},
+		{
+			name:        "no keys",
+			wantMissing: []string{"CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := buildAgentSecretJSON(tc.anthropicKey, tc.openaiKey, tc.geminiKey)
+			if err != nil {
+				t.Fatalf("buildAgentSecretJSON: %v", err)
+			}
+			var m map[string]string
+			if err := json.Unmarshal([]byte(out), &m); err != nil {
+				t.Fatalf("output is not valid JSON: %v", err)
+			}
+			for _, k := range tc.wantKeys {
+				if _, ok := m[k]; !ok {
+					t.Errorf("expected key %q to be present", k)
+				}
+			}
+			for _, k := range tc.wantMissing {
+				if _, ok := m[k]; ok {
+					t.Errorf("expected key %q to be absent", k)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeAgentKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		existing     map[string]string
+		anthropicKey string
+		openaiKey    string
+		geminiKey    string
+		want         map[string]string
+	}{
+		{
+			name:         "new key added, existing preserved",
+			existing:     map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+			anthropicKey: "claude-new",
+			want: map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "claude-new",
+				"OPENAI_API_KEY":          "sk-old",
+				"GEMINI_API_KEY":          "gem-old",
+			},
+		},
+		{
+			name:      "existing key updated",
+			existing:  map[string]string{"OPENAI_API_KEY": "sk-old"},
+			openaiKey: "sk-new",
+			want:      map[string]string{"OPENAI_API_KEY": "sk-new"},
+		},
+		{
+			name:     "empty input preserves all existing",
+			existing: map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+			want:     map[string]string{"OPENAI_API_KEY": "sk-old", "GEMINI_API_KEY": "gem-old"},
+		},
+		{
+			name:         "no existing, all new",
+			existing:     map[string]string{},
+			anthropicKey: "claude-new",
+			openaiKey:    "sk-new",
+			geminiKey:    "gem-new",
+			want: map[string]string{
+				"CLAUDE_CODE_OAUTH_TOKEN": "claude-new",
+				"OPENAI_API_KEY":          "sk-new",
+				"GEMINI_API_KEY":          "gem-new",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mergeAgentKeys(tc.existing, tc.anthropicKey, tc.openaiKey, tc.geminiKey)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d keys, want %d: %v", len(got), len(tc.want), got)
+			}
+			for k, wantV := range tc.want {
+				if got[k] != wantV {
+					t.Errorf("key %q: got %q, want %q", k, got[k], wantV)
+				}
+			}
+		})
+	}
+}
+
+func TestStoreAgentSecret_Create(t *testing.T) {
+	var createCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "DescribeSecret"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"ResourceNotFoundException","Message":"not found"}`))
+		case strings.HasSuffix(target, "CreateSecret"):
+			createCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"InvalidRequestException","Message":"unexpected"}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !createCalled {
+		t.Error("expected CreateSecret to be called")
+	}
+}
+
+func TestStoreAgentSecret_Update(t *testing.T) {
+	var putCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "DescribeSecret"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		case strings.HasSuffix(target, "PutSecretValue"):
+			putCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"InvalidRequestException","Message":"unexpected"}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !putCalled {
+		t.Error("expected PutSecretValue to be called")
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
