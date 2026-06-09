@@ -72,6 +72,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - bridge-nodejs-version     — Node.js v24 is on PATH
     - bridge-runtime-modules    — /opt/ai-agent-bridge/node_modules is present
     - bridge-claude-installed   — claude CLI is installed under /opt/ai-agent-bridge
+    - bridge-bridgectl-installed — bridgectl CLI is installed under /opt/ai-agent-bridge
     - bridge-providers-configured — at least one provider defined in bridge.yaml
     - bridge-credentials-env    — /etc/ai-agent-bridge/agents.env exists
 

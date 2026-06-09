@@ -145,7 +145,7 @@ if [ -f "$CONFIG_FILE" ]; then
       gsub(/\].*/, "", line)
       gsub(/[" \t]/, "", line)
       n=split(line, vars, ",")
-      for (i=1; i<=n; i++) if (vars[i] != "") print vars[i]
+      for (i=1; i<=n; i++) if (vars[i] != "" && vars[i] ~ /^[A-Z_][A-Z0-9_]*$/) print vars[i]
       # If the line contained "[...]" we are done; otherwise block-list follows.
       if ($0 ~ /\[/) in_req=0
       next

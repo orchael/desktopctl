@@ -286,6 +286,7 @@ func TestBridgeCheckers_returnsExpectedChecks(t *testing.T) {
 		"bridge-nodejs-version",
 		"bridge-runtime-modules",
 		"bridge-claude-installed",
+		"bridge-bridgectl-installed",
 		"bridge-providers-configured",
 		"bridge-credentials-env",
 	}

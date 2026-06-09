@@ -11,7 +11,8 @@ import (
 var ansibleFS embed.FS
 
 const (
-	AIAgentBridgeVersion  = "v0.6.0"
+	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
+	AIAgentBridgeVersion  = "v0.6.2"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -190,7 +191,7 @@ runcmd:
     # Configure git commit identity (ubuntu)
     sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
-    sudo -u ubuntu git config --global --add safe.directory '/workspace/*'
+    sudo -u ubuntu git config --global --add safe.directory '*'
 
     # Install SSH private key for github.com (bridge)
     install -d -o bridge -g bridge -m 700 /var/lib/bridge/.ssh
@@ -210,7 +211,7 @@ runcmd:
     # Configure git commit identity (bridge)
     sudo -u bridge git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
     sudo -u bridge git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
-    sudo -u bridge git config --global --add safe.directory '/workspace/*'
+    sudo -u bridge git config --global --add safe.directory '*'
 
     unset SSH_KEY
     unset GITHUB_TOKEN

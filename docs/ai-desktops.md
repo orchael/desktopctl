@@ -57,7 +57,6 @@ The base package installs a provider-neutral daemon. It starts and passes a heal
 /etc/ai-agent-bridge/bridge.yaml           ← default (no providers)
 /lib/systemd/system/ai-agent-bridge.service
 /usr/lib/ai-agent-bridge/install-provider-runtime
-/usr/lib/ai-agent-bridge/ai-desktops-doctor
 /usr/share/ai-agent-bridge/provider-runtime/.nvmrc
 /usr/share/ai-agent-bridge/provider-runtime/package.json
 /usr/share/ai-agent-bridge/provider-runtime/package-lock.json
@@ -133,7 +132,7 @@ echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-..." | sudo tee -a /etc/ai-agent-bridge/age
 echo "OPENAI_API_KEY=sk-..." | sudo tee -a /etc/ai-agent-bridge/agents.env >/dev/null
 
 # For Gemini CLI:
-echo "GOOGLE_API_KEY=AIza..." | sudo tee -a /etc/ai-agent-bridge/agents.env >/dev/null
+echo "GEMINI_API_KEY=AIza..." | sudo tee -a /etc/ai-agent-bridge/agents.env >/dev/null
 ```
 
 The leading `-` in `EnvironmentFile=-/path` means the service starts even if the file is absent. The bridge itself fails at startup if a configured provider's `required_env` variable is missing from the process environment.
@@ -237,10 +236,10 @@ providers:
     args: ["/opt/ai-agent-bridge/node_modules/@google/gemini-cli/dist/index.js"]
     startup_timeout: "60s"
     startup_probe: "output"
-    required_env: ["GOOGLE_API_KEY"]
+    required_env: ["GEMINI_API_KEY"]
 ```
 
-Requires `GOOGLE_API_KEY` in `/etc/ai-agent-bridge/agents.env`.
+Requires `GEMINI_API_KEY` in `/etc/ai-agent-bridge/agents.env`.
 
 ---
 
@@ -283,7 +282,7 @@ The `install-provider-runtime` step re-copies the updated manifest and reinstall
 Run the included readiness check to confirm the host is correctly configured as an agent-host before or after provisioning:
 
 ```bash
-sudo /usr/lib/ai-agent-bridge/ai-desktops-doctor
+sudo /usr/local/bin/ai-desktops-doctor
 ```
 
 The script checks ten items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
