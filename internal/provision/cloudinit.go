@@ -172,14 +172,13 @@ runcmd:
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
 
-    # Install SSH private key for github.com
+    # Install SSH private key for github.com (ubuntu)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
     printf '%s\n' "$SSH_KEY" > /home/ubuntu/.ssh/github_ed25519
     chmod 600 /home/ubuntu/.ssh/github_ed25519
     chown ubuntu:ubuntu /home/ubuntu/.ssh/github_ed25519
-    unset SSH_KEY
 
-    # Configure SSH to use the key for github.com
+    # Configure SSH to use the key for github.com (ubuntu)
     printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
       > /home/ubuntu/.ssh/config
     chmod 600 /home/ubuntu/.ssh/config
@@ -188,11 +187,32 @@ runcmd:
     # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
     printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
 
-    # Configure git commit identity
+    # Configure git commit identity (ubuntu)
     sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
     sudo -u ubuntu git config --global --add safe.directory '/workspace/*'
 
+    # Install SSH private key for github.com (bridge)
+    install -d -o bridge -g bridge -m 700 /var/lib/bridge/.ssh
+    printf '%s\n' "$SSH_KEY" > /var/lib/bridge/.ssh/github_ed25519
+    chmod 600 /var/lib/bridge/.ssh/github_ed25519
+    chown bridge:bridge /var/lib/bridge/.ssh/github_ed25519
+
+    # Configure SSH to use the key for github.com (bridge)
+    printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
+      > /var/lib/bridge/.ssh/config
+    chmod 600 /var/lib/bridge/.ssh/config
+    chown bridge:bridge /var/lib/bridge/.ssh/config
+
+    # Authenticate gh CLI as bridge user (non-fatal: token may lack read:org scope)
+    printf '%s\n' "$GITHUB_TOKEN" | sudo -u bridge gh auth login --with-token || echo "WARNING: gh auth login failed for bridge - gh CLI may not be fully authenticated"
+
+    # Configure git commit identity (bridge)
+    sudo -u bridge git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
+    sudo -u bridge git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
+    sudo -u bridge git config --global --add safe.directory '/workspace/*'
+
+    unset SSH_KEY
     unset GITHUB_TOKEN
     )
 

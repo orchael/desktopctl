@@ -236,6 +236,70 @@ func TestFR11_GitPushCredentials(t *testing.T) {
 	}
 }
 
+// FR-11: Ed25519 SSH key file is present for the bridge user.
+func TestFR11_BridgeSSHKeyPresent(t *testing.T) {
+	host, key, port := sshEnv(t)
+	mustSSH(t, host, key, port, "test -f /var/lib/bridge/.ssh/github_ed25519")
+}
+
+// FR-11: SSH config contains the github.com stanza for the bridge user.
+func TestFR11_BridgeSSHConfigPresent(t *testing.T) {
+	host, key, port := sshEnv(t)
+	out := mustSSH(t, host, key, port, "grep -q 'Host github.com' /var/lib/bridge/.ssh/config && echo ok")
+	if out != "ok" {
+		t.Errorf("expected 'ok' from bridge ssh config grep, got %q", out)
+	}
+}
+
+// FR-11: gh auth status exits 0 for the bridge user.
+func TestFR11_BridgeGHAuthStatus(t *testing.T) {
+	host, key, port := sshEnv(t)
+	mustSSH(t, host, key, port, "sudo -u bridge gh auth status")
+}
+
+// FR-11: git global user.name is set for the bridge user.
+func TestFR11_BridgeGitIdentityName(t *testing.T) {
+	host, key, port := sshEnv(t)
+	out := mustSSH(t, host, key, port, "sudo -u bridge git config --global user.name")
+	if strings.TrimSpace(out) == "" {
+		t.Error("bridge git config user.name is empty")
+	}
+}
+
+// FR-11: git global user.email is set for the bridge user.
+func TestFR11_BridgeGitIdentityEmail(t *testing.T) {
+	host, key, port := sshEnv(t)
+	out := mustSSH(t, host, key, port, "sudo -u bridge git config --global user.email")
+	if strings.TrimSpace(out) == "" {
+		t.Error("bridge git config user.email is empty")
+	}
+}
+
+// FR-11: SSH-based git push credentials have write access for the bridge user (non-destructive dry-run).
+func TestFR11_BridgeGitPushCredentials(t *testing.T) {
+	host, key, port := sshEnv(t)
+	repo := os.Getenv("DESKTOP_GITHUB_REPO")
+	if repo == "" {
+		t.Skip("DESKTOP_GITHUB_REPO must be set to run bridge git push test")
+	}
+	cmd := fmt.Sprintf(
+		`set -e; `+
+			`TMPDIR=$(sudo -u bridge mktemp -d); `+
+			`sudo -u bridge git clone --depth 1 git@github.com:%s.git "$TMPDIR/repo" 2>&1; `+
+			`cd "$TMPDIR/repo"; `+
+			`sudo -u bridge git push --dry-run origin HEAD 2>&1 && echo ok || echo "push dry-run failed"; `+
+			`rm -rf "$TMPDIR"`,
+		repo,
+	)
+	out, err := sshRun(t, host, key, port, cmd)
+	if err != nil {
+		t.Fatalf("outer ssh failed: %v", err)
+	}
+	if !strings.Contains(out, "ok") {
+		t.Errorf("bridge git push --dry-run did not succeed, output: %q", out)
+	}
+}
+
 // Sanity: confirm the test helpers compile and skip gracefully with a fake timeout.
 func TestIntegrationHarness_skipWhenNoEnv(t *testing.T) {
 	_ = time.Second // ensure time import is used
