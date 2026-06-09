@@ -191,6 +191,7 @@ runcmd:
     # Configure git commit identity
     sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
+    sudo -u ubuntu git config --global --add safe.directory '/workspace/*'
 
     unset GITHUB_TOKEN
     )
