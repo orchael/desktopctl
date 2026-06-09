@@ -235,11 +235,10 @@ runcmd:
 
   # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
   - |
-    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.claude
-    if [ ! -f /home/ubuntu/.claude.json ]; then
-      printf '{"hasCompletedOnboarding":true}\n' > /home/ubuntu/.claude.json
-      chown ubuntu:ubuntu /home/ubuntu/.claude.json
-      chmod 600 /home/ubuntu/.claude.json
+    if [ ! -f /var/lib/bridge/.claude.json ]; then
+      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /var/lib/bridge/.claude.json
+      chown bridge:bridge /var/lib/bridge/.claude.json
+      chmod 600 /var/lib/bridge/.claude.json
     fi
 
   # --- clone repositories ---
