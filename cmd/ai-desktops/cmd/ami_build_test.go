@@ -30,4 +30,3 @@ func TestParseAMIRegions(t *testing.T) {
 		})
 	}
 }
-
