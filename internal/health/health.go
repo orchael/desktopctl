@@ -313,7 +313,7 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 			`test -n "$(sudo -u bridge git config --global user.name 2>/dev/null)" && `+
 				`test -n "$(sudo -u bridge git config --global user.email 2>/dev/null)"`, t),
 		NewSSHChecker("ssh-key-present", hostname, sshPort, user, keyPath,
-			"test -f /home/bridge/.ssh/github_ed25519", t),
+			"sudo -u bridge test -f /home/bridge/.ssh/github_ed25519", t),
 	}
 }
 
