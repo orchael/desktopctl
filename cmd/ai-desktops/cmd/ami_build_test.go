@@ -31,11 +31,3 @@ func TestParseAMIRegions(t *testing.T) {
 	}
 }
 
-func TestValidateAMIRegionSelection(t *testing.T) {
-	if err := validateAMIRegionSelection([]string{"us-east-1"}, "ami-123"); err != nil {
-		t.Fatalf("single region override: %v", err)
-	}
-	if err := validateAMIRegionSelection([]string{"us-east-1", "us-west-2"}, "ami-123"); err == nil {
-		t.Fatal("expected multi-region base AMI override error")
-	}
-}

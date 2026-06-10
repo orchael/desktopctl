@@ -2,3 +2,9 @@
 collections:
   - name: community.general
     version: ">=10.0.0,<11.0.0"
+
+roles:
+  - name: novnc_desktop
+    src: https://github.com/markcallen/novnc-desktop
+    version: v0.2.2
+    scm: git

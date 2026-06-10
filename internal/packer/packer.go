@@ -112,9 +112,9 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 }
 
 // Run executes packer build in the given directory.
-// baseAMI is always required; the caller must resolve it before invoking Run.
+// The source AMI is resolved by the data source declared in the HCL config.
 // public controls whether the built AMI has public launch permissions.
-func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, public bool, w io.Writer) error {
+func Run(ctx context.Context, packerDir string, varsFile string, region string, public bool, w io.Writer) error {
 	args := []string{"build"}
 	if varsFile != "" {
 		args = append(args, "-var-file="+varsFile)
@@ -122,9 +122,6 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	if region != "" {
 		args = append(args, "-var", "aws_region="+region)
 	}
-	// Always override source_ami via -var so the vars file value cannot
-	// accidentally trigger a stale lookup.
-	args = append(args, "-var", "source_ami="+baseAMI)
 	if public {
 		args = append(args, "-var", "ami_public=true")
 	}

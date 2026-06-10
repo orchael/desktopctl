@@ -159,7 +159,8 @@ runcmd:
     OWNER="{{ .GitHubOwner }}"
 
     # Retrieve JSON secret from Secrets Manager
-    SECRET_JSON=$(aws secretsmanager get-secret-value \
+    AWS_CMD=$(command -v /usr/local/bin/aws aws 2>/dev/null | head -1)
+    SECRET_JSON=$("$AWS_CMD" secretsmanager get-secret-value \
       --region "$REGION" \
       --secret-id "$SECRET" \
       --query SecretString \
@@ -186,6 +187,11 @@ runcmd:
     chmod 600 /home/bridge/.ssh/config
     chown bridge:bridge /home/bridge/.ssh/config
 
+    # Pre-populate known_hosts so the first git clone does not fail host verification
+    ssh-keyscan github.com 2>/dev/null >> /home/bridge/.ssh/known_hosts || true
+    chown bridge:bridge /home/bridge/.ssh/known_hosts
+    chmod 600 /home/bridge/.ssh/known_hosts
+
     # Authenticate gh CLI as bridge user (non-fatal: token may lack read:org scope)
     printf '%s\n' "$GITHUB_TOKEN" | sudo -u bridge gh auth login --with-token || echo "WARNING: gh auth login failed for bridge - gh CLI may not be fully authenticated"
 
@@ -207,7 +213,8 @@ runcmd:
     AGENT_SECRET="{{ .AgentSecretPath }}"
 
     # Retrieve JSON secret from Secrets Manager
-    AGENT_JSON=$(aws secretsmanager get-secret-value \
+    AWS_CMD=$(command -v /usr/local/bin/aws aws 2>/dev/null | head -1)
+    AGENT_JSON=$("$AWS_CMD" secretsmanager get-secret-value \
       --region "$REGION" \
       --secret-id "$AGENT_SECRET" \
       --query SecretString \

@@ -1,5 +1,5 @@
 ---
-- name: Install ai-desktops toolchain on novnc-desktop base AMI
+- name: Install novnc-desktop and ai-desktops toolchain on Ubuntu 24.04
   hosts: all
   become: true
 
@@ -48,7 +48,6 @@
         cache_valid_time: 3600
 
     # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
-    # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
     - name: Install ansible, certbot Route53 plugin, WireGuard tools, and ACL support
       ansible.builtin.apt:
         name:
@@ -389,6 +388,43 @@
         owner: bridge
         group: bridge
         mode: "0750"
+
+    - name: Install novnc-desktop v0.2.2 (Elementary desktop + TigerVNC + noVNC + nginx)
+      ansible.builtin.include_role:
+        name: novnc_desktop
+      vars:
+        vnc_user: bridge
+        desktop_type: elementary
+        novnc_http_port: 8080
+        novnc_https_port: 8443
+        use_certbot: false
+
+    - name: Create novnc-desktop systemd meta-service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/novnc-desktop.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=noVNC Desktop Meta-Service (manages VNC + noVNC stack)
+          Wants=tigervncserver@:1.service novnc.service novnc-auth.service nginx.service
+          After=tigervncserver@:1.service novnc.service novnc-auth.service nginx.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/systemctl start tigervncserver@:1.service novnc.service novnc-auth.service
+          ExecStop=/bin/systemctl stop novnc.service novnc-auth.service tigervncserver@:1.service
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable novnc-desktop meta-service
+      ansible.builtin.systemd:
+        name: novnc-desktop.service
+        enabled: true
+        daemon_reload: true
 
     - name: Create /workspace directory owned by bridge
       ansible.builtin.file:

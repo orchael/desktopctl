@@ -31,26 +31,30 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
-# source_ami is always required. The ai-desktops CLI resolves the correct AMI
-# before invoking packer (either from the vars file or via an EC2 lookup) and
-# passes it via -var source_ami=<id>.
-variable "source_ami" {
-  type        = string
-  description = "Source AMI ID to use as the base for this build."
-}
-
 variable "ami_public" {
   type        = bool
   default     = false
   description = "When true, set the built AMI's launch permissions to public."
 }
 
+# Resolve the latest Ubuntu 24.04 LTS AMI published by Canonical.
+data "amazon-ami" "ubuntu" {
+  filters = {
+    name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+    root-device-type    = "ebs"
+    virtualization-type = "hvm"
+  }
+  owners      = ["099720109477"] # Canonical
+  most_recent = true
+  region      = var.aws_region
+}
+
 source "amazon-ebs" "ubuntu" {
   ami_name        = "ai-desktops-${var.ai_agent_bridge_version}-{{timestamp}}"
-  ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
+  ami_description = "ai-desktops AMI - Ubuntu 24.04 with novnc-desktop and ai-desktops toolchain"
   instance_type   = "t3.medium"
   region          = var.aws_region
-  source_ami      = var.source_ami
+  source_ami      = data.amazon-ami.ubuntu.id
 
   ami_groups = var.ami_public ? ["all"] : []
 
@@ -70,7 +74,7 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
-    BaseAMI            = var.source_ami
+    BaseAMI            = data.amazon-ami.ubuntu.id
     Environment        = "base"
   }
 
@@ -140,7 +144,7 @@ build {
       bridge_version       = var.ai_agent_bridge_version
       go_version           = var.go_version
       uv_version           = var.uv_version
-      base_ami             = var.source_ami
+      base_ami             = data.amazon-ami.ubuntu.id
     }
   }
 }
