@@ -306,14 +306,14 @@ func SSHCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 		NewSSHChecker("gh-installed", hostname, sshPort, user, keyPath,
 			"command -v gh >/dev/null 2>&1", t),
 		NewSSHChecker("gh-auth", hostname, sshPort, user, keyPath,
-			"sudo -u ubuntu gh auth status >/dev/null 2>&1", t),
+			"sudo -u bridge gh auth status >/dev/null 2>&1", t),
 		NewSSHChecker("python3-installed", hostname, sshPort, user, keyPath,
 			"command -v python3 >/dev/null 2>&1", t),
 		NewSSHChecker("git-identity", hostname, sshPort, user, keyPath,
-			`test -n "$(sudo -u ubuntu git config --global user.name 2>/dev/null)" && `+
-				`test -n "$(sudo -u ubuntu git config --global user.email 2>/dev/null)"`, t),
+			`test -n "$(sudo -u bridge git config --global user.name 2>/dev/null)" && `+
+				`test -n "$(sudo -u bridge git config --global user.email 2>/dev/null)"`, t),
 		NewSSHChecker("ssh-key-present", hostname, sshPort, user, keyPath,
-			"test -f /home/ubuntu/.ssh/github_ed25519", t),
+			"test -f /home/bridge/.ssh/github_ed25519", t),
 	}
 }
 
@@ -414,6 +414,6 @@ func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Che
 	t := 20 * time.Second
 	return []Checker{
 		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
-			"[ -d /workspace ] && [ -w /workspace ]", t),
+			`[ -d /workspace ] && stat -c '%U' /workspace | grep -q '^bridge$'`, t),
 	}
 }
