@@ -97,6 +97,12 @@ runcmd:
 {{- if not .PackagesPreInstalled}}
   # --- nvim (via snap) ---
   - snap install nvim --classic
+
+  # --- create users/groups (normally baked into AMI by Packer) ---
+  - groupadd --force desktop
+  - id bridge 2>/dev/null || useradd --system --shell /bin/bash --home /home/bridge --create-home bridge
+  - usermod -aG desktop bridge
+  - id ai-desktops 2>/dev/null || useradd --system --shell /usr/sbin/nologin --no-create-home ai-desktops
 {{- end}}
 
   # --- workspace ---

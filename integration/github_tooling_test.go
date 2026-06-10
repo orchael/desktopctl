@@ -190,7 +190,7 @@ func TestFR11_GitPushCredentials(t *testing.T) {
 	)
 	out, err := sshRun(t, host, key, port, cmd)
 	if err != nil {
-		t.Fatalf("outer ssh failed: %v", out)
+		t.Fatalf("outer ssh failed: %v\noutput: %s", err, out)
 	}
 	if !strings.Contains(out, "ok") {
 		t.Errorf("git push --dry-run did not succeed, output: %q", out)
