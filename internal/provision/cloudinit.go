@@ -66,7 +66,6 @@ packages:
   - lsb-release
   - software-properties-common
   - snapd
-  - awscli
   - certbot
   - python3-certbot-dns-route53
   - ansible
@@ -95,6 +94,18 @@ runcmd:
   - usermod -aG docker ubuntu
 
 {{- if not .PackagesPreInstalled}}
+  # --- AWS CLI v2 (not in Ubuntu 24.04 apt repos; install manually) ---
+  - |
+    ARCH=$(uname -m)
+    case "$ARCH" in
+      aarch64) AWS_ARCH=aarch64 ;;
+      *)       AWS_ARCH=x86_64  ;;
+    esac
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    /tmp/aws/install
+    rm -rf /tmp/awscliv2.zip /tmp/aws
+
   # --- nvim (via snap) ---
   - snap install nvim --classic
 

@@ -222,6 +222,11 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("package_update should be absent when PackagesPreInstalled is true")
 	}
 
+	// AWS CLI v2 curl install should be absent (already in AMI)
+	if strings.Contains(out, "awscli.amazonaws.com") {
+		t.Error("AWS CLI v2 curl install should be absent when PackagesPreInstalled is true")
+	}
+
 	// Snap nvim install should be absent
 	if strings.Contains(out, "snap install nvim") {
 		t.Error("snap nvim install should be absent when PackagesPreInstalled is true")
@@ -284,6 +289,14 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 	}
 	if !strings.Contains(out, "package_update:") {
 		t.Error("package_update should be present when PackagesPreInstalled is false")
+	}
+
+	// AWS CLI v2 manual install should be present (awscli removed from Ubuntu 24.04 apt)
+	if !strings.Contains(out, "awscli.amazonaws.com") {
+		t.Error("AWS CLI v2 curl install should be present when PackagesPreInstalled is false")
+	}
+	if strings.Contains(out, "- awscli") {
+		t.Error("awscli apt package must not appear (not available on Ubuntu 24.04)")
 	}
 
 	// Snap nvim install should be present
