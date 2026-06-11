@@ -1,0 +1,14 @@
+[Unit]
+Description=bridgectl agent server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/workspace
+ExecStart=bridgectl serve
+EnvironmentFile=-%h/.config/bridgectl/agents.env
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target

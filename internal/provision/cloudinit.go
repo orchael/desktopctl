@@ -133,20 +133,6 @@ runcmd:
     fi
 {{- end}}
 
-{{- if not .PackagesPreInstalled}}
-  # --- ai-agent-bridge {{ .BridgeVersion }} (Docker image; no curl installer available) ---
-  # The bridge requires TLS certs and config; pre-install via AMI for full bridge support.
-  # Pull the image so it is cached for manual setup later.
-  - |
-    docker pull ghcr.io/markcallen/ai-agent-bridge:{{ .BridgeVersion }} 2>/dev/null || true
-{{- end}}
-  - |
-    if systemctl list-unit-files | grep -q ai-agent-bridge.service; then
-      systemctl enable ai-agent-bridge
-      systemctl start ai-agent-bridge
-    else
-      echo "WARNING: ai-agent-bridge.service not found - bridge will not be available"
-    fi
 
   # --- retrieve GitHub credentials and configure SSH ---
   - |
@@ -193,32 +179,12 @@ runcmd:
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
     sudo -u ubuntu git config --global --add safe.directory '*'
 
-    # Install SSH private key for github.com (bridge)
-    install -d -o bridge -g bridge -m 700 /var/lib/bridge/.ssh
-    printf '%s\n' "$SSH_KEY" > /var/lib/bridge/.ssh/github_ed25519
-    chmod 600 /var/lib/bridge/.ssh/github_ed25519
-    chown bridge:bridge /var/lib/bridge/.ssh/github_ed25519
-
-    # Configure SSH to use the key for github.com (bridge)
-    printf 'Host github.com\n  IdentityFile ~/.ssh/github_ed25519\n  StrictHostKeyChecking accept-new\n  User git\n' \
-      > /var/lib/bridge/.ssh/config
-    chmod 600 /var/lib/bridge/.ssh/config
-    chown bridge:bridge /var/lib/bridge/.ssh/config
-
-    # Authenticate gh CLI as bridge user (non-fatal: token may lack read:org scope)
-    printf '%s\n' "$GITHUB_TOKEN" | sudo -u bridge gh auth login --with-token || echo "WARNING: gh auth login failed for bridge - gh CLI may not be fully authenticated"
-
-    # Configure git commit identity (bridge)
-    sudo -u bridge git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
-    sudo -u bridge git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
-    sudo -u bridge git config --global --add safe.directory '*'
-
     unset SSH_KEY
     unset GITHUB_TOKEN
     )
 
 {{- if .AgentSecretPath}}
-  # --- retrieve AI provider API keys and write agents.env ---
+  # --- retrieve AI provider API keys and write bridgectl agents.env ---
   - |
     (
     set -e
@@ -234,35 +200,28 @@ runcmd:
 
     # --output text returns the literal string "None" when SecretString is null
     if [ -z "$AGENT_JSON" ] || [ "$AGENT_JSON" = "None" ]; then
-      echo "WARNING: agent secret $AGENT_SECRET was empty — agents.env not written" >&2
+      echo "WARNING: agent secret $AGENT_SECRET was empty — bridgectl agents.env not written" >&2
       exit 0
     fi
 
-    # Write env file from JSON keys; non-fatal on parse errors
-    mkdir -p /etc/ai-agent-bridge
-    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /etc/ai-agent-bridge/agents.env; then
-      echo "WARNING: failed to parse agent secret JSON — agents.env not written" >&2
+    # Write env file to bridgectl config dir (read by systemd user service EnvironmentFile)
+    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/bridgectl
+    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /home/ubuntu/.config/bridgectl/agents.env; then
+      echo "WARNING: failed to parse agent secret JSON — bridgectl agents.env not written" >&2
       exit 0
     fi
-    chmod 600 /etc/ai-agent-bridge/agents.env
-    chown root:root /etc/ai-agent-bridge/agents.env
+    chmod 600 /home/ubuntu/.config/bridgectl/agents.env
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/agents.env
     unset AGENT_JSON
-
-    # Start or restart the bridge so it picks up the new keys
-    if systemctl is-active --quiet ai-agent-bridge 2>/dev/null; then
-      systemctl restart ai-agent-bridge
-    else
-      systemctl start ai-agent-bridge 2>/dev/null || echo "WARNING: could not start ai-agent-bridge"
-    fi
     )
 {{- end}}
 
   # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
   - |
-    if [ ! -f /var/lib/bridge/.claude.json ]; then
-      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /var/lib/bridge/.claude.json
-      chown bridge:bridge /var/lib/bridge/.claude.json
-      chmod 600 /var/lib/bridge/.claude.json
+    if [ ! -f /home/ubuntu/.claude.json ]; then
+      printf '{\n  "hasCompletedOnboarding": true\n}\n' > /home/ubuntu/.claude.json
+      chown ubuntu:ubuntu /home/ubuntu/.claude.json
+      chmod 600 /home/ubuntu/.claude.json
     fi
 
   # --- clone repositories ---
@@ -287,6 +246,42 @@ runcmd:
     fi
     )
 {{ end }}
+
+  # --- enable and start bridgectl user service ---
+  - |
+    (
+    set -e
+    UBUNTU_UID=$(id -u ubuntu)
+{{- if .Repos}}
+    # Set working directory to first repo workspace
+    FIRST_REPO_NAME=$(basename "{{ index .Repos 0 }}" .git)
+    WORKING_DIR="{{ .WorkspacePath }}/$FIRST_REPO_NAME"
+{{- else}}
+    WORKING_DIR="{{ .WorkspacePath }}"
+{{- end}}
+    # Write drop-in to set the actual working directory for the service
+    install -d -o ubuntu -g ubuntu -m 755 /home/ubuntu/.config/systemd/user/bridgectl.service.d
+    printf '[Service]\nWorkingDirectory=%s\n' "$WORKING_DIR" \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Ensure linger is enabled (may not persist to cloud-init phase from AMI)
+    loginctl enable-linger ubuntu 2>/dev/null || true
+
+    # Ensure XDG_RUNTIME_DIR exists (created by systemd at login; may be absent in cloud-init)
+    mkdir -p /run/user/$UBUNTU_UID
+    chown ubuntu:ubuntu /run/user/$UBUNTU_UID
+    chmod 700 /run/user/$UBUNTU_UID
+
+    export UBUNTU_UID
+    sudo -u ubuntu bash -c '
+      export XDG_RUNTIME_DIR=/run/user/'"$UBUNTU_UID"'
+      systemctl --user daemon-reload
+      systemctl --user enable bridgectl
+      systemctl --user start bridgectl || echo "WARNING: bridgectl user service failed to start; it will start at next login"
+    '
+    )
 
   # --- write desktop metadata ---
   - |

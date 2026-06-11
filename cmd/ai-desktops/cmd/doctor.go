@@ -62,19 +62,13 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - certbot-cert-valid    — TLS certificate is valid (>7 days until expiry)
     - certbot-timer-enabled — certbot auto-renewal timer is enabled
 
-  AI Agent Bridge:
-    - bridge-package-installed  — ai-agent-bridge deb package is installed
-    - bridge-service-active     — ai-agent-bridge systemd service is running
-    - bridge-port-open          — port 9445 bound on 127.0.0.1 (loopback only)
-    - bridge-config-exists      — /etc/ai-agent-bridge/bridge.yaml is present
-    - bridge-workspace-allowed  — /workspace is in bridge allowed_paths
-    - bridge-dropin-workspace   — systemd drop-in sets ReadWritePaths for /workspace
-    - bridge-nodejs-version     — Node.js v24 is on PATH
-    - bridge-runtime-modules    — /opt/ai-agent-bridge/node_modules is present
-    - bridge-claude-installed   — claude CLI is installed under /opt/ai-agent-bridge
-    - bridge-bridgectl-installed — bridgectl CLI is installed under /opt/ai-agent-bridge
-    - bridge-providers-configured — at least one provider defined in bridge.yaml
-    - bridge-credentials-env    — /etc/ai-agent-bridge/agents.env exists
+  bridgectl Agent Server:
+    - bridgectl-installed         — bridgectl CLI is on PATH
+    - bridgectl-config-exists     — ~/.config/bridgectl/config.yaml is present
+    - bridgectl-credentials-env   — ~/.config/bridgectl/agents.env exists
+    - bridgectl-claude-configured — claude provider defined in config.yaml
+    - bridgectl-codex-configured  — codex provider defined in config.yaml
+    - bridgectl-service-active    — bridgectl systemd user service is active (ubuntu)
 
   Workspace:
     - workspace-mounted    — /workspace is mounted and writable
@@ -112,7 +106,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "noVNC Desktop", Checkers: health.NoVNCCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Services", Checkers: health.SSHCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "AI Agent Bridge", Checkers: health.BridgeCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}

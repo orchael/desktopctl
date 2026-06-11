@@ -363,49 +363,35 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 	return checkers
 }
 
-// BridgeCheckers returns checks for the ai-agent-bridge daemon and the ai-desktops profile.
+// BridgectlCheckers returns checks for the bridgectl user service running as ubuntu.
 //
-// The checks mirror the on-desktop ai-desktops-doctor script so operators can
-// verify bridge readiness from the CLI without manually SSHing into the desktop.
-// Checks are grouped: package/service → port/config → drop-in → runtime → providers.
-func BridgeCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+// bridgectl replaces the ai-agent-bridge system daemon: it runs as a systemd
+// user service under the ubuntu account and starts in the /workspace/<repo>
+// working directory. Checks verify the CLI is present, config and credentials
+// are in place, and the user service is active.
+func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
+	ubuntuUID := `$(id -u ubuntu)`
 	return []Checker{
-		// Package and service state
-		NewSSHChecker("bridge-package-installed", hostname, sshPort, user, keyPath,
-			"dpkg -s ai-agent-bridge >/dev/null 2>&1", t),
-		NewSSHChecker("bridge-service-active", hostname, sshPort, user, keyPath,
-			"systemctl is-active ai-agent-bridge", t),
-		// Port bound on loopback only (ProtectSystem=strict requires 127.0.0.1, not 0.0.0.0)
-		NewSSHChecker("bridge-port-open", hostname, sshPort, user, keyPath,
-			`ss -tlnp 2>/dev/null | grep -qE '(127\.0\.0\.1|::1):9445'`, t),
-		// Configuration
-		NewSSHChecker("bridge-config-exists", hostname, sshPort, user, keyPath,
-			"test -f /etc/ai-agent-bridge/bridge.yaml", t),
-		NewSSHChecker("bridge-workspace-allowed", hostname, sshPort, user, keyPath,
-			"grep -q '/workspace' /etc/ai-agent-bridge/bridge.yaml", t),
-		// systemd drop-in (written by the ai-desktops Packer playbook)
-		NewSSHChecker("bridge-dropin-workspace", hostname, sshPort, user, keyPath,
-			"test -f /etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf && "+
-				"grep -q 'ReadWritePaths.*workspace' "+
-				"/etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf", t),
-		// Provider runtime (Node.js v24 + install-provider-runtime output)
-		NewSSHChecker("bridge-nodejs-version", hostname, sshPort, user, keyPath,
-			`node --version 2>/dev/null | grep -q '^v24\.'`, t),
-		NewSSHChecker("bridge-runtime-modules", hostname, sshPort, user, keyPath,
-			"test -d /opt/ai-agent-bridge/node_modules", t),
-		NewSSHChecker("bridge-claude-installed", hostname, sshPort, user, keyPath,
-			"test -f /opt/ai-agent-bridge/node_modules/.bin/claude", t),
-		// Providers and credentials
-		NewSSHChecker("bridge-providers-configured", hostname, sshPort, user, keyPath,
-			`awk '/^providers:/{p=1;next} p&&/^[^ \t]/{p=0} `+
-				`p&&/^  [a-zA-Z][a-zA-Z0-9_]*:/&&!/^  #/{n++} END{exit(n>0)?0:1}' `+
-				"/etc/ai-agent-bridge/bridge.yaml", t),
-		NewSSHChecker("bridge-credentials-env", hostname, sshPort, user, keyPath,
-			"test -f /etc/ai-agent-bridge/agents.env", t),
-		// bridgectl CLI
-		NewSSHChecker("bridge-bridgectl-installed", hostname, sshPort, user, keyPath,
+		// CLI availability
+		NewSSHChecker("bridgectl-installed", hostname, sshPort, user, keyPath,
 			"command -v bridgectl >/dev/null 2>&1", t),
+		// User-level config and credentials
+		NewSSHChecker("bridgectl-config-exists", hostname, sshPort, user, keyPath,
+			"test -f /home/ubuntu/.config/bridgectl/config.yaml", t),
+		NewSSHChecker("bridgectl-credentials-env", hostname, sshPort, user, keyPath,
+			"test -f /home/ubuntu/.config/bridgectl/agents.env", t),
+		// Provider configuration (claude and codex must be present)
+		NewSSHChecker("bridgectl-claude-configured", hostname, sshPort, user, keyPath,
+			"grep -q 'claude:' /home/ubuntu/.config/bridgectl/config.yaml", t),
+		NewSSHChecker("bridgectl-codex-configured", hostname, sshPort, user, keyPath,
+			"grep -q 'codex:' /home/ubuntu/.config/bridgectl/config.yaml", t),
+		// Systemd user service status (checked as ubuntu via XDG_RUNTIME_DIR)
+		NewSSHChecker("bridgectl-service-active", hostname, sshPort, user, keyPath,
+			fmt.Sprintf(
+				`sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/%s systemctl --user is-active bridgectl`,
+				ubuntuUID,
+			), t),
 	}
 }
 
