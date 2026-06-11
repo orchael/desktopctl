@@ -64,6 +64,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   bridgectl Agent Server:
     - bridgectl-installed         — bridgectl CLI is on PATH
+    - bridgectl-version           — bridgectl --version exits successfully
     - bridgectl-config-exists     — ~/.config/bridgectl/config.yaml is present
     - bridgectl-credentials-env   — ~/.config/bridgectl/agents.env exists
     - bridgectl-claude-configured — claude provider defined in config.yaml

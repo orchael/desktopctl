@@ -373,9 +373,11 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 	t := 20 * time.Second
 	ubuntuUID := `$(id -u ubuntu)`
 	return []Checker{
-		// CLI availability
+		// CLI availability and version
 		NewSSHChecker("bridgectl-installed", hostname, sshPort, user, keyPath,
 			"command -v bridgectl >/dev/null 2>&1", t),
+		NewSSHChecker("bridgectl-version", hostname, sshPort, user, keyPath,
+			"bridgectl --version >/dev/null 2>&1", t),
 		// User-level config and credentials
 		NewSSHChecker("bridgectl-config-exists", hostname, sshPort, user, keyPath,
 			"test -f /home/ubuntu/.config/bridgectl/config.yaml", t),
