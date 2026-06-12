@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/workspace
-ExecStart=bridgectl server start
+ExecStart=bridgectl server start --config %h/.config/bridgectl/config.yaml
 EnvironmentFile=-%h/.config/bridgectl/agents.env
 Restart=on-failure
 RestartSec=10s
