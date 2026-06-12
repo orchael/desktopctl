@@ -1,6 +1,9 @@
 package repo
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -113,6 +116,62 @@ func TestValidateOwnerBoundary(t *testing.T) {
 	repos2 := []*Repo{{Owner: "acme", Name: "b"}}
 	if err := ValidateOwnerBoundary("acme", repos2); err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckAccessible(t *testing.T) {
+	r := &Repo{Owner: "acme", Name: "myapp"}
+	orig := lsRemote
+	t.Cleanup(func() { lsRemote = orig })
+
+	tests := []struct {
+		name    string
+		out     []byte
+		err     error
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name:    "accessible repo",
+			out:     []byte("abc123\tHEAD\n"),
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "repo not found with git output",
+			out:     []byte("ERROR: Repository not found.\nfatal: Could not read from remote repository.\n"),
+			err:     fmt.Errorf("exit status 128"),
+			wantErr: true,
+			wantMsg: "ERROR: Repository not found.",
+		},
+		{
+			name:    "error without output",
+			out:     nil,
+			err:     fmt.Errorf("exec: executable file not found in $PATH"),
+			wantErr: true,
+			wantMsg: "executable file not found",
+		},
+		{
+			name:    "empty repo (no refs)",
+			out:     []byte(""),
+			err:     nil,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lsRemote = func(_ context.Context, _ string) ([]byte, error) {
+				return tt.out, tt.err
+			}
+			err := r.CheckAccessible(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("CheckAccessible(): error=%v, wantErr=%v", err, tt.wantErr)
+			}
+			if tt.wantMsg != "" && !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantMsg)
+			}
+		})
 	}
 }
 

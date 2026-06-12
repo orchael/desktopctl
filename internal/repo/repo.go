@@ -1,10 +1,18 @@
 package repo
 
 import (
+	"context"
 	"fmt"
 	"net/url"
+	"os/exec"
 	"strings"
 )
+
+// lsRemote executes git ls-remote for the given SSH URL and returns combined
+// output and any error. It is a package-level variable so tests can replace it.
+var lsRemote = func(ctx context.Context, sshURL string) ([]byte, error) {
+	return exec.CommandContext(ctx, "git", "ls-remote", "--quiet", sshURL).CombinedOutput() //nolint:gosec
+}
 
 // Repo represents a parsed GitHub repository reference.
 type Repo struct {
@@ -41,8 +49,7 @@ func Parse(raw string) (*Repo, error) {
 	}
 
 	// Handle git@github.com:owner/repo[.git] SSH format.
-	if strings.HasPrefix(raw, "git@github.com:") {
-		path := strings.TrimPrefix(raw, "git@github.com:")
+	if path, ok := strings.CutPrefix(raw, "git@github.com:"); ok {
 		return parsePath(path)
 	}
 
@@ -90,6 +97,26 @@ func ValidateOwnerBoundary(owner string, repos []*Repo) error {
 			return fmt.Errorf("repository %s belongs to owner %q but desktop owner boundary is %q",
 				r, r.Owner, owner)
 		}
+	}
+	return nil
+}
+
+// CheckAccessible verifies the repository exists and is reachable via SSH by
+// running git ls-remote. Returns a descriptive error when the repository is
+// not found or access is denied.
+func (r *Repo) CheckAccessible(ctx context.Context) error {
+	out, err := lsRemote(ctx, r.SSH())
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return fmt.Errorf("repository %s is not accessible: %w", r, err)
+		}
+		// Return only the first line — git error output is multiline but the
+		// first line ("ERROR: Repository not found.") is the actionable part.
+		if idx := strings.IndexByte(msg, '\n'); idx >= 0 {
+			msg = strings.TrimSpace(msg[:idx])
+		}
+		return fmt.Errorf("repository %s is not accessible: %s", r, msg)
 	}
 	return nil
 }

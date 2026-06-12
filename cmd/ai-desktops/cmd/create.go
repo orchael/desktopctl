@@ -65,6 +65,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Verify every repo is reachable before touching any infrastructure.
+	for _, r := range repos {
+		fmt.Fprintf(os.Stderr, "Checking repository %s ...\n", r)
+		if err := r.CheckAccessible(ctx); err != nil {
+			return err
+		}
+	}
+
 	env := createEnv
 	if env == "" {
 		env = cfg.Fleet.Environment
