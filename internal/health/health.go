@@ -391,7 +391,7 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 		// Systemd user service status (checked as ubuntu via XDG_RUNTIME_DIR)
 		NewSSHChecker("bridgectl-service-active", hostname, sshPort, user, keyPath,
 			fmt.Sprintf(
-				`sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/%s systemctl --user is-active bridgectl`,
+				`sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/%s systemctl --user is-active bridgectl`,
 				ubuntuUID,
 			), t),
 	}

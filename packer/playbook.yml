@@ -201,26 +201,60 @@
         state: latest
         update_cache: true
 
+    - name: Install ca-certificates, curl, gnupg for apt keyring setup
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, gnupg]
+        state: present
+        update_cache: true
+
+    - name: Create apt keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add ai-agent-bridge apt signing key
+      ansible.builtin.shell: |
+        curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc \
+          | gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg
+        chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+      args:
+        creates: /etc/apt/keyrings/ai-agent-bridge.gpg
+
     - name: Get Debian package architecture
       ansible.builtin.command: dpkg --print-architecture
       register: dpkg_arch
       changed_when: false
 
-    - name: Download ai-agent-bridge deb from GitHub Releases
-      ansible.builtin.get_url:
-        url: "https://github.com/markcallen/ai-agent-bridge/releases/download/{{ ai_agent_bridge_version }}/ai-agent-bridge_{{ ai_agent_bridge_version | regex_replace('^v', '') }}_{{ dpkg_arch.stdout }}.deb"
-        dest: "/tmp/ai-agent-bridge_{{ ai_agent_bridge_version | regex_replace('^v', '') }}_{{ dpkg_arch.stdout }}.deb"
+    - name: Get Ubuntu version codename
+      ansible.builtin.command: lsb_release -cs
+      register: ubuntu_codename
+      changed_when: false
+
+    - name: Add ai-agent-bridge apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/ai-agent-bridge.list
+        content: |
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt {{ ubuntu_codename.stdout }} main
         mode: "0644"
 
-    - name: Install ai-agent-bridge deb
+    - name: Install ai-agent-bridge from signed apt repository
       ansible.builtin.apt:
-        deb: "/tmp/ai-agent-bridge_{{ ai_agent_bridge_version | regex_replace('^v', '') }}_{{ dpkg_arch.stdout }}.deb"
+        name: "ai-agent-bridge={{ ai_agent_bridge_version | regex_replace('^v', '') }}"
         state: present
+        update_cache: true
 
     - name: Run install-provider-runtime to install Claude and other provider CLIs
       ansible.builtin.command: /usr/lib/ai-agent-bridge/install-provider-runtime
       args:
         creates: /opt/ai-agent-bridge/node_modules/.bin/claude
+
+    - name: Stop and disable ai-agent-bridge system service before masking
+      ansible.builtin.systemd:
+        name: ai-agent-bridge
+        state: stopped
+        enabled: false
+      ignore_errors: true
 
     - name: Mask ai-agent-bridge system service (replaced by bridgectl user service)
       ansible.builtin.systemd:
