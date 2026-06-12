@@ -270,35 +270,29 @@ func TestRepoCheckers_emptyRepos(t *testing.T) {
 	}
 }
 
-func TestBridgeCheckers_returnsExpectedChecks(t *testing.T) {
-	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := BridgectlCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 	names := make(map[string]bool)
 	for _, c := range checkers {
 		names[c.Name()] = true
 	}
 	required := []string{
-		"bridge-package-installed",
-		"bridge-service-active",
-		"bridge-port-open",
-		"bridge-config-exists",
-		"bridge-workspace-allowed",
-		"bridge-dropin-workspace",
-		"bridge-nodejs-version",
-		"bridge-runtime-modules",
-		"bridge-claude-installed",
-		"bridge-bridgectl-installed",
-		"bridge-providers-configured",
-		"bridge-credentials-env",
+		"bridgectl-installed",
+		"bridgectl-config-exists",
+		"bridgectl-credentials-env",
+		"bridgectl-claude-configured",
+		"bridgectl-codex-configured",
+		"bridgectl-service-active",
 	}
 	for _, n := range required {
 		if !names[n] {
-			t.Errorf("BridgeCheckers missing expected checker %q", n)
+			t.Errorf("BridgectlCheckers missing expected checker %q", n)
 		}
 	}
 }
 
-func TestBridgeCheckers_allSkippedWithNoKey(t *testing.T) {
-	checkers := BridgeCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+func TestBridgectlCheckers_allSkippedWithNoKey(t *testing.T) {
+	checkers := BridgectlCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 	for _, c := range checkers {
 		result := c.Run(context.Background())
 		if result.Status != StatusSkipped {

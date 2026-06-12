@@ -35,8 +35,7 @@ func TestRenderCloudInit(t *testing.T) {
 		"9445",
 		"/ai-desktops/acme/github",
 		"us-east-1",
-		"ai-agent-bridge",
-		AIAgentBridgeVersion,
+		"bridgectl",
 		"docker",
 		"tmux",
 		"certbot",
@@ -189,12 +188,14 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	// Verify install scripts reference pinned versions, not "main".
+	// Verify install scripts do not reference floating "main" branches.
 	if strings.Contains(out, "/main/install.sh") {
 		t.Error("install scripts must not reference the 'main' branch; pin to a release tag")
 	}
-	if !strings.Contains(out, AIAgentBridgeVersion) {
-		t.Errorf("ai-agent-bridge install must reference version %s", AIAgentBridgeVersion)
+	// The ai-agent-bridge version is installed via the AMI packer playbook, not
+	// cloud-init; cloud-init no longer pulls or starts the bridge daemon.
+	if strings.Contains(out, "systemctl enable ai-agent-bridge") {
+		t.Error("cloud-init must not enable the ai-agent-bridge system daemon")
 	}
 }
 
@@ -232,9 +233,17 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("novnc-desktop install curl should be absent when PackagesPreInstalled is true")
 	}
 
-	// ai-agent-bridge Docker pull should be absent for AMI path (bridge is pre-installed)
+	// ai-agent-bridge Docker pull must be absent (bridge daemon is replaced by bridgectl)
 	if strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
-		t.Error("ai-agent-bridge Docker pull should be absent when PackagesPreInstalled is true")
+		t.Error("ai-agent-bridge Docker pull must be absent (bridge daemon replaced by bridgectl user service)")
+	}
+
+	// ai-agent-bridge system daemon must not be enabled or started
+	if strings.Contains(out, "systemctl enable ai-agent-bridge") {
+		t.Error("must not enable ai-agent-bridge system daemon (replaced by bridgectl user service)")
+	}
+	if strings.Contains(out, "systemctl start ai-agent-bridge") {
+		t.Error("must not start ai-agent-bridge system daemon (replaced by bridgectl user service)")
 	}
 
 	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
@@ -245,18 +254,20 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("NOVNC_HTTP_PORT should be set for ai-desktops-setup-tls")
 	}
 
-	// systemctl enable/start for novnc-desktop and bridge should be present
+	// novnc-desktop service should still be enabled and started
 	if !strings.Contains(out, "systemctl enable novnc-desktop") {
 		t.Error("should enable novnc-desktop service when PackagesPreInstalled is true")
 	}
 	if !strings.Contains(out, "systemctl start novnc-desktop") {
 		t.Error("should start novnc-desktop service when PackagesPreInstalled is true")
 	}
-	if !strings.Contains(out, "systemctl enable ai-agent-bridge") {
-		t.Error("should enable ai-agent-bridge service")
+
+	// bridgectl user service should be enabled and started
+	if !strings.Contains(out, "systemctl --user enable bridgectl") {
+		t.Error("should enable bridgectl systemd user service")
 	}
-	if !strings.Contains(out, "systemctl start ai-agent-bridge") {
-		t.Error("should start ai-agent-bridge service")
+	if !strings.Contains(out, "systemctl --user start bridgectl") {
+		t.Error("should start bridgectl systemd user service")
 	}
 
 	// Repo cloning should still be present
@@ -291,9 +302,12 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 		t.Error("snap nvim install should be present when PackagesPreInstalled is false")
 	}
 
-	// ai-agent-bridge Docker pull should be present (no curl installer; Docker image used)
-	if !strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
-		t.Error("ai-agent-bridge Docker pull should be present when PackagesPreInstalled is false")
+	// ai-agent-bridge system daemon must not appear (replaced by bridgectl user service)
+	if strings.Contains(out, "ghcr.io/markcallen/ai-agent-bridge") {
+		t.Error("ai-agent-bridge Docker pull must be absent (bridge daemon replaced by bridgectl user service)")
+	}
+	if strings.Contains(out, "systemctl enable ai-agent-bridge") {
+		t.Error("must not enable ai-agent-bridge system daemon (replaced by bridgectl user service)")
 	}
 
 	// nginx TLS config should be absent (novnc-desktop install handles it)

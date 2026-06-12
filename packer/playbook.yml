@@ -11,6 +11,7 @@
     min_versions:
       ansible: "2.10"
       docker.io: "24.0"
+      docker-compose-plugin: "2.0"
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
@@ -60,7 +61,9 @@
 
     - name: Install Docker
       ansible.builtin.apt:
-        name: docker.io
+        name:
+          - docker.io
+          - docker-compose-plugin
         state: present
 
     - name: Enable and start Docker
@@ -201,40 +204,44 @@
         state: latest
         update_cache: true
 
-    - name: Check ai-agent-bridge apt keyring is reachable
-      ansible.builtin.uri:
-        url: https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc
-        method: GET
-        status_code: 200
-      changed_when: false
+    - name: Install ca-certificates, curl, gnupg for apt keyring setup
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, gnupg]
+        state: present
+        update_cache: true
+
+    - name: Create apt keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add ai-agent-bridge apt signing key
+      ansible.builtin.shell: |
+        curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc \
+          | gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg
+        chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+      args:
+        creates: /etc/apt/keyrings/ai-agent-bridge.gpg
 
     - name: Get Debian package architecture
       ansible.builtin.command: dpkg --print-architecture
       register: dpkg_arch
       changed_when: false
 
-    - name: Ensure /etc/apt/keyrings directory exists
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Add ai-agent-bridge apt repository key
-      ansible.builtin.shell: |
-        curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc \
-          | gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg
-      args:
-        creates: /etc/apt/keyrings/ai-agent-bridge.gpg
+    - name: Get Ubuntu version codename
+      ansible.builtin.command: lsb_release -cs
+      register: ubuntu_codename
+      changed_when: false
 
     - name: Add ai-agent-bridge apt repository
-      ansible.builtin.apt_repository:
-        repo: "deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt {{ ansible_distribution_release }} main"
-        state: present
-        filename: ai-agent-bridge
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/ai-agent-bridge.list
+        content: |
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt {{ ubuntu_codename.stdout }} main
+        mode: "0644"
 
-    - name: Install ai-agent-bridge at pinned version
+    - name: Install ai-agent-bridge from signed apt repository
       ansible.builtin.apt:
         name: "ai-agent-bridge={{ ai_agent_bridge_version | regex_replace('^v', '') }}"
         state: present
@@ -245,54 +252,36 @@
       args:
         creates: /opt/ai-agent-bridge/node_modules/.bin/claude
 
-    - name: Install ai-desktops bridge config (adds /workspace to allowed_paths)
+    - name: Stop and disable ai-agent-bridge system service before masking
+      ansible.builtin.systemd:
+        name: ai-agent-bridge
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Mask ai-agent-bridge system service (replaced by bridgectl user service)
+      ansible.builtin.systemd:
+        name: ai-agent-bridge
+        masked: true
+        daemon_reload: true
+
+    - name: Create bridgectl config directory for ubuntu
+      ansible.builtin.file:
+        path: /home/ubuntu/.config/bridgectl
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+
+    - name: Install bridgectl config with claude and codex providers
       ansible.builtin.copy:
-        dest: /etc/ai-agent-bridge/bridge.yaml
-        owner: root
-        group: root
-        mode: "0644"
+        dest: /home/ubuntu/.config/bridgectl/config.yaml
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
         content: |
           server:
             listen: "127.0.0.1:9445"
-
-          tls:
-            ca_bundle: ""
-            cert: ""
-            key: ""
-
-          auth:
-            jwt_public_keys: []
-            jwt_audience: "bridge"
-            jwt_max_ttl: "5m"
-
-          feature_flags:
-            provider_fallbacks: true
-
-          sessions:
-            max_per_project: 5
-            max_global: 20
-            idle_timeout: "30m"
-            stop_grace_period: "10s"
-            event_buffer_size: 10000
-            max_subscribers_per_session: 10
-            subscriber_ttl: "30m"
-
-          input:
-            max_size_bytes: 65536
-
-          rate_limits:
-            global_rps: 50
-            global_burst: 100
-            start_session_per_client_rps: 1
-            start_session_per_client_burst: 3
-            send_input_per_session_rps: 5
-            send_input_per_session_burst: 20
-
-          persistence:
-            db_path: "/var/lib/bridge/sessions.db"
-
-          runtime:
-            provider_root: "/opt/ai-agent-bridge"
 
           providers:
             claude:
@@ -311,7 +300,6 @@
               prompt_pattern: '(?m)(❯|>\s*$)'
 
           allowed_paths:
-            - "/home"
             - "/workspace"
 
           logging:
@@ -320,26 +308,28 @@
             redact_patterns:
               - '(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+'
 
-    - name: Create ai-agent-bridge systemd drop-in directory
+    - name: Create bridgectl systemd user service directory for ubuntu
       ansible.builtin.file:
-        path: /etc/systemd/system/ai-agent-bridge.service.d
+        path: /home/ubuntu/.config/systemd/user
         state: directory
-        owner: root
-        group: root
+        owner: ubuntu
+        group: ubuntu
         mode: "0755"
 
-    - name: Install ai-desktops systemd drop-in (ReadWritePaths + EnvironmentFile)
+    - name: Install bridgectl systemd user service unit
       ansible.builtin.copy:
-        dest: /etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf
-        owner: root
-        group: root
+        src: files/bridgectl.service
+        dest: /home/ubuntu/.config/systemd/user/bridgectl.service
+        owner: ubuntu
+        group: ubuntu
         mode: "0644"
-        content: |
-          [Service]
-          EnvironmentFile=-/etc/ai-agent-bridge/agents.env
-          ReadWritePaths=/var/lib/bridge /workspace /tmp /var/tmp
 
-    - name: Reload systemd after drop-in install
+    - name: Enable linger for ubuntu so user services start at boot
+      ansible.builtin.command: loginctl enable-linger ubuntu
+      args:
+        creates: /var/lib/systemd/linger/ubuntu
+
+    - name: Reload systemd after bridgectl unit install
       ansible.builtin.systemd:
         daemon_reload: true
 
