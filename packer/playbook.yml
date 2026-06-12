@@ -11,6 +11,7 @@
     min_versions:
       ansible: "2.10"
       docker.io: "24.0"
+      docker-compose-plugin: "2.0"
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
@@ -60,7 +61,9 @@
 
     - name: Install Docker
       ansible.builtin.apt:
-        name: docker.io
+        name:
+          - docker.io
+          - docker-compose-plugin
         state: present
 
     - name: Enable and start Docker
