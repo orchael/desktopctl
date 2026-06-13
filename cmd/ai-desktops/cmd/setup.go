@@ -185,6 +185,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  • security_events   (code scanning, secret scanning)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (required by gh CLI auth)")
+		fmt.Println("  • read:packages     (install packages from GitHub Packages)")
 		fmt.Println()
 		fmt.Println("Create the token at: https://github.com/settings/tokens/new")
 		fmt.Print("Paste the token here (input hidden): ")
