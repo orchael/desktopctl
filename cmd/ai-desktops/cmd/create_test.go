@@ -7,12 +7,12 @@ import (
 
 func TestParseAndValidateRepos(t *testing.T) {
 	tests := []struct {
-		name      string
-		owner     string
-		rawRepos  []string
-		wantOwner string
-		wantCount int
-		wantErr   bool
+		name        string
+		owner       string
+		rawRepos    []string
+		wantOwner   string
+		wantCount   int
+		wantErr     bool
 		errContains string
 	}{
 		{
@@ -58,16 +58,16 @@ func TestParseAndValidateRepos(t *testing.T) {
 			errContains: "does not match --github-owner",
 		},
 		{
-			name:        "repos provided, invalid URL",
-			owner:       "",
-			rawRepos:    []string{"https://gitlab.com/acme/app"},
-			wantErr:     true,
+			name:     "repos provided, invalid URL",
+			owner:    "",
+			rawRepos: []string{"https://gitlab.com/acme/app"},
+			wantErr:  true,
 		},
 		{
-			name:        "repos provided, mixed owners",
-			owner:       "",
-			rawRepos:    []string{"github.com/acme/app-one", "github.com/other/app-two"},
-			wantErr:     true,
+			name:     "repos provided, mixed owners",
+			owner:    "",
+			rawRepos: []string{"github.com/acme/app-one", "github.com/other/app-two"},
+			wantErr:  true,
 		},
 		{
 			name:      "single SSH repo, owner inferred",
@@ -102,4 +102,3 @@ func TestParseAndValidateRepos(t *testing.T) {
 		})
 	}
 }
-
