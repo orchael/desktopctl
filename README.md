@@ -67,30 +67,7 @@ The token requires these scopes:
 | `read:org` | Required by gh CLI auth |
 | `read:packages` | Install packages from GitHub Packages |
 
-Run `ai-desktops setup` to store the token in AWS Secrets Manager before running `create`:
-
-```bash
-# SSM Parameter Store (recommended)
-aws ssm put-parameter \
-  --name /ai-desktops/github-pat \
-  --value ghp_... \
-  --type SecureString \
-  --profile <your-profile>
-
-# Or Secrets Manager
-aws secretsmanager create-secret \
-  --name ai-desktops/github-pat \
-  --secret-string ghp_... \
-  --profile <your-profile>
-```
-
-Reference the parameter name in your config file:
-
-```yaml
-github:
-  owner: myorg
-  pat_secret: /ai-desktops/github-pat   # SSM path or Secrets Manager name
-```
+Run `ai-desktops setup` to store the token in AWS Secrets Manager (at `/ai-desktops/<owner>/github`) before running `create`.
 
 ## Installation
 

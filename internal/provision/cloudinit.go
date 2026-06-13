@@ -179,11 +179,11 @@ runcmd:
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
     sudo -u ubuntu git config --global --add safe.directory '*'
 
-    # Write ~/.npmrc so the ubuntu user can install @{{ .GitHubOwner }} packages from GitHub Packages
+    # Write ~/.npmrc so the ubuntu user can install @{{ .GitHubOwner }} packages from GitHub Packages.
+    # Pre-create with correct ownership and mode before writing so the token is never world-readable.
+    install -o ubuntu -g ubuntu -m 600 /dev/null /home/ubuntu/.npmrc
     printf '@{{ .GitHubOwner }}:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN" \
       > /home/ubuntu/.npmrc
-    chmod 600 /home/ubuntu/.npmrc
-    chown ubuntu:ubuntu /home/ubuntu/.npmrc
 
     unset SSH_KEY
     unset GITHUB_TOKEN

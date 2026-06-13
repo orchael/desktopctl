@@ -404,7 +404,7 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	return line
 }
 
-var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key"}
+var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key", "read:packages"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
