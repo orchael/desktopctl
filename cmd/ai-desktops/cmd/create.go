@@ -29,15 +29,17 @@ var createCmd = &cobra.Command{
 	Long: `create provisions a remote EC2 instance configured as an AI coding desktop
 with novnc-desktop (Elementary), ai-agent-bridge, and developer tooling.
 
-The --github-owner flag sets the required owner boundary for all repositories
-on this desktop. Mixed-owner repositories are rejected before any infrastructure
-is changed.`,
+The --github-owner flag sets the owner boundary for all repositories on this
+desktop. When at least one --repo is provided the owner is inferred from the
+first repository URL and --github-owner becomes optional. --github-owner is
+required only when no --repo flags are given. Mixed-owner repositories are
+rejected before any infrastructure is changed.`,
 	Args: cobra.NoArgs,
 	RunE: runCreate,
 }
 
 func init() {
-	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (required)")
+	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
@@ -55,14 +57,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if createOwner == "" && cfg.GitHub.Owner != "" {
 		createOwner = cfg.GitHub.Owner
 	}
-	if createOwner == "" {
-		return fmt.Errorf("--github-owner is required (or set github.owner in config)")
-	}
 
-	// Validate repo inputs.
+	// Validate repo inputs. Owner may be inferred from repos when createOwner is empty.
 	repos, owner, err := parseAndValidateRepos(createOwner, createRepos)
 	if err != nil {
 		return err
+	}
+
+	// Owner is required; it must come from --github-owner, config, or be inferred from --repo.
+	if owner == "" {
+		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
 
 	// Verify every repo is reachable before touching any infrastructure.
@@ -271,6 +275,10 @@ func parseAndValidateRepos(owner string, rawRepos []string) ([]*repo.Repo, strin
 	repos, detectedOwner, err := repo.ParseAll(rawRepos)
 	if err != nil {
 		return nil, "", err
+	}
+	if owner == "" {
+		// Infer owner from the first repo URL when --github-owner was not provided.
+		return repos, detectedOwner, nil
 	}
 	if !strings.EqualFold(detectedOwner, owner) {
 		return nil, "", fmt.Errorf("repository owner %q does not match --github-owner %q", detectedOwner, owner)
