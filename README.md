@@ -53,30 +53,21 @@ The foundation stack looks up the zone by domain name and exports the zone ID. I
 
 ### GitHub PAT
 
-Repositories are cloned during desktop boot using a GitHub personal access token retrieved from AWS at runtime. Store the token in AWS SSM Parameter Store or Secrets Manager before running `create`:
+Repositories are cloned during desktop boot using a GitHub personal access token retrieved from AWS Secrets Manager at runtime. The token is also written to `/home/ubuntu/.npmrc` on the desktop so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
 
-```bash
-# SSM Parameter Store (recommended)
-aws ssm put-parameter \
-  --name /ai-desktops/github-pat \
-  --value ghp_... \
-  --type SecureString \
-  --profile <your-profile>
+The token requires these scopes:
 
-# Or Secrets Manager
-aws secretsmanager create-secret \
-  --name ai-desktops/github-pat \
-  --secret-string ghp_... \
-  --profile <your-profile>
-```
+| Scope | Purpose |
+|-------|---------|
+| `admin:public_key` | Register SSH keys |
+| `repo` | Clone, push, PRs |
+| `workflow` | GitHub Actions |
+| `security_events` | Code scanning, secret scanning |
+| `read:user` | Identity |
+| `read:org` | Required by gh CLI auth |
+| `read:packages` | Install packages from GitHub Packages |
 
-Reference the parameter name in your config file:
-
-```yaml
-github:
-  owner: myorg
-  pat_secret: /ai-desktops/github-pat   # SSM path or Secrets Manager name
-```
+Run `ai-desktops setup` to store the token in AWS Secrets Manager (at `/ai-desktops/<owner>/github`) before running `create`.
 
 ## Installation
 

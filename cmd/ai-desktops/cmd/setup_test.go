@@ -87,7 +87,7 @@ func TestValidateGitHubToken_Success(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		w.Header().Set("X-OAuth-Scopes", "repo, workflow, security_events, admin:public_key")
+		w.Header().Set("X-OAuth-Scopes", "repo, workflow, security_events, admin:public_key, read:packages")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"login":"testuser"}`))
 	}))

@@ -41,6 +41,8 @@ func TestRenderCloudInit(t *testing.T) {
 		"certbot",
 		"dns-route53",
 		"d-001.desktops.orchael.dev",
+		"npm.pkg.github.com",
+		"/home/ubuntu/.npmrc",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {

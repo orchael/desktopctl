@@ -185,6 +185,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  • security_events   (code scanning, secret scanning)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (required by gh CLI auth)")
+		fmt.Println("  • read:packages     (install packages from GitHub Packages)")
 		fmt.Println()
 		fmt.Println("Create the token at: https://github.com/settings/tokens/new")
 		fmt.Print("Paste the token here (input hidden): ")
@@ -403,7 +404,7 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	return line
 }
 
-var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key"}
+var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key", "read:packages"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
