@@ -38,18 +38,12 @@ Read and follow these rule files in `.codex/rules/` when they apply:
 - `.codex/rules/typescript/typescript-linting.md` — Rules for typescript/linting
 - `.codex/rules/typescript/typescript-logging.md` — Rules for typescript/logging
 - `.codex/rules/typescript/typescript-testing.md` — Rules for typescript/testing
-- `.codex/rules/python/python-linting.md` — Rules for python/linting
-- `.codex/rules/python/python-logging.md` — Rules for python/logging
-- `.codex/rules/python/python-testing.md` — Rules for python/testing
 - `.codex/rules/go/go-linting.md` — Rules for go/linting
 - `.codex/rules/go/go-logging.md` — Rules for go/logging
 - `.codex/rules/go/go-testing.md` — Rules for go/testing
 - `.codex/rules/ansible/ansible-linting.md` — Rules for ansible/linting
 - `.codex/rules/ansible/ansible-logging.md` — Rules for ansible/logging
 - `.codex/rules/ansible/ansible-testing.md` — Rules for ansible/testing
-- `.codex/rules/terraform/terraform-linting.md` — Rules for terraform/linting
-- `.codex/rules/terraform/terraform-logging.md` — Rules for terraform/logging
-- `.codex/rules/terraform/terraform-testing.md` — Rules for terraform/testing
 
 ## Installed skills
 

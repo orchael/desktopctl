@@ -18,35 +18,22 @@
   "skills": [
     "github-health-check"
   ],
-  "ballastVersion": "5.10.2",
+  "ballastVersion": "5.11.0",
   "languages": [
     "typescript",
-    "python",
     "go",
-    "ansible",
-    "terraform"
+    "ansible"
   ],
   "paths": {
     "ansible": [
       "ansible/desktop-setup",
       "internal/provision/ansible/desktop-setup",
-      "packer/.ansible/collections/ansible_collections/community/general/tests/integration",
-      "packer/.ansible/collections/ansible_collections/community/general/tests/unit",
       "packer"
     ],
     "go": [
       ".",
       "infra/pulumi/desktop",
       "infra/pulumi/foundation"
-    ],
-    "python": [
-      "packer/.ansible/collections/ansible_collections/ansible/utils",
-      "packer/.ansible/collections/ansible_collections/ansible/utils/tests/integration",
-      "packer/.ansible/collections/ansible_collections/ansible/utils/tests/unit",
-      "packer/.ansible/collections/ansible_collections/community/general/tests/unit"
-    ],
-    "terraform": [
-      "packer/.ansible/collections/ansible_collections/community/general/tests/integration/targets/terraform/files/complex_variables"
     ],
     "typescript": [
       "apps/desktop-web"

@@ -201,17 +201,17 @@ aws logs tail /var/log/certbot --follow
 
 ## FAQ
 
-**Q: Can I use HTTP-01 instead?**  
+**Q: Can I use HTTP-01 instead?**
 A: Yes, but it requires port 80 to always be open. DNS-01 is better for this use case.
 
-**Q: What if DNS-01 validation fails?**  
+**Q: What if DNS-01 validation fails?**
 A: The renewal will fail and the certificate won't be renewed. Set up monitoring on the systemd timer or logs.
 
-**Q: Can I manually trigger renewal?**  
+**Q: Can I manually trigger renewal?**
 A: Yes: `sudo certbot renew --force-renewal`
 
-**Q: Do I need to restart novnc-desktop after renewal?**  
+**Q: Do I need to restart novnc-desktop after renewal?**
 A: No. novnc-desktop reads the cert files directly from `/etc/letsencrypt/live/`, and symlinks are atomic.
 
-**Q: What's the certificate authority?**  
+**Q: What's the certificate authority?**
 A: Let's Encrypt. Certificates are valid for 90 days.

@@ -74,16 +74,16 @@ pre-installed key eliminates the `.netrc` workaround used today.
 ```
 
 `github_token` is used by `gh auth login` on the desktop and by the `setup` command to
-register the SSH key via the GitHub API.  
-`ssh_private_key` is written to `/home/ubuntu/.ssh/github_ed25519` at boot; git clones use it.  
+register the SSH key via the GitHub API.
+`ssh_private_key` is written to `/home/ubuntu/.ssh/github_ed25519` at boot; git clones use it.
 `ssh_public_key` is informational — stored for reference and for re-registration if needed.
 
-**Why Secrets Manager (not SSM Parameter Store)?**  
+**Why Secrets Manager (not SSM Parameter Store)?**
 A multi-field JSON document maps naturally to a single Secrets Manager secret. SSM could hold
 three separate SecureString parameters, but one atomic unit is easier to rotate, reference from
 IAM, and retrieve in a single API call.
 
-**Why per-owner?**  
+**Why per-owner?**
 Different GitHub owners (orgs/users) require different credentials. Per-owner secrets make it
 safe to operate multiple owner scopes from the same AWS account without mixing credentials.
 
