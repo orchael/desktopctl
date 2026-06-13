@@ -47,7 +47,7 @@ func TestParseAndValidateRepos(t *testing.T) {
 			name:      "repos provided, owner matches flag case-insensitively",
 			owner:     "ACME",
 			rawRepos:  []string{"github.com/acme/app-one"},
-			wantOwner: "ACME",
+			wantOwner: "acme", // canonical owner from the repo URL, not the flag value
 			wantCount: 1,
 		},
 		{

@@ -283,7 +283,9 @@ func parseAndValidateRepos(owner string, rawRepos []string) ([]*repo.Repo, strin
 	if !strings.EqualFold(detectedOwner, owner) {
 		return nil, "", fmt.Errorf("repository owner %q does not match --github-owner %q", detectedOwner, owner)
 	}
-	return repos, owner, nil
+	// Return the canonical owner from the repo URL so downstream values
+	// (secret paths, config) are consistent regardless of flag casing.
+	return repos, detectedOwner, nil
 }
 
 func repoStrings(repos []*repo.Repo) []string {
