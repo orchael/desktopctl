@@ -209,21 +209,24 @@ func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner strin
 	return aws.ToString(best.ImageId), nil
 }
 
-// StopInstance stops the given EC2 instance and waits until it reaches the
-// stopped state (up to 10 minutes).
+// StopInstance hibernates the given EC2 instance, saving RAM to the encrypted
+// root EBS volume, and waits until it reaches the stopped state (up to 10 minutes).
+// The instance must have been launched with HibernationOptions.Configured = true
+// and an encrypted root volume, which the desktop Pulumi stack ensures.
 func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error {
 	c := ec2.NewFromConfig(cfg)
 	_, err := c.StopInstances(ctx, &ec2.StopInstancesInput{
 		InstanceIds: []string{instanceID},
+		Hibernate:   aws.Bool(true),
 	})
 	if err != nil {
-		return fmt.Errorf("stop instance %s: %w", instanceID, err)
+		return fmt.Errorf("hibernate instance %s: %w", instanceID, err)
 	}
 	waiter := ec2.NewInstanceStoppedWaiter(c)
 	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 10*time.Minute); err != nil {
-		return fmt.Errorf("wait for instance %s to stop: %w", instanceID, err)
+		return fmt.Errorf("wait for instance %s to hibernate: %w", instanceID, err)
 	}
 	return nil
 }

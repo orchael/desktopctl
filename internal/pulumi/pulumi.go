@@ -66,13 +66,14 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
+// volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
 // amiID is the pre-baked AMI ID.
 // userData is the pre-rendered cloud-init user-data.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
 	repos []string,
-	bridgePort int,
+	bridgePort, volumeSize int,
 	amiID, userData, environment string,
 ) StackConfig {
 	cfg := StackConfig{
@@ -92,6 +93,9 @@ func DesktopConfig(
 	}
 	if bridgePort > 0 {
 		cfg["bridgePort"] = fmt.Sprintf("%d", bridgePort)
+	}
+	if volumeSize > 0 {
+		cfg["volumeSize"] = fmt.Sprintf("%d", volumeSize)
 	}
 	if amiID != "" {
 		cfg["amiId"] = amiID
