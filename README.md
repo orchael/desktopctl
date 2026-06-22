@@ -209,6 +209,12 @@ Or use full GitHub URLs:
 ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
 ```
 
+Override the root volume size (default 100 GiB):
+
+```bash
+ai-desktops create --repo myorg/my-app --volume-size 200
+```
+
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
 - Creates a DynamoDB record in state `creating`
 - Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
@@ -331,9 +337,11 @@ Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use
 ### 13. Stop and start
 
 ```bash
-ai-desktops stop d-a1b2c3d4    # EBS data preserved
+ai-desktops stop d-a1b2c3d4    # hibernates: RAM + disk preserved
 ai-desktops start d-a1b2c3d4
 ```
+
+`stop` hibernates the instance — the kernel writes RAM to the encrypted root EBS volume, then the instance stops. `start` resumes it; running processes continue from where they left off. Resume typically takes 30–60 seconds.
 
 ### 14. Terminate
 
@@ -374,15 +382,16 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 - [ ] SSH to desktop: `ls /workspace/` shows cloned repos
 - [ ] SSH to desktop: `cd /workspace/test-repo && git log --oneline -5` shows commit history
 - [ ] `ai-desktops agent <id> status` returns 200 through tunnel
-- [ ] `ai-desktops stop <id>` transitions to `stopped`; EC2 stopped in console
-- [ ] `ai-desktops start <id>` transitions back to `ready`; noVNC accessible again
+- [ ] `ai-desktops stop <id>` transitions to `stopped`; EC2 hibernated in console (state = stopped, RAM dump written)
+- [ ] `ai-desktops start <id>` transitions back to `ready`; noVNC accessible again; running processes resumed
 - [ ] SSH to desktop: `/workspace/test-repo` still present after stop/start cycle
 - [ ] `ai-desktops terminate <id>` succeeds; record transitions to `terminated`; EC2 terminated in console; Route53 record removed
 
 ## Known limitations
 
 - **Elementary/Pantheon reliability**: The `novnc-desktop` elementary AMI runs Pantheon on Ubuntu 24.04. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
-- **Root EBS persistence**: Workspace data lives on the root EBS volume. EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating.
+- **Root EBS persistence**: Workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating.
+- **Hibernation requires new desktops**: Hibernation is configured at launch time and cannot be retrofitted onto existing instances. Desktops created before this change use regular stop/start and do not preserve RAM state.
 - **Failed desktops left running**: If `terminate` fails mid-way, the EC2 instance is intentionally left running so you can SSH in to diagnose. Clean up manually with `aws ec2 terminate-instances` and `pulumi destroy` from `infra/pulumi/desktop/`.
 - **Single availability zone**: Desktops land in the first public subnet from the foundation stack. Multi-AZ placement is not yet supported.
 - **No desktop autostop**: There is no idle-timeout or schedule-based stop. Remember to stop or terminate desktops when not in use.
