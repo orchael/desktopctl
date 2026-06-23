@@ -13,7 +13,7 @@ import (
 
 var stopCmd = &cobra.Command{
 	Use:   "stop <desktop-id>",
-	Short: "Stop a running desktop (preserves disk state)",
+	Short: "Hibernate a running desktop (preserves disk and RAM state)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runStop,
 }
@@ -47,7 +47,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AWS config: %w", err)
 	}
 
-	fmt.Printf("Stopping instance %s ...\n", d.InstanceID)
+	fmt.Printf("Hibernating instance %s ...\n", d.InstanceID)
 	if err := awsx.StopInstance(ctx, awsCfg, d.InstanceID); err != nil {
 		return err
 	}
@@ -57,6 +57,6 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Desktop %s stopped.\n", id)
+	fmt.Printf("Desktop %s hibernated.\n", id)
 	return nil
 }

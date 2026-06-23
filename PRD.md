@@ -108,8 +108,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | --- | --- |
 | FR-1.1 | The system must provide a CLI-first interface for creating, listing, inspecting, starting, stopping, and terminating desktops. |
 | FR-1.2 | Creating a desktop must provision a remote server and prepare it for browser-based desktop access and AI agent execution. |
-| FR-1.3 | Stopping a desktop must preserve its disk state so work can continue after restart. |
-| FR-1.4 | Starting a previously stopped desktop must restore access to the same persisted workspace. |
+| FR-1.3 | Stopping a desktop must hibernate it, preserving both disk and RAM state, so work resumes exactly where it left off after restart. |
+| FR-1.4 | Starting a previously hibernated desktop must restore access to the same persisted workspace with in-memory process state intact. |
 | FR-1.5 | Terminating a desktop must permanently destroy its compute resources and attached state. |
 | FR-1.6 | Fleet listing must hide terminated desktop records by default while allowing operators to include them explicitly. |
 | FR-1.7 | Operators must be able to preview and purge terminated desktop records from fleet metadata. |
@@ -122,7 +122,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-1.2 | DynamoDB `lifecycle_state` is `ready` immediately after create completes | `TestFR1_StateReady` |
 | AC-1.3 | `ai-desktops list --json` output includes the created desktop ID | `TestFR1_List` |
 | AC-1.4 | `ai-desktops status <id> --json` returns all required fields: id, state, hostname, novnc_url, ssh_target, github_owner, instance_id, stack_name | `TestFR1_StatusFields` |
-| AC-1.5 | `ai-desktops stop <id>` exits 0 and transitions `lifecycle_state` to `stopped` | `TestFR7_01_Stop` |
+| AC-1.5 | `ai-desktops stop <id>` exits 0, hibernates the instance, and transitions `lifecycle_state` to `stopped` | `TestFR7_01_Stop` |
 | AC-1.6 | `ai-desktops start <id>` exits 0 and transitions `lifecycle_state` back to `ready` | `TestFR7_02_Start` |
 | AC-1.7 | After `ai-desktops terminate <id>`, the desktop no longer appears in `list` output | TestMain cleanup |
 | AC-1.8 | `create` without `--github-owner` fails with a clear error message | `TestFR1_CreateRejectsWithoutOwner` |
@@ -232,9 +232,11 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 | ID | Requirement |
 | --- | --- |
-| FR-7.1 | Desktop filesystem state must persist across stop/start operations. |
+| FR-7.1 | Desktop filesystem and RAM state must persist across stop/start operations via EC2 hibernation. |
 | FR-7.2 | Installed tools, checked-out repositories, editor state, and agent workspace artifacts must remain available after restart unless explicitly deleted by the operator. |
 | FR-7.3 | Persistence semantics apply to normal desktop lifecycle operations, not to terminated desktops. |
+| FR-7.4 | Desktops must be launched with EC2 hibernation enabled and an encrypted root EBS volume (both required by AWS for hibernation). |
+| FR-7.5 | The root EBS volume must default to 100 GiB to accommodate OS, applications, and the in-memory RAM dump written during hibernation. |
 
 **Acceptance criteria:**
 
@@ -243,6 +245,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-7.1 | After `stop` + `start`, each cloned repo is still present under `/workspace/<repo-name>` | `TestFR7_03_WorkspacePersists` |
 | AC-7.2 | After `stop` + `start`, all base toolchain commands (`git`, `docker`, `nvim`, `tmux`) remain on PATH | `TestFR7_04_ToolsPersist` |
 | AC-7.3 | After `stop`, `lifecycle_state` is `stopped`; after `start`, it is `ready` | `TestFR7_01_Stop`, `TestFR7_02_Start` |
+| AC-7.4 | The root EBS volume is encrypted and hibernation is configured at instance launch time | Infrastructure review |
+| AC-7.5 | `ai-desktops create --volume-size <n>` launches an instance with a root volume of the specified size | Manual CLI verification |
 
 ### FR-8 — External access posture
 
@@ -445,7 +449,9 @@ The following items are likely to cause implementation churn or security gaps if
 
 ### State ownership
 
-The PRD requires persistent desktops, but persistence must be defined at the infrastructure layer. The v1 architecture should treat the EC2 instance plus its root EBS volume as the persisted desktop unit. Stop/start preserves the root volume. Terminate destroys it unless snapshot support is explicitly added later.
+The PRD requires persistent desktops, but persistence must be defined at the infrastructure layer. The v1 architecture treats the EC2 instance plus its root EBS volume as the persisted desktop unit. Stop hibernates the instance, saving RAM to the encrypted root volume; start resumes it. Terminate destroys the instance and volume unless snapshot support is explicitly added later.
+
+EC2 hibernation requires two immutable launch-time settings: `Hibernation: true` and an encrypted root EBS volume. These cannot be enabled on existing instances. The desktop Pulumi stack sets both unconditionally. Operators must recreate existing desktops to gain hibernation support.
 
 ### Pulumi backend bootstrap
 

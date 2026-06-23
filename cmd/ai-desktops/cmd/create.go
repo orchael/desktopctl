@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	createOwner   string
-	createRepos   []string
-	createPreview bool
-	createEnv     string
-	createAMI     string
+	createOwner      string
+	createRepos      []string
+	createPreview    bool
+	createEnv        string
+	createAMI        string
+	createVolumeSize int
 )
 
 var createCmd = &cobra.Command{
@@ -44,6 +45,7 @@ func init() {
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
+	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -194,6 +196,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("render cloud-init: %w", renderErr)
 	}
 
+	volumeSize := createVolumeSize
+	if volumeSize <= 0 {
+		volumeSize = cfg.Desktop.VolumeSize
+	}
+	if volumeSize <= 0 {
+		return fmt.Errorf("volume size must be a positive integer (got %d); set --volume-size or desktop.volume_size in config", volumeSize)
+	}
+
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
 		foundationOutputs[pulumi.OutputSubnetID],
@@ -202,6 +212,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.Desktop.SSHKeyName,
 		req.Repos,
 		cfg.Agent.BridgePort,
+		volumeSize,
 		amiID,
 		userData,
 		env,

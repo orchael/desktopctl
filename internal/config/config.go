@@ -21,6 +21,7 @@ const (
 	DefaultAMITable     = "ai-desktops-ami"
 	DefaultBridgePort   = 9445
 	DefaultInstanceType = "t3.large"
+	DefaultVolumeSize   = 100
 )
 
 // Config holds all operator configuration for ai-desktops.
@@ -81,6 +82,7 @@ type GitHubConfig struct {
 type DesktopConfig struct {
 	DefaultProfile string `yaml:"default_profile"`
 	InstanceType   string `yaml:"instance_type"`
+	VolumeSize     int    `yaml:"volume_size,omitempty"`
 	OperatorCIDR   string `yaml:"operator_cidr"`
 	SSHKeyPath     string `yaml:"ssh_key_path"`
 	SSHKeyName     string `yaml:"ssh_key_name"`
@@ -125,6 +127,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
+	}
+	if c.Desktop.VolumeSize <= 0 {
+		c.Desktop.VolumeSize = DefaultVolumeSize
 	}
 	if c.Pulumi.InfraDir == "" {
 		c.Pulumi.InfraDir = "."

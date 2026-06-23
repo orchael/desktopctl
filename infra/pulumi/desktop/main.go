@@ -12,6 +12,7 @@ import (
 const (
 	defaultBridgePort = 9445
 	novncHTTPSPort    = 8443
+	defaultVolumeSize = 100
 )
 
 func main() {
@@ -42,6 +43,13 @@ func run(ctx *pulumi.Context) error {
 	if bridgePort == 0 {
 		bridgePort = defaultBridgePort
 	}
+	volumeSize := cfg.GetInt("volumeSize")
+	if volumeSize <= 0 {
+		volumeSize = defaultVolumeSize
+	}
+	if volumeSize <= 0 {
+		return fmt.Errorf("volumeSize must be a positive integer, got %d", volumeSize)
+	}
 
 	// amiId must be set to a Packer-built novnc-desktop AMI; plain Ubuntu AMIs are not supported.
 	amiID := cfg.Get("amiId")
@@ -68,9 +76,11 @@ func run(ctx *pulumi.Context) error {
 		UserData:                 pulumi.String(userData),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
+		Hibernation:              pulumi.Bool(true),
 		RootBlockDevice: &ec2.InstanceRootBlockDeviceArgs{
-			VolumeSize:          pulumi.Int(40),
+			VolumeSize:          pulumi.Int(volumeSize),
 			VolumeType:          pulumi.String("gp3"),
+			Encrypted:           pulumi.Bool(true),
 			DeleteOnTermination: pulumi.Bool(true),
 		},
 		Tags: pulumi.StringMap{

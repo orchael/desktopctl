@@ -31,7 +31,7 @@ func TestDesktopStackRef(t *testing.T) {
 func TestDesktopConfig(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
-		[]string{"github.com/acme/app"}, 9445,
+		[]string{"github.com/acme/app"}, 9445, 100,
 		"", "", "dev")
 
 	if cfg["desktopId"] != "d-001" {
@@ -46,12 +46,15 @@ func TestDesktopConfig(t *testing.T) {
 	if cfg["sshKeyName"] != "my-keypair" {
 		t.Errorf("sshKeyName: got %q", cfg["sshKeyName"])
 	}
+	if cfg["volumeSize"] != "100" {
+		t.Errorf("volumeSize: got %q", cfg["volumeSize"])
+	}
 }
 
 func TestDesktopConfig_withAMI(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-ami", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "",
-		[]string{}, 9445,
+		[]string{}, 9445, 0,
 		"ami-0abc123", "my-user-data", "dev")
 
 	if cfg["amiId"] != "ami-0abc123" {
