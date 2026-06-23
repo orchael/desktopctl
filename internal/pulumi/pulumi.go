@@ -148,6 +148,22 @@ func (r *Runner) Refresh(ctx context.Context, ref *StackRef, progress io.Writer)
 	return nil
 }
 
+// RefreshAndUp refreshes the stack state from AWS then runs pulumi up without
+// changing any config values. This is used after an instance is started from
+// hibernation so that resources whose attributes change (e.g. the public IP
+// assigned to the EC2 instance) are reconciled — specifically the Route53 A
+// record that points at the instance's new public IP.
+func (r *Runner) RefreshAndUp(ctx context.Context, ref *StackRef, progress io.Writer) (map[string]string, error) {
+	if err := r.Refresh(ctx, ref, progress); err != nil {
+		return nil, err
+	}
+	env := r.env(ref.BackendURL)
+	if err := r.run(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never"); err != nil {
+		return nil, fmt.Errorf("pulumi up: %w", err)
+	}
+	return r.outputs(ctx, ref.WorkDir, env)
+}
+
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.
 func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progress io.Writer) (map[string]string, error) {

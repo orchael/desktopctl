@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +54,35 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Starting instance %s ...\n", d.InstanceID)
 	if err := awsx.StartInstance(ctx, awsCfg, d.InstanceID); err != nil {
 		return err
+	}
+
+	// After hibernation the instance gets a new public IP. Refresh the Pulumi
+	// stack state from AWS then run pulumi up so the Route53 A record is
+	// updated to point at the new IP before we mark the desktop ready.
+	if err := requireBackend(ctx); err != nil {
+		return err
+	}
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+
+	fmt.Fprintln(os.Stderr, "Updating DNS record for new public IP ...")
+	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("pulumi refresh+up: %w", err)
+	}
+
+	// Merge any updated outputs (hostname, SSH target, etc.) back into the
+	// store record so subsequent commands see the current values.
+	if v := outputs[pulumi.OutputHostname]; v != "" {
+		d.Hostname = v
+	}
+	if v := outputs[pulumi.OutputNoVNCURL]; v != "" {
+		d.NoVNCURL = v
+	}
+	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
+		d.SSHTarget = v
 	}
 
 	mgr := desktop.NewManager(s)
