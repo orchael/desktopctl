@@ -259,13 +259,22 @@ func Load(path string) (*Config, error) {
 // LoadOrDefault loads config from path; if path is empty it looks for the
 // default config at ~/.ai-desktops/config.yaml. Returns an empty-default
 // config when no file exists so the caller can still override via flags.
+// DefaultPath returns the default config file path (~/.ai-desktops/config.yaml).
+func DefaultPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ai-desktops", "config.yaml"), nil
+}
+
 func LoadOrDefault(path string) (*Config, error) {
 	if path == "" {
-		home, err := os.UserHomeDir()
+		p, err := DefaultPath()
 		if err != nil {
 			return nil, err
 		}
-		path = filepath.Join(home, ".ai-desktops", "config.yaml")
+		path = p
 	}
 	c, err := Load(path)
 	if err != nil {

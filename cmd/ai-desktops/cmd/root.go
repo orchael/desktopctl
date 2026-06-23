@@ -45,6 +45,13 @@ func init() {
 
 func initConfig() {
 	var err error
+	if cfgFile == "" {
+		cfgFile, err = config.DefaultPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error resolving config path: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	cfg, err = config.LoadOrDefault(cfgFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
