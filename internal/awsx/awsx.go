@@ -226,7 +226,7 @@ func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error 
 	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 10*time.Minute); err != nil {
-		return fmt.Errorf("wait for instance %s to hibernate: %w", instanceID, err)
+		return fmt.Errorf("wait for instance %s to reach stopped state after hibernation request: %w", instanceID, err)
 	}
 	return nil
 }

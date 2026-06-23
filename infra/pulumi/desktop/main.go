@@ -44,8 +44,11 @@ func run(ctx *pulumi.Context) error {
 		bridgePort = defaultBridgePort
 	}
 	volumeSize := cfg.GetInt("volumeSize")
-	if volumeSize == 0 {
+	if volumeSize <= 0 {
 		volumeSize = defaultVolumeSize
+	}
+	if volumeSize <= 0 {
+		return fmt.Errorf("volumeSize must be a positive integer, got %d", volumeSize)
 	}
 
 	// amiId must be set to a Packer-built novnc-desktop AMI; plain Ubuntu AMIs are not supported.

@@ -27,6 +27,9 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	id := args[0]
 
@@ -56,6 +59,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	mgr := desktop.NewManager(s)
+
 	// After hibernation the instance gets a new public IP. Refresh the Pulumi
 	// stack state from AWS then run pulumi up so the Route53 A record is
 	// updated to point at the new IP before we mark the desktop ready.
@@ -70,11 +75,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stderr, "Updating DNS record for new public IP ...")
 	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
 	if err != nil {
-		return fmt.Errorf("pulumi refresh+up: %w", err)
+		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+		return fmt.Errorf("pulumi refresh+up: %w (instance is running; DNS may be stale)", err)
 	}
 
-	// Merge any updated outputs (hostname, SSH target, etc.) back into the
-	// store record so subsequent commands see the current values.
+	// Persist updated outputs (new public IP reflected in hostname/SSH/noVNC)
+	// back to the store so subsequent commands see current values.
 	if v := outputs[pulumi.OutputHostname]; v != "" {
 		d.Hostname = v
 	}
@@ -84,8 +90,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
 		d.SSHTarget = v
 	}
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("update store record: %w", err)
+	}
 
-	mgr := desktop.NewManager(s)
 	if err := mgr.MarkRunning(ctx, id, "started"); err != nil {
 		return err
 	}

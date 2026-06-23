@@ -128,7 +128,7 @@ func (c *Config) Defaults() {
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
 	}
-	if c.Desktop.VolumeSize == 0 {
+	if c.Desktop.VolumeSize <= 0 {
 		c.Desktop.VolumeSize = DefaultVolumeSize
 	}
 	if c.Pulumi.InfraDir == "" {
