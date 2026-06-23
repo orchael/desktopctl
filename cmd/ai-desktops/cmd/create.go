@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/repo"
+	"github.com/orchael/ai-desktops/internal/wireguard"
 	"github.com/spf13/cobra"
 )
 
@@ -171,6 +173,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// WireGuard server setup: generate keypair, store private key in SSM, render server config.
+	wgServerConf := ""
+	wgSSMPath := ""
+	if cfg.WireGuard.Enabled {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config for WireGuard setup: %w", err)
+		}
+		serverPrivKey, err := wireguard.GeneratePrivateKey()
+		if err != nil {
+			return fmt.Errorf("generate WireGuard server private key: %w", err)
+		}
+		serverPubKey, err := wireguard.PublicKey(serverPrivKey)
+		if err != nil {
+			return fmt.Errorf("derive WireGuard server public key: %w", err)
+		}
+		wgSSMPath = wireGuardSSMKeyPath(desktopID)
+		if err := awsx.PutSecureParameter(ctx, awsCfg, wgSSMPath, serverPrivKey); err != nil {
+			return fmt.Errorf("store WireGuard server key in SSM: %w", err)
+		}
+		serverCfgInput := wireguard.ServerConfigInput{
+			Interface:  cfg.WireGuard.Interface,
+			ServerIP:   wireguard.ServerIPPrefix + "/24",
+			Port:       cfg.WireGuard.Port,
+			PrivateKey: serverPubKey, // placeholder; cloud-init overwrites from SSM
+			Peers:      cfg.WireGuard.Peers,
+		}
+		wgServerConf, err = wireguard.RenderServerConfig(serverCfgInput)
+		if err != nil {
+			return fmt.Errorf("render WireGuard server config: %w", err)
+		}
+	}
+
 	bootCfg := &provision.BootstrapConfig{
 		DesktopID:            desktopID,
 		Hostname:             hostname,
@@ -189,6 +224,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
+		// WireGuard
+		WireGuardEnabled:    cfg.WireGuard.Enabled,
+		WireGuardPort:       cfg.WireGuard.Port,
+		WireGuardSubnet:     cfg.WireGuard.Subnet,
+		WireGuardServerIP:   wireguard.ServerIPPrefix,
+		WireGuardInterface:  cfg.WireGuard.Interface,
+		WireGuardSSMKeyPath: wgSSMPath,
+		WireGuardServerConf: wgServerConf,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)

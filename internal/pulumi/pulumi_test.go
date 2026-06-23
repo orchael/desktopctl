@@ -69,9 +69,22 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 }
 
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", false, 0)
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
+	}
+	if _, ok := cfg["wireguardEnabled"]; ok {
+		t.Error("wireguardEnabled should not be set when disabled")
+	}
+}
+
+func TestFoundationConfig_WireGuard(t *testing.T) {
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", true, 51820)
+	if cfg["wireguardEnabled"] != "true" {
+		t.Errorf("wireguardEnabled: got %q", cfg["wireguardEnabled"])
+	}
+	if cfg["wireguardPort"] != "51820" {
+		t.Errorf("wireguardPort: got %q", cfg["wireguardPort"])
 	}
 }
 

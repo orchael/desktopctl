@@ -18,6 +18,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
@@ -290,6 +291,40 @@ func GetCallerIdentity(ctx context.Context, cfg aws.Config) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s (%s)", aws.ToString(out.Account), aws.ToString(out.Arn)), nil
+}
+
+// PutSecureParameter stores or updates a SecureString in AWS SSM Parameter Store.
+// Overwrites an existing parameter with the same name.
+func PutSecureParameter(ctx context.Context, cfg aws.Config, name, value string) error {
+	c := ssm.NewFromConfig(cfg)
+	overwrite := true
+	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
+		Name:      aws.String(name),
+		Value:     aws.String(value),
+		Type:      ssmtypes.ParameterTypeSecureString,
+		Overwrite: &overwrite,
+	})
+	if err != nil {
+		return fmt.Errorf("put SSM parameter %s: %w", name, err)
+	}
+	return nil
+}
+
+// DeleteParameter removes a parameter from SSM Parameter Store. It returns nil
+// if the parameter does not exist (idempotent delete).
+func DeleteParameter(ctx context.Context, cfg aws.Config, name string) error {
+	c := ssm.NewFromConfig(cfg)
+	_, err := c.DeleteParameter(ctx, &ssm.DeleteParameterInput{
+		Name: aws.String(name),
+	})
+	if err != nil {
+		var notFound *ssmtypes.ParameterNotFound
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return fmt.Errorf("delete SSM parameter %s: %w", name, err)
+	}
+	return nil
 }
 
 // GetSecret retrieves a secret value from AWS SSM Parameter Store (with

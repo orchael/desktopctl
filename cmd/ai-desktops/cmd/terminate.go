@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
@@ -86,6 +87,16 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 
 	if err := s.MarkTerminated(ctx, id); err != nil {
 		return fmt.Errorf("mark terminated: %w", err)
+	}
+
+	// Clean up the WireGuard server private key from SSM (best-effort).
+	if cfg.WireGuard.Enabled {
+		if awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile); err == nil {
+			ssmPath := wireGuardSSMKeyPath(id)
+			if delErr := awsx.DeleteParameter(ctx, awsCfg, ssmPath); delErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to delete WireGuard SSM key %s: %v\n", ssmPath, delErr)
+			}
+		}
 	}
 
 	fmt.Printf("Desktop %s terminated.\n", id)

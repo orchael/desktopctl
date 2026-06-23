@@ -397,6 +397,18 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 	}
 }
 
+// WireGuardCheckers returns checks verifying the wg-aidesktops interface is
+// active and the WireGuard service is running on the desktop.
+func WireGuardCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("wg-service-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active wg-quick@wg-aidesktops", t),
+		NewSSHChecker("wg-interface-up", hostname, sshPort, user, keyPath,
+			"ip link show wg-aidesktops 2>/dev/null | grep -q UP", t),
+	}
+}
+
 // WorkspaceCheckers returns checks for workspace integrity.
 func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second

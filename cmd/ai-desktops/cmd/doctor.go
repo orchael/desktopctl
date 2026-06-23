@@ -111,6 +111,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}
+	if cfg.WireGuard.Enabled {
+		groups = append(groups, health.CheckGroup{
+			Label:    "WireGuard VPN",
+			Checkers: health.WireGuardCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath),
+		})
+	}
 	runner := health.NewRunnerGroups(id, groups...)
 
 	if jsonOut {

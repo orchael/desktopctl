@@ -51,14 +51,23 @@ func DesktopStackRef(backendURL, desktopID, workDir string) *StackRef {
 type StackConfig map[string]string
 
 // FoundationConfig builds the Pulumi config for the foundation stack.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string) StackConfig {
-	return StackConfig{
+// wireguardEnabled and wireguardPort control whether WireGuard SG rules are
+// applied (UDP wireguardPort open; SSH/HTTP/HTTPS restricted to WireGuard subnet).
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string, wireguardEnabled bool, wireguardPort int) StackConfig {
+	cfg := StackConfig{
 		"aws:region":   region,
 		"zone":         zone,
 		"fleetTable":   fleetTable,
 		"operatorCIDR": operatorCIDR,
 		"environment":  environment,
 	}
+	if wireguardEnabled {
+		cfg["wireguardEnabled"] = "true"
+		if wireguardPort > 0 {
+			cfg["wireguardPort"] = fmt.Sprintf("%d", wireguardPort)
+		}
+	}
+	return cfg
 }
 
 // DesktopConfig builds the Pulumi config for a desktop stack.

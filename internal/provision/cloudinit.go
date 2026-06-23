@@ -38,6 +38,15 @@ type BootstrapConfig struct {
 	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
+
+	// WireGuard VPN — populated by create when cfg.WireGuard.Enabled is true.
+	WireGuardEnabled    bool
+	WireGuardPort       int
+	WireGuardSubnet     string
+	WireGuardServerIP   string
+	WireGuardInterface  string
+	WireGuardSSMKeyPath string // SSM parameter path for the server private key
+	WireGuardServerConf string // pre-rendered wg-aidesktops.conf content
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -299,6 +308,57 @@ runcmd:
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
+
+{{- if .WireGuardEnabled}}
+  # --- WireGuard VPN server setup ---
+  - |
+    (
+    set -e
+    REGION="{{ .AWSRegion }}"
+    WG_SSM_PATH="{{ .WireGuardSSMKeyPath }}"
+    WG_IFACE="{{ .WireGuardInterface }}"
+    WG_PORT="{{ .WireGuardPort }}"
+
+    # Install wireguard if not already present
+    if ! command -v wg >/dev/null 2>&1; then
+      apt-get install -y wireguard wireguard-tools
+    fi
+
+    # Retrieve server private key from SSM Parameter Store
+    WG_PRIVATE_KEY=$(aws ssm get-parameter \
+      --region "$REGION" \
+      --name "$WG_SSM_PATH" \
+      --with-decryption \
+      --query "Parameter.Value" \
+      --output text)
+
+    if [ -z "$WG_PRIVATE_KEY" ]; then
+      echo "ERROR: could not retrieve WireGuard server private key from $WG_SSM_PATH" >&2
+      exit 1
+    fi
+
+    # Write server config
+    install -d -m 700 /etc/wireguard
+    cat > /etc/wireguard/${WG_IFACE}.conf << EOF
+{{ .WireGuardServerConf }}
+EOF
+    # Overwrite PrivateKey with the one fetched from SSM (template has placeholder)
+    sed -i "s|^PrivateKey = .*|PrivateKey = ${WG_PRIVATE_KEY}|" /etc/wireguard/${WG_IFACE}.conf
+    chmod 600 /etc/wireguard/${WG_IFACE}.conf
+
+    # Enable IP forwarding
+    sysctl -w net.ipv4.ip_forward=1
+    if ! grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf; then
+      echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+    fi
+
+    # Enable and start the WireGuard service
+    systemctl enable wg-quick@${WG_IFACE}
+    systemctl start  wg-quick@${WG_IFACE}
+
+    unset WG_PRIVATE_KEY
+    )
+{{- end}}
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 `

@@ -22,16 +22,41 @@ const (
 	DefaultBridgePort   = 9445
 	DefaultInstanceType = "t3.large"
 	DefaultVolumeSize   = 100
+
+	DefaultWireGuardPort      = 51820
+	DefaultWireGuardSubnet    = "10.99.0.0/24"
+	DefaultWireGuardInterface = "wg-aidesktops"
+	// DefaultWireGuardServerIP is the VPN IP assigned to the desktop server (.1 in the subnet).
+	DefaultWireGuardServerIP = "10.99.0.1"
 )
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
-	AWS     AWSConfig     `yaml:"aws"`
-	Pulumi  PulumiConfig  `yaml:"pulumi"`
-	Fleet   FleetConfig   `yaml:"fleet"`
-	GitHub  GitHubConfig  `yaml:"github"`
-	Desktop DesktopConfig `yaml:"desktop"`
-	Agent   AgentConfig   `yaml:"agent"`
+	AWS       AWSConfig       `yaml:"aws"`
+	Pulumi    PulumiConfig    `yaml:"pulumi"`
+	Fleet     FleetConfig     `yaml:"fleet"`
+	GitHub    GitHubConfig    `yaml:"github"`
+	Desktop   DesktopConfig   `yaml:"desktop"`
+	Agent     AgentConfig     `yaml:"agent"`
+	WireGuard WireGuardConfig `yaml:"wireguard,omitempty"`
+}
+
+// WireGuardConfig holds global WireGuard VPN settings and the operator peer list.
+type WireGuardConfig struct {
+	Enabled   bool            `yaml:"enabled"`
+	Port      int             `yaml:"port,omitempty"`
+	Subnet    string          `yaml:"subnet,omitempty"`
+	Interface string          `yaml:"interface,omitempty"`
+	Peers     []WireGuardPeer `yaml:"peers,omitempty"`
+}
+
+// WireGuardPeer represents a single VPN client (operator device) authorized to
+// connect to desktops. The private key is never stored here; it is printed once
+// when the peer is created and must be saved by the operator.
+type WireGuardPeer struct {
+	Name      string `yaml:"name"`
+	PublicKey string `yaml:"public_key"`
+	AllowedIP string `yaml:"allowed_ip"` // e.g. "10.99.0.2/32"
 }
 
 // Env returns the configured environment, falling back to dev.
@@ -152,6 +177,17 @@ func (c *Config) Defaults() {
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
 	}
+	if c.WireGuard.Enabled {
+		if c.WireGuard.Port == 0 {
+			c.WireGuard.Port = DefaultWireGuardPort
+		}
+		if c.WireGuard.Subnet == "" {
+			c.WireGuard.Subnet = DefaultWireGuardSubnet
+		}
+		if c.WireGuard.Interface == "" {
+			c.WireGuard.Interface = DefaultWireGuardInterface
+		}
+	}
 	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
 		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"
 	}
@@ -180,9 +216,10 @@ func (c *Config) Validate() error {
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
-	// TODO(wireguard): defaulting to open ingress is a temporary convenience;
-	// require an explicit operator_cidr once WireGuard replaces direct SSH access.
-	if c.Desktop.OperatorCIDR == "" {
+	if c.WireGuard.Enabled {
+		// When WireGuard is enabled, operator_cidr is unused; SG rules use the WireGuard subnet.
+		// Allow it to be empty; init-foundation will use the WireGuard subnet instead.
+	} else if c.Desktop.OperatorCIDR == "" {
 		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
 	if _, err := c.DNSZone(); err != nil {

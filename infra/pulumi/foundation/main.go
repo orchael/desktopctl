@@ -32,6 +32,12 @@ func run(ctx *pulumi.Context) error {
 	if environment == "" {
 		environment = "dev"
 	}
+	wireguardEnabled := cfg.GetBool("wireguardEnabled")
+	wireguardPort := cfg.GetInt("wireguardPort")
+	if wireguardPort == 0 {
+		wireguardPort = 51820
+	}
+	const wireguardSubnet = "10.99.0.0/24"
 	vpcID := cfg.Get("vpcId")
 
 	// --- Route53 hosted zone lookup ---
@@ -139,44 +145,60 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- Security group ---
+	// When WireGuard is enabled:
+	//   - UDP wireguardPort is open to 0.0.0.0/0 (peers must reach the handshake endpoint)
+	//   - SSH, HTTP, HTTPS are restricted to the WireGuard subnet (10.99.0.0/24)
+	// When WireGuard is disabled:
+	//   - SSH is open to operatorCIDR; HTTP/HTTPS open to 0.0.0.0/0
+	sshCIDR := operatorCIDR
+	servicesCIDR := "0.0.0.0/0"
+	if wireguardEnabled {
+		sshCIDR = wireguardSubnet
+		servicesCIDR = wireguardSubnet
+	}
+	ingress := ec2.SecurityGroupIngressArray{
+		&ec2.SecurityGroupIngressArgs{
+			Protocol:    pulumi.String("tcp"),
+			FromPort:    pulumi.Int(22),
+			ToPort:      pulumi.Int(22),
+			CidrBlocks:  pulumi.StringArray{pulumi.String(sshCIDR)},
+			Description: pulumi.String("SSH"),
+		},
+		&ec2.SecurityGroupIngressArgs{
+			Protocol:    pulumi.String("tcp"),
+			FromPort:    pulumi.Int(80),
+			ToPort:      pulumi.Int(80),
+			CidrBlocks:  pulumi.StringArray{pulumi.String(servicesCIDR)},
+			Description: pulumi.String("HTTP"),
+		},
+		&ec2.SecurityGroupIngressArgs{
+			Protocol:    pulumi.String("tcp"),
+			FromPort:    pulumi.Int(8080),
+			ToPort:      pulumi.Int(8080),
+			CidrBlocks:  pulumi.StringArray{pulumi.String(servicesCIDR)},
+			Description: pulumi.String("noVNC HTTP"),
+		},
+		&ec2.SecurityGroupIngressArgs{
+			Protocol:    pulumi.String("tcp"),
+			FromPort:    pulumi.Int(8443),
+			ToPort:      pulumi.Int(8443),
+			CidrBlocks:  pulumi.StringArray{pulumi.String(servicesCIDR)},
+			Description: pulumi.String("noVNC HTTPS"),
+		},
+	}
+	if wireguardEnabled {
+		ingress = append(ingress, &ec2.SecurityGroupIngressArgs{
+			Protocol:    pulumi.String("udp"),
+			FromPort:    pulumi.Int(wireguardPort),
+			ToPort:      pulumi.Int(wireguardPort),
+			CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			Description: pulumi.String("WireGuard VPN (wg-aidesktops)"),
+		})
+	}
 	sg, err := ec2.NewSecurityGroup(ctx, "ai-desktops-sg", &ec2.SecurityGroupArgs{
 		VpcId:       vpcIDOutput,
 		Description: pulumi.String("ai-desktops desktop security group"),
-		Ingress: ec2.SecurityGroupIngressArray{
-			// SSH on port 22 from operator CIDR (configurable, defaults to 0.0.0.0/0 for dev).
-			// Post-WireGuard, this will be restricted to WireGuard peer IPs only.
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(22),
-				ToPort:      pulumi.Int(22),
-				CidrBlocks:  pulumi.StringArray{pulumi.String(operatorCIDR)},
-				Description: pulumi.String("SSH - configurable per environment"),
-			},
-			// HTTP on port 80 (temporary, for potential ACME challenges or service testing).
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(80),
-				ToPort:      pulumi.Int(80),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("HTTP - temporary until WireGuard"),
-			},
-			// noVNC HTTP on 8080 (redirect to HTTPS) from everywhere.
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(8080),
-				ToPort:      pulumi.Int(8080),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("noVNC HTTP"),
-			},
-			// noVNC HTTPS on 8443 from everywhere.
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(8443),
-				ToPort:      pulumi.Int(8443),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("noVNC HTTPS"),
-			},
-		},
+		Ingress:     ingress,
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
 				Protocol:   pulumi.String("-1"),
