@@ -231,7 +231,8 @@ func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error 
 	return nil
 }
 
-// StartInstance starts the given EC2 instance.
+// StartInstance starts the given EC2 instance and waits until it is running
+// (up to 10 minutes).
 func StartInstance(ctx context.Context, cfg aws.Config, instanceID string) error {
 	c := ec2.NewFromConfig(cfg)
 	_, err := c.StartInstances(ctx, &ec2.StartInstancesInput{
@@ -239,6 +240,12 @@ func StartInstance(ctx context.Context, cfg aws.Config, instanceID string) error
 	})
 	if err != nil {
 		return fmt.Errorf("start instance %s: %w", instanceID, err)
+	}
+	waiter := ec2.NewInstanceRunningWaiter(c)
+	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance %s to reach running state: %w", instanceID, err)
 	}
 	return nil
 }
