@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
@@ -81,9 +82,8 @@ var wireguardAddPeerCmd = &cobra.Command{
 	Use:   "add-peer <name>",
 	Short: "Add a WireGuard peer (operator device) and print the client config",
 	Long: `add-peer generates a new WireGuard keypair for an operator device, stores
-the public key in config.yaml, and prints the client config plus import
-instructions. The private key is printed exactly once and never stored —
-save it immediately.
+the public key in config.yaml, and saves the private key to
+~/.ai-desktops/peers/<name>.key (mode 0600).
 
 Use --desktop to also apply the peer live to a running desktop without reboot.`,
 	Args: cobra.ExactArgs(1),
@@ -119,6 +119,12 @@ func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Save the private key to disk before updating config so we never lose it.
+	keyPath, err := savePeerKey(name, privKey)
+	if err != nil {
+		return fmt.Errorf("save peer key: %w", err)
+	}
+
 	cfg.WireGuard.Peers = append(cfg.WireGuard.Peers, config.WireGuardPeer{
 		Name:      name,
 		PublicKey: pubKey,
@@ -128,19 +134,14 @@ func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	fmt.Printf("Peer %q added (IP: %s).\n", name, peerIP)
-	fmt.Println("WARNING: the peer private key is shown below and will not be stored.")
-	fmt.Println("Save it now — if lost you must remove this peer and re-add it.")
-	fmt.Println()
+	fmt.Printf("Peer %q added (IP: %s). Private key saved to %s\n", name, peerIP, keyPath)
 
-	// If a desktop is specified, render a full client config with the server's
-	// public key and endpoint; otherwise print a placeholder config.
 	if addPeerDesktop != "" {
 		if err := applyPeerToDesktop(addPeerDesktop, name, privKey, pubKey, peerIP); err != nil {
 			return err
 		}
 	} else {
-		printPeerConfigPlaceholder(name, privKey, pubKey, peerIP)
+		fmt.Printf("Run 'ai-desktops wireguard show-config %s --desktop <id>' to get the full client config.\n", name)
 	}
 	return nil
 }
@@ -290,6 +291,13 @@ func runWireGuardRemovePeer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 	fmt.Printf("Peer %q removed from config.\n", name)
+
+	// Best-effort: delete the saved private key.
+	if keyPath, err := peerKeyPath(name); err == nil {
+		if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: could not delete peer key %s: %v\n", keyPath, err)
+		}
+	}
 	return nil
 }
 
@@ -338,16 +346,13 @@ func runWireGuardListPeers(_ *cobra.Command, _ []string) error {
 
 // ---- wireguard show-config ----
 
-var (
-	showConfigDesktop    string
-	showConfigPrivateKey string
-)
+var showConfigDesktop string
 
 var wireguardShowConfigCmd = &cobra.Command{
 	Use:   "show-config <peer-name>",
 	Short: "Render and display the WireGuard client config for a peer",
 	Long: `show-config renders the complete WireGuard client config for a named peer.
-It requires the peer's private key (which was shown once at add-peer time).
+The private key is loaded automatically from ~/.ai-desktops/peers/<name>.key.
 
 Use --desktop to look up the server public key and endpoint automatically.
 Without --desktop, a placeholder config is printed.`,
@@ -358,8 +363,6 @@ Without --desktop, a placeholder config is printed.`,
 func init() {
 	wireguardShowConfigCmd.Flags().StringVar(&showConfigDesktop, "desktop", "",
 		"desktop ID to retrieve server public key and endpoint")
-	wireguardShowConfigCmd.Flags().StringVar(&showConfigPrivateKey, "peer-private-key", "",
-		"peer private key (base64); required when --desktop is set")
 }
 
 func runWireGuardShowConfig(_ *cobra.Command, args []string) error {
@@ -379,13 +382,15 @@ func runWireGuardShowConfig(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("peer %q not found in config", name)
 	}
 
+	privKey, err := loadPeerKey(name)
+	if err != nil {
+		return fmt.Errorf("load peer key: %w", err)
+	}
+
 	if showConfigDesktop == "" {
 		fmt.Println("No --desktop specified. Printing placeholder config.")
-		printPeerConfigPlaceholder(name, showConfigPrivateKey, peer.PublicKey, peer.AllowedIP)
+		printPeerConfigPlaceholder(name, privKey, peer.PublicKey, peer.AllowedIP)
 		return nil
-	}
-	if showConfigPrivateKey == "" {
-		return fmt.Errorf("--peer-private-key is required when --desktop is specified")
 	}
 
 	ctx := context.Background()
@@ -415,7 +420,7 @@ func runWireGuardShowConfig(_ *cobra.Command, args []string) error {
 	}
 
 	peerCfg, err := wireguard.RenderPeerConfig(wireguard.PeerConfigInput{
-		PeerPrivateKey:      showConfigPrivateKey,
+		PeerPrivateKey:      privKey,
 		PeerIP:              peer.AllowedIP,
 		ServerPublicKey:     serverPubKey,
 		ServerEndpoint:      fmt.Sprintf("%s:%d", d.Hostname, cfg.WireGuard.Port),
@@ -430,6 +435,51 @@ func runWireGuardShowConfig(_ *cobra.Command, args []string) error {
 }
 
 // ---- helpers ----
+
+// peerKeyPath returns the filesystem path for a named peer's private key.
+func peerKeyPath(name string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ai-desktops", "peers", name+".key"), nil
+}
+
+// savePeerKey writes privKey to ~/.ai-desktops/peers/<name>.key (mode 0600).
+func savePeerKey(name, privKey string) (string, error) {
+	p, err := peerKeyPath(name)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(p, []byte(privKey+"\n"), 0600); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// loadPeerKey reads the private key for a named peer from disk.
+func loadPeerKey(name string) (string, error) {
+	p, err := peerKeyPath(name)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("key file not found at %s; was this peer created on a different machine?", p)
+		}
+		return "", err
+	}
+	key := string(data)
+	// Trim any trailing newline added by savePeerKey.
+	for len(key) > 0 && (key[len(key)-1] == '\n' || key[len(key)-1] == '\r') {
+		key = key[:len(key)-1]
+	}
+	return key, nil
+}
 
 // wireGuardSSMKeyPath returns the SSM Parameter Store path for a desktop's
 // WireGuard server private key.
