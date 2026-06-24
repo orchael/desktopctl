@@ -1,0 +1,13 @@
+[Unit]
+Description=AI Desktops WireGuard VPN setup
+After=cloud-final.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/ai-desktops/desktop.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ai-desktops-wireguard-setup
+
+[Install]
+WantedBy=multi-user.target

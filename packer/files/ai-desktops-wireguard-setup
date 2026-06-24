@@ -1,0 +1,56 @@
+#!/bin/bash
+# Runs once at first boot (after cloud-init) to activate WireGuard on desktops
+# where cloud-init wrote /opt/ai-desktops/desktop.env with WG_* vars.
+set -euo pipefail
+
+ENV_FILE=/opt/ai-desktops/desktop.env
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ai-desktops-wireguard-setup: no desktop.env found, skipping"
+  exit 0
+fi
+
+# shellcheck source=/dev/null
+. "$ENV_FILE"
+
+if [ -z "${WG_IFACE:-}" ]; then
+  echo "ai-desktops-wireguard-setup: WireGuard not configured (WG_IFACE not set), skipping"
+  exit 0
+fi
+
+WG_CONF="/etc/wireguard/${WG_IFACE}.conf"
+
+if [ ! -f "$WG_CONF" ]; then
+  echo "ai-desktops-wireguard-setup: $WG_CONF not found, skipping"
+  exit 0
+fi
+
+echo "ai-desktops-wireguard-setup: fetching server private key from SSM: $WG_SSM_PATH"
+
+WG_PRIVATE_KEY=$(aws ssm get-parameter \
+  --region "${REGION}" \
+  --name "${WG_SSM_PATH}" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text)
+
+if [ -z "$WG_PRIVATE_KEY" ]; then
+  echo "ai-desktops-wireguard-setup: ERROR: could not retrieve key from $WG_SSM_PATH" >&2
+  exit 1
+fi
+
+chmod 700 /etc/wireguard
+sed -i "s|^PrivateKey = .*|PrivateKey = ${WG_PRIVATE_KEY}|" "$WG_CONF"
+chmod 600 "$WG_CONF"
+unset WG_PRIVATE_KEY
+
+# Enable persistent IP forwarding
+if ! grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf; then
+  echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+fi
+sysctl -w net.ipv4.ip_forward=1
+
+systemctl enable "wg-quick@${WG_IFACE}"
+systemctl start  "wg-quick@${WG_IFACE}"
+
+echo "ai-desktops-wireguard-setup: WireGuard VPN active on ${WG_IFACE}"

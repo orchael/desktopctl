@@ -415,6 +415,28 @@
         group: root
         mode: "0755"
 
+    - name: Install ai-desktops-wireguard-setup script
+      ansible.builtin.copy:
+        src: files/ai-desktops-wireguard-setup
+        dest: /usr/local/bin/ai-desktops-wireguard-setup
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install ai-desktops-wireguard systemd service
+      ansible.builtin.copy:
+        src: files/ai-desktops-wireguard.service
+        dest: /etc/systemd/system/ai-desktops-wireguard.service
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable ai-desktops-wireguard service
+      ansible.builtin.systemd:
+        name: ai-desktops-wireguard
+        enabled: true
+        daemon_reload: true
+
     - name: Install pnpm globally via corepack
       ansible.builtin.shell: |
         corepack enable

@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -238,6 +241,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if renderErr != nil {
 		return fmt.Errorf("render cloud-init: %w", renderErr)
 	}
+	userData, renderErr = gzipBase64(userData)
+	if renderErr != nil {
+		return fmt.Errorf("compress cloud-init: %w", renderErr)
+	}
 
 	volumeSize := createVolumeSize
 	if volumeSize <= 0 {
@@ -351,4 +358,16 @@ func repoStrings(repos []*repo.Repo) []string {
 		out[i] = r.String()
 	}
 	return out
+}
+
+func gzipBase64(s string) (string, error) {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write([]byte(s)); err != nil {
+		return "", err
+	}
+	if err := w.Close(); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }

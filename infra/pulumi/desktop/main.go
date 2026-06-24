@@ -60,20 +60,19 @@ func run(ctx *pulumi.Context) error {
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
 	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
-	userData := cfg.Get("userData")
+	// userData is gzip+base64-encoded to stay within the EC2 16 KB plain-text limit.
+	userData := cfg.Get("userDataBase64")
 	if userData == "" {
-		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
+		return fmt.Errorf("userDataBase64 is required: render cloud-init in the ai-desktops CLI before updating the stack")
 	}
 
-	// The Pulumi AWS provider base64-encodes UserData automatically;
-	// pass the raw string to avoid double-encoding.
 	instanceArgs := &ec2.InstanceArgs{
 		Ami:                      pulumi.String(amiID),
 		InstanceType:             pulumi.String(instanceType),
 		SubnetId:                 pulumi.String(subnetID),
 		VpcSecurityGroupIds:      pulumi.StringArray{pulumi.String(sgID)},
 		IamInstanceProfile:       pulumi.String(instanceProfile),
-		UserData:                 pulumi.String(userData),
+		UserDataBase64:           pulumi.String(userData),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
 		Hibernation:              pulumi.Bool(true),

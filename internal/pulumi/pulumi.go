@@ -77,7 +77,7 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
 // volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
 // amiID is the pre-baked AMI ID.
-// userData is the pre-rendered cloud-init user-data.
+// userData is the gzip+base64-encoded cloud-init user-data.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
@@ -110,7 +110,7 @@ func DesktopConfig(
 		cfg["amiId"] = amiID
 	}
 	if userData != "" {
-		cfg["userData"] = userData
+		cfg["userDataBase64"] = userData
 	}
 	return cfg
 }

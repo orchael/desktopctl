@@ -2,13 +2,9 @@ package provision
 
 import (
 	"bytes"
-	"embed"
 	"strings"
 	"text/template"
 )
-
-//go:embed ansible/desktop-setup/*
-var ansibleFS embed.FS
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
@@ -34,8 +30,6 @@ type BootstrapConfig struct {
 	Environment          string
 	PackagesPreInstalled bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
-	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
-	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
 
@@ -82,21 +76,27 @@ packages:
   - gh
 {{- end}}
 
+{{- if .WireGuardEnabled}}
 write_files:
-  - path: /opt/ai-desktops/ansible/playbook.yml
+  - path: /etc/wireguard/{{ .WireGuardInterface }}.conf
     owner: root:root
-    permissions: "0644"
+    permissions: "0600"
     content: |
-{{ .AnsiblePlaybook | indent 6 }}
-  - path: /opt/ai-desktops/ansible/inventory.ini
-    owner: root:root
-    permissions: "0644"
-    content: |
-{{ .AnsibleInventory | indent 6 }}
+{{ .WireGuardServerConf | indent 6 }}
+{{- end}}
 
 runcmd:
-  # --- run desktop-setup ansible playbook ---
-  - ansible-playbook /opt/ai-desktops/ansible/playbook.yml -i /opt/ai-desktops/ansible/inventory.ini
+  # --- github known_hosts ---
+  - |
+    install -d -m 700 /home/ubuntu/.ssh
+    chown ubuntu:ubuntu /home/ubuntu/.ssh
+    printf '%s\n' \
+      'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+      'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' \
+      'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
+      >> /home/ubuntu/.ssh/known_hosts
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/known_hosts
+    chmod 600 /home/ubuntu/.ssh/known_hosts
 
   # --- system setup ---
   - systemctl enable docker
@@ -305,60 +305,14 @@ runcmd:
       printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
+{{- if .WireGuardEnabled}}
+      printf 'REGION="%s"\n' "{{ .AWSRegion }}"
+      printf 'WG_IFACE="%s"\n' "{{ .WireGuardInterface }}"
+      printf 'WG_SSM_PATH="%s"\n' "{{ .WireGuardSSMKeyPath }}"
+{{- end}}
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
-
-{{- if .WireGuardEnabled}}
-  # --- WireGuard VPN server setup ---
-  - |
-    (
-    set -e
-    REGION="{{ .AWSRegion }}"
-    WG_SSM_PATH="{{ .WireGuardSSMKeyPath }}"
-    WG_IFACE="{{ .WireGuardInterface }}"
-    WG_PORT="{{ .WireGuardPort }}"
-
-    # Install wireguard if not already present
-    if ! command -v wg >/dev/null 2>&1; then
-      apt-get install -y wireguard wireguard-tools
-    fi
-
-    # Retrieve server private key from SSM Parameter Store
-    WG_PRIVATE_KEY=$(aws ssm get-parameter \
-      --region "$REGION" \
-      --name "$WG_SSM_PATH" \
-      --with-decryption \
-      --query "Parameter.Value" \
-      --output text)
-
-    if [ -z "$WG_PRIVATE_KEY" ]; then
-      echo "ERROR: could not retrieve WireGuard server private key from $WG_SSM_PATH" >&2
-      exit 1
-    fi
-
-    # Write server config
-    install -d -m 700 /etc/wireguard
-    cat > /etc/wireguard/${WG_IFACE}.conf << EOF
-{{ .WireGuardServerConf }}
-EOF
-    # Overwrite PrivateKey with the one fetched from SSM (template has placeholder)
-    sed -i "s|^PrivateKey = .*|PrivateKey = ${WG_PRIVATE_KEY}|" /etc/wireguard/${WG_IFACE}.conf
-    chmod 600 /etc/wireguard/${WG_IFACE}.conf
-
-    # Enable IP forwarding
-    sysctl -w net.ipv4.ip_forward=1
-    if ! grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf; then
-      echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-    fi
-
-    # Enable and start the WireGuard service
-    systemctl enable wg-quick@${WG_IFACE}
-    systemctl start  wg-quick@${WG_IFACE}
-
-    unset WG_PRIVATE_KEY
-    )
-{{- end}}
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 `
@@ -380,19 +334,6 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
-
-	// Read embedded Ansible files
-	playbookBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/playbook.yml")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsiblePlaybook = string(playbookBytes)
-
-	inventoryBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/inventory.ini")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsibleInventory = string(inventoryBytes)
 
 	// Expose version constants to the template via a wrapper.
 	type templateData struct {

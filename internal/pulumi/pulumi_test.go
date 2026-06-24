@@ -60,8 +60,8 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 	if cfg["amiId"] != "ami-0abc123" {
 		t.Errorf("amiId: got %q", cfg["amiId"])
 	}
-	if cfg["userData"] != "my-user-data" {
-		t.Errorf("userData: got %q", cfg["userData"])
+	if cfg["userDataBase64"] != "my-user-data" {
+		t.Errorf("userDataBase64: got %q", cfg["userDataBase64"])
 	}
 	if _, ok := cfg["sshKeyName"]; ok {
 		t.Error("sshKeyName should not be set when empty")

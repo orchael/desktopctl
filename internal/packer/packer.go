@@ -97,10 +97,27 @@ func ParseVarsFile(path string) (map[string]string, error) {
 	return vars, scanner.Err()
 }
 
+// localeEnv returns a copy of os.Environ() with LANG and LC_ALL forced to
+// en_US.UTF-8.  Some systems (e.g. minimal Docker images) export LANG=C.UTF-8
+// which Python / Ansible reject at startup.
+func localeEnv() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env)+2)
+	for _, e := range env {
+		if strings.HasPrefix(e, "LANG=") || strings.HasPrefix(e, "LC_ALL=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	out = append(out, "LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8")
+	return out
+}
+
 // Init runs packer init to download required plugins.
 func Init(ctx context.Context, packerDir string, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, "packer", "init", ".")
 	cmd.Dir = packerDir
+	cmd.Env = localeEnv()
 	cmd.Stdout = w
 	cmd.Stderr = w
 	cmd.Stdin = nil
@@ -132,6 +149,7 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 
 	cmd := exec.CommandContext(ctx, "packer", args...)
 	cmd.Dir = packerDir
+	cmd.Env = localeEnv()
 	cmd.Stdout = w
 	cmd.Stderr = w
 	cmd.Stdin = nil
