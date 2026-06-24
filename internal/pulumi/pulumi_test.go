@@ -140,6 +140,69 @@ func fakePulumiDir(t *testing.T, exitCode int, stdout string) string {
 	return dir
 }
 
+func TestMergeConfig_WritesNamespacedKeys(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRunner()
+
+	// Large base64-like value (simulates gzip+base64 user-data).
+	largeVal := strings.Repeat("A", 4096)
+	cfg := StackConfig{
+		"aws:region":     "us-east-1",
+		"desktopId":      "d-test",
+		"userDataBase64": largeVal,
+	}
+	if err := r.mergeConfig(dir, "desktop", "desktop-d-test", cfg); err != nil {
+		t.Fatalf("mergeConfig: %v", err)
+	}
+
+	yamlPath := filepath.Join(dir, "Pulumi.desktop-d-test.yaml")
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		t.Fatalf("read yaml: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "aws:region") {
+		t.Error("expected aws:region in YAML")
+	}
+	if !strings.Contains(content, "desktop:desktopId") {
+		t.Error("expected desktop:desktopId in YAML")
+	}
+	if !strings.Contains(content, "desktop:userDataBase64") {
+		t.Error("expected desktop:userDataBase64 in YAML")
+	}
+	if !strings.Contains(content, largeVal) {
+		t.Error("expected full large value in YAML")
+	}
+}
+
+func TestMergeConfig_PreservesExistingFields(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "Pulumi.foundation-dev.yaml")
+	// Pre-existing YAML with encryptionsalt and a config key.
+	existing := "encryptionsalt: v1:abc123==\nconfig:\n  foundation:zone: example.com\n"
+	if err := os.WriteFile(yamlPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRunner()
+	if err := r.mergeConfig(dir, "foundation", "foundation-dev", StackConfig{"fleetTable": "my-table"}); err != nil {
+		t.Fatalf("mergeConfig: %v", err)
+	}
+
+	data, _ := os.ReadFile(yamlPath)
+	content := string(data)
+	if !strings.Contains(content, "encryptionsalt") {
+		t.Error("encryptionsalt should be preserved")
+	}
+	if !strings.Contains(content, "foundation:zone") {
+		t.Error("existing config key should be preserved")
+	}
+	if !strings.Contains(content, "foundation:fleetTable") {
+		t.Error("new key should be added")
+	}
+}
+
 func TestNewRunner(t *testing.T) {
 	r := NewRunner()
 	if r == nil {

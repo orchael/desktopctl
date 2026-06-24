@@ -11,7 +11,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // StackRef identifies a Pulumi stack.
@@ -180,10 +183,8 @@ func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progres
 	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", "--create", ref.StackName); err != nil {
 		return nil, fmt.Errorf("stack select: %w", err)
 	}
-	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
-			return nil, fmt.Errorf("config set %s: %w", k, err)
-		}
+	if err := r.mergeConfig(ref.WorkDir, ref.Project, ref.StackName, cfg); err != nil {
+		return nil, fmt.Errorf("write stack config: %w", err)
 	}
 	if err := r.run(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never"); err != nil {
 		return nil, fmt.Errorf("pulumi up: %w", err)
@@ -197,12 +198,50 @@ func (r *Runner) Preview(ctx context.Context, ref *StackRef, cfg StackConfig, pr
 	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", "--create", ref.StackName); err != nil {
 		return fmt.Errorf("stack select: %w", err)
 	}
-	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
-			return fmt.Errorf("config set %s: %w", k, err)
-		}
+	if err := r.mergeConfig(ref.WorkDir, ref.Project, ref.StackName, cfg); err != nil {
+		return fmt.Errorf("write stack config: %w", err)
 	}
 	return r.run(ctx, ref.WorkDir, env, progress, "preview", "--color", "never")
+}
+
+// mergeConfig writes cfg into Pulumi.<stackName>.yaml in workDir, merging with
+// any existing content so pre-existing values (e.g. encryptionsalt) are kept.
+// Keys in cfg that already contain ":" are stored as-is (e.g. "aws:region");
+// all other keys are prefixed with "<project>:" (e.g. "userDataBase64" →
+// "desktop:userDataBase64"). This bypasses `pulumi config set` which can silently
+// truncate or mis-serialize very long values such as gzip+base64 user-data.
+func (r *Runner) mergeConfig(workDir, project, stackName string, cfg StackConfig) error {
+	path := filepath.Join(workDir, "Pulumi."+stackName+".yaml")
+
+	var doc map[string]interface{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+	}
+	if doc == nil {
+		doc = make(map[string]interface{})
+	}
+
+	configMap, _ := doc["config"].(map[string]interface{})
+	if configMap == nil {
+		configMap = make(map[string]interface{})
+	}
+
+	for k, v := range cfg {
+		key := k
+		if !strings.Contains(k, ":") {
+			key = project + ":" + k
+		}
+		configMap[key] = v
+	}
+	doc["config"] = configMap
+
+	data, err := yaml.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", path, err)
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // Outputs reads the current output map for an existing stack without running
