@@ -314,6 +314,16 @@ runcmd:
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
 
+{{- if .WireGuardEnabled}}
+  # --- activate WireGuard (desktop.env is now written) ---
+  - |
+    if systemctl is-enabled ai-desktops-wireguard.service &>/dev/null; then
+      ip link delete {{ .WireGuardInterface }} 2>/dev/null || true
+      systemctl reset-failed ai-desktops-wireguard.service wg-quick@{{ .WireGuardInterface }}.service 2>/dev/null || true
+      systemctl start ai-desktops-wireguard.service || echo "WARNING: ai-desktops-wireguard.service failed to start"
+    fi
+{{- end}}
+
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 `
 
