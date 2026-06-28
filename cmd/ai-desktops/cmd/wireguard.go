@@ -25,12 +25,14 @@ WireGuard is the preferred way to secure operator access to desktops. When
 enabled, SSH/noVNC access is restricted to the VPN subnet (10.99.0.0/24 by
 default) and the security group opens UDP 51820 for handshakes.
 
-Workflow:
-  1. ai-desktops wireguard init              — enable WireGuard in config.yaml
-  2. ai-desktops wireguard add-peer laptop   — generate operator peer, save the private key
-  3. ai-desktops init-foundation             — apply updated security groups
-  4. ai-desktops create ...                  — new desktops include WireGuard server setup
-  5. ai-desktops wireguard add-peer laptop --desktop d-<id>  — apply peer to running desktop`,
+One-time setup:
+  1. ai-desktops wireguard init                    — enable WireGuard in config.yaml
+  2. ai-desktops wireguard add-peer <hostname>     — generate a peer for this machine
+  3. ai-desktops wireguard set-local-peer <name>   — mark that peer as this machine's peer
+  4. ai-desktops init-foundation                   — apply updated security groups
+
+Per desktop (automatic when using 'ai-desktops ssh'):
+  ai-desktops wireguard connect <desktop-id>       — configure and bring up the VPN tunnel`,
 }
 
 // ---- wireguard init ----
@@ -434,6 +436,195 @@ func runWireGuardShowConfig(_ *cobra.Command, args []string) error {
 	return wireguard.PrintQR(peerCfg)
 }
 
+// ---- wireguard set-local-peer ----
+
+var wireguardSetLocalPeerCmd = &cobra.Command{
+	Use:   "set-local-peer <name>",
+	Short: "Mark a peer as the WireGuard peer for this machine",
+	Long: `set-local-peer records which peer in config.yaml belongs to this machine.
+The named peer's private key must exist at ~/.ai-desktops/peers/<name>.key.
+Once set, 'ai-desktops wireguard connect' and 'ai-desktops ssh' will use this
+peer automatically — no manual wg-quick invocation needed.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runWireGuardSetLocalPeer,
+}
+
+func runWireGuardSetLocalPeer(_ *cobra.Command, args []string) error {
+	if !cfg.WireGuard.Enabled {
+		return fmt.Errorf("WireGuard is not enabled; run 'ai-desktops wireguard init' first")
+	}
+	name := args[0]
+
+	var found bool
+	for _, p := range cfg.WireGuard.Peers {
+		if p.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("peer %q not found in config; run 'ai-desktops wireguard add-peer %s' first", name, name)
+	}
+
+	if _, err := loadPeerKey(name); err != nil {
+		return fmt.Errorf("private key for peer %q not found on this machine: %w", name, err)
+	}
+
+	cfg.WireGuard.LocalPeer = name
+	if err := cfg.Save(cfgFile); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	fmt.Printf("Local peer set to %q. Run 'ai-desktops wireguard connect <desktop-id>' to connect.\n", name)
+	return nil
+}
+
+// ---- wireguard connect ----
+
+var wireguardConnectCmd = &cobra.Command{
+	Use:   "connect <desktop-id>",
+	Short: "Configure and bring up the WireGuard tunnel to a desktop",
+	Long: `connect fetches the desktop's WireGuard server key, writes the local client
+config to ~/.ai-desktops/wg-aidesktops.conf, and brings up the tunnel using
+wg-quick (if the interface is not running) or wg set (if already running).
+
+Requires sudo for wg-quick/wg/ip. Configure sudoers with NOPASSWD for these
+commands to avoid a password prompt:
+  %sudo ALL=(ALL) NOPASSWD: /usr/bin/wg, /usr/bin/wg-quick, /usr/sbin/ip`,
+	Args: cobra.ExactArgs(1),
+	RunE: runWireGuardConnect,
+}
+
+func runWireGuardConnect(_ *cobra.Command, args []string) error {
+	return connectWireGuard(args[0])
+}
+
+// connectWireGuard is the shared implementation used by both 'wireguard connect'
+// and the automatic pre-SSH connection.
+func connectWireGuard(desktopID string) error {
+	if !cfg.WireGuard.Enabled {
+		return fmt.Errorf("WireGuard is not enabled in config")
+	}
+
+	// Resolve the local peer.
+	peerName, peer, privKey, err := resolveLocalPeer()
+	if err != nil {
+		return err
+	}
+
+	// Fetch the desktop record.
+	ctx := context.Background()
+	s, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+	d, err := s.Get(ctx, desktopID)
+	if err != nil {
+		if isNotFound(err) {
+			return fmt.Errorf("desktop %q not found", desktopID)
+		}
+		return err
+	}
+
+	// Fetch server private key from SSM and derive the public key.
+	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("load AWS config: %w", err)
+	}
+	serverPrivKey, err := awsx.GetSecret(ctx, awsCfg, wireGuardSSMKeyPath(desktopID))
+	if err != nil {
+		return fmt.Errorf("fetch server key from SSM: %w", err)
+	}
+	serverPubKey, err := wireguard.PublicKey(serverPrivKey)
+	if err != nil {
+		return fmt.Errorf("derive server public key: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s:%d", d.Hostname, cfg.WireGuard.Port)
+	peerCfgIn := wireguard.PeerConfigInput{
+		PeerPrivateKey:      privKey,
+		PeerIP:              peer.AllowedIP,
+		ServerPublicKey:     serverPubKey,
+		ServerEndpoint:      endpoint,
+		AllowedIPs:          cfg.WireGuard.Subnet,
+		PersistentKeepalive: 25,
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+	mgr := wireguard.NewLocalManager(cfg.WireGuard.Interface, filepath.Join(home, ".ai-desktops"))
+
+	if mgr.IsUp() {
+		fmt.Printf("Interface %s is already up — adding peer for %s...\n", cfg.WireGuard.Interface, desktopID)
+		if err := mgr.AddPeer(serverPubKey, endpoint, peer.AllowedIP, cfg.WireGuard.Subnet); err != nil {
+			return fmt.Errorf("add peer: %w", err)
+		}
+	} else {
+		fmt.Printf("Bringing up %s for peer %q...\n", cfg.WireGuard.Interface, peerName)
+		if err := mgr.Up(peerCfgIn); err != nil {
+			return fmt.Errorf("bring up WireGuard interface: %w\n"+
+				"Tip: ensure sudo NOPASSWD is configured for wg-quick, wg, and ip.", err)
+		}
+	}
+
+	vpnIP, _ := wireguard.ServerIP(cfg.WireGuard.Subnet)
+	if vpnIP != "" {
+		fmt.Printf("Connected. SSH via VPN: ssh ubuntu@%s\n", vpnIP)
+	} else {
+		fmt.Printf("Connected. SSH is now available: ssh ubuntu@%s\n", d.Hostname)
+	}
+	return nil
+}
+
+// resolveLocalPeer finds the local peer name, peer record, and private key.
+// It uses cfg.WireGuard.LocalPeer if set, otherwise looks for any peer with
+// a key file on disk. Errors if none or more than one candidate exists.
+func resolveLocalPeer() (string, *config.WireGuardPeer, string, error) {
+	name := cfg.WireGuard.LocalPeer
+
+	if name == "" {
+		// Auto-detect: find peers with a key on disk.
+		var candidates []string
+		for _, p := range cfg.WireGuard.Peers {
+			if keyPath, err := peerKeyPath(p.Name); err == nil {
+				if _, err := os.Stat(keyPath); err == nil {
+					candidates = append(candidates, p.Name)
+				}
+			}
+		}
+		switch len(candidates) {
+		case 0:
+			return "", nil, "", fmt.Errorf("no local peer configured and no peer key found on disk\n" +
+				"Run 'ai-desktops wireguard add-peer <name>' to create a peer for this machine,\n" +
+				"then 'ai-desktops wireguard set-local-peer <name>' to mark it as local.")
+		case 1:
+			name = candidates[0]
+		default:
+			return "", nil, "", fmt.Errorf("multiple peer keys found on this machine (%v); "+
+				"run 'ai-desktops wireguard set-local-peer <name>' to specify which one to use", candidates)
+		}
+	}
+
+	var peer *config.WireGuardPeer
+	for i := range cfg.WireGuard.Peers {
+		if cfg.WireGuard.Peers[i].Name == name {
+			peer = &cfg.WireGuard.Peers[i]
+			break
+		}
+	}
+	if peer == nil {
+		return "", nil, "", fmt.Errorf("peer %q (local_peer) not found in config", name)
+	}
+
+	privKey, err := loadPeerKey(name)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("load private key for peer %q: %w", name, err)
+	}
+
+	return name, peer, privKey, nil
+}
+
 // ---- helpers ----
 
 // peerKeyPath returns the filesystem path for a named peer's private key.
@@ -524,5 +715,7 @@ func init() {
 	wireguardCmd.AddCommand(wireguardListPeersCmd)
 	wireguardCmd.AddCommand(wireguardRemovePeerCmd)
 	wireguardCmd.AddCommand(wireguardShowConfigCmd)
+	wireguardCmd.AddCommand(wireguardSetLocalPeerCmd)
+	wireguardCmd.AddCommand(wireguardConnectCmd)
 	rootCmd.AddCommand(wireguardCmd)
 }

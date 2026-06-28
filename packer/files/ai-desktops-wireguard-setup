@@ -44,6 +44,13 @@ sed -i "s|^PrivateKey = .*|PrivateKey = ${WG_PRIVATE_KEY}|" "$WG_CONF"
 chmod 600 "$WG_CONF"
 unset WG_PRIVATE_KEY
 
+# Open the WireGuard UDP port in UFW so handshakes aren't dropped
+WG_PORT=$(grep -Po '(?<=ListenPort\s=\s)\d+' "$WG_CONF" || echo "51820")
+if command -v ufw &>/dev/null && ufw status | grep -q "^Status: active"; then
+  ufw allow "${WG_PORT}/udp" comment "WireGuard"
+  ufw reload
+fi
+
 # Enable persistent IP forwarding
 if ! grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf; then
   echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
@@ -52,12 +59,17 @@ sysctl -w net.ipv4.ip_forward=1
 
 systemctl enable "wg-quick@${WG_IFACE}"
 
-# If a stale interface exists from a previous failed attempt, remove it first.
+# If the interface already exists (e.g. cloud-init ran this script before the
+# systemd service did), stop the service via systemctl so its state is updated.
+# Using wg-quick down directly leaves systemd in "active (exited)", making the
+# subsequent systemctl start a no-op and the interface never comes back up.
 if ip link show "${WG_IFACE}" &>/dev/null; then
   echo "ai-desktops-wireguard-setup: removing stale ${WG_IFACE} interface"
-  wg-quick down "${WG_IFACE}" 2>/dev/null || ip link delete "${WG_IFACE}" 2>/dev/null || true
+  systemctl stop "wg-quick@${WG_IFACE}" 2>/dev/null || \
+    wg-quick down "${WG_IFACE}" 2>/dev/null || \
+    ip link delete "${WG_IFACE}" 2>/dev/null || true
 fi
 
-systemctl start  "wg-quick@${WG_IFACE}"
+systemctl start "wg-quick@${WG_IFACE}"
 
 echo "ai-desktops-wireguard-setup: WireGuard VPN active on ${WG_IFACE}"

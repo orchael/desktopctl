@@ -55,6 +55,19 @@ func PublicKey(privateKeyB64 string) (string, error) {
 	return base64.StdEncoding.EncodeToString(pubBytes), nil
 }
 
+// ServerIP returns the VPN IP address of the WireGuard server for the given
+// subnet (always the first host address, i.e. network+1). Returns an error if
+// the subnet cannot be parsed.
+func ServerIP(subnet string) (string, error) {
+	_, ipNet, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("parse wireguard subnet %q: %w", subnet, err)
+	}
+	ip := cloneIP(ipNet.IP)
+	incrementIP(ip)
+	return ip.String(), nil
+}
+
 // AllocatePeerIP finds the next unused /32 address in the subnet for a new peer.
 // The server always holds .1; peers are assigned .2, .3, etc. in order.
 // Returns the peer IP in CIDR notation (e.g. "10.99.0.2/32").

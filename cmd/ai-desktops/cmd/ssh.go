@@ -13,6 +13,7 @@ import (
 
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/orchael/ai-desktops/internal/tunnel"
+	"github.com/orchael/ai-desktops/internal/wireguard"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,32 @@ func runSSH(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("desktop %q not found", id)
 		}
 		return err
+	}
+
+	// If WireGuard is enabled and no tunnel mode specified, auto-connect the VPN
+	// and SSH via the desktop's VPN IP (the tunnel only routes VPN-subnet traffic).
+	if sshTunnelMode == "" && cfg.WireGuard.Enabled {
+		if err := connectWireGuard(id); err != nil {
+			fmt.Fprintf(os.Stderr, "WireGuard auto-connect failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Falling back — SSH may fail if VPN is required.\n")
+			fmt.Fprintf(os.Stderr, "Run 'ai-desktops wireguard connect %s' to retry manually.\n\n", id)
+		} else {
+			vpnIP, err := wireguard.ServerIP(cfg.WireGuard.Subnet)
+			if err == nil {
+				d.SSHTarget = "ubuntu@" + vpnIP
+				fmt.Fprintf(os.Stderr, "Connecting via VPN: ssh %s\n", d.SSHTarget)
+				// Probe port 22 through the tunnel to give a fast, clear error if
+				// the VPN handshake hasn't completed yet.
+				conn, dialErr := net.DialTimeout("tcp", vpnIP+":22", 10*time.Second)
+				if dialErr != nil {
+					fmt.Fprintf(os.Stderr, "VPN tunnel not routing yet (%v).\n", dialErr)
+					fmt.Fprintf(os.Stderr, "The desktop's WireGuard service may still be starting. Try again in a moment.\n")
+					fmt.Fprintf(os.Stderr, "To diagnose: sudo wg show %s\n", cfg.WireGuard.Interface)
+					return fmt.Errorf("VPN not reachable: %w", dialErr)
+				}
+				conn.Close()
+			}
+		}
 	}
 
 	// If no tunnel mode specified, SSH directly to the hostname

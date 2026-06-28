@@ -316,11 +316,13 @@ runcmd:
 
 {{- if .WireGuardEnabled}}
   # --- activate WireGuard (desktop.env is now written) ---
+  # Run the script directly rather than via systemctl start to avoid a deadlock:
+  # systemctl start (blocking) from cloud-init runcmd for a oneshot service that
+  # itself calls systemctl start wg-quick@... hangs forever inside cloud-init.
   - |
-    if systemctl is-enabled ai-desktops-wireguard.service &>/dev/null; then
+    if [ -x /usr/local/bin/ai-desktops-wireguard-setup ]; then
       ip link delete {{ .WireGuardInterface }} 2>/dev/null || true
-      systemctl reset-failed ai-desktops-wireguard.service wg-quick@{{ .WireGuardInterface }}.service 2>/dev/null || true
-      systemctl start ai-desktops-wireguard.service || echo "WARNING: ai-desktops-wireguard.service failed to start"
+      /usr/local/bin/ai-desktops-wireguard-setup || echo "WARNING: ai-desktops-wireguard-setup failed"
     fi
 {{- end}}
 

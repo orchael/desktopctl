@@ -47,6 +47,7 @@ type WireGuardConfig struct {
 	Port      int             `yaml:"port,omitempty"`
 	Subnet    string          `yaml:"subnet,omitempty"`
 	Interface string          `yaml:"interface,omitempty"`
+	LocalPeer string          `yaml:"local_peer,omitempty"` // peer name for this machine
 	Peers     []WireGuardPeer `yaml:"peers,omitempty"`
 }
 
