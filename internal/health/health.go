@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -154,10 +155,13 @@ func (c *TCPChecker) Run(ctx context.Context) CheckResult {
 
 // HTTPSChecker verifies that an HTTPS endpoint returns a non-4xx/5xx status.
 // Redirects are not followed; 3xx responses are treated as a pass.
+// When serverName is set the TLS handshake verifies the cert against that name
+// instead of the host in the URL — useful when connecting via an IP address.
 type HTTPSChecker struct {
-	name    string
-	url     string
-	timeout time.Duration
+	name       string
+	url        string
+	timeout    time.Duration
+	serverName string // optional: override TLS SNI/verification hostname
 }
 
 // NewHTTPSChecker creates an HTTPSChecker.
@@ -165,11 +169,22 @@ func NewHTTPSChecker(name, url string, timeout time.Duration) *HTTPSChecker {
 	return &HTTPSChecker{name: name, url: url, timeout: timeout}
 }
 
+// NewHTTPSCheckerWithServerName creates an HTTPSChecker that connects to url
+// but verifies the TLS certificate against serverName.
+func NewHTTPSCheckerWithServerName(name, url, serverName string, timeout time.Duration) *HTTPSChecker {
+	return &HTTPSChecker{name: name, url: url, timeout: timeout, serverName: serverName}
+}
+
 func (c *HTTPSChecker) Name() string { return c.name }
 
 func (c *HTTPSChecker) Run(ctx context.Context) CheckResult {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if c.serverName != "" {
+		transport.TLSClientConfig = &tls.Config{ServerName: c.serverName}
+	}
 	client := &http.Client{
-		Timeout: c.timeout,
+		Timeout:   c.timeout,
+		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse // don't follow redirects; 3xx is a pass
 		},
@@ -270,20 +285,31 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 }
 
 // StandardCheckers returns the set of network-reachability checks run against a
-// provisioned desktop.
-func StandardCheckers(hostname string, sshPort int) []Checker {
-	sshAddr := fmt.Sprintf("%s:%d", hostname, sshPort)
+// provisioned desktop. sshHost is the address used for the TCP ssh-port probe
+// and may differ from hostname when WireGuard routes SSH through the VPN.
+func StandardCheckers(hostname string, sshHost string, sshPort int) []Checker {
+	sshAddr := fmt.Sprintf("%s:%d", sshHost, sshPort)
 	return []Checker{
 		NewTCPChecker("ssh-port", sshAddr, 10*time.Second),
 	}
 }
 
-// NoVNCCheckers returns checks for the novnc-desktop service.
-func NoVNCCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
-	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", hostname)
+// NoVNCCheckers returns checks for the novnc-desktop service. hostname is the
+// public DNS name (used for TLS cert verification); sshHost is the address
+// used for TCP connections and SSH — it may be a VPN IP when WireGuard routes
+// all desktop traffic through the VPN.
+func NoVNCCheckers(hostname string, sshHost string, sshPort int, user, keyPath string) []Checker {
+	noVNCURL := fmt.Sprintf("https://%s:8443/novnc", sshHost)
+	var httpsChecker Checker
+	if sshHost != hostname {
+		// Connect via VPN IP but validate TLS cert against the public hostname.
+		httpsChecker = NewHTTPSCheckerWithServerName("novnc-https", noVNCURL, hostname, 15*time.Second)
+	} else {
+		httpsChecker = NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second)
+	}
 	return []Checker{
-		NewHTTPSChecker("novnc-https", noVNCURL, 15*time.Second),
-		NewSSHChecker("novnc-running", hostname, sshPort, user, keyPath,
+		httpsChecker,
+		NewSSHChecker("novnc-running", sshHost, sshPort, user, keyPath,
 			"systemctl is-active novnc-desktop", 20*time.Second),
 	}
 }

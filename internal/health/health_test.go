@@ -149,7 +149,7 @@ func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
 }
 
 func TestStandardCheckers(t *testing.T) {
-	checkers := StandardCheckers("d-001.desktops.orchael.dev", 22)
+	checkers := StandardCheckers("d-001.desktops.orchael.dev", "d-001.desktops.orchael.dev", 22)
 	if len(checkers) == 0 {
 		t.Error("expected at least one standard checker")
 	}
@@ -162,7 +162,7 @@ func TestStandardCheckers(t *testing.T) {
 
 func TestNoVNCCheckers_returnsExpectedChecks(t *testing.T) {
 	hostname := "d-001.desktops.orchael.dev"
-	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
+	checkers := NoVNCCheckers(hostname, hostname, 22, "ubuntu", "")
 	names := make(map[string]bool)
 	for _, c := range checkers {
 		names[c.Name()] = true
@@ -177,7 +177,7 @@ func TestNoVNCCheckers_returnsExpectedChecks(t *testing.T) {
 func TestNoVNCCheckers_httpsPort8443(t *testing.T) {
 	// Verify the noVNC URL uses port 8443, not the default 443.
 	hostname := "d-001.desktops.orchael.dev"
-	checkers := NoVNCCheckers(hostname, 22, "ubuntu", "")
+	checkers := NoVNCCheckers(hostname, hostname, 22, "ubuntu", "")
 	found := false
 	for _, c := range checkers {
 		if c.Name() == "novnc-https" {

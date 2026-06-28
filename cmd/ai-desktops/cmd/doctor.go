@@ -11,6 +11,7 @@ import (
 
 	"github.com/orchael/ai-desktops/internal/health"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/ai-desktops/internal/wireguard"
 	"github.com/spf13/cobra"
 )
 
@@ -102,19 +103,29 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	createdAt, _ := time.Parse(time.RFC3339, d.CreatedAt)
 
+	// When WireGuard is enabled, SSH-based checks must reach the desktop via
+	// the VPN IP — the security group blocks port 22 from non-VPN addresses.
+	// Network/noVNC checks still use the public hostname.
+	sshHost := d.Hostname
+	if cfg.WireGuard.Enabled {
+		if vpnIP, err := wireguard.ServerIP(cfg.WireGuard.Subnet); err == nil && vpnIP != "" {
+			sshHost = vpnIP
+		}
+	}
+
 	groups := []health.CheckGroup{
-		{Label: "Network", Checkers: health.StandardCheckers(d.Hostname, 22)},
-		{Label: "noVNC Desktop", Checkers: health.NoVNCCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "Services", Checkers: health.SSHCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
+		{Label: "Network", Checkers: health.StandardCheckers(d.Hostname, sshHost, 22)},
+		{Label: "noVNC Desktop", Checkers: health.NoVNCCheckers(d.Hostname, sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Services", Checkers: health.SSHCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "System", Checkers: health.SystemCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Workspace", Checkers: health.WorkspaceCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Repositories", Checkers: health.RepoCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}
 	if cfg.WireGuard.Enabled {
 		groups = append(groups, health.CheckGroup{
 			Label:    "WireGuard VPN",
-			Checkers: health.WireGuardCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath),
+			Checkers: health.WireGuardCheckers(sshHost, 22, "ubuntu", cfg.Desktop.SSHKeyPath),
 		})
 	}
 	runner := health.NewRunnerGroups(id, groups...)
