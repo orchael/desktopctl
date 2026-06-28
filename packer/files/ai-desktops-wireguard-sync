@@ -1,0 +1,84 @@
+#!/bin/bash
+# Reconciles running WireGuard peers against the authoritative list in SSM.
+# Called at boot (from ai-desktops-wireguard-setup) and via SSM Run Command
+# when the peer list changes in SSM Parameter Store.
+set -euo pipefail
+
+ENV_FILE=/opt/ai-desktops/desktop.env
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ai-desktops-wireguard-sync: no desktop.env found, skipping"
+  exit 0
+fi
+
+# shellcheck source=/dev/null
+. "$ENV_FILE"
+
+if [ -z "${WG_IFACE:-}" ]; then
+  echo "ai-desktops-wireguard-sync: WireGuard not configured, skipping"
+  exit 0
+fi
+
+if ! ip link show "${WG_IFACE}" &>/dev/null; then
+  echo "ai-desktops-wireguard-sync: interface ${WG_IFACE} not up, skipping"
+  exit 0
+fi
+
+PEERS_SSM_PATH="/ai-desktops/wireguard/peers"
+
+echo "ai-desktops-wireguard-sync: reading peers from SSM ${PEERS_SSM_PATH}"
+
+# Fetch all peer parameters from SSM. Skip reconciliation if SSM is unreachable.
+if ! SSM_PARAMS=$(aws ssm get-parameters-by-path \
+  --region "${REGION}" \
+  --path "${PEERS_SSM_PATH}/" \
+  --query 'Parameters[*].Value' \
+  --output json 2>/dev/null); then
+  echo "ai-desktops-wireguard-sync: SSM read failed, skipping reconciliation" >&2
+  exit 0
+fi
+
+DESIRED=$(mktemp)
+trap 'rm -f "$DESIRED"' EXIT
+
+# Parse JSON array and write "pubkey allowedip" lines to DESIRED
+echo "$SSM_PARAMS" | python3 -c "
+import sys, json
+params = json.load(sys.stdin)
+for p in params:
+    try:
+        peer = json.loads(p)
+        print(peer['public_key'] + ' ' + peer['allowed_ip'])
+    except Exception:
+        pass
+" > "$DESIRED" 2>/dev/null || true
+
+# Get current WireGuard peer public keys (one per line)
+CURRENT_PEERS=$(wg show "${WG_IFACE}" peers 2>/dev/null || true)
+
+# Add peers from SSM that are not yet in WireGuard
+while IFS=' ' read -r pub_key allowed_ip; do
+  [ -z "$pub_key" ] && continue
+  if ! echo "${CURRENT_PEERS}" | grep -qF "$pub_key"; then
+    echo "ai-desktops-wireguard-sync: adding peer ${pub_key:0:16}..."
+    wg set "${WG_IFACE}" peer "$pub_key" allowed-ips "$allowed_ip" || true
+  fi
+done < "$DESIRED"
+
+# Remove peers from WireGuard that are no longer in SSM
+if [ -n "${CURRENT_PEERS}" ]; then
+  while IFS= read -r pub_key; do
+    [ -z "$pub_key" ] && continue
+    if ! grep -qF "$pub_key" "$DESIRED"; then
+      echo "ai-desktops-wireguard-sync: removing stale peer ${pub_key:0:16}..."
+      wg set "${WG_IFACE}" peer "$pub_key" remove || true
+    fi
+  done <<< "${CURRENT_PEERS}"
+fi
+
+# Persist the updated config so peers survive a wg-quick restart
+wg-quick save "${WG_IFACE}" 2>/dev/null || \
+  (wg showconf "${WG_IFACE}" > "/etc/wireguard/${WG_IFACE}.conf" && \
+   chmod 600 "/etc/wireguard/${WG_IFACE}.conf")
+
+echo "ai-desktops-wireguard-sync: done"

@@ -72,4 +72,9 @@ fi
 
 systemctl start "wg-quick@${WG_IFACE}"
 
+# Sync peers from SSM so any already-registered devices can connect immediately.
+if [ -x /usr/local/bin/ai-desktops-wireguard-sync ]; then
+  /usr/local/bin/ai-desktops-wireguard-sync || true
+fi
+
 echo "ai-desktops-wireguard-setup: WireGuard VPN active on ${WG_IFACE}"

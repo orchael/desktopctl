@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
@@ -247,6 +248,7 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// Secrets Manager and SSM Parameter Store read access for secret retrieval.
+	// GetParametersByPath is required for the wireguard peer sync script.
 	secretsPolicy := `{
   "Version": "2012-10-17",
   "Statement": [{
@@ -254,7 +256,8 @@ func run(ctx *pulumi.Context) error {
     "Action": [
       "secretsmanager:GetSecretValue",
       "ssm:GetParameter",
-      "ssm:GetParameters"
+      "ssm:GetParameters",
+      "ssm:GetParametersByPath"
     ],
     "Resource": "*"
   }]
@@ -295,6 +298,100 @@ func run(ctx *pulumi.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// --- EventBridge: auto-sync WireGuard peers on SSM changes ---
+	// When wireguardEnabled, an EventBridge rule watches for changes to
+	// /ai-desktops/wireguard/peers/* in SSM and triggers the
+	// ai-desktops-wireguard-sync script on all running desktops via SSM Run Command.
+	if wireguardEnabled {
+		regionInfo, err := aws.GetRegion(ctx, nil, nil)
+		if err != nil {
+			return fmt.Errorf("get AWS region: %w", err)
+		}
+
+		// IAM role that EventBridge assumes to call SSM Run Command.
+		eventBridgeAssumePolicy := `{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "events.amazonaws.com" },
+    "Action": "sts:AssumeRole"
+  }]
+}`
+		eventsRole, err := iam.NewRole(ctx, "ai-desktops-wg-events-role", &iam.RoleArgs{
+			AssumeRolePolicy: pulumi.String(eventBridgeAssumePolicy),
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Allow EventBridge to send SSM Run Command to instances tagged managed-by=ai-desktops.
+		eventBridgePolicy := `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringEquals": { "ec2:ResourceTag/managed-by": "ai-desktops" }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": "arn:aws:ssm:*:*:document/AWS-RunShellScript"
+    }
+  ]
+}`
+		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-wg-events-policy", &iam.RolePolicyArgs{
+			Role:   eventsRole.Name,
+			Policy: pulumi.String(eventBridgePolicy),
+		}); err != nil {
+			return err
+		}
+
+		// EventBridge rule: fire when any /ai-desktops/wireguard/peers/* parameter changes.
+		wgPeersRule, err := cloudwatch.NewEventRule(ctx, "ai-desktops-wg-peers-rule", &cloudwatch.EventRuleArgs{
+			Description: pulumi.String("Sync WireGuard peers on all desktops when SSM peer config changes"),
+			EventPattern: pulumi.String(`{
+  "source": ["aws.ssm"],
+  "detail-type": ["Parameter Store Change"],
+  "detail": {
+    "name": [{"prefix": "/ai-desktops/wireguard/peers/"}],
+    "operation": ["Create", "Update", "Delete", "LabelParameterVersion"]
+  }
+}`),
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		// EventBridge target: run ai-desktops-wireguard-sync on all desktop instances via SSM.
+		ssmDocARN := pulumi.Sprintf("arn:aws:ssm:%s::document/AWS-RunShellScript", regionInfo.Name)
+		if _, err := cloudwatch.NewEventTarget(ctx, "ai-desktops-wg-peers-target", &cloudwatch.EventTargetArgs{
+			Rule:    wgPeersRule.Name,
+			Arn:     ssmDocARN,
+			RoleArn: eventsRole.Arn,
+			RunCommandTargets: cloudwatch.EventTargetRunCommandTargetArray{
+				&cloudwatch.EventTargetRunCommandTargetArgs{
+					Key:    pulumi.String("tag:managed-by"),
+					Values: pulumi.StringArray{pulumi.String("ai-desktops")},
+				},
+			},
+			Input: pulumi.String(`{"commands":["/usr/local/bin/ai-desktops-wireguard-sync"],"workingDirectory":["/tmp"],"executionTimeout":["300"]}`),
+		}); err != nil {
+			return err
+		}
 	}
 
 	// --- DynamoDB fleet table ---

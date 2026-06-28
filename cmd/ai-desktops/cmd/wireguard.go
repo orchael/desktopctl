@@ -136,6 +136,10 @@ func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
+	if err := pushPeerToSSM(name, pubKey, peerIP); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not write peer to SSM (%v); peer is saved locally only.\n", err)
+	}
+
 	fmt.Printf("Peer %q added (IP: %s). Private key saved to %s\n", name, peerIP, keyPath)
 
 	if addPeerDesktop != "" {
@@ -268,6 +272,10 @@ func runWireGuardRemovePeer(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("peer %q not found", name)
 	}
 
+	if err := deletePeerFromSSM(name); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not delete peer from SSM (%v); peer removed from local config only.\n", err)
+	}
+
 	if removePeerDesktop != "" {
 		ctx := context.Background()
 		s, err := openStore(ctx)
@@ -314,6 +322,28 @@ func removeWireGuardPeerSSH(host, keyPath, iface, peerPubKey string) error {
 		iface, peerPubKey, iface, iface, iface,
 	)
 	return runSSHCommand(host, keyPath, rmCmd)
+}
+
+func pushPeerToSSM(name, pubKey, allowedIP string) error {
+	ctx := context.Background()
+	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	if err != nil {
+		return err
+	}
+	return wireguard.PutPeerSSM(ctx, awsCfg, config.WireGuardPeer{
+		Name:      name,
+		PublicKey: pubKey,
+		AllowedIP: allowedIP,
+	})
+}
+
+func deletePeerFromSSM(name string) error {
+	ctx := context.Background()
+	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	if err != nil {
+		return err
+	}
+	return wireguard.DeletePeerSSM(ctx, awsCfg, name)
 }
 
 // ---- wireguard list-peers ----

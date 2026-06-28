@@ -423,6 +423,14 @@
         group: root
         mode: "0755"
 
+    - name: Install ai-desktops-wireguard-sync script
+      ansible.builtin.copy:
+        src: files/ai-desktops-wireguard-sync
+        dest: /usr/local/bin/ai-desktops-wireguard-sync
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Install ai-desktops-wireguard systemd service
       ansible.builtin.copy:
         src: files/ai-desktops-wireguard.service
