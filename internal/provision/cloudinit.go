@@ -2,13 +2,9 @@ package provision
 
 import (
 	"bytes"
-	"embed"
 	"strings"
 	"text/template"
 )
-
-//go:embed ansible/desktop-setup/*
-var ansibleFS embed.FS
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
@@ -35,10 +31,15 @@ type BootstrapConfig struct {
 	Environment          string
 	PackagesPreInstalled bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
-	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
-	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
+
+	// WireGuard fields — zero values disable WireGuard sections in the template.
+	WireGuardEnabled    bool
+	WireGuardInterface  string
+	WireGuardServerConf string
+	WireGuardSSMKeyPath string
+	WireGuardPort       int
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -74,22 +75,16 @@ packages:
   - gh
 {{- end}}
 
+{{- if .WireGuardEnabled}}
 write_files:
-  - path: /opt/ai-desktops/ansible/playbook.yml
+  - path: /etc/wireguard/{{ .WireGuardInterface }}.conf
     owner: root:root
-    permissions: "0644"
+    permissions: "0600"
     content: |
-{{ .AnsiblePlaybook | indent 6 }}
-  - path: /opt/ai-desktops/ansible/inventory.ini
-    owner: root:root
-    permissions: "0644"
-    content: |
-{{ .AnsibleInventory | indent 6 }}
+{{ .WireGuardServerConf | indent 6 }}
+{{- end}}
 
 runcmd:
-  # --- run desktop-setup ansible playbook ---
-  - ansible-playbook /opt/ai-desktops/ansible/playbook.yml -i /opt/ai-desktops/ansible/inventory.ini
-
   # --- system setup ---
   - systemctl enable docker
   - systemctl start docker
@@ -339,6 +334,11 @@ runcmd:
       printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
+{{- if .WireGuardEnabled}}
+      printf 'REGION="%s"\n' "{{ .AWSRegion }}"
+      printf 'WG_IFACE="%s"\n' "{{ .WireGuardInterface }}"
+      printf 'WG_SSM_PATH="%s"\n' "{{ .WireGuardSSMKeyPath }}"
+{{- end}}
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
@@ -363,19 +363,6 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
-
-	// Read embedded Ansible files
-	playbookBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/playbook.yml")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsiblePlaybook = string(playbookBytes)
-
-	inventoryBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/inventory.ini")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsibleInventory = string(inventoryBytes)
 
 	// Expose version constants to the template via a wrapper.
 	type templateData struct {
