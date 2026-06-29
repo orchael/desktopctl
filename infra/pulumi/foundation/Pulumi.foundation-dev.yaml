@@ -1,9 +1,9 @@
-encryptionsalt: v1:IqF78N+M7JY=:v1:I4AaYl6SihT9d5uH:O6J73y5lRKztXaGKMObpIcgk599SGw==
 config:
-  aws:region: us-east-2
-  foundation:zone: desktops.orchael.dev
-  foundation:fleetTable: ai-desktops-fleet
-  foundation:operatorCIDR: 0.0.0.0/0
-  foundation:environment: dev
-  foundation:wireguardEnabled: "true"
-  foundation:wireguardPort: "51820"
+    aws:region: us-east-2
+    foundation:environment: dev
+    foundation:fleetTable: ai-desktops-fleet
+    foundation:operatorCIDR: 0.0.0.0/0
+    foundation:wireguardEnabled: "true"
+    foundation:wireguardPort: "51820"
+    foundation:zone: desktops.orchael.dev
+encryptionsalt: v1:IqF78N+M7JY=:v1:I4AaYl6SihT9d5uH:O6J73y5lRKztXaGKMObpIcgk599SGw==
