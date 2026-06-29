@@ -28,8 +28,9 @@ type BootstrapConfig struct {
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
-	GitHubSecretPath     string // AWS Secrets Manager path: /ai-desktops/<owner>/github
-	AgentSecretPath      string // AWS Secrets Manager path: /ai-desktops/<owner>/agents
+	GitHubSecretPath     string   // AWS Secrets Manager path: /ai-desktops/<owner>/github
+	AgentSecretPath      string   // AWS Secrets Manager path: /ai-desktops/<owner>/agents
+	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
@@ -219,6 +220,48 @@ runcmd:
     chmod 600 /home/ubuntu/.config/bridgectl/agents.env
     chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/agents.env
     unset AGENT_JSON
+    )
+{{- end}}
+
+{{- if .DesktopSecretPaths}}
+  # --- retrieve desktop secrets and inject into ubuntu environment ---
+  - |
+    (
+    REGION="{{ .AWSRegion }}"
+    DESKTOP_ENV_TMP=$(mktemp)
+    trap 'rm -f "$DESKTOP_ENV_TMP"' EXIT
+{{ range .DesktopSecretPaths }}
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "{{ . }}" \
+      --query SecretString \
+      --output text 2>/dev/null) || true
+    if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
+      echo "WARNING: could not retrieve desktop secret {{ . }}" >&2
+    else
+      printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+    fi
+    unset SECRET_JSON
+{{ end }}
+    if [ -s "$DESKTOP_ENV_TMP" ]; then
+      # systemd user environment (read by user manager; available to bridgectl and other user services)
+      install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/environment.d
+      install -o ubuntu -g ubuntu -m 600 "$DESKTOP_ENV_TMP" \
+        /home/ubuntu/.config/environment.d/desktop-secrets.conf
+      chown ubuntu:ubuntu /home/ubuntu/.config/environment.d/desktop-secrets.conf
+
+      # shell-sourceable file for interactive sessions
+      install -o ubuntu -g ubuntu -m 600 /dev/null /home/ubuntu/.desktop-secrets
+      while IFS= read -r kv; do
+        printf 'export %s\n' "$kv" >> /home/ubuntu/.desktop-secrets
+      done < "$DESKTOP_ENV_TMP"
+      chown ubuntu:ubuntu /home/ubuntu/.desktop-secrets
+
+      # source from .bashrc if not already wired
+      if ! grep -qF '.desktop-secrets' /home/ubuntu/.bashrc 2>/dev/null; then
+        printf '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n' >> /home/ubuntu/.bashrc
+      fi
+    fi
     )
 {{- end}}
 

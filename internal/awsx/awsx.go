@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
@@ -290,6 +291,25 @@ func GetCallerIdentity(ctx context.Context, cfg aws.Config) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s (%s)", aws.ToString(out.Account), aws.ToString(out.Arn)), nil
+}
+
+// SecretExists reports whether the named secret exists and is accessible in
+// AWS Secrets Manager. It returns false (not an error) when the secret is
+// absent or not found; it returns an error only for unexpected failures such
+// as permission errors.
+func SecretExists(ctx context.Context, cfg aws.Config, secretID string) (bool, error) {
+	smClient := secretsmanager.NewFromConfig(cfg)
+	_, err := smClient.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
+		SecretId: aws.String(secretID),
+	})
+	if err == nil {
+		return true, nil
+	}
+	var notFound *secretsmanagertypes.ResourceNotFoundException
+	if errors.As(err, &notFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("describe secret %q: %w", secretID, err)
 }
 
 // GetSecret retrieves a secret value from AWS SSM Parameter Store (with

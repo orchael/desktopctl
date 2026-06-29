@@ -278,6 +278,64 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_desktopSecretPaths(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:          "d-sec",
+		Hostname:           "d-sec.desktops.orchael.dev",
+		GitHubOwner:        "acme",
+		GitHubSecretPath:   "/ai-desktops/acme/github",
+		AWSRegion:          "us-east-1",
+		Environment:        "dev",
+		DesktopSecretPaths: []string{"/ai-desktops/acme/myapp", "/ai-desktops/acme/shared"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"/ai-desktops/acme/myapp",
+		"/ai-desktops/acme/shared",
+		"environment.d",
+		"desktop-secrets.conf",
+		".desktop-secrets",
+		".bashrc",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+
+	var v any
+	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+		t.Errorf("rendered cloud-init with desktop secrets is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_noDesktopSecretPaths(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-nosec",
+		Hostname:         "d-nosec.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	if strings.Contains(out, "desktop-secrets.conf") {
+		t.Error("desktop-secrets.conf should be absent when DesktopSecretPaths is empty")
+	}
+	if strings.Contains(out, ".desktop-secrets") {
+		t.Error(".desktop-secrets should be absent when DesktopSecretPaths is empty")
+	}
+}
+
 func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:            "d-cloud",
