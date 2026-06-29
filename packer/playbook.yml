@@ -285,6 +285,15 @@
       args:
         creates: /opt/ai-agent-bridge/node_modules/.bin/claude
 
+    - name: Add ai-agent-bridge bin to PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/ai-agent-bridge.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          export PATH="/opt/ai-agent-bridge/node_modules/.bin:$PATH"
+
     - name: Stop and disable ai-agent-bridge system service before masking
       ansible.builtin.systemd:
         name: ai-agent-bridge
