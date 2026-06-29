@@ -176,7 +176,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// WireGuard server setup: generate keypair, store private key in SSM, render server config.
+	// WireGuard server setup: reuse existing key if present in SSM (keeps client
+	// configs valid across desktop recreations), otherwise generate a new one.
 	wgServerConf := ""
 	wgSSMPath := ""
 	if cfg.WireGuard.Enabled {
@@ -184,17 +185,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("load AWS config for WireGuard setup: %w", err)
 		}
-		serverPrivKey, err := wireguard.GeneratePrivateKey()
+		wgSSMPath = wireGuardSSMKeyPath(desktopID)
+		serverPrivKey, err := awsx.GetSecret(ctx, awsCfg, wgSSMPath)
 		if err != nil {
-			return fmt.Errorf("generate WireGuard server private key: %w", err)
+			// No existing key — generate a fresh one.
+			serverPrivKey, err = wireguard.GeneratePrivateKey()
+			if err != nil {
+				return fmt.Errorf("generate WireGuard server private key: %w", err)
+			}
+			if err := awsx.PutSecureParameter(ctx, awsCfg, wgSSMPath, serverPrivKey); err != nil {
+				return fmt.Errorf("store WireGuard server key in SSM: %w", err)
+			}
+		} else {
+			fmt.Printf("Reusing existing WireGuard server key for %s (client configs remain valid).\n", desktopID)
 		}
 		serverPubKey, err := wireguard.PublicKey(serverPrivKey)
 		if err != nil {
 			return fmt.Errorf("derive WireGuard server public key: %w", err)
-		}
-		wgSSMPath = wireGuardSSMKeyPath(desktopID)
-		if err := awsx.PutSecureParameter(ctx, awsCfg, wgSSMPath, serverPrivKey); err != nil {
-			return fmt.Errorf("store WireGuard server key in SSM: %w", err)
 		}
 		serverCfgInput := wireguard.ServerConfigInput{
 			Interface:  cfg.WireGuard.Interface,
