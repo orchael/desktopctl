@@ -78,6 +78,7 @@ func printWireGuardStatus() {
 
 var (
 	addPeerDesktop string
+	addPeerApply   bool
 )
 
 var wireguardAddPeerCmd = &cobra.Command{
@@ -87,7 +88,10 @@ var wireguardAddPeerCmd = &cobra.Command{
 the public key in config.yaml, and saves the private key to
 ~/.ai-desktops/peers/<name>.key (mode 0600).
 
-Use --desktop to also apply the peer live to a running desktop without reboot.`,
+Use --desktop to also apply the peer live to a running desktop without reboot.
+For mobile devices, the client config is printed as a QR code to scan.
+For local workstations, add --apply to write the config and bring up the
+WireGuard interface automatically.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWireGuardAddPeer,
 }
@@ -95,6 +99,8 @@ Use --desktop to also apply the peer live to a running desktop without reboot.`,
 func init() {
 	wireguardAddPeerCmd.Flags().StringVar(&addPeerDesktop, "desktop", "",
 		"also apply the peer live to this running desktop (desktop ID)")
+	wireguardAddPeerCmd.Flags().BoolVar(&addPeerApply, "apply", false,
+		"write the WireGuard client config to this machine and bring up the interface (requires --desktop)")
 }
 
 func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
@@ -142,9 +148,31 @@ func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
 
 	fmt.Printf("Peer %q added (IP: %s). Private key saved to %s\n", name, peerIP, keyPath)
 
+	if addPeerApply && addPeerDesktop == "" {
+		return fmt.Errorf("--apply requires --desktop")
+	}
+
 	if addPeerDesktop != "" {
-		if err := applyPeerToDesktop(addPeerDesktop, name, privKey, pubKey, peerIP); err != nil {
+		peerCfg, err := applyPeerToDesktop(addPeerDesktop, name, privKey, pubKey, peerIP)
+		if err != nil {
 			return err
+		}
+		if addPeerApply {
+			// Local workstation: set as local peer then bring up the interface.
+			cfg.WireGuard.LocalPeer = name
+			if err := cfg.Save(cfgFile); err != nil {
+				return fmt.Errorf("save local peer: %w", err)
+			}
+			if err := connectWireGuard(addPeerDesktop); err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: could not bring up WireGuard interface: %v\n", err)
+				fmt.Println("Run 'ai-desktops wireguard connect <desktop-id>' to retry.")
+			}
+		} else {
+			// Mobile / other device: print QR code to scan.
+			fmt.Printf("Client config for %q (desktop %s):\n", name, addPeerDesktop)
+			if err := wireguard.PrintQR(peerCfg); err != nil {
+				return err
+			}
 		}
 	} else {
 		fmt.Printf("Run 'ai-desktops wireguard show-config %s --desktop <id>' to get the full client config.\n", name)
@@ -152,46 +180,47 @@ func runWireGuardAddPeer(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func applyPeerToDesktop(desktopID, peerName, privKey, pubKey, peerIP string) error {
+// applyPeerToDesktop pushes the peer to the desktop's WireGuard server over SSH
+// and returns the rendered client config string. The caller decides whether to
+// display it as a QR code (mobile) or write it locally (workstation).
+func applyPeerToDesktop(desktopID, _, privKey, pubKey, peerIP string) (string, error) {
 	ctx := context.Background()
 	s, err := openStore(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	d, err := s.Get(ctx, desktopID)
 	if err != nil {
 		if isNotFound(err) {
-			return fmt.Errorf("desktop %q not found", desktopID)
+			return "", fmt.Errorf("desktop %q not found", desktopID)
 		}
-		return err
+		return "", err
 	}
 
 	// Fetch the server public key from SSM.
 	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 	if err != nil {
-		return fmt.Errorf("load AWS config: %w", err)
+		return "", fmt.Errorf("load AWS config: %w", err)
 	}
 	ssmKey := wireGuardSSMKeyPath(desktopID)
 	serverPrivKey, err := awsx.GetSecret(ctx, awsCfg, ssmKey)
 	if err != nil {
-		return fmt.Errorf("fetch server private key from SSM (%s): %w", ssmKey, err)
+		return "", fmt.Errorf("fetch server private key from SSM (%s): %w", ssmKey, err)
 	}
 	serverPubKey, err := wireguard.PublicKey(serverPrivKey)
 	if err != nil {
-		return fmt.Errorf("derive server public key: %w", err)
+		return "", fmt.Errorf("derive server public key: %w", err)
 	}
 
 	// Apply the peer live over SSH.
-	sshKey := cfg.Desktop.SSHKeyPath
 	host := d.Hostname
-	if err := applyWireGuardPeerSSH(host, sshKey, cfg.WireGuard.Interface, pubKey, peerIP); err != nil {
+	if err := applyWireGuardPeerSSH(host, cfg.Desktop.SSHKeyPath, cfg.WireGuard.Interface, pubKey, peerIP); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: live apply failed (%v); peer is saved to config but not active on the desktop.\n", err)
 		fmt.Fprintf(os.Stderr, "         Reboot or re-run add-peer --desktop %s to retry.\n", desktopID)
 	} else {
 		fmt.Printf("Peer applied live to %s.\n", desktopID)
 	}
 
-	// Render and print full client config.
 	peerCfg, err := wireguard.RenderPeerConfig(wireguard.PeerConfigInput{
 		PeerPrivateKey:      privKey,
 		PeerIP:              peerIP,
@@ -201,10 +230,9 @@ func applyPeerToDesktop(desktopID, peerName, privKey, pubKey, peerIP string) err
 		PersistentKeepalive: 25,
 	})
 	if err != nil {
-		return fmt.Errorf("render peer config: %w", err)
+		return "", fmt.Errorf("render peer config: %w", err)
 	}
-	fmt.Printf("Client config for %q (desktop %s):\n", peerName, desktopID)
-	return wireguard.PrintQR(peerCfg)
+	return peerCfg, nil
 }
 
 // applyWireGuardPeerSSH SSHes into the desktop and adds the peer live via wg set,
