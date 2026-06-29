@@ -11,6 +11,29 @@ import (
 	"strings"
 )
 
+// packerEnv returns os.Environ() with LANG and LC_ALL set to en_US.UTF-8 when
+// absent. Packer's ansible provisioner runs "ansible-playbook --version" as a
+// preflight check; Ansible requires a UTF-8 locale or it exits non-zero.
+func packerEnv() []string {
+	env := os.Environ()
+	hasLang, hasLC := false, false
+	for _, e := range env {
+		if strings.HasPrefix(e, "LANG=") {
+			hasLang = true
+		}
+		if strings.HasPrefix(e, "LC_ALL=") {
+			hasLC = true
+		}
+	}
+	if !hasLang {
+		env = append(env, "LANG=en_US.UTF-8")
+	}
+	if !hasLC {
+		env = append(env, "LC_ALL=en_US.UTF-8")
+	}
+	return env
+}
+
 // ManifestBuild represents a single build in the Packer manifest.
 type ManifestBuild struct {
 	ArtifactID    string            `json:"artifact_id"`
@@ -101,6 +124,7 @@ func ParseVarsFile(path string) (map[string]string, error) {
 func Init(ctx context.Context, packerDir string, w io.Writer) error {
 	cmd := exec.CommandContext(ctx, "packer", "init", ".")
 	cmd.Dir = packerDir
+	cmd.Env = packerEnv()
 	cmd.Stdout = w
 	cmd.Stderr = w
 	cmd.Stdin = nil
@@ -132,6 +156,7 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 
 	cmd := exec.CommandContext(ctx, "packer", args...)
 	cmd.Dir = packerDir
+	cmd.Env = packerEnv()
 	cmd.Stdout = w
 	cmd.Stderr = w
 	cmd.Stdin = nil

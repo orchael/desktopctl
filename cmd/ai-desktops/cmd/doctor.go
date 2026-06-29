@@ -73,6 +73,12 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   Workspace:
     - workspace-mounted    — /workspace is mounted and writable
+
+  Secrets (only when --secret paths were specified at create time):
+    - desktop-secrets-env-file  — /home/ubuntu/.config/environment.d/desktop-secrets.conf exists and is non-empty
+    - desktop-secrets-bash-file — /home/ubuntu/.desktop-secrets exists and is non-empty
+
+  Repositories:
     - repo-<name>         — each configured repository is cloned under /workspace`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDoctor,
@@ -109,6 +115,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Secrets", Checkers: health.SecretsCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Secrets)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}
 	runner := health.NewRunnerGroups(id, groups...)

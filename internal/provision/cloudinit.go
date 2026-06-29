@@ -2,17 +2,13 @@ package provision
 
 import (
 	"bytes"
-	"embed"
 	"strings"
 	"text/template"
 )
 
-//go:embed ansible/desktop-setup/*
-var ansibleFS embed.FS
-
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.6.4"
+	AIAgentBridgeVersion  = "v0.7.4"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -28,16 +24,22 @@ type BootstrapConfig struct {
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
-	GitHubSecretPath     string // AWS Secrets Manager path: /ai-desktops/<owner>/github
-	AgentSecretPath      string // AWS Secrets Manager path: /ai-desktops/<owner>/agents
+	GitHubSecretPath     string   // AWS Secrets Manager path: /ai-desktops/<owner>/github
+	AgentSecretPath      string   // AWS Secrets Manager path: /ai-desktops/<owner>/agents
+	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
-	AnsiblePlaybook      string // embedded ansible/desktop-setup/playbook.yml content
-	AnsibleInventory     string // embedded ansible/desktop-setup/inventory.ini content
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
+
+	// WireGuard fields — zero values disable WireGuard sections in the template.
+	WireGuardEnabled    bool
+	WireGuardInterface  string
+	WireGuardServerConf string
+	WireGuardSSMKeyPath string
+	WireGuardPort       int
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -73,22 +75,16 @@ packages:
   - gh
 {{- end}}
 
+{{- if .WireGuardEnabled}}
 write_files:
-  - path: /opt/ai-desktops/ansible/playbook.yml
+  - path: /etc/wireguard/{{ .WireGuardInterface }}.conf
     owner: root:root
-    permissions: "0644"
+    permissions: "0600"
     content: |
-{{ .AnsiblePlaybook | indent 6 }}
-  - path: /opt/ai-desktops/ansible/inventory.ini
-    owner: root:root
-    permissions: "0644"
-    content: |
-{{ .AnsibleInventory | indent 6 }}
+{{ .WireGuardServerConf | indent 6 }}
+{{- end}}
 
 runcmd:
-  # --- run desktop-setup ansible playbook ---
-  - ansible-playbook /opt/ai-desktops/ansible/playbook.yml -i /opt/ai-desktops/ansible/inventory.ini
-
   # --- system setup ---
   - systemctl enable docker
   - systemctl start docker
@@ -222,6 +218,48 @@ runcmd:
     )
 {{- end}}
 
+{{- if .DesktopSecretPaths}}
+  # --- retrieve desktop secrets and inject into ubuntu environment ---
+  - |
+    (
+    REGION="{{ .AWSRegion }}"
+    DESKTOP_ENV_TMP=$(mktemp)
+    trap 'rm -f "$DESKTOP_ENV_TMP"' EXIT
+{{ range .DesktopSecretPaths }}
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "{{ . }}" \
+      --query SecretString \
+      --output text 2>/dev/null) || true
+    if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
+      echo "WARNING: could not retrieve desktop secret {{ . }}" >&2
+    else
+      printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); sq=lambda v: chr(39)+str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))+chr(39); print('\n'.join(f'{k}={sq(v)}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+    fi
+    unset SECRET_JSON
+{{ end }}
+    if [ -s "$DESKTOP_ENV_TMP" ]; then
+      # systemd user environment (read by user manager; available to bridgectl and other user services)
+      install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/environment.d
+      install -o ubuntu -g ubuntu -m 600 "$DESKTOP_ENV_TMP" \
+        /home/ubuntu/.config/environment.d/desktop-secrets.conf
+      chown ubuntu:ubuntu /home/ubuntu/.config/environment.d/desktop-secrets.conf
+
+      # shell-sourceable file for interactive sessions
+      install -o ubuntu -g ubuntu -m 600 /dev/null /home/ubuntu/.desktop-secrets
+      while IFS= read -r kv; do
+        printf 'export %s\n' "$kv" >> /home/ubuntu/.desktop-secrets
+      done < "$DESKTOP_ENV_TMP"
+      chown ubuntu:ubuntu /home/ubuntu/.desktop-secrets
+
+      # source from .bashrc if not already wired
+      if ! grep -qF '.desktop-secrets' /home/ubuntu/.bashrc 2>/dev/null; then
+        printf '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n' >> /home/ubuntu/.bashrc
+      fi
+    fi
+    )
+{{- end}}
+
   # --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---
   - |
     if [ ! -f /home/ubuntu/.claude.json ]; then
@@ -296,6 +334,11 @@ runcmd:
       printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
+{{- if .WireGuardEnabled}}
+      printf 'REGION="%s"\n' "{{ .AWSRegion }}"
+      printf 'WG_IFACE="%s"\n' "{{ .WireGuardInterface }}"
+      printf 'WG_SSM_PATH="%s"\n' "{{ .WireGuardSSMKeyPath }}"
+{{- end}}
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
@@ -320,19 +363,6 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
-
-	// Read embedded Ansible files
-	playbookBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/playbook.yml")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsiblePlaybook = string(playbookBytes)
-
-	inventoryBytes, err := ansibleFS.ReadFile("ansible/desktop-setup/inventory.ini")
-	if err != nil {
-		return "", err
-	}
-	cfg.AnsibleInventory = string(inventoryBytes)
 
 	// Expose version constants to the template via a wrapper.
 	type templateData struct {

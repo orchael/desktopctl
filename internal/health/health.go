@@ -405,3 +405,24 @@ func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Che
 			"[ -d /workspace ] && [ -w /workspace ]", t),
 	}
 }
+
+// SecretsCheckers returns checks that confirm desktop secrets were injected into
+// the ubuntu environment at boot. Returns nil when no secret paths are configured
+// so the group is omitted from doctor output entirely.
+//
+// When secrets are configured, checks verify that the systemd environment file
+// (/home/ubuntu/.config/environment.d/desktop-secrets.conf) and the bash
+// sourced file (/home/ubuntu/.desktop-secrets) were written and are non-empty,
+// confirming cloud-init fetched at least one secret and wrote its key-value pairs.
+func SecretsCheckers(hostname string, sshPort int, user, keyPath string, secretPaths []string) []Checker {
+	if len(secretPaths) == 0 {
+		return nil
+	}
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("desktop-secrets-env-file", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.config/environment.d/desktop-secrets.conf", t),
+		NewSSHChecker("desktop-secrets-bash-file", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.desktop-secrets", t),
+	}
+}

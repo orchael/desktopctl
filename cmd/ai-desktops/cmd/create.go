@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
@@ -18,6 +19,7 @@ import (
 var (
 	createOwner      string
 	createRepos      []string
+	createSecrets    []string
 	createPreview    bool
 	createEnv        string
 	createAMI        string
@@ -42,6 +44,7 @@ rejected before any infrastructure is changed.`,
 func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
+	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
@@ -76,6 +79,24 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Checking repository %s ...\n", r)
 		if err := r.CheckAccessible(ctx); err != nil {
 			return err
+		}
+	}
+
+	// Verify every --secret path exists in Secrets Manager before provisioning.
+	if len(createSecrets) > 0 {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config to validate secrets: %w", err)
+		}
+		for _, secretPath := range createSecrets {
+			fmt.Fprintf(os.Stderr, "Checking secret %s ...\n", secretPath)
+			ok, err := awsx.SecretExists(ctx, awsCfg, secretPath)
+			if err != nil {
+				return fmt.Errorf("check secret %s: %w", secretPath, err)
+			}
+			if !ok {
+				return fmt.Errorf("secret %q not found in Secrets Manager (region %s)", secretPath, cfg.AWS.Region)
+			}
 		}
 	}
 
@@ -117,6 +138,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
+		Secrets:       createSecrets,
 		InstanceType:  cfg.Desktop.InstanceType,
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
@@ -183,6 +205,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
 		AgentSecretPath:      cfg.GitHub.AgentSecret,
+		DesktopSecretPaths:   createSecrets,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
