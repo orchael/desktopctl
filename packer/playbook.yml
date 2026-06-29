@@ -480,6 +480,14 @@
         enabled: true
         daemon_reload: true
 
+    - name: Ensure ubuntu .ssh directory exists
+      ansible.builtin.file:
+        path: /home/ubuntu/.ssh
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+        state: directory
+
     - name: Add github.com to ubuntu known_hosts
       ansible.builtin.known_hosts:
         name: github.com

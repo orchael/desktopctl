@@ -8,7 +8,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.6.4"
+	AIAgentBridgeVersion  = "v0.7.4"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -234,7 +234,7 @@ runcmd:
     if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
       echo "WARNING: could not retrieve desktop secret {{ . }}" >&2
     else
-      printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+      printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); sq=lambda v: chr(39)+str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))+chr(39); print('\n'.join(f'{k}={sq(v)}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
     fi
     unset SECRET_JSON
 {{ end }}
