@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
@@ -89,15 +88,10 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("mark terminated: %w", err)
 	}
 
-	// Clean up the WireGuard server private key from SSM (best-effort).
-	if cfg.WireGuard.Enabled {
-		if awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile); err == nil {
-			ssmPath := wireGuardSSMKeyPath(id)
-			if delErr := awsx.DeleteParameter(ctx, awsCfg, ssmPath); delErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to delete WireGuard SSM key %s: %v\n", ssmPath, delErr)
-			}
-		}
-	}
+	// The WireGuard server private key is intentionally kept in SSM after
+	// termination. If the desktop is recreated with the same ID, the existing
+	// key is reused so that client configs (iPad QR codes, workstation tunnels)
+	// remain valid without any reconfiguration.
 
 	fmt.Printf("Desktop %s terminated.\n", id)
 	return nil
