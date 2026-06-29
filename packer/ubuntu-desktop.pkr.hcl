@@ -130,8 +130,6 @@ build {
       "ANSIBLE_HOST_KEY_CHECKING=False",
       "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
       "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
-      "LANG=en_US.UTF-8",
-      "LC_ALL=en_US.UTF-8",
     ]
   }
 
