@@ -138,6 +138,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	req := &desktop.CreateRequest{
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
+		Secrets:       createSecrets,
 		InstanceType:  cfg.Desktop.InstanceType,
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
