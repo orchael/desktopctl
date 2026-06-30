@@ -54,7 +54,7 @@ The preview must reference the active AMI ID. After creating a desktop, verify t
 
 ```bash
 ai-desktops doctor <desktop-id>
-ai-desktops ssh <desktop-id> -- 'wg --version'
+ai-desktops ssh <desktop-id> -- 'docker version && gh --version && go version'
 ```
 
 ## Troubleshooting
