@@ -98,32 +98,18 @@
 ## Plans Directory Audit (2026-06-02)
 
 Plans 14-17 are partially implemented. The remaining work groups below are ordered by dependency:
-finish the AMI and Pulumi contract, add WireGuard, ship the root welcome page, close the GitHub
-tooling gaps, align documentation, then run the live acceptance paths.
+finish the AMI and Pulumi contract, ship the root welcome page, close the GitHub tooling gaps,
+align documentation, then run the live acceptance paths.
 
 ### 1. AMI and Pulumi Foundation
 
-Summary: completed. The Plan 14 infrastructure contract now has one runtime bootstrap path,
-sequential multi-region builds, and the expected baked WireGuard tool baseline.
+Summary: completed. The Plan 14 infrastructure contract now has one runtime bootstrap path
+and sequential multi-region builds.
 
 - [x] Remove the stale inline cloud-init fallback from `infra/pulumi/desktop/main.go`; require CLI-rendered `userData` so the Pulumi program no longer carries the legacy PAT/.netrc bootstrap path.
 - [x] Implement comma-separated multi-region handling for `ai-desktops ami build --regions us-east-1,us-west-2`, or update Plan 14 to document the current single-region contract.
-- [x] Explicitly install and verify `wireguard-tools` in the Packer AMI, then enable the skipped FR-10 AMI checks.
 
-### 2. WireGuard VPN
-
-Summary: Plan 15 currently has CLI placeholders only. Implement persisted peer management,
-per-desktop server keys, runtime configuration, restricted network access, and health checks.
-
-- [ ] Add persisted `WireGuardConfig` settings and peer records to `internal/config`, including validation and round-trip tests.
-- [ ] Implement `internal/wireguard` key generation, public-key derivation, peer IP allocation, server/client config rendering, and terminal QR output with unit tests.
-- [ ] Replace the placeholder `wireguard` CLI handlers with `init`, `add-peer`, `remove-peer`, `list-peers`, and `show-config`, including live desktop peer updates over SSH.
-- [ ] Add AWS SSM SecureString create/delete helpers and wire per-desktop server-key lifecycle into `create` and `terminate`.
-- [ ] Render WireGuard server setup in cloud-init when enabled.
-- [ ] Make the foundation security group conditional: expose UDP 51820 publicly for handshake and restrict SSH/HTTP/HTTPS desktop access to the WireGuard subnet.
-- [ ] Add WireGuard checks to `doctor` and focused tests.
-
-### 3. Root Welcome Page
+### 2. Root Welcome Page
 
 Summary: implement Plan 16 so the desktop root URL serves the status app, noVNC moves under
 `/novnc/`, and the dashboard reads live state from a small production backend baked into the AMI.
@@ -134,7 +120,7 @@ Summary: implement Plan 16 so the desktop root URL serves the status app, noVNC 
 - [x] Reconfigure `ai-desktops-setup-tls` so `/` serves the built welcome page, `/novnc/` proxies noVNC, and `/api/` proxies the live backend.
 - [x] Bake `apps/desktop-web` static assets into `/opt/ai-desktops/web/dist/`; add `pnpm run dev:mock` and align the Vite proxy with the mock/backend port.
 
-### 4. GitHub Developer Tooling
+### 3. GitHub Developer Tooling
 
 Summary: Plan 17 is mostly present, but the final Pulumi secret path and setup command test
 coverage still need to be closed out.
@@ -142,7 +128,7 @@ coverage still need to be closed out.
 - [x] Remove the remaining legacy `patSecret` Pulumi contract with the inline cloud-init fallback; CLI-rendered user data now owns per-owner `gitHubSecret` injection.
 - [x] Add focused unit tests for `setup` SSH-key generation, secret JSON construction, token-scope validation, GitHub key registration, and Secrets Manager create/update behavior.
 
-### 5. Documentation and Plan Index
+### 4. Documentation and Plan Index
 
 Summary: align operator docs and the plan index with the implemented setup flow and the expanded
 post-MVP plan sequence.
@@ -150,13 +136,12 @@ post-MVP plan sequence.
 - [ ] Update `README.md` to document `ai-desktops setup`, per-owner Secrets Manager JSON credentials, SSH-based clones, and remove stale plain-PAT SSM instructions.
 - [ ] Update `plans/README.md` sequence and completion guidance for Plans 14-17.
 
-### 6. Live Acceptance
+### 5. Live Acceptance
 
 Summary: after implementation, rebuild the AMI and exercise the complete desktop workflow against
 AWS because several acceptance criteria cannot be proven by unit tests alone.
 
 - [ ] Run the Plan 14 acceptance path: build an AMI, create a desktop from it, verify the toolchain, and record the provisioning-time improvement.
-- [ ] Complete the Plan 15 cross-platform VPN verification, including tunnel-only SSH/noVNC access.
 - [ ] Run the Plan 16 browser, API, service, and noVNC checks against a rebuilt desktop.
 - [ ] Run `ai-desktops setup` against a test owner, provision a desktop, and run the FR-11 live integration checks.
 
@@ -172,8 +157,6 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 - [x] FEAT: Add Region field to desktop records and display in `ai-desktops list`
 - [x] FEAT: Region fallback to cfg.AWS.Region in list and status commands for pre-existing records
 - [x] DOCS: Add SSM debugging guide to README after doctor command
-- [x] ISSUE: Created GitHub Issue #23 — Add WireGuard VPN support (multi-platform: iOS, macOS, Linux, Windows)
-- [x] DOCS: Updated PRD with temporary public access (SSH/HTTP/HTTPS) until WireGuard, then restrict to VPN
 - [x] IMPL: Public access model — open SSH (port 22) to 0.0.0.0/0, add HTTP (port 80), update Pulumi config
 - [x] Install `ai-agent-bridge` on desktops — superseded by pinned apt installation in the Packer AMI (`v0.4.0` in `packer/variables.pkrvars.hcl`)
 - [x] SSH tunnel: make `StrictHostKeyChecking` configurable — implemented as `agent.trust_host` / `agent --trust-host` — https://github.com/markcallen/ai-desktops/issues/6

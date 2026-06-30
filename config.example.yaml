@@ -64,7 +64,6 @@ desktop:
 
   # CIDR range from which SSH (port 22) is allowed in the security group.
   # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.
-  # When WireGuard (plan 15) is enabled this will be restricted to the VPN subnet.
   operator_cidr: 0.0.0.0/0
 
 agent:

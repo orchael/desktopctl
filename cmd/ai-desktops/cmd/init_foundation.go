@@ -55,8 +55,6 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if err := requireBackend(ctx); err != nil {
 		return err
 	}
-	// TODO(wireguard): defaulting to open ingress is a temporary convenience;
-	// require an explicit operator_cidr once WireGuard replaces direct SSH access.
 	if cfg.Desktop.OperatorCIDR == "" {
 		cfg.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}

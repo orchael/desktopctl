@@ -181,7 +181,6 @@ This runs Packer to build an AMI on top of the latest public `novnc-desktop-ubun
 - uv (Python package manager)
 - AWS CLI v2
 - neovim (via snap)
-- WireGuard tools
 - Homebrew
 - `ai-agent-bridge`
 
