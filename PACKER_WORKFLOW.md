@@ -18,8 +18,7 @@ uv_version              = "0.4.0"
 
 The Packer build starts from the latest public `novnc-desktop-ubuntu-24.04-elementary-*` AMI in
 each requested region. The resulting image adds Docker, GitHub CLI, Python, Go, uv, Homebrew,
-WireGuard tools, Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned
-`ai-agent-bridge` package.
+Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned `ai-agent-bridge` package.
 
 ## Build
 
@@ -55,7 +54,7 @@ The preview must reference the active AMI ID. After creating a desktop, verify t
 
 ```bash
 ai-desktops doctor <desktop-id>
-ai-desktops ssh <desktop-id> -- 'wg --version'
+ai-desktops ssh <desktop-id> -- 'docker version && gh --version && go version'
 ```
 
 ## Troubleshooting

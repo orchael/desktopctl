@@ -34,12 +34,6 @@ type BootstrapConfig struct {
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
 
-	// WireGuard fields — zero values disable WireGuard sections in the template.
-	WireGuardEnabled    bool
-	WireGuardInterface  string
-	WireGuardServerConf string
-	WireGuardSSMKeyPath string
-	WireGuardPort       int
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -73,15 +67,6 @@ packages:
   - python3-certbot-dns-route53
   - ansible
   - gh
-{{- end}}
-
-{{- if .WireGuardEnabled}}
-write_files:
-  - path: /etc/wireguard/{{ .WireGuardInterface }}.conf
-    owner: root:root
-    permissions: "0600"
-    content: |
-{{ .WireGuardServerConf | indent 6 }}
 {{- end}}
 
 runcmd:
@@ -334,11 +319,6 @@ runcmd:
       printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
-{{- if .WireGuardEnabled}}
-      printf 'REGION="%s"\n' "{{ .AWSRegion }}"
-      printf 'WG_IFACE="%s"\n' "{{ .WireGuardInterface }}"
-      printf 'WG_SSM_PATH="%s"\n' "{{ .WireGuardSSMKeyPath }}"
-{{- end}}
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env

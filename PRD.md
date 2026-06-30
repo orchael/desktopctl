@@ -265,8 +265,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-9.1 | The system must support building per-region machine images with the base toolchain pre-installed using Packer. |
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
-| FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, WireGuard configuration, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
+| FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 
@@ -278,32 +278,6 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
 | AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateUsesAMIFromConfig` |
 | AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
-
-### FR-10 — WireGuard VPN support
-
-| ID | Requirement |
-| --- | --- |
-| FR-10.1 | The system must support operating desktops behind a WireGuard VPN when enabled in config. |
-| FR-10.2 | WireGuard tools must be installed in the base AMI; runtime configuration is injected at first boot via cloud-init. |
-| FR-10.3 | The WireGuard server private key must be generated at desktop create time and stored in AWS SSM Parameter Store as a SecureString (never in config YAML). |
-| FR-10.4 | The CLI must provide peer management commands: `ai-desktops wireguard add-peer`, `remove-peer`, `list-peers`, and `show-config`. |
-| FR-10.5 | Each peer configuration must be displayable as a QR code for easy mobile client onboarding. |
-| FR-10.6 | Peer private keys must be generated once at add-peer time and displayed to the operator; they must not be stored by `ai-desktops`. |
-| FR-10.7 | For running desktops, adding or removing a peer must apply the change live (without reboot) when the `--desktop` flag is provided. |
-| FR-10.8 | WireGuard peer list must be managed via the config system and persisted in `config.yaml`. |
-| FR-10.9 | The health check system must verify WireGuard server status and connectivity when enabled. |
-
-**Acceptance criteria:**
-
-| ID | Criterion | Integration test |
-| --- | --- | --- |
-| AC-10.1 | `ai-desktops wireguard --help` exits 0 and lists subcommands | `TestFR10_WireGuardCommandExists` |
-| AC-10.2 | `ai-desktops wireguard add-peer --help` exits 0 | `TestFR10_AddPeerCommandExists` |
-| AC-10.3 | `ai-desktops wireguard list-peers --help` exits 0 | `TestFR10_ListPeersCommandExists` |
-| AC-10.4 | `ai-desktops wireguard remove-peer --help` exits 0 | `TestFR10_RemovePeerCommandExists` |
-| AC-10.5 | `ai-desktops wireguard show-config --help` exits 0 | `TestFR10_ShowConfigCommandExists` |
-| AC-10.6 | `wireguard-tools` is installed on the desktop (wg --version succeeds) | `TestFR10_WireGuardToolsInstalled` |
-| AC-10.7 | WireGuard kernel module is available (wg command is on PATH) | `TestFR10_WireGuardOnPath` |
 
 ### FR-11 — GitHub developer tooling
 
@@ -344,26 +318,15 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 ### SR-1 — Desktop access security
 
-**When WireGuard is disabled** (legacy operator CIDR mode):
 - SSH (port 22) is exposed via security group rules, restricted to configured `operator_cidr`.
 - noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS.
 - HTTP port 80 is available for ACME challenges and temporary testing.
-
-**When WireGuard is enabled:**
-- SSH (port 22) access is restricted to WireGuard server network only (e.g., `10.99.0.0/24` if WireGuard subnet is `10.99.0.0/24`).
-- noVNC HTTPS (port 8443) is accessible only from WireGuard tunnel network.
-- HTTP port 80 is not exposed publicly (ACME DNS-01 challenge avoids HTTP dependency).
-- WireGuard server endpoint (UDP port 51820 by default) is reachable from `0.0.0.0/0` to allow initial handshake before tunnel is established.
-- All operator access to desktop resources must route through authenticated WireGuard VPN.
-- `operator_cidr` becomes optional when WireGuard is enabled; it is not used for security group rules in that mode.
 
 ### SR-2 — Secret handling
 
 - Secrets must not be baked into machine images.
 - Agent provider credentials must be injected at runtime through a secure secret-management mechanism.
 - Secrets must not be emitted in fleet-manager logs, agent logs, or browser-access bootstrap output.
-- WireGuard server private keys are generated per-desktop at creation time and stored in AWS SSM Parameter Store as SecureString, never in config files or logs.
-- WireGuard peer (operator) private keys are generated on-demand and displayed once to the operator; `ai-desktops` does not store them.
 
 ### SR-3 — Workspace boundary
 
@@ -505,10 +468,9 @@ desktop creation. This reduces boot time and removes package-install failures fr
 
 The `ai-desktops ami build` command invokes Packer to build one or more regions sequentially.
 Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
-`config.yaml`. The baked image includes the baseline development toolchain, WireGuard tools,
-`novnc-desktop`, and `ai-agent-bridge`. Cloud-init is reduced to runtime-only steps: TLS certificate
-generation via certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and
-repository cloning. Additional desktop applications such as `ai-agent-browser` and
+`config.yaml`. The baked image includes the baseline development toolchain, `novnc-desktop`, and
+`ai-agent-bridge`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
+certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and repository cloning. Additional desktop applications such as `ai-agent-browser` and
 `android-emulator-webapp` can be added to the image when they become required by a shipped workflow.
 
 ---
@@ -523,5 +485,6 @@ repository cloning. Additional desktop applications such as `ai-agent-browser` a
 - Web UI on top of the CLI-driven lifecycle engine
 - Support for additional cloud or on-premise providers
 - Automated CI/CD-driven AMI rebuilds when pinned component versions are updated
+- WireGuard VPN support (FR-10): per-desktop server keys in SSM, peer management CLI (`add-peer`, `remove-peer`, `list-peers`, `show-config`), QR-code onboarding, live peer updates, health checks, and restricted network access through VPN tunnel
 - Multi-desktop WireGuard mesh topology (peer-to-peer desktop connectivity)
 - WireGuard server separate from desktop instance (shared bastion topology)
