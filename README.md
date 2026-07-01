@@ -51,9 +51,9 @@ A hosted zone for the desktop DNS domain must already exist before running `init
 
 The foundation stack looks up the zone by domain name and exports the zone ID. If the zone is missing, `init-foundation` will fail with a clear error.
 
-### GitHub PAT
+### GitHub credentials
 
-Repositories are cloned during desktop boot using a GitHub personal access token retrieved from AWS Secrets Manager at runtime. The token is also written to `/home/ubuntu/.npmrc` on the desktop so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
+Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI and write `/home/ubuntu/.npmrc` so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
 
 The token requires these scopes:
 
@@ -67,7 +67,24 @@ The token requires these scopes:
 | `read:org` | Required by gh CLI auth |
 | `read:packages` | Install packages from GitHub Packages |
 
-Run `ai-desktops setup` to store the token in AWS Secrets Manager (at `/ai-desktops/<owner>/github`) before running `create`.
+Run `ai-desktops setup` to configure credentials. The wizard:
+
+1. Collects your AWS region/profile, GitHub owner, and git identity.
+2. Generates an Ed25519 SSH key pair and registers the public key with GitHub.
+3. Stores a JSON secret in AWS Secrets Manager at `/ai-desktops/<owner>/github`:
+   ```json
+   {
+     "github_token": "ghp_...",
+     "ssh_private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...",
+     "ssh_public_key": "ssh-ed25519 AAAA..."
+   }
+   ```
+4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/ai-desktops/<owner>/agents`.
+5. Writes `~/.ai-desktops/config.yaml`.
+
+Run `ai-desktops setup` before running `create`. It is safe to re-run — it prompts whether to rotate an existing token or SSH key.
+
+At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
 ## Installation
 
@@ -101,7 +118,7 @@ fleet:
 
 github:
   owner: myorg
-  pat_secret: /ai-desktops/github-pat
+  github_secret: /ai-desktops/myorg/github
 
 desktop:
   instance_type: t3.xlarge

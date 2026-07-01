@@ -248,6 +248,11 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("must not start ai-agent-bridge system daemon (replaced by bridgectl user service)")
 	}
 
+	// ballast update should run to fetch the latest version
+	if !strings.Contains(out, "ballast update") {
+		t.Error("ballast update should be present when PackagesPreInstalled is true")
+	}
+
 	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
 	if !strings.Contains(out, "ai-desktops-setup-tls") {
 		t.Error("ai-desktops-setup-tls should be invoked when PackagesPreInstalled is true")
@@ -373,5 +378,10 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 	// nginx TLS config should be absent (novnc-desktop install handles it)
 	if strings.Contains(out, "novnc-desktop-tls.conf") {
 		t.Error("nginx TLS config should be absent when PackagesPreInstalled is false")
+	}
+
+	// ballast update should not run when packages are not pre-installed (no AMI, no brew)
+	if strings.Contains(out, "ballast update") {
+		t.Error("ballast update should be absent when PackagesPreInstalled is false")
 	}
 }

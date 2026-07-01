@@ -159,6 +159,21 @@
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
 
+    - name: Tap everydaydevopsio/ballast Homebrew tap
+      ansible.builtin.shell: |
+        /home/linuxbrew/.linuxbrew/bin/brew tap everydaydevopsio/ballast
+        /home/linuxbrew/.linuxbrew/bin/brew trust everydaydevopsio/ballast
+      args:
+        creates: /home/linuxbrew/.linuxbrew/Library/Taps/everydaydevopsio/homebrew-ballast
+      become: false
+
+    - name: Install ballast via Homebrew
+      ansible.builtin.shell: |
+        /home/linuxbrew/.linuxbrew/bin/brew install ballast
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/ballast
+      become: false
+
     - name: Get latest nvm release version
       ansible.builtin.uri:
         url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
@@ -609,6 +624,16 @@
     - name: Show Rust version
       ansible.builtin.debug:
         msg: "Rust version: {{ rust_ver_out.stdout }}"
+
+    - name: Verify ballast is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/ballast --version
+      register: ballast_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show ballast version
+      ansible.builtin.debug:
+        msg: "Ballast version: {{ ballast_ver_out.stdout }}"
 
     - name: Re-enable unattended-upgrades timers so launched instances get security updates
       ansible.builtin.systemd:

@@ -133,7 +133,7 @@ coverage still need to be closed out.
 Summary: align operator docs and the plan index with the implemented setup flow and the expanded
 post-MVP plan sequence.
 
-- [ ] Update `README.md` to document `ai-desktops setup`, per-owner Secrets Manager JSON credentials, SSH-based clones, and remove stale plain-PAT SSM instructions.
+- [x] Update `README.md` to document `ai-desktops setup`, per-owner Secrets Manager JSON credentials, SSH-based clones, and remove stale plain-PAT SSM instructions.
 - [ ] Update `plans/README.md` sequence and completion guidance for Plans 14-17.
 
 ### 5. Live Acceptance

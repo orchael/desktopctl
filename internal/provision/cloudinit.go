@@ -89,6 +89,9 @@ runcmd:
   - chown ubuntu:ubuntu /opt/ai-desktops
 
 {{- if .PackagesPreInstalled}}
+  # --- update ballast to latest version ---
+  - "sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast update || echo 'WARNING: ballast update failed'"
+
   # --- TLS + nginx + /app/ route via ai-desktops-setup-tls ---
   # Reconfigures ports (80→{{ .NoVNCHTTPPort }}, 443→{{ .NoVNCHTTPSPort }}), obtains a
   # Let's Encrypt cert via DNS-01 (Route53), wires it into the novnc nginx
