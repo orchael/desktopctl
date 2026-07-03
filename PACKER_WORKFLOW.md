@@ -55,6 +55,7 @@ The preview must reference the active AMI ID. After creating a desktop, verify t
 ```bash
 ai-desktops doctor <desktop-id>
 ai-desktops ssh <desktop-id> -- 'docker version && gh --version && go version'
+ai-desktops ssh <desktop-id> -- 'sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast --version'
 ```
 
 ## Troubleshooting
