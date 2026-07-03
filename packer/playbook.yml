@@ -161,6 +161,7 @@
 
     - name: Tap everydaydevopsio/ballast Homebrew tap
       ansible.builtin.shell: |
+        set -euo pipefail
         /home/linuxbrew/.linuxbrew/bin/brew tap everydaydevopsio/ballast
         /home/linuxbrew/.linuxbrew/bin/brew trust everydaydevopsio/ballast
       args:

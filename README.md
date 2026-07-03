@@ -55,17 +55,17 @@ The foundation stack looks up the zone by domain name and exports the zone ID. I
 
 Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI and write `/home/ubuntu/.npmrc` so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
 
-The token requires these scopes:
+Recommended token scopes (required scopes are marked):
 
-| Scope | Purpose |
-|-------|---------|
-| `admin:public_key` | Register SSH keys |
-| `repo` | Clone, push, PRs |
-| `workflow` | GitHub Actions |
-| `security_events` | Code scanning, secret scanning |
-| `read:user` | Identity |
-| `read:org` | Required by gh CLI auth |
-| `read:packages` | Install packages from GitHub Packages |
+| Scope | Required | Purpose |
+|-------|----------|---------|
+| `admin:public_key` | Yes | Register SSH keys |
+| `repo` | Yes | Clone, push, PRs |
+| `read:user` | Yes | Identity |
+| `read:packages` | Yes | Install packages from GitHub Packages |
+| `workflow` | Recommended | GitHub Actions |
+| `security_events` | Recommended | Code scanning, secret scanning |
+| `read:org` | Optional | `gh` CLI org features; missing scope produces a warning but auth continues |
 
 Run `ai-desktops setup` to configure credentials. The wizard:
 
