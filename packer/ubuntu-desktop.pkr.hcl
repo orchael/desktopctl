@@ -26,6 +26,17 @@ variable "uv_version" {
   description = "uv version to install (e.g. 0.4.0)"
 }
 
+variable "desktop_web_version" {
+  type        = string
+  description = "desktop-web npm package version to install (e.g. 0.2.0)"
+}
+
+variable "github_npm_token" {
+  type        = string
+  description = "GitHub token with read:packages scope for installing @markcallen/desktop-web"
+  sensitive   = true
+}
+
 variable "aws_region" {
   type        = string
   description = "AWS region for the source and target AMI"
@@ -70,6 +81,7 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
+    DesktopWebVersion  = var.desktop_web_version
     BaseAMI            = var.source_ami
     Environment        = "base"
   }
@@ -81,30 +93,6 @@ source "amazon-ebs" "ubuntu" {
 build {
   name    = "ai-desktops"
   sources = ["source.amazon-ebs.ubuntu"]
-
-  # Build the desktop-web React app locally before provisioning the AMI so
-  # the compiled dist can be uploaded directly without requiring a GitHub
-  # SSH key on the launched instance.
-  provisioner "shell-local" {
-    command = "cd ${path.root}/../apps/desktop-web && pnpm install --frozen-lockfile && pnpm run build"
-  }
-
-  # scp requires the destination directory to exist before uploading into it.
-  provisioner "shell" {
-    inline = ["mkdir -p /tmp/desktop-web-dist"]
-  }
-
-  # Upload the pre-built dist and the API server to the instance so the
-  # Ansible playbook can move them into place without re-building on the AMI.
-  provisioner "file" {
-    source      = "${path.root}/../apps/desktop-web/dist/"
-    destination = "/tmp/desktop-web-dist/"
-  }
-
-  provisioner "file" {
-    source      = "${path.root}/../apps/desktop-web/api-server.py"
-    destination = "/tmp/desktop-web-api-server.py"
-  }
 
   # Stop unattended-upgrades before Ansible runs so apt installs don't race
   # with the background upgrade process holding /var/lib/dpkg/lock-frontend.
@@ -124,12 +112,13 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version} desktop_web_version=${var.desktop_web_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
       "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
       "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
+      "DESKTOP_WEB_NPM_TOKEN=${var.github_npm_token}",
     ]
   }
 
@@ -141,6 +130,7 @@ build {
       go_version           = var.go_version
       uv_version           = var.uv_version
       base_ami             = var.source_ami
+      desktop_web_version  = var.desktop_web_version
     }
   }
 }

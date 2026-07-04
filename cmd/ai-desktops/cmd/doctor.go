@@ -49,6 +49,10 @@ Network checks (always run):
 
 SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
+  Desktop Web:
+    - desktop-web-active  — ai-desktops-web systemd service is active
+    - desktop-web-version — installed @markcallen/desktop-web package version
+
   Essential Services:
     - docker-active   — Docker daemon is active
     - nvim-installed  — nvim is on PATH
@@ -111,6 +115,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	groups := []health.CheckGroup{
 		{Label: "Network", Checkers: health.StandardCheckers(d.Hostname, 22)},
 		{Label: "noVNC Desktop", Checkers: health.NoVNCCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Desktop Web", Checkers: health.DesktopWebCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Services", Checkers: health.SSHCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
