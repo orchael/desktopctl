@@ -56,13 +56,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add internal/version/version.go apps/desktop-web/package.json
-          git commit -m "chore(release): bump version to ${{ steps.semver.outputs.version }} [skip ci]"
+          git commit -m "chore(release): bump version to ${{ steps.semver.outputs.version }} [skip ci]" || echo "Nothing to commit"
           git tag "v${{ steps.semver.outputs.version }}"
           git push origin HEAD --tags
 
   publish_cli:
     needs: bump_and_tag
     uses: ./.github/workflows/publish-cli.yml
+    permissions:
+      contents: write
     with:
       version: ${{ needs.bump_and_tag.outputs.version }}
     secrets: inherit
@@ -70,6 +72,9 @@ jobs:
   publish_desktop_web:
     needs: bump_and_tag
     uses: ./.github/workflows/publish-desktop-web.yml
+    permissions:
+      contents: read
+      packages: write
     with:
       version: ${{ needs.bump_and_tag.outputs.version }}
     secrets: inherit
