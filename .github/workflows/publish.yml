@@ -1,0 +1,75 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bump_and_tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: prev_tag
+        uses: WyriHaximus/github-action-get-previous-tag@v2
+        with:
+          prefix: v
+
+      - name: Compute next versions
+        id: next_semver
+        uses: WyriHaximus/github-action-next-semvers@v1
+        with:
+          version: ${{ steps.prev_tag.outputs.tag }}
+
+      - name: Select version
+        id: semver
+        run: |
+          case "${{ inputs.release_type }}" in
+            patch) echo "version=${{ steps.next_semver.outputs.patch }}" >> "$GITHUB_OUTPUT" ;;
+            minor) echo "version=${{ steps.next_semver.outputs.minor }}" >> "$GITHUB_OUTPUT" ;;
+            major) echo "version=${{ steps.next_semver.outputs.major }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Update version files
+        run: |
+          sed -i 's/var Version = "[^"]*"/var Version = "${{ steps.semver.outputs.version }}"/' internal/version/version.go
+          cd apps/desktop-web && npm version ${{ steps.semver.outputs.version }} --no-git-tag-version
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add internal/version/version.go apps/desktop-web/package.json
+          git commit -m "chore(release): bump version to ${{ steps.semver.outputs.version }} [skip ci]"
+          git tag "v${{ steps.semver.outputs.version }}"
+          git push origin HEAD --tags
+
+  publish_cli:
+    needs: bump_and_tag
+    uses: ./.github/workflows/publish-cli.yml
+    with:
+      version: ${{ needs.bump_and_tag.outputs.version }}
+    secrets: inherit
+
+  publish_desktop_web:
+    needs: bump_and_tag
+    uses: ./.github/workflows/publish-desktop-web.yml
+    with:
+      version: ${{ needs.bump_and_tag.outputs.version }}
+    secrets: inherit
