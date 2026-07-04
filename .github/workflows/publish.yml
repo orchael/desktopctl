@@ -29,7 +29,7 @@ jobs:
         id: prev_tag
         uses: WyriHaximus/github-action-get-previous-tag@v2
         with:
-          prefix: v
+          pattern: 'v[0-9]*'
 
       - name: Compute next versions
         id: next_semver
