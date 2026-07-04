@@ -19,7 +19,7 @@
   },
   "scripts": {
     "vite": "vite",
-    "dev": "MOCK=true tsx server/index.ts & SRV=$!; vite; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null",
+    "dev": "tsx server/index.ts & SRV=$!; vite; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null",
     "dev:mock": "MOCK=true tsx server/index.ts & SRV=$!; vite; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null",
     "api": "tsx server/index.ts",
     "api:mock": "MOCK=true tsx server/index.ts",

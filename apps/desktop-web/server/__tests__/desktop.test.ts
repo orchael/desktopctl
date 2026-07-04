@@ -34,14 +34,13 @@ describe('buildDesktopInfo', () => {
   });
 
   it('strips port suffix from requestHost', async () => {
-    process.env.MOCK = 'true';
+    process.env.DESKTOP_ENV_FILE = '/tmp/nonexistent-desktop.env';
     const { buildDesktopInfo } = await import('../desktop.js');
     const info = buildDesktopInfo('example.com:5173') as Record<
       string,
       unknown
     >;
-    // mock data returns fixed hostname
-    expect(info.hostname).toBe('localhost');
+    expect(info.hostname).toBe('example.com');
   });
 });
 

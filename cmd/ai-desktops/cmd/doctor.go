@@ -47,11 +47,11 @@ Network checks (always run):
     - novnc-https   — noVNC HTTPS endpoint responding on port 8443
     - novnc-running — novnc-desktop systemd service is active
 
+SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
+
   Desktop Web:
     - desktop-web-active  — ai-desktops-web systemd service is active
     - desktop-web-version — installed @markcallen/desktop-web package version
-
-SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   Essential Services:
     - docker-active   — Docker daemon is active

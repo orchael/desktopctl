@@ -15,8 +15,10 @@ app.use(express.static(distPath));
 
 app.get('/api/desktop', (req, res) => {
   try {
+    const forwardedHost = req.headers['x-forwarded-host'];
     const requestHost =
-      (req.headers['x-forwarded-host'] as string) || req.headers.host;
+      (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ||
+      req.headers.host;
     const data = buildDesktopInfo(requestHost);
     res.json(data);
   } catch (err) {
