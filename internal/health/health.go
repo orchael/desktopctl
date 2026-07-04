@@ -406,6 +406,17 @@ func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Che
 	}
 }
 
+// DesktopWebCheckers returns checks for the desktop-web Express server.
+func DesktopWebCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("desktop-web-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active ai-desktops-web", t),
+		NewSSHChecker("desktop-web-version", hostname, sshPort, user, keyPath,
+			`node -e "process.stdout.write(require('/opt/ai-desktops/web/node_modules/@markcallen/desktop-web/package.json').version)"`, t),
+	}
+}
+
 // SecretsCheckers returns checks that confirm desktop secrets were injected into
 // the ubuntu environment at boot. Returns nil when no secret paths are configured
 // so the group is omitted from doctor output entirely.

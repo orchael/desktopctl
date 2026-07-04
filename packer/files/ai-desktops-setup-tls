@@ -3,9 +3,9 @@
 #
 # Wraps novnc-setup-tls to obtain a Let's Encrypt certificate via DNS-01
 # (Route53), then reconfigures nginx to serve:
-#   /         → desktop-web React SPA (static files from /opt/ai-desktops/web/dist/)
+#   /         → desktop-web Express server (127.0.0.1:3000)
 #   /novnc/   → noVNC browser VNC client (proxied to upstream)
-#   /api/     → ai-desktops Python API backend (127.0.0.1:3001)
+#   /api/     → desktop-web Express server (127.0.0.1:3000)
 #
 # The EC2 instance must have an IAM role with Route53 permissions:
 #   route53:ListHostedZones
@@ -25,7 +25,7 @@
 #   NOVNC_HTTPS_PORT      HTTPS port nginx listens on. Default: 8443
 #   NOVNC_SERVICE         systemd meta-service name. Default: novnc-desktop
 #   AI_DESKTOPS_WEB_PORT  Local port the ai-desktops web app listens on.
-#                         Default: 3001
+#                         Default: 3000
 
 set -euo pipefail
 
@@ -34,7 +34,7 @@ export CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@example.com}"
 export NOVNC_HTTP_PORT="${NOVNC_HTTP_PORT:-8080}"
 export NOVNC_HTTPS_PORT="${NOVNC_HTTPS_PORT:-8443}"
 export NOVNC_SERVICE="${NOVNC_SERVICE:-novnc-desktop}"
-export AI_DESKTOPS_WEB_PORT="${AI_DESKTOPS_WEB_PORT:-3001}"
+export AI_DESKTOPS_WEB_PORT="${AI_DESKTOPS_WEB_PORT:-3000}"
 
 NGINX_SITE="/etc/nginx/sites-available/novnc"
 LOG_FILE="/var/log/ai-desktops-setup-tls.log"
@@ -100,11 +100,10 @@ log "Running novnc-setup-tls..."
 
 # --- Step 3: reconfigure nginx to serve desktop-web and proxy noVNC/API ----
 # The novnc-desktop nginx config has "location / { proxy_pass noVNC; }".
-# We need to:
+# This script modifies it to add:
 #   1. Rename that block to "location /novnc/" so noVNC moves under /novnc/.
-#   2. Add "location / { try_files ... }" to serve the React SPA.
-#   3. Add "location /api/ { proxy_pass ... }" for the Python API backend.
-log "Reconfiguring nginx locations for desktop-web (static + /novnc/ + /api/)..."
+#   2. Add "location / { proxy_pass Express }" to proxy to the Express server.
+log "Reconfiguring nginx locations for desktop-web (Express + /novnc/)..."
 
 python3 - <<'PYEOF'
 import os, sys, re
@@ -161,12 +160,14 @@ content = content[:loc_start] + novnc_block + content[loc_end:]
 spa_block = f"""
   {marker}
 
-  # Serve the desktop-web React SPA.
-  root /opt/ai-desktops/web/dist;
-  index index.html;
-
+  # Proxy all requests to the desktop-web Express server (serves both
+  # the React SPA static files and the /api/ endpoints on port {web_port}).
   location / {{
-    try_files $uri $uri/ /index.html;
+    proxy_pass         http://127.0.0.1:{web_port}/;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_set_header   X-Forwarded-Host  $host;
   }}
 
   # noVNC WebSocket — the browser client connects here for the VNC session.
@@ -192,15 +193,6 @@ spa_block = f"""
     return 301 /novnc/vnc.html$is_args$args;
   }}
 
-  # Proxy the ai-desktops API backend.
-  location /api/ {{
-    proxy_pass         http://127.0.0.1:{web_port}/api/;
-    proxy_http_version 1.1;
-    proxy_set_header   Host              $host;
-    proxy_set_header   X-Forwarded-Proto $scheme;
-    proxy_set_header   X-Forwarded-Host  $host;
-  }}
-
 """
 
 content = content.replace(anchor, spa_block + anchor, 1)
@@ -208,7 +200,7 @@ content = content.replace(anchor, spa_block + anchor, 1)
 with open(nginx_site, "w") as fh:
     fh.write(content)
 
-print(f"Reconfigured nginx: /novnc/ proxies to noVNC, / serves React SPA, /api/ proxies to port {web_port}")
+print(f"Reconfigured nginx: /novnc/ proxies to noVNC, / and /api/ proxy to Express server on port {web_port}")
 PYEOF
 
 nginx -t 2>&1 | tee -a "$LOG_FILE"

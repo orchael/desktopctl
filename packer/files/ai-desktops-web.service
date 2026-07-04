@@ -1,11 +1,13 @@
 [Unit]
-Description=ai-desktops desktop web API server
+Description=ai-desktops desktop web server
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
-ExecStart=/usr/bin/python3 /opt/ai-desktops/web/api-server.py
+WorkingDirectory=/opt/ai-desktops/web
+Environment=PORT=3000
+ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@markcallen/desktop-web/server-dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

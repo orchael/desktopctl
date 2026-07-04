@@ -438,13 +438,6 @@
         group: root
         mode: "0755"
 
-    - name: Install pnpm globally via corepack
-      ansible.builtin.shell: |
-        corepack enable
-        corepack prepare pnpm@10 --activate
-      args:
-        creates: /usr/local/bin/pnpm
-
     - name: Create /opt/ai-desktops/web directory
       ansible.builtin.file:
         path: /opt/ai-desktops/web
@@ -453,31 +446,33 @@
         group: ubuntu
         mode: "0755"
 
-    - name: Install desktop-web dist into /opt/ai-desktops/web/dist
+    - name: Configure npm for GitHub Packages
       ansible.builtin.copy:
-        src: /tmp/desktop-web-dist/
-        dest: /opt/ai-desktops/web/dist/
-        remote_src: true
+        content: |
+          @markcallen:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken={{ lookup('env', 'DESKTOP_WEB_NPM_TOKEN') }}
+        dest: /root/.npmrc
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install @markcallen/desktop-web from GitHub Packages
+      ansible.builtin.shell: |
+        npm install --prefix /opt/ai-desktops/web @markcallen/desktop-web@{{ desktop_web_version }}
+      args:
+        creates: /opt/ai-desktops/web/node_modules/@markcallen/desktop-web/server-dist/index.js
+
+    - name: Set ownership of /opt/ai-desktops/web
+      ansible.builtin.file:
+        path: /opt/ai-desktops/web
+        state: directory
         owner: ubuntu
         group: ubuntu
+        recurse: true
 
-    - name: Install api-server.py into /opt/ai-desktops/web
-      ansible.builtin.copy:
-        src: /tmp/desktop-web-api-server.py
-        dest: /opt/ai-desktops/web/api-server.py
-        remote_src: true
-        owner: ubuntu
-        group: ubuntu
-        mode: "0755"
-
-    - name: Remove temporary desktop-web dist upload
+    - name: Remove npm auth token
       ansible.builtin.file:
-        path: /tmp/desktop-web-dist
-        state: absent
-
-    - name: Remove temporary desktop-web api-server upload
-      ansible.builtin.file:
-        path: /tmp/desktop-web-api-server.py
+        path: /root/.npmrc
         state: absent
 
     - name: Install ai-desktops-web systemd service
