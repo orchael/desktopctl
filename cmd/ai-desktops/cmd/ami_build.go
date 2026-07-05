@@ -10,6 +10,7 @@ import (
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/packer"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/ai-desktops/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,9 @@ func init() {
 func runAmiBuild(cmd *cobra.Command, args []string) error {
 	if err := requireTools("packer"); err != nil {
 		return err
+	}
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		return fmt.Errorf("GITHUB_TOKEN is not set; it is required to install @markcallen/desktop-web during the AMI build")
 	}
 	ctx := context.Background()
 
@@ -181,7 +185,7 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 		fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
 	}
 
-	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, amiPublic, os.Stderr); err != nil {
+	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, amiPublic, os.Stderr); err != nil {
 		return "", fmt.Errorf("packer build for %s: %w", region, err)
 	}
 	manifest, err := packer.ParseManifest(filepath.Join(packerDir, "manifest.json"))

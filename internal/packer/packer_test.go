@@ -346,7 +346,7 @@ func TestRun_Success(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var buf bytes.Buffer
-	if err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", false, &buf); err != nil {
+	if err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", "0.0.0", "0.0.0", false, &buf); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 }
@@ -357,7 +357,7 @@ func TestRun_Failure(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var buf bytes.Buffer
-	err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", false, &buf)
+	err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", "0.0.0", "0.0.0", false, &buf)
 	if err == nil {
 		t.Fatal("expected error from Run")
 	}
@@ -378,7 +378,7 @@ func TestRun_WithVarsFileAndPublic(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := Run(context.Background(), workDir, varsFile, "us-west-2", "ami-base2", true, &buf); err != nil {
+	if err := Run(context.Background(), workDir, varsFile, "us-west-2", "ami-base2", "0.0.0", "0.0.0", true, &buf); err != nil {
 		t.Fatalf("Run with vars and public: %v", err)
 	}
 }

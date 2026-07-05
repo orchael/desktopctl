@@ -14,15 +14,20 @@ import (
 // packerEnv returns os.Environ() with LANG and LC_ALL set to en_US.UTF-8 when
 // absent. Packer's ansible provisioner runs "ansible-playbook --version" as a
 // preflight check; Ansible requires a UTF-8 locale or it exits non-zero.
+// It also maps GITHUB_TOKEN → PKR_VAR_github_npm_token so Packer can pass it
+// to the Ansible provisioner as the npm registry auth token without requiring
+// a separate variable to be set.
 func packerEnv() []string {
 	env := os.Environ()
-	hasLang, hasLC := false, false
+	hasLang, hasLC, hasPKRToken := false, false, false
 	for _, e := range env {
-		if strings.HasPrefix(e, "LANG=") {
+		switch {
+		case strings.HasPrefix(e, "LANG="):
 			hasLang = true
-		}
-		if strings.HasPrefix(e, "LC_ALL=") {
+		case strings.HasPrefix(e, "LC_ALL="):
 			hasLC = true
+		case strings.HasPrefix(e, "PKR_VAR_github_npm_token="):
+			hasPKRToken = true
 		}
 	}
 	if !hasLang {
@@ -30,6 +35,11 @@ func packerEnv() []string {
 	}
 	if !hasLC {
 		env = append(env, "LC_ALL=en_US.UTF-8")
+	}
+	if !hasPKRToken {
+		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+			env = append(env, "PKR_VAR_github_npm_token="+token)
+		}
 	}
 	return env
 }
@@ -137,8 +147,10 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 
 // Run executes packer build in the given directory.
 // baseAMI is always required; the caller must resolve it before invoking Run.
+// cliVersion is the ai-desktops CLI version baked into the AMI tag.
+// desktopWebVersion is the @markcallen/desktop-web npm package version to install.
 // public controls whether the built AMI has public launch permissions.
-func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, public bool, w io.Writer) error {
+func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, cliVersion string, desktopWebVersion string, public bool, w io.Writer) error {
 	args := []string{"build"}
 	if varsFile != "" {
 		args = append(args, "-var-file="+varsFile)
@@ -149,6 +161,8 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	// Always override source_ami via -var so the vars file value cannot
 	// accidentally trigger a stale lookup.
 	args = append(args, "-var", "source_ami="+baseAMI)
+	args = append(args, "-var", "ai_desktops_version="+cliVersion)
+	args = append(args, "-var", "desktop_web_version="+desktopWebVersion)
 	if public {
 		args = append(args, "-var", "ami_public=true")
 	}

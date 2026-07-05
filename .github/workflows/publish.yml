@@ -49,6 +49,7 @@ jobs:
       - name: Update version files
         run: |
           sed -i 's/var Version = "[^"]*"/var Version = "${{ steps.semver.outputs.version }}"/' internal/version/version.go
+          sed -i 's/var DesktopWebVersion = "[^"]*"/var DesktopWebVersion = "${{ steps.semver.outputs.version }}"/' internal/version/version.go
           cd apps/desktop-web && npm version ${{ steps.semver.outputs.version }} --no-git-tag-version
 
       - name: Commit and tag
