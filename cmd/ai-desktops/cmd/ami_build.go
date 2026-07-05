@@ -44,8 +44,8 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	if err := requireTools("packer"); err != nil {
 		return err
 	}
-	if os.Getenv("DESKTOP_WEB_NPM_TOKEN") == "" && os.Getenv("GITHUB_TOKEN") == "" {
-		return fmt.Errorf("DESKTOP_WEB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @markcallen/desktop-web during the AMI build (GITHUB_TOKEN is accepted as a fallback but must also have read:packages scope)")
+	if os.Getenv("GITHUB_NPM_TOKEN") == "" {
+		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @markcallen/desktop-web during the AMI build")
 	}
 	ctx := context.Background()
 
