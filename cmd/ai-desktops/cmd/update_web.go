@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,49 +251,4 @@ func npmTarballName(name, version string) string {
 	n := strings.TrimPrefix(name, "@")
 	n = strings.ReplaceAll(n, "/", "-")
 	return n + "-" + version + ".tgz"
-}
-
-// versionFromTarball reads the version field from package.json inside a pnpm
-// tarball (which is a gzipped tar with a package/ prefix).
-func versionFromTarball(path string) (string, error) {
-	f, err := os.Open(path) //nolint:gosec
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return "", err
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if hdr.Name != "package/package.json" {
-			continue
-		}
-		data, err := io.ReadAll(tr)
-		if err != nil {
-			return "", err
-		}
-		// Simple grep for "version": "X.Y.Z" — avoids pulling in encoding/json.
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, `"version"`) {
-				parts := strings.SplitN(line, `"`, 4)
-				if len(parts) >= 4 {
-					return parts[3], nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("version not found in tarball")
 }
