@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -173,28 +174,31 @@ func updateWebFromLocal(d *store.Desktop) error {
 		return fmt.Errorf("pnpm build failed: %w", err)
 	}
 
+	// Read name and version from package.json so we can compute the tarball
+	// filename without parsing pnpm's rich stdout output.
+	pkg, err := readLocalPkgJSON(abs)
+	if err != nil {
+		return fmt.Errorf("read package.json: %w", err)
+	}
+	tarball := filepath.Join(os.TempDir(), npmTarballName(pkg.Name, pkg.Version))
+	defer os.Remove(tarball)
+
+	// pnpm pack writes its rich UI (📦 summary, file list) to stdout.
+	// Forward both streams to stderr so the user sees the output but we do
+	// not attempt to parse it.
 	packCmd := exec.Command("pnpm", "pack", "--pack-destination", os.TempDir())
 	packCmd.Dir = abs
-	var packOut strings.Builder
-	packCmd.Stdout = &packOut
+	packCmd.Stdout = os.Stderr
 	packCmd.Stderr = os.Stderr
 	if err := packCmd.Run(); err != nil {
 		return fmt.Errorf("pnpm pack failed: %w", err)
 	}
 
-	// pnpm pack prints only the filename (not the full path) to stdout.
-	filename := strings.TrimSpace(packOut.String())
-	if filename == "" {
-		return fmt.Errorf("pnpm pack did not print a tarball filename")
+	if _, serr := os.Stat(tarball); serr != nil {
+		return fmt.Errorf("expected tarball not found at %s after pnpm pack", tarball)
 	}
-	tarball := filepath.Join(os.TempDir(), filename)
-	defer os.Remove(tarball)
 
-	// Extract the version from the tarball to report it.
-	version, err := versionFromTarball(tarball)
-	if err != nil {
-		version = filepath.Base(tarball)
-	}
+	version := pkg.Version
 
 	fmt.Printf("Packed %s — copying to %s...\n", filepath.Base(tarball), d.DesktopID)
 
@@ -222,6 +226,34 @@ sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restar
 	}
 	fmt.Printf("desktop-web updated to %s on %s\n", version, d.DesktopID)
 	return nil
+}
+
+type localPkg struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+func readLocalPkgJSON(dir string) (*localPkg, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return nil, err
+	}
+	var p localPkg
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	if p.Name == "" || p.Version == "" {
+		return nil, fmt.Errorf("package.json missing name or version")
+	}
+	return &p, nil
+}
+
+// npmTarballName returns the filename npm/pnpm gives a packed tarball.
+// e.g. "@markcallen/desktop-web", "0.2.4" → "markcallen-desktop-web-0.2.4.tgz"
+func npmTarballName(name, version string) string {
+	n := strings.TrimPrefix(name, "@")
+	n = strings.ReplaceAll(n, "/", "-")
+	return n + "-" + version + ".tgz"
 }
 
 // versionFromTarball reads the version field from package.json inside a pnpm
