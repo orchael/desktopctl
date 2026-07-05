@@ -46,6 +46,8 @@ export default function DesktopStatus({ info }: Props) {
           ))}
         </div>
       </Section>
+
+      <Footer version={info.desktop_web_version} />
     </div>
   );
 }
@@ -149,6 +151,11 @@ function ServiceRow({ service }: { service: ServiceStatus }) {
       <span style={{ color: service.active ? 'var(--text)' : 'var(--muted)' }}>
         {service.name}
       </span>
+      {service.version && (
+        <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
+          v{service.version}
+        </span>
+      )}
       <span
         style={{
           marginLeft: 'auto',
@@ -159,5 +166,23 @@ function ServiceRow({ service }: { service: ServiceStatus }) {
         {service.active ? 'active' : 'inactive'}
       </span>
     </div>
+  );
+}
+
+function Footer({ version }: { version: string }) {
+  return (
+    <footer
+      style={{
+        marginTop: '1.5rem',
+        paddingTop: '0.75rem',
+        borderTop: '1px solid var(--border)',
+        display: 'flex',
+        justifyContent: 'flex-end'
+      }}
+    >
+      <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
+        desktop-web v{version}
+      </span>
+    </footer>
   );
 }
