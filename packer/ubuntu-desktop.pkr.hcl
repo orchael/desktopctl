@@ -33,7 +33,7 @@ variable "desktop_web_version" {
 
 variable "github_npm_token" {
   type        = string
-  description = "GitHub token with read:packages scope for installing @markcallen/desktop-web"
+  description = "GitHub token with read:packages scope for installing @markcallen/desktop-web (set via PKR_VAR_github_npm_token, mapped automatically from GITHUB_NPM_TOKEN by the CLI)"
   sensitive   = true
 }
 
@@ -48,6 +48,16 @@ variable "aws_region" {
 variable "source_ami" {
   type        = string
   description = "Source AMI ID to use as the base for this build."
+}
+
+variable "ai_desktops_version" {
+  type        = string
+  description = "ai-desktops CLI version that built this AMI (e.g. 0.2.4)"
+}
+
+variable "novnc_desktop_version" {
+  type        = string
+  description = "novnc-desktop base AMI version stamp (extracted from the base AMI name, e.g. 20260525-005909)"
 }
 
 variable "ami_public" {
@@ -78,10 +88,12 @@ source "amazon-ebs" "ubuntu" {
   tags = {
     Name               = "ai-desktops"
     ManagedBy          = "ai-desktops-packer"
+    AiDesktopsVersion  = var.ai_desktops_version
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
     DesktopWebVersion  = var.desktop_web_version
+    NovncDesktopVersion = var.novnc_desktop_version
     BaseAMI            = var.source_ami
     Environment        = "base"
   }
@@ -112,7 +124,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version} desktop_web_version=${var.desktop_web_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
@@ -126,11 +138,13 @@ build {
     output     = "manifest.json"
     strip_path = true
     custom_data = {
-      bridge_version       = var.ai_agent_bridge_version
-      go_version           = var.go_version
-      uv_version           = var.uv_version
-      base_ami             = var.source_ami
-      desktop_web_version  = var.desktop_web_version
+      ai_desktops_version   = var.ai_desktops_version
+      bridge_version        = var.ai_agent_bridge_version
+      go_version            = var.go_version
+      uv_version            = var.uv_version
+      base_ami              = var.source_ami
+      desktop_web_version   = var.desktop_web_version
+      novnc_desktop_version = var.novnc_desktop_version
     }
   }
 }

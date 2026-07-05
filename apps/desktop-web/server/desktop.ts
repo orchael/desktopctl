@@ -2,6 +2,10 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ENV_FILE = process.env.DESKTOP_ENV_FILE ?? '/opt/ai-desktops/desktop.env';
 const NOVNC_HTTPS_PORT = process.env.NOVNC_HTTPS_PORT ?? '8443';
@@ -15,11 +19,12 @@ const MOCK_DATA = {
   workspace: '/workspace',
   repos: ['mock-repo'],
   services: [
-    { name: 'docker', active: true },
-    { name: 'ai-agent-bridge', active: true },
-    { name: 'novnc-desktop', active: true }
+    { name: 'docker', active: true, version: '27.0.0' },
+    { name: 'ai-agent-bridge', active: true, version: '1.2.3' },
+    { name: 'novnc-desktop', active: true, version: '20260525-005909' }
   ],
-  novnc_url: 'https://localhost:8443/novnc/vnc.html'
+  novnc_url: 'https://localhost:8443/novnc/vnc.html',
+  desktop_web_version: '0.0.0-mock'
 };
 
 function readEnvFile(filePath: string): Record<string, string> {
@@ -46,10 +51,69 @@ function readEnvFile(filePath: string): Record<string, string> {
 
 function serviceActive(name: string): boolean {
   try {
-    execSync(`systemctl is-active ${name}`, { stdio: 'pipe', timeout: 5000 });
+    if (name === 'ai-agent-bridge') {
+      // The system ai-agent-bridge service is masked; the actual service runs
+      // as a user-level bridgectl unit under the ubuntu user.
+      // XDG_RUNTIME_DIR must be set explicitly because ai-desktops-web runs as
+      // a system service (not a user session), so the env var is absent.
+      execSync('systemctl --user is-active bridgectl', {
+        stdio: 'pipe',
+        timeout: 5000,
+        env: { ...process.env, XDG_RUNTIME_DIR: '/run/user/1000' }
+      });
+    } else {
+      execSync(`systemctl is-active ${name}`, { stdio: 'pipe', timeout: 5000 });
+    }
     return true;
   } catch {
     return false;
+  }
+}
+
+const NOVNC_VERSION_FILE =
+  process.env.NOVNC_VERSION_FILE ?? '/opt/ai-desktops/novnc-desktop-version';
+
+function serviceVersion(name: string): string | undefined {
+  try {
+    switch (name) {
+      case 'docker': {
+        const out = execSync('docker --version', {
+          stdio: 'pipe',
+          timeout: 5000
+        }).toString();
+        // "Docker version 27.3.1, build ce12230"
+        const m = out.match(/Docker version ([^\s,]+)/);
+        return m?.[1];
+      }
+      case 'ai-agent-bridge': {
+        const out = execSync('bridgectl --version', {
+          stdio: 'pipe',
+          timeout: 5000
+        }).toString();
+        const m = out.match(/(\d+\.\d+\.\d+[^\s]*)/);
+        return m?.[1];
+      }
+      case 'novnc-desktop': {
+        const v = fs.readFileSync(NOVNC_VERSION_FILE, 'utf8').trim();
+        return v || undefined;
+      }
+      default:
+        return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+function desktopWebVersion(): string {
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as {
+      version: string;
+    };
+    return pkg.version ?? 'unknown';
+  } catch {
+    return 'unknown';
   }
 }
 
@@ -87,11 +151,12 @@ export function buildDesktopInfo(requestHost?: string): object {
   const hostname = rawHost.split(':')[0];
   const novncUrl = `https://${hostname}:${NOVNC_HTTPS_PORT}/novnc/vnc.html`;
 
-  const services = [
-    { name: 'docker', active: serviceActive('docker') },
-    { name: 'ai-agent-bridge', active: serviceActive('ai-agent-bridge') },
-    { name: 'novnc-desktop', active: serviceActive('novnc-desktop') }
-  ];
+  const serviceNames = ['docker', 'ai-agent-bridge', 'novnc-desktop'];
+  const services = serviceNames.map((name) => ({
+    name,
+    active: serviceActive(name),
+    version: serviceVersion(name)
+  }));
 
   return {
     desktop_id: desktopId,
@@ -102,6 +167,7 @@ export function buildDesktopInfo(requestHost?: string): object {
     workspace,
     repos: scanRepos(workspace),
     services,
-    novnc_url: novncUrl
+    novnc_url: novncUrl,
+    desktop_web_version: desktopWebVersion()
   };
 }

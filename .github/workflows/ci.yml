@@ -73,3 +73,9 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm run test:coverage
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run smoke tests
+        run: pnpm run test:smoke

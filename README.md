@@ -176,32 +176,93 @@ Pre-baked AMIs reduce desktop boot time by pre-installing the toolchain. Desktop
 requires an active AMI for its AWS region; cloud-init handles runtime-only work such as
 TLS setup, secret injection, workspace creation, and repository cloning.
 
-**Prerequisites for Packer:**
+#### Prerequisites
+
 - [Packer](https://www.packer.com/downloads) installed
 - AWS credentials configured (same profile as above)
+- A Packer variables file at `packer/variables.pkrvars.hcl` (see below)
+- The `GITHUB_NPM_TOKEN` environment variable set (see below)
 
-**Build the AMI:**
+#### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_NPM_TOKEN` | Yes | GitHub token used to install `@markcallen/desktop-web` from GitHub Packages during the AMI build. Must have `read:packages` scope. |
+
+Create a GitHub personal access token (classic) or fine-grained token with at minimum:
+
+| Scope | Purpose |
+|-------|---------|
+| `read:packages` | Download `@markcallen/desktop-web` from `npm.pkg.github.com` |
 
 ```bash
+export GITHUB_NPM_TOKEN=ghp_...
+```
+
+The build will fail with a clear error if `GITHUB_NPM_TOKEN` is not set before running `ami build`.
+
+#### Packer variables file
+
+The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--vars-file`). At minimum it must define:
+
+```hcl
+# packer/variables.pkrvars.hcl
+aws_region              = "us-east-2"
+ai_agent_bridge_version = "v0.1.0"
+go_version              = "1.23.0"
+uv_version              = "0.4.0"
+```
+
+The following variables are **injected automatically** by the CLI and must not be set in the vars file:
+
+| Variable | Source |
+|----------|--------|
+| `source_ami` | Resolved at build time from the latest public `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
+| `desktop_web_version` | Embedded in the CLI binary at release time |
+| `ai_desktops_version` | Embedded in the CLI binary at release time |
+| `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` environment variable |
+
+#### Build the AMI
+
+```bash
+export GITHUB_NPM_TOKEN=ghp_...
 ai-desktops ami build --regions us-east-2
 ```
 
-Build multiple regions sequentially with a comma-separated list:
+Build multiple regions sequentially:
 
 ```bash
 ai-desktops ami build --regions us-east-1,us-west-2
 ```
 
-This runs Packer to build an AMI on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base with pre-installed:
+Use an explicit base AMI instead of the auto-lookup (single region only):
+
+```bash
+ai-desktops ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
+```
+
+Make the built AMI publicly accessible:
+
+```bash
+ai-desktops ami build --regions us-east-2 --public
+```
+
+#### What gets installed
+
+The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base and includes:
+
 - Docker
-- Go
-- uv (Python package manager)
+- Go (version from `go_version` var)
+- uv Python package manager (version from `uv_version` var)
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
-- `ai-agent-bridge`
+- `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
+- `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
 
-**Verify the AMI:**
+The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
+
+#### Verify the AMI
 
 ```bash
 ai-desktops ami list
@@ -209,7 +270,7 @@ ai-desktops ami list
 
 Output shows the registered AMI ID per region. The CLI automatically detects pre-baked AMIs and uses them during `create`.
 
-**Custom Packer builds:**
+#### Custom Packer builds
 
 Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run `ami build` to create a new AMI.
 

@@ -10,6 +10,7 @@ import (
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/packer"
 	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/ai-desktops/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,9 @@ func init() {
 func runAmiBuild(cmd *cobra.Command, args []string) error {
 	if err := requireTools("packer"); err != nil {
 		return err
+	}
+	if os.Getenv("GITHUB_NPM_TOKEN") == "" {
+		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @markcallen/desktop-web during the AMI build")
 	}
 	ctx := context.Background()
 
@@ -87,13 +91,14 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, region := range regions {
-		amiID, err := buildAMIForRegion(ctx, absPackerDir, absVarsFile, region)
+		amiID, novncVersion, err := buildAMIForRegion(ctx, absPackerDir, absVarsFile, region)
 		if err != nil {
 			return err
 		}
 		record := &store.AMIRecord{
-			Region: region,
-			AMIID:  amiID,
+			Region:       region,
+			AMIID:        amiID,
+			NovncVersion: novncVersion,
 		}
 
 		if err := amiStore.SaveAMI(ctx, record); err != nil {
@@ -150,14 +155,26 @@ func parseAMIRegions(raw, fallback string) ([]string, error) {
 	return regions, nil
 }
 
-func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) (string, error) {
+const novncAMINamePrefix = "novnc-desktop-ubuntu-24.04-elementary-"
+
+// novncVersionFromAMIName extracts the version stamp from a novnc-desktop AMI
+// name (e.g. "novnc-desktop-ubuntu-24.04-elementary-20260525-005909" →
+// "20260525-005909"). Returns an empty string when the name doesn't match.
+func novncVersionFromAMIName(name string) string {
+	if !strings.HasPrefix(name, novncAMINamePrefix) {
+		return ""
+	}
+	return name[len(novncAMINamePrefix):]
+}
+
+func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) (string, string, error) {
 	fmt.Fprintf(os.Stderr, "Building AMI for region: %s\n", region)
 
 	// source_ami in the vars file is intentionally ignored because AMI IDs are region-specific.
 	baseAMI := amiBaseAMI
 	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
 	if err != nil {
-		return "", fmt.Errorf("load AWS config for %s: %w", region, err)
+		return "", "", fmt.Errorf("load AWS config for %s: %w", region, err)
 	}
 
 	if baseAMI == "" {
@@ -165,7 +182,7 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 		fmt.Fprintf(os.Stderr, "Looking up novnc-desktop AMI (%s) in %s...\n", namePattern, region)
 		baseAMI, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, novncAMIOwner)
 		if err != nil {
-			return "", fmt.Errorf("find novnc-desktop AMI in %s: %w", region, err)
+			return "", "", fmt.Errorf("find novnc-desktop AMI in %s: %w", region, err)
 		}
 		fmt.Fprintf(os.Stderr, "Resolved novnc-desktop base AMI: %s\n", baseAMI)
 	} else {
@@ -174,23 +191,27 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 
 	info, err := awsx.DescribeAMI(ctx, awsCfg, baseAMI)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not describe base AMI: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "Base AMI name:        %s\n", info.Name)
-		fmt.Fprintf(os.Stderr, "Base AMI description: %s\n", info.Description)
-		fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
+		return "", "", fmt.Errorf("describe base AMI %s: %w", baseAMI, err)
 	}
+	fmt.Fprintf(os.Stderr, "Base AMI name:        %s\n", info.Name)
+	fmt.Fprintf(os.Stderr, "Base AMI description: %s\n", info.Description)
+	fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
+	novncDesktopVersion := novncVersionFromAMIName(info.Name)
+	if novncDesktopVersion == "" {
+		return "", "", fmt.Errorf("could not extract novnc-desktop version from base AMI name %q (expected prefix %q)", info.Name, novncAMINamePrefix)
+	}
+	fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
 
-	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, amiPublic, os.Stderr); err != nil {
-		return "", fmt.Errorf("packer build for %s: %w", region, err)
+	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, amiPublic, os.Stderr); err != nil {
+		return "", "", fmt.Errorf("packer build for %s: %w", region, err)
 	}
 	manifest, err := packer.ParseManifest(filepath.Join(packerDir, "manifest.json"))
 	if err != nil {
-		return "", fmt.Errorf("parse manifest for %s: %w", region, err)
+		return "", "", fmt.Errorf("parse manifest for %s: %w", region, err)
 	}
 	amiID := packer.RegionAMIs(manifest)[region]
 	if amiID == "" {
-		return "", fmt.Errorf("no AMI found in manifest for %s", region)
+		return "", "", fmt.Errorf("no AMI found in manifest for %s", region)
 	}
-	return amiID, nil
+	return amiID, novncDesktopVersion, nil
 }

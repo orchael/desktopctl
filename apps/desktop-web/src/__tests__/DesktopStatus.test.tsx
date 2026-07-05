@@ -11,10 +11,11 @@ const baseInfo: DesktopInfo = {
   bridge_port: 9445,
   repos: ['orchael/ai-desktops'],
   services: [
-    { name: 'docker', active: true },
+    { name: 'docker', active: true, version: '27.3.1' },
     { name: 'novnc', active: false }
   ],
-  novnc_url: ''
+  novnc_url: '',
+  desktop_web_version: '0.2.4'
 };
 
 describe('DesktopStatus', () => {
@@ -44,5 +45,22 @@ describe('DesktopStatus', () => {
     const inactiveLabels = screen.getAllByText('inactive');
     expect(activeLabels).toHaveLength(1);
     expect(inactiveLabels).toHaveLength(1);
+  });
+
+  it('renders service version when provided', () => {
+    render(<DesktopStatus info={baseInfo} />);
+    expect(screen.getByText('v27.3.1')).toBeInTheDocument();
+  });
+
+  it('omits version label when service version is absent', () => {
+    render(<DesktopStatus info={baseInfo} />);
+    // novnc has no version — only one version badge should appear
+    const versionBadges = screen.getAllByText(/^v\d/);
+    expect(versionBadges).toHaveLength(1);
+  });
+
+  it('renders desktop-web version in footer', () => {
+    render(<DesktopStatus info={baseInfo} />);
+    expect(screen.getByText('desktop-web v0.2.4')).toBeInTheDocument();
   });
 });

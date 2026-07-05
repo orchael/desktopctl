@@ -18,6 +18,16 @@ describe('buildDesktopInfo', () => {
     expect(Array.isArray(info.services)).toBe(true);
   });
 
+  it('mock data includes novnc-desktop service with version', async () => {
+    process.env.MOCK = 'true';
+    const { buildDesktopInfo } = await import('../desktop.js');
+    const info = buildDesktopInfo() as Record<string, unknown>;
+    const services = info.services as Array<Record<string, unknown>>;
+    const novnc = services.find((s) => s.name === 'novnc-desktop');
+    expect(novnc).toBeDefined();
+    expect(novnc?.version).toMatch(/^\d{8}-\d{6}$/);
+  });
+
   it('returns desktop info with correct shape when MOCK=true', async () => {
     process.env.MOCK = 'true';
     const { buildDesktopInfo } = await import('../desktop.js');

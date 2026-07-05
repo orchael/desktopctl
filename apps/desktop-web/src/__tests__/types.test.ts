@@ -11,7 +11,8 @@ describe('DesktopInfo', () => {
       bridge_port: 9445,
       repos: ['orchael/ai-desktops'],
       services: [],
-      novnc_url: 'https://d-001.desktops.orchael.dev/novnc'
+      novnc_url: 'https://d-001.desktops.orchael.dev/novnc',
+      desktop_web_version: '0.2.4'
     };
     expect(info.desktop_id).toBe('d-001');
     expect(info.hostname).toBe('d-001.desktops.orchael.dev');
@@ -33,7 +34,8 @@ describe('DesktopInfo', () => {
       bridge_port: 9445,
       repos: ['orchael/app', 'orchael/shared-lib', 'orchael/infra'],
       services: [],
-      novnc_url: 'https://d-002.desktops.orchael.com/novnc'
+      novnc_url: 'https://d-002.desktops.orchael.com/novnc',
+      desktop_web_version: '0.2.4'
     };
     expect(info.repos).toHaveLength(3);
   });

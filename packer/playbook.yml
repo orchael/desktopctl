@@ -33,6 +33,11 @@
         that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
         fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require novnc_desktop_version
+      ansible.builtin.assert:
+        that: novnc_desktop_version is defined and novnc_desktop_version | length > 0
+        fail_msg: "novnc_desktop_version must be set via --extra-vars (injected from the base AMI name by the CLI)"
+
   tasks:
     - name: Wait for unattended-upgrades to release the dpkg lock
       ansible.builtin.shell: |
@@ -166,11 +171,12 @@
         /home/linuxbrew/.linuxbrew/bin/brew trust everydaydevopsio/ballast
       args:
         creates: /home/linuxbrew/.linuxbrew/Library/Taps/everydaydevopsio/homebrew-ballast
+        executable: /bin/bash
       become: false
 
     - name: Install ballast via Homebrew
       ansible.builtin.shell: |
-        /home/linuxbrew/.linuxbrew/bin/brew install ballast
+        /home/linuxbrew/.linuxbrew/bin/brew install everydaydevopsio/ballast/ballast
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/ballast
       become: false
@@ -445,6 +451,14 @@
         owner: ubuntu
         group: ubuntu
         mode: "0755"
+
+    - name: Write novnc-desktop version file
+      ansible.builtin.copy:
+        content: "{{ novnc_desktop_version }}"
+        dest: /opt/ai-desktops/novnc-desktop-version
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Configure npm for GitHub Packages
       ansible.builtin.copy:
