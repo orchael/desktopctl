@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestNovncVersionFromAMIName(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"novnc-desktop-ubuntu-24.04-elementary-20260525-005909", "20260525-005909"},
+		{"novnc-desktop-ubuntu-24.04-elementary-20260101-120000", "20260101-120000"},
+		{"some-other-ami-name", ""},
+		{"", ""},
+		{novncAMINamePrefix, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := novncVersionFromAMIName(tt.name)
+			if got != tt.want {
+				t.Errorf("novncVersionFromAMIName(%q) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseAMIRegions(t *testing.T) {
 	tests := []struct {
 		name     string

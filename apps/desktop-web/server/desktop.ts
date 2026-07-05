@@ -21,7 +21,7 @@ const MOCK_DATA = {
   services: [
     { name: 'docker', active: true, version: '27.0.0' },
     { name: 'ai-agent-bridge', active: true, version: '1.2.3' },
-    { name: 'novnc-desktop', active: true, version: undefined }
+    { name: 'novnc-desktop', active: true, version: '20260525-005909' }
   ],
   novnc_url: 'https://localhost:8443/novnc/vnc.html',
   desktop_web_version: '0.0.0-mock'
@@ -51,12 +51,27 @@ function readEnvFile(filePath: string): Record<string, string> {
 
 function serviceActive(name: string): boolean {
   try {
-    execSync(`systemctl is-active ${name}`, { stdio: 'pipe', timeout: 5000 });
+    if (name === 'ai-agent-bridge') {
+      // The system ai-agent-bridge service is masked; the actual service runs
+      // as a user-level bridgectl unit under the ubuntu user.
+      // XDG_RUNTIME_DIR must be set explicitly because ai-desktops-web runs as
+      // a system service (not a user session), so the env var is absent.
+      execSync('systemctl --user is-active bridgectl', {
+        stdio: 'pipe',
+        timeout: 5000,
+        env: { ...process.env, XDG_RUNTIME_DIR: '/run/user/1000' }
+      });
+    } else {
+      execSync(`systemctl is-active ${name}`, { stdio: 'pipe', timeout: 5000 });
+    }
     return true;
   } catch {
     return false;
   }
 }
+
+const NOVNC_VERSION_FILE =
+  process.env.NOVNC_VERSION_FILE ?? '/opt/ai-desktops/novnc-desktop-version';
 
 function serviceVersion(name: string): string | undefined {
   try {
@@ -77,6 +92,10 @@ function serviceVersion(name: string): string | undefined {
         }).toString();
         const m = out.match(/(\d+\.\d+\.\d+[^\s]*)/);
         return m?.[1];
+      }
+      case 'novnc-desktop': {
+        const v = fs.readFileSync(NOVNC_VERSION_FILE, 'utf8').trim();
+        return v || undefined;
       }
       default:
         return undefined;
