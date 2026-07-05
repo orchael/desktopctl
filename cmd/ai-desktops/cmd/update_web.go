@@ -182,11 +182,12 @@ func updateWebFromLocal(d *store.Desktop) error {
 		return fmt.Errorf("pnpm pack failed: %w", err)
 	}
 
-	// pnpm pack prints the tarball path on stdout.
-	tarball := strings.TrimSpace(packOut.String())
-	if tarball == "" {
-		return fmt.Errorf("pnpm pack did not print a tarball path")
+	// pnpm pack prints only the filename (not the full path) to stdout.
+	filename := strings.TrimSpace(packOut.String())
+	if filename == "" {
+		return fmt.Errorf("pnpm pack did not print a tarball filename")
 	}
+	tarball := filepath.Join(os.TempDir(), filename)
 	defer os.Remove(tarball)
 
 	// Extract the version from the tarball to report it.
