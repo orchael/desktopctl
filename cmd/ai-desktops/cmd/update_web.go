@@ -106,6 +106,17 @@ func runRemote(d *store.Desktop, remoteCmd string) error {
 	return c.Run()
 }
 
+// runRemoteWithStdin executes cmd on the desktop over SSH, sending stdin to
+// the remote shell. Use this to pass secrets so they never appear in ps output.
+func runRemoteWithStdin(d *store.Desktop, remoteCmd string, stdin string) error {
+	args := append(sshFlags(d), fmt.Sprintf("ubuntu@%s", d.Hostname), remoteCmd)
+	c := exec.Command("ssh", args...) //nolint:gosec
+	c.Stdin = strings.NewReader(stdin)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
 // updateWebFromRegistry installs a specific published version via npm.
 func updateWebFromRegistry(d *store.Desktop, version string) error {
 	npmToken := os.Getenv("GITHUB_NPM_TOKEN")
@@ -115,16 +126,21 @@ func updateWebFromRegistry(d *store.Desktop, version string) error {
 
 	fmt.Printf("Installing @markcallen/desktop-web@%s on %s...\n", version, d.DesktopID)
 
-	// Write ~/.npmrc, install the package, remove the token, restart.
+	// The token is sent over stdin so it never appears in SSH command-line args
+	// or the remote process list. The remote script reads it with `read`.
+	npmrcContent := fmt.Sprintf(
+		"@markcallen:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n",
+		npmToken,
+	)
 	remoteCmd := fmt.Sprintf(`set -e
-printf '@markcallen:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' | sudo tee /root/.npmrc > /dev/null
+sudo tee /root/.npmrc > /dev/null
 sudo npm install --prefix /opt/ai-desktops/web @markcallen/desktop-web@%s
 sudo rm -f /root/.npmrc
 sudo systemctl restart ai-desktops-web
 sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`,
-		npmToken, version)
+		version)
 
-	if err := runRemote(d, remoteCmd); err != nil {
+	if err := runRemoteWithStdin(d, remoteCmd, npmrcContent); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 	fmt.Printf("desktop-web updated to %s on %s\n", version, d.DesktopID)

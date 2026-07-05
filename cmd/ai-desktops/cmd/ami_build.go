@@ -189,21 +189,18 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 		fmt.Fprintf(os.Stderr, "Using explicit base AMI: %s\n", baseAMI)
 	}
 
-	novncDesktopVersion := ""
 	info, err := awsx.DescribeAMI(ctx, awsCfg, baseAMI)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not describe base AMI: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "Base AMI name:        %s\n", info.Name)
-		fmt.Fprintf(os.Stderr, "Base AMI description: %s\n", info.Description)
-		fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
-		novncDesktopVersion = novncVersionFromAMIName(info.Name)
-		if novncDesktopVersion != "" {
-			fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
-		} else {
-			fmt.Fprintf(os.Stderr, "Warning: could not extract novnc-desktop version from AMI name %q\n", info.Name)
-		}
+		return "", "", fmt.Errorf("describe base AMI %s: %w", baseAMI, err)
 	}
+	fmt.Fprintf(os.Stderr, "Base AMI name:        %s\n", info.Name)
+	fmt.Fprintf(os.Stderr, "Base AMI description: %s\n", info.Description)
+	fmt.Fprintf(os.Stderr, "Base AMI created:     %s\n", info.CreatedAt)
+	novncDesktopVersion := novncVersionFromAMIName(info.Name)
+	if novncDesktopVersion == "" {
+		return "", "", fmt.Errorf("could not extract novnc-desktop version from base AMI name %q (expected prefix %q)", info.Name, novncAMINamePrefix)
+	}
+	fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
 
 	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, amiPublic, os.Stderr); err != nil {
 		return "", "", fmt.Errorf("packer build for %s: %w", region, err)
