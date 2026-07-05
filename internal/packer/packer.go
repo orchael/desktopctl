@@ -14,9 +14,10 @@ import (
 // packerEnv returns os.Environ() with LANG and LC_ALL set to en_US.UTF-8 when
 // absent. Packer's ansible provisioner runs "ansible-playbook --version" as a
 // preflight check; Ansible requires a UTF-8 locale or it exits non-zero.
-// It also maps GITHUB_TOKEN → PKR_VAR_github_npm_token so Packer can pass it
-// to the Ansible provisioner as the npm registry auth token without requiring
-// a separate variable to be set.
+// It also maps DESKTOP_WEB_NPM_TOKEN (or GITHUB_TOKEN as a fallback) →
+// PKR_VAR_github_npm_token so Packer can pass it to the Ansible provisioner as
+// the npm registry auth token. DESKTOP_WEB_NPM_TOKEN must have read:packages
+// scope on github.com; GITHUB_TOKEN only works when it was issued with that scope.
 func packerEnv() []string {
 	env := os.Environ()
 	hasLang, hasLC, hasPKRToken := false, false, false
@@ -37,7 +38,13 @@ func packerEnv() []string {
 		env = append(env, "LC_ALL=en_US.UTF-8")
 	}
 	if !hasPKRToken {
-		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		// Prefer DESKTOP_WEB_NPM_TOKEN (a PAT with read:packages scope) over
+		// GITHUB_TOKEN, which in CI typically lacks that scope.
+		token := os.Getenv("DESKTOP_WEB_NPM_TOKEN")
+		if token == "" {
+			token = os.Getenv("GITHUB_TOKEN")
+		}
+		if token != "" {
 			env = append(env, "PKR_VAR_github_npm_token="+token)
 		}
 	}
