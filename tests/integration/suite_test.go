@@ -111,21 +111,16 @@ func TestMain(m *testing.M) {
 			fatalf("parse test config %s: %v", preExistingConfig, parseErr)
 		}
 		owner = parsedCfg.GitHub.Owner
-		if parsedCfg.Desktop.SSHKeyPath != "" {
-			if _, statErr := os.Stat(parsedCfg.Desktop.SSHKeyPath); statErr == nil {
-				sshKey = parsedCfg.Desktop.SSHKeyPath
-				fmt.Fprintf(os.Stderr, "integration: using SSH key from config: %s\n", sshKey)
-			}
+		if parsedCfg.Desktop.SSHKeyPath == "" {
+			fatalf("desktop.ssh_key_path is not set in %s; run `make setup-integration` to generate a key", preExistingConfig)
 		}
+		if _, statErr := os.Stat(parsedCfg.Desktop.SSHKeyPath); statErr != nil {
+			fatalf("desktop.ssh_key_path %q does not exist; run `make setup-integration` to generate a key", parsedCfg.Desktop.SSHKeyPath)
+		}
+		sshKey = parsedCfg.Desktop.SSHKeyPath
+		fmt.Fprintf(os.Stderr, "integration: using SSH key from config: %s\n", sshKey)
 		// Track key pair name for teardown so it can be deleted after the run.
 		testKeyPairName = parsedCfg.Desktop.SSHKeyName
-		if sshKey == "" {
-			// Config doesn't have a usable key; generate one into the temp dir.
-			sshKey, err = generateSSHKey(tmpDir)
-			if err != nil {
-				fatalf("generate SSH key: %v", err)
-			}
-		}
 
 		// Resolve infra_dir to an absolute path so the CLI binary can find
 		// the Pulumi stacks regardless of its working directory.

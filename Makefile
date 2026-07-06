@@ -204,8 +204,9 @@ clean-integration: build
 	}
 	@which jq > /dev/null 2>&1 || { echo "ERROR: jq is required but not found"; exit 1; }
 	@tmpconf=$$(mktemp /tmp/ai-desktops-clean-XXXXXX.yaml); \
-	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  pat_secret: /ai-desktops/github/pat\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
+	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /ai-desktops/%s/github\n  agent_secret: /ai-desktops/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
 	  "$(AWS_PROFILE)" "$(AI_DESKTOPS_TEST_BUCKET)" "$$(pwd)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
+	  "$(AI_DESKTOPS_GITHUB_OWNER)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
 	  > "$$tmpconf"; \
 	echo "clean-integration: config written to $$tmpconf"; \
 	echo "clean-integration: listing test desktops..."; \

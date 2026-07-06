@@ -29,7 +29,7 @@ pulumi:
 fleet:
   # Use a dedicated test fleet table so integration tests never touch the
   # production fleet records.
-  table_name: ai-desktops-test-fleet
+  table_name: ai-desktops-fleet-test
 
   # test environment uses the dev DNS zone (desktops.orchael.dev).
   environment: test

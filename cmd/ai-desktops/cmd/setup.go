@@ -268,7 +268,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Println("Before continuing, create a GitHub personal access token with these scopes:")
 		fmt.Println("  • admin:public_key  (register SSH keys)")
-		fmt.Println("  • repo              (clone, push, PRs; includes security_events)")
+		fmt.Println("  • repo              (clone, push, PRs)")
 		fmt.Println("  • workflow          (GitHub Actions)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (required by gh CLI auth)")

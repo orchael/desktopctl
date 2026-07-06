@@ -275,6 +275,8 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- DynamoDB fleet table ---
+	// pulumi.Aliases preserves the prior logical name ("ai-desktops-fleet") so
+	// existing stacks don't force a delete/recreate on the next `pulumi up`.
 	table, err := dynamodb.NewTable(ctx, "fleet-table", &dynamodb.TableArgs{
 		Name:        pulumi.String(fleetTable),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
@@ -289,7 +291,7 @@ func run(ctx *pulumi.Context) error {
 			"managed-by":  pulumi.String("ai-desktops"),
 			"environment": pulumi.String(environment),
 		},
-	})
+	}, pulumi.Aliases([]pulumi.Alias{{Name: pulumi.StringInput(pulumi.String("ai-desktops-fleet"))}}))
 	if err != nil {
 		return err
 	}
