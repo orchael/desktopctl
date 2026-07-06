@@ -173,5 +173,5 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 - [x] `tests/integration/fr02_access_test.go` — merged stdlib imports into a single alphabetised group (gofmt)
 - [x] `tests/integration/fr09_ami_test.go` — renamed `TestFR9_CreateUsesAMIFromConfig` → `TestFR9_CreateAMIFlagOverride`; updated comments to clarify this tests flag override, not config-based AMI selection
 - [x] `PACKER_WORKFLOW.md` — replaced contributor-specific absolute paths with repo-relative references
-- [ ] `internal/provision/ansible/desktop-setup/inventory.ini` — investigate and consolidate duplicate inventory.ini — https://github.com/markcallen/ai-desktops/issues/32
+- [x] `internal/provision/ansible/desktop-setup/inventory.ini` — removed unused duplicate; only `ansible/desktop-setup/inventory.ini` is needed — https://github.com/markcallen/ai-desktops/issues/32
 - [x] `internal/health/health.go` — updated `HTTPSChecker` doc comment to reflect non-4xx/5xx semantics (3xx is a pass)
