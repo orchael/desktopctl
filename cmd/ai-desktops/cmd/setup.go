@@ -19,6 +19,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/orchael/ai-desktops/internal/config"
@@ -63,6 +65,8 @@ type setupAnswers struct {
 	AnthropicKey  string
 	OpenAIKey     string
 	GeminiKey     string
+	SSHKeyPath    string
+	SSHKeyName    string
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
@@ -130,6 +134,81 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	a.BackendBucket = prompt(reader, bucketLabel, existingBucket)
 	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod) [%s]", existingEnv), existingEnv)
+
+	fmt.Println()
+	fmt.Println("── SSH (Desktop Access) ─────────────────────────────")
+
+	// Detect existing SSH key path from config or auto-detect from ~/.ssh.
+	existingSSHKeyPath := ""
+	existingSSHKeyName := ""
+	if cfg != nil {
+		existingSSHKeyPath = cfg.Desktop.SSHKeyPath
+		existingSSHKeyName = cfg.Desktop.SSHKeyName
+	}
+	if existingSSHKeyPath == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			for _, f := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
+				p := filepath.Join(home, ".ssh", f)
+				if _, err := os.Stat(p); err == nil {
+					existingSSHKeyPath = p
+					break
+				}
+			}
+		}
+	}
+
+	sshKeyPathLabel := "Local SSH private key path (used to SSH into desktops)"
+	if existingSSHKeyPath != "" {
+		sshKeyPathLabel = fmt.Sprintf("Local SSH private key path [%s]", existingSSHKeyPath)
+	}
+	a.SSHKeyPath = prompt(reader, sshKeyPathLabel, existingSSHKeyPath)
+
+	if a.SSHKeyPath != "" {
+		// Verify the key file exists.
+		if _, err := os.Stat(a.SSHKeyPath); err != nil {
+			fmt.Printf("  Warning: key file %s not found — verify the path before creating desktops.\n", a.SSHKeyPath)
+		} else {
+			// Offer to register the public key as an EC2 key pair.
+			defaultKeyName := "ai-desktops-" + a.GitHubOwner
+			if existingSSHKeyName != "" {
+				defaultKeyName = existingSSHKeyName
+			}
+			fmt.Printf("Register %s.pub as EC2 key pair [y/N]: ", a.SSHKeyPath)
+			registerAnswer, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(registerAnswer)) == "y" {
+				keyNameLabel := fmt.Sprintf("EC2 key pair name [%s]", defaultKeyName)
+				a.SSHKeyName = prompt(reader, keyNameLabel, defaultKeyName)
+
+				pubPath := a.SSHKeyPath + ".pub"
+				pubBytes, err := os.ReadFile(pubPath)
+				if err != nil {
+					fmt.Printf("  Warning: could not read %s: %v\n  EC2 key pair not registered.\n", pubPath, err)
+					a.SSHKeyName = existingSSHKeyName
+				} else {
+					ec2Cfg, err := awscfg.LoadDefaultConfig(ctx,
+						awscfg.WithRegion(a.AWSRegion),
+						awscfg.WithSharedConfigProfile(a.AWSProfile),
+					)
+					if err != nil {
+						fmt.Printf("  Warning: could not load AWS config: %v\n  EC2 key pair not registered.\n", err)
+						a.SSHKeyName = existingSSHKeyName
+					} else {
+						fmt.Printf("Registering EC2 key pair %q in %s... ", a.SSHKeyName, a.AWSRegion)
+						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes))); err != nil {
+							fmt.Println("✗")
+							fmt.Printf("  Warning: %v\n  EC2 key pair not registered — set ssh_key_name manually if needed.\n", err)
+							a.SSHKeyName = existingSSHKeyName
+						} else {
+							fmt.Println("✓")
+						}
+					}
+				}
+			} else {
+				a.SSHKeyName = existingSSHKeyName
+			}
+		}
+	}
 
 	fmt.Println()
 	fmt.Println("── GitHub ───────────────────────────────────────────")
@@ -363,6 +442,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.GitHub.Owner = a.GitHubOwner
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
+	if a.SSHKeyPath != "" {
+		newCfg.Desktop.SSHKeyPath = a.SSHKeyPath
+	}
+	if a.SSHKeyName != "" {
+		newCfg.Desktop.SSHKeyName = a.SSHKeyName
+	}
 	// Preserve the existing secret path when the operator declined rotation;
 	// overwrite only when a new token was stored (or on first run).
 	if updateToken || cfg == nil || cfg.GitHub.GitHubSecret == "" {
@@ -442,6 +527,32 @@ func validateGitHubToken(ctx context.Context, token string) error {
 		}
 	}
 
+	return nil
+}
+
+// importEC2KeyPair imports a public key into AWS EC2 as a named key pair.
+// If a key pair with that name already exists it is left unchanged (treated as success).
+func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMaterial string) error {
+	svc := ec2.NewFromConfig(awsCfg)
+	_, err := svc.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
+		KeyName:           aws.String(name),
+		PublicKeyMaterial: []byte(publicKeyMaterial),
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeKeyPair,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+				},
+			},
+		},
+	})
+	if err != nil {
+		// InvalidKeyPair.Duplicate means the key pair already exists — not an error.
+		if strings.Contains(err.Error(), "InvalidKeyPair.Duplicate") {
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 
