@@ -26,7 +26,7 @@ app.get('/api/desktop', (req, res) => {
   }
 });
 
-app.get('*', (_req, res) => {
+app.get('/*path', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
