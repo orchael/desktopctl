@@ -295,8 +295,9 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- DynamoDB AMI history table ---
+	amiTableName := "ai-desktops-ami-" + environment
 	amiTable, err := dynamodb.NewTable(ctx, "ai-desktops-ami", &dynamodb.TableArgs{
-		Name:        pulumi.String("ai-desktops-ami"),
+		Name:        pulumi.String(amiTableName),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
 		HashKey:     pulumi.String("ami_id"),
 		Attributes: dynamodb.TableAttributeArray{

@@ -4,14 +4,49 @@ CMD     := ./cmd/ai-desktops
 
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
 AI_DESKTOPS_GITHUB_OWNER ?= orchael
+AI_DESKTOPS_REGION       ?= us-east-1
+AI_DESKTOPS_AMI_TABLE    ?= ai-desktops-ami
 
-.PHONY: build test test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
+.PHONY: build test setup-integration test-integration test-integration-dev-ami test-integration-adopt test-integration-fr clean-integration clean deps check-deps
 
 build:
 	go build -o $(BINARY) $(CMD)
 
 test:
 	go test ./...
+
+# setup-integration performs one-time setup for the integration test environment.
+#
+# It generates an SSH key pair at tests/integration/id_ed25519, runs the
+# ai-desktops setup wizard writing to tests/integration/config.yaml, then
+# bootstraps the S3 backend and deploys the foundation stack.
+#
+# Run once before `make test-integration`. Re-running is idempotent.
+#
+# The generated files are gitignored. Copy tests/integration/config.yaml.example
+# as a reference for the expected format.
+setup-integration: check-deps build
+	@echo "setup-integration: generating SSH key pair..."
+	@if [ ! -f tests/integration/id_ed25519 ]; then \
+	  ssh-keygen -t ed25519 -f tests/integration/id_ed25519 -N "" -C "ai-desktops-integration" > /dev/null; \
+	  echo "setup-integration: generated tests/integration/id_ed25519"; \
+	else \
+	  echo "setup-integration: SSH key already exists, skipping keygen"; \
+	fi
+	@echo ""
+	@echo "setup-integration: running ai-desktops setup..."
+	@echo "  The wizard will ask for your configuration. When prompted for SSH key,"
+	@echo "  enter: $$(pwd)/tests/integration/id_ed25519"
+	@echo ""
+	./$(BINARY) setup --config-out tests/integration/config.yaml
+	@echo ""
+	@echo "setup-integration: bootstrapping S3 backend..."
+	./$(BINARY) bootstrap --config tests/integration/config.yaml
+	@echo ""
+	@echo "setup-integration: deploying foundation stack (env=test)..."
+	./$(BINARY) init-foundation --config tests/integration/config.yaml --env test
+	@echo ""
+	@echo "setup-integration: done. Run 'make test-integration' to execute the suite."
 
 # test-integration runs the full end-to-end integration suite.
 #
@@ -37,28 +72,86 @@ test:
 # The full suite always runs the Packer AMI build (15–20 min) before
 # creating the test desktop.  Total expected runtime: ~2h.
 test-integration: check-deps build
-	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
-	  echo ""; \
-	  echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; \
-	  echo ""; \
-	  echo "Set it to a globally-unique S3 bucket name for Pulumi state, e.g.:"; \
-	  echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
-	  echo ""; \
-	  exit 1; \
-	}
-	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
-	  echo ""; \
-	  echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; \
-	  echo ""; \
-	  echo "Set it to the GitHub org or user for the test desktop, e.g.:"; \
-	  echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
-	  echo ""; \
-	  exit 1; \
-	}
+	@if [ -f tests/integration/config.yaml ]; then \
+	  echo "test-integration: using tests/integration/config.yaml (from make setup-integration)"; \
+	else \
+	  test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
+	    echo ""; \
+	    echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set and tests/integration/config.yaml does not exist."; \
+	    echo ""; \
+	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
+	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
+	  test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
+	    echo ""; \
+	    echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set and tests/integration/config.yaml does not exist."; \
+	    echo ""; \
+	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
+	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
+	fi
 	@set -o pipefail; \
 	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
-	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
-	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
+	if [ -f tests/integration/config.yaml ]; then \
+	  AI_DESKTOPS_TEST_CONFIG=tests/integration/config.yaml \
+	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	else \
+	  AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
+	    AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
+	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	fi; \
+	testret=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "=== Integration Test Summary ==="; \
+	printf "%-6s  %-55s  %s\n" "STATUS" "TEST" "DURATION"; \
+	printf "%-6s  %-55s  %s\n" "------" "-------------------------------------------------------" "--------"; \
+	grep -E '^--- (PASS|FAIL|SKIP):' "$$tmpout" | \
+	  awk '{status=substr($$2,1,length($$2)-1); name=$$3; dur=$$4; gsub(/[()]/,"",dur); printf "%-6s  %-55s  %s\n", status, name, dur}'; \
+	echo ""; \
+	passed=$$(grep -c '^--- PASS:' "$$tmpout" || true); \
+	failed=$$(grep -c '^--- FAIL:' "$$tmpout" || true); \
+	skipped=$$(grep -c '^--- SKIP:' "$$tmpout" || true); \
+	printf "Results: %d passed, %d failed, %d skipped\n" "$$passed" "$$failed" "$$skipped"; \
+	rm -f "$$tmpout"; \
+	exit $$testret
+
+# test-integration-dev-ami skips the Packer AMI build by fetching the latest
+# AMI from the dev DynamoDB table (ai-desktops-ami) and injecting it into the
+# test run.  Everything else (foundation, desktop create, FR checks) still runs.
+#
+# Requires tests/integration/config.yaml (run make setup-integration first).
+#
+# Override defaults with:
+#   AI_DESKTOPS_REGION=us-west-2 AI_DESKTOPS_AMI_TABLE=my-ami-table make test-integration-dev-ami
+test-integration-dev-ami: check-deps build
+	@test -f tests/integration/config.yaml || { \
+	  echo "ERROR: tests/integration/config.yaml not found — run 'make setup-integration' first"; \
+	  exit 1; \
+	}
+	@echo "test-integration-dev-ami: fetching latest AMI from $(AI_DESKTOPS_AMI_TABLE) in $(AI_DESKTOPS_REGION)..."
+	$(eval DEV_AMI_ID := $(shell aws dynamodb scan \
+	  --table-name $(AI_DESKTOPS_AMI_TABLE) \
+	  --region $(AI_DESKTOPS_REGION) \
+	  --filter-expression "#r = :region" \
+	  --expression-attribute-names '{"#r":"region"}' \
+	  --expression-attribute-values '{":region":{"S":"$(AI_DESKTOPS_REGION)"}}' \
+	  --query 'Items | sort_by(@, &created_at.S) | [-1].ami_id.S' \
+	  --output text 2>/dev/null))
+	@test -n "$(DEV_AMI_ID)" || { \
+	  echo "ERROR: no AMI found in table $(AI_DESKTOPS_AMI_TABLE) for region $(AI_DESKTOPS_REGION)"; \
+	  echo "       Run 'ai-desktops ami build' first to populate the dev AMI table."; \
+	  exit 1; \
+	}
+	@echo "test-integration-dev-ami: using AMI $(DEV_AMI_ID)"
+	@set -o pipefail; \
+	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
+	AI_DESKTOPS_TEST_CONFIG=tests/integration/config.yaml \
+	  AI_DESKTOPS_SKIP_AMI_BUILD=true \
+	  AI_DESKTOPS_AMI_ID=$(DEV_AMI_ID) \
 	  go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	testret=$${PIPESTATUS[0]}; \
 	echo ""; \

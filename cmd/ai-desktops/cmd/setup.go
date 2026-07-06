@@ -32,6 +32,10 @@ import (
 // githubAPIBase is the GitHub REST API base URL. Overridden in tests.
 var githubAPIBase = "https://api.github.com"
 
+var (
+	setupConfigOut string
+)
+
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Interactive configuration wizard (safe to re-run)",
@@ -45,11 +49,12 @@ The wizard will:
   1. Collect AWS and GitHub configuration interactively
   2. Optionally validate and rotate the GitHub token + SSH key
   3. Store updated credentials in AWS Secrets Manager
-  4. Write ~/.ai-desktops/config.yaml`,
+  4. Write ~/.ai-desktops/config.yaml (or --config-out path)`,
 	RunE: runSetup,
 }
 
 func init() {
+	setupCmd.Flags().StringVar(&setupConfigOut, "config-out", "", "write config to this path instead of ~/.ai-desktops/config.yaml")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -77,7 +82,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
 	}
-	cfgPath := filepath.Join(home, ".ai-desktops", "config.yaml")
+	cfgPath := setupConfigOut
+	if cfgPath == "" {
+		cfgPath = filepath.Join(home, ".ai-desktops", "config.yaml")
+	}
 
 	_, statErr := os.Stat(cfgPath)
 	isExisting := statErr == nil
@@ -326,7 +334,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("build secret JSON: %w", err)
 		}
 
-		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner); err != nil {
+		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner, a.Environment); err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("store secret: %w", err)
 		}
@@ -415,7 +423,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("build agent secret JSON: %w", err)
 			}
 
-			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, string(b), a.GitHubOwner); err != nil {
+			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, string(b), a.GitHubOwner, a.Environment); err != nil {
 				fmt.Println("✗")
 				return fmt.Errorf("store agent secret: %w", err)
 			}
@@ -673,7 +681,7 @@ func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, er
 	return string(b), nil
 }
 
-func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {
+func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	_, err := svc.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
@@ -699,12 +707,13 @@ func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, o
 		Tags: []types.Tag{
 			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
+			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},
 	})
 	return err
 }
 
-func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {
+func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	// Check if secret already exists
@@ -734,6 +743,7 @@ func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner 
 		Tags: []types.Tag{
 			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
+			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},
 	})
 	return err

@@ -123,7 +123,7 @@ func (c *Config) Defaults() {
 		c.Fleet.TableName = DefaultFleetTable
 	}
 	if c.Fleet.AMITableName == "" {
-		c.Fleet.AMITableName = DefaultAMITable
+		c.Fleet.AMITableName = "ai-desktops-ami-" + c.Fleet.Environment
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType

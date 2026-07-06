@@ -10,7 +10,7 @@
 //
 //	make test-integration
 //
-// Required environment variables:
+// Required environment variables (when not using AI_DESKTOPS_TEST_CONFIG):
 //
 //	AI_DESKTOPS_TEST_BUCKET   — globally-unique S3 bucket name for Pulumi state
 //	                            (created if it doesn't exist; never touches prod/dev buckets)
@@ -21,6 +21,10 @@
 //
 // Optional:
 //
+//	AI_DESKTOPS_TEST_CONFIG — path to a pre-existing config file (e.g. tests/integration/config.yaml).
+//	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
+//	                          from the config file and SSH key generation is skipped when ssh_key_path
+//	                          in the config already points to an existing file.
 //	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
 //	AI_DESKTOPS_AMI_ID      — AMI ID to verify FR-9.7 config preference
@@ -37,6 +41,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // DesktopFixture holds state for the desktop created (or adopted) by TestMain
@@ -67,23 +73,16 @@ var configPath string
 // moduleRootPath is the repo root, used to resolve packer-dir and other paths.
 var moduleRootPath string
 
+// testKeyPairName is the EC2 key pair name imported during setup; deleted in teardown.
+var testKeyPairName string
+
 const (
 	testRegion = "us-east-1"
 	testEnv    = "test"
 )
 
 func TestMain(m *testing.M) {
-	owner := requireEnv("AI_DESKTOPS_GITHUB_OWNER")
-	bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
 	testRepo := os.Getenv("AI_DESKTOPS_TEST_REPO")
-
-	// Print startup banner so CI logs clearly show what environment is under test.
-	fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
-	fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
-	fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
-	fmt.Fprintf(os.Stderr, "  bucket      : %s\n", bucket)
-	fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
-	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
 	// All generated files live in a temp dir that is cleaned up on exit.
 	tmpDir, err := os.MkdirTemp("", "ai-desktops-integration-*")
@@ -92,21 +91,72 @@ func TestMain(m *testing.M) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Generate a fresh SSH key pair for this test run.
-	sshKey, err := generateSSHKey(tmpDir)
-	if err != nil {
-		fatalf("generate SSH key: %v", err)
-	}
-
-	// Write a self-contained config file for this test run.
 	moduleRoot, err := findModuleRoot()
 	if err != nil {
 		fatalf("find module root: %v", err)
 	}
 	moduleRootPath = moduleRoot
-	configPath, err = writeTestConfig(tmpDir, moduleRoot, bucket, sshKey, owner)
-	if err != nil {
-		fatalf("write test config: %v", err)
+
+	// AI_DESKTOPS_TEST_CONFIG: use a pre-existing config file (e.g. generated
+	// by `make setup-integration`) rather than deriving one from env vars.
+	// When set, ssh key generation is skipped if ssh_key_path in the config
+	// already points to an existing file.
+	var sshKey string
+	if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
+		configPath = preExistingConfig
+		fmt.Fprintf(os.Stderr, "integration: using pre-existing config %s\n", configPath)
+
+		// Load config to discover owner, bucket, and ssh_key_path.
+		parsedCfg, parseErr := loadConfigYAML(configPath)
+		if parseErr != nil {
+			fatalf("parse test config %s: %v", configPath, parseErr)
+		}
+		if parsedCfg.Desktop.SSHKeyPath != "" {
+			if _, statErr := os.Stat(parsedCfg.Desktop.SSHKeyPath); statErr == nil {
+				sshKey = parsedCfg.Desktop.SSHKeyPath
+				fmt.Fprintf(os.Stderr, "integration: using SSH key from config: %s\n", sshKey)
+			}
+		}
+		// Track key pair name for teardown so it can be deleted after the run.
+		testKeyPairName = parsedCfg.Desktop.SSHKeyName
+		if sshKey == "" {
+			// Config doesn't have a usable key; generate one into the temp dir.
+			sshKey, err = generateSSHKey(tmpDir)
+			if err != nil {
+				fatalf("generate SSH key: %v", err)
+			}
+		}
+
+		// Print startup banner.
+		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
+		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
+		fmt.Fprintf(os.Stderr, "  config      : %s\n", configPath)
+		fmt.Fprintf(os.Stderr, "==========================================\n\n")
+	} else {
+		// Derive config from environment variables (original behaviour).
+		owner := requireEnv("AI_DESKTOPS_GITHUB_OWNER")
+		bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
+
+		// Print startup banner.
+		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
+		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
+		fmt.Fprintf(os.Stderr, "  bucket      : %s\n", bucket)
+		fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
+		fmt.Fprintf(os.Stderr, "==========================================\n\n")
+
+		// Generate a fresh SSH key pair for this test run.
+		sshKey, err = generateSSHKey(tmpDir)
+		if err != nil {
+			fatalf("generate SSH key: %v", err)
+		}
+
+		// Write a self-contained config file for this test run.
+		configPath, err = writeTestConfig(tmpDir, moduleRoot, bucket, sshKey, owner)
+		if err != nil {
+			fatalf("write test config: %v", err)
+		}
 	}
 
 	// Build the CLI binary into the temp dir so tests use a fresh compile.
@@ -121,10 +171,22 @@ func TestMain(m *testing.M) {
 		fatalf("setup foundation: %v", err)
 	}
 
-	// Build an AMI before creating the desktop so the full integration run
-	// exercises the Packer pipeline and the desktop boots from a pre-baked image.
-	if err := buildAMI(); err != nil {
-		fatalf("ami build: %v", err)
+	// Build an AMI before creating the desktop, unless AI_DESKTOPS_SKIP_AMI_BUILD
+	// is set (e.g. by make test-integration-dev-ami) in which case AI_DESKTOPS_AMI_ID
+	// is injected into the test config so the create step uses it directly.
+	if os.Getenv("AI_DESKTOPS_SKIP_AMI_BUILD") == "true" {
+		amiID := os.Getenv("AI_DESKTOPS_AMI_ID")
+		if amiID == "" {
+			fatalf("AI_DESKTOPS_SKIP_AMI_BUILD=true but AI_DESKTOPS_AMI_ID is not set")
+		}
+		fmt.Fprintf(os.Stderr, "integration: skipping AMI build — using pre-existing AMI %s\n", amiID)
+		if err := injectActiveAMI(configPath, testRegion, amiID); err != nil {
+			fatalf("inject active AMI into config: %v", err)
+		}
+	} else {
+		if err := buildAMI(); err != nil {
+			fatalf("ami build: %v", err)
+		}
 	}
 
 	// Adopt or create the test desktop.
@@ -156,6 +218,11 @@ func TestMain(m *testing.M) {
 
 	// Delete AMIs built during this test run.
 	teardownAMIs()
+
+	// Delete the EC2 key pair imported by setup-integration, if any.
+	if testKeyPairName != "" {
+		teardownKeyPair(testKeyPairName)
+	}
 
 	// Tear down the foundation stack so test resources don't persist.
 	teardownFoundation()
@@ -210,14 +277,15 @@ fleet:
   environment: %s
 github:
   owner: %s
-  pat_secret: /ai-desktops/github/pat
+  github_secret: /ai-desktops/%s/github
+  agent_secret: /ai-desktops/%s/agents
 desktop:
   instance_type: t3.large
   operator_cidr: 0.0.0.0/0
   ssh_key_path: %s
 agent:
   bridge_port: 9445
-`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, sshKeyPath)
+`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, owner, owner, sshKeyPath)
 
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
@@ -289,6 +357,24 @@ func teardownAMIs() {
 		if delErr != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: delete AMI %s failed: %v\n", e.AMIID, delErr)
 		}
+	}
+}
+
+// teardownKeyPair deletes the named EC2 key pair so it does not accumulate
+// across test runs. Only called when setup-integration imported a key pair.
+func teardownKeyPair(keyName string) {
+	fmt.Fprintf(os.Stderr, "integration: deleting EC2 key pair %q...\n", keyName)
+	args := []string{"ec2", "delete-key-pair", "--key-name", keyName, "--region", testRegion}
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	cmd := exec.Command("aws", args...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: delete EC2 key pair %q failed: %v\n", keyName, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "integration: deleted EC2 key pair %q\n", keyName)
 	}
 }
 
@@ -514,4 +600,68 @@ func runCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte,
 		return out, fmt.Errorf("cli %s: %w", strings.Join(args, " "), err)
 	}
 	return out, nil
+}
+
+// minimalConfig holds the fields from config.yaml that TestMain needs when
+// reading a pre-existing config via AI_DESKTOPS_TEST_CONFIG.
+type minimalConfig struct {
+	AWS struct {
+		Region string `yaml:"region"`
+	} `yaml:"aws"`
+	Desktop struct {
+		SSHKeyPath string `yaml:"ssh_key_path"`
+		SSHKeyName string `yaml:"ssh_key_name"`
+	} `yaml:"desktop"`
+	GitHub struct {
+		Owner string `yaml:"owner"`
+	} `yaml:"github"`
+	Pulumi struct {
+		BackendBucket string `yaml:"backend_bucket"`
+	} `yaml:"pulumi"`
+}
+
+// loadConfigYAML parses enough of path to extract fields used by TestMain.
+func loadConfigYAML(path string) (*minimalConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var c minimalConfig
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// injectActiveAMI reads the YAML config at path, sets desktop.active_ami[region]
+// to amiID, and writes the file back. Used when skipping the Packer build.
+func injectActiveAMI(path, region, amiID string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	// Unmarshal into a generic map so we preserve all existing fields.
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+
+	desktop, _ := doc["desktop"].(map[string]any)
+	if desktop == nil {
+		desktop = map[string]any{}
+		doc["desktop"] = desktop
+	}
+	activeAMI, _ := desktop["active_ami"].(map[string]any)
+	if activeAMI == nil {
+		activeAMI = map[string]any{}
+		desktop["active_ami"] = activeAMI
+	}
+	activeAMI[region] = amiID
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0600)
 }

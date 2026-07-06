@@ -111,6 +111,18 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 		return fmt.Errorf("block public access on %s: %w", bucket, err)
 	}
 
+	if _, err := c.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+		Bucket: aws.String(bucket),
+		Tagging: &s3types.Tagging{
+			TagSet: []s3types.Tag{
+				{Key: aws.String("managed-by"), Value: aws.String("ai-desktops")},
+				{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("tag bucket %s: %w", bucket, err)
+	}
+
 	return nil
 }
 

@@ -251,7 +251,7 @@ func TestStoreSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestStoreSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestStoreSecret_DescribeError(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err == nil {
 		t.Fatal("expected error for non-NotFound DescribeSecret failure")
 	}
@@ -451,7 +451,7 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestStoreAgentSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
