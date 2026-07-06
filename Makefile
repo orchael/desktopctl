@@ -4,10 +4,8 @@ CMD     := ./cmd/ai-desktops
 
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
 AI_DESKTOPS_GITHUB_OWNER ?= orchael
-AI_DESKTOPS_REGION       ?= us-east-1
-AI_DESKTOPS_AMI_TABLE    ?= ai-desktops-ami
 
-.PHONY: build test setup-integration test-integration test-integration-dev-ami test-integration-adopt test-integration-fr clean-integration clean deps check-deps
+.PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
 
 build:
 	go build -o $(BINARY) $(CMD)
@@ -52,7 +50,7 @@ setup-integration: check-deps build
 #
 # The suite is self-contained: it generates its own SSH key pair, writes its
 # own config file, bootstraps the S3 Pulumi backend, deploys the foundation
-# stack in us-east-1 (env=test), creates a desktop, runs all FR checks, then
+# stack in us-west-2 (env=test), creates a desktop, runs all FR checks, then
 # terminates the desktop.  It never reads ~/.ai-desktops/config.yaml or any
 # key from ~/.ssh.
 #
@@ -67,7 +65,6 @@ setup-integration: check-deps build
 # Optional:
 #   AI_DESKTOPS_TEST_REPO     — repo URL to clone (enables FR-6/7 workspace tests)
 #   AI_DESKTOPS_EXISTING_ID   — adopt an already-running desktop instead of creating one
-#   AI_DESKTOPS_AMI_ID        — AMI ID to verify FR-9.7 config preference
 #
 # The full suite always runs the Packer AMI build (15–20 min) before
 # creating the test desktop.  Total expected runtime: ~2h.
@@ -104,55 +101,6 @@ test-integration: check-deps build
 	    AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
 	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	fi; \
-	testret=$${PIPESTATUS[0]}; \
-	echo ""; \
-	echo "=== Integration Test Summary ==="; \
-	printf "%-6s  %-55s  %s\n" "STATUS" "TEST" "DURATION"; \
-	printf "%-6s  %-55s  %s\n" "------" "-------------------------------------------------------" "--------"; \
-	grep -E '^--- (PASS|FAIL|SKIP):' "$$tmpout" | \
-	  awk '{status=substr($$2,1,length($$2)-1); name=$$3; dur=$$4; gsub(/[()]/,"",dur); printf "%-6s  %-55s  %s\n", status, name, dur}'; \
-	echo ""; \
-	passed=$$(grep -c '^--- PASS:' "$$tmpout" || true); \
-	failed=$$(grep -c '^--- FAIL:' "$$tmpout" || true); \
-	skipped=$$(grep -c '^--- SKIP:' "$$tmpout" || true); \
-	printf "Results: %d passed, %d failed, %d skipped\n" "$$passed" "$$failed" "$$skipped"; \
-	rm -f "$$tmpout"; \
-	exit $$testret
-
-# test-integration-dev-ami skips the Packer AMI build by fetching the latest
-# AMI from the dev DynamoDB table (ai-desktops-ami) and injecting it into the
-# test run.  Everything else (foundation, desktop create, FR checks) still runs.
-#
-# Requires tests/integration/config.yaml (run make setup-integration first).
-#
-# Override defaults with:
-#   AI_DESKTOPS_REGION=us-west-2 AI_DESKTOPS_AMI_TABLE=my-ami-table make test-integration-dev-ami
-test-integration-dev-ami: check-deps build
-	@test -f tests/integration/config.yaml || { \
-	  echo "ERROR: tests/integration/config.yaml not found — run 'make setup-integration' first"; \
-	  exit 1; \
-	}
-	@echo "test-integration-dev-ami: fetching latest AMI from $(AI_DESKTOPS_AMI_TABLE) in $(AI_DESKTOPS_REGION)..."
-	$(eval DEV_AMI_ID := $(shell aws dynamodb scan \
-	  --table-name $(AI_DESKTOPS_AMI_TABLE) \
-	  --region $(AI_DESKTOPS_REGION) \
-	  --filter-expression "#r = :region" \
-	  --expression-attribute-names '{"#r":"region"}' \
-	  --expression-attribute-values '{":region":{"S":"$(AI_DESKTOPS_REGION)"}}' \
-	  --query 'Items | sort_by(@, &created_at.S) | [-1].ami_id.S' \
-	  --output text 2>/dev/null))
-	@test -n "$(DEV_AMI_ID)" || { \
-	  echo "ERROR: no AMI found in table $(AI_DESKTOPS_AMI_TABLE) for region $(AI_DESKTOPS_REGION)"; \
-	  echo "       Run 'ai-desktops ami build' first to populate the dev AMI table."; \
-	  exit 1; \
-	}
-	@echo "test-integration-dev-ami: using AMI $(DEV_AMI_ID)"
-	@set -o pipefail; \
-	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
-	AI_DESKTOPS_TEST_CONFIG=tests/integration/config.yaml \
-	  AI_DESKTOPS_SKIP_AMI_BUILD=true \
-	  AI_DESKTOPS_AMI_ID=$(DEV_AMI_ID) \
-	  go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	testret=$${PIPESTATUS[0]}; \
 	echo ""; \
 	echo "=== Integration Test Summary ==="; \
@@ -235,7 +183,7 @@ clean:
 	rm -f $(BINARY)
 
 # clean-integration tears down any surviving test desktops and the foundation
-# stack in us-east-1 (env=test) without needing a full integration run.
+# stack in us-west-2 (env=test) without needing a full integration run.
 #
 # It builds the CLI, writes a temporary test config, terminates all desktops
 # whose fleet record lives in the test DynamoDB table, then destroys the
@@ -256,7 +204,7 @@ clean-integration: build
 	}
 	@which jq > /dev/null 2>&1 || { echo "ERROR: jq is required but not found"; exit 1; }
 	@tmpconf=$$(mktemp /tmp/ai-desktops-clean-XXXXXX.yaml); \
-	printf 'aws:\n  region: us-east-1\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-test-fleet\n  environment: test\ngithub:\n  owner: %s\n  pat_secret: /ai-desktops/github/pat\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
+	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-test-fleet\n  environment: test\ngithub:\n  owner: %s\n  pat_secret: /ai-desktops/github/pat\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
 	  "$(AWS_PROFILE)" "$(AI_DESKTOPS_TEST_BUCKET)" "$$(pwd)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
 	  > "$$tmpconf"; \
 	echo "clean-integration: config written to $$tmpconf"; \

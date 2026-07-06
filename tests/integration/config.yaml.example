@@ -11,7 +11,8 @@
 
 aws:
   # AWS region where the integration test resources are provisioned.
-  region: us-east-1
+  # Region assignments: us-east-1 = prod, us-east-2 = dev, us-west-2 = test
+  region: us-west-2
 
   # AWS CLI profile to use. Leave blank to use the default credential chain.
   profile: ""

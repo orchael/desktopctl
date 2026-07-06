@@ -69,7 +69,7 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 }
 
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "")
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
 	}

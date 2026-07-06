@@ -27,7 +27,6 @@
 //	                          in the config already points to an existing file.
 //	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
-//	AI_DESKTOPS_AMI_ID      — AMI ID to verify FR-9.7 config preference
 package integration_test
 
 import (
@@ -77,7 +76,7 @@ var moduleRootPath string
 var testKeyPairName string
 
 const (
-	testRegion = "us-east-1"
+	testRegion = "us-west-2"
 	testEnv    = "test"
 )
 
@@ -171,22 +170,9 @@ func TestMain(m *testing.M) {
 		fatalf("setup foundation: %v", err)
 	}
 
-	// Build an AMI before creating the desktop, unless AI_DESKTOPS_SKIP_AMI_BUILD
-	// is set (e.g. by make test-integration-dev-ami) in which case AI_DESKTOPS_AMI_ID
-	// is injected into the test config so the create step uses it directly.
-	if os.Getenv("AI_DESKTOPS_SKIP_AMI_BUILD") == "true" {
-		amiID := os.Getenv("AI_DESKTOPS_AMI_ID")
-		if amiID == "" {
-			fatalf("AI_DESKTOPS_SKIP_AMI_BUILD=true but AI_DESKTOPS_AMI_ID is not set")
-		}
-		fmt.Fprintf(os.Stderr, "integration: skipping AMI build — using pre-existing AMI %s\n", amiID)
-		if err := injectActiveAMI(configPath, testRegion, amiID); err != nil {
-			fatalf("inject active AMI into config: %v", err)
-		}
-	} else {
-		if err := buildAMI(); err != nil {
-			fatalf("ami build: %v", err)
-		}
+	// Build an AMI before creating the desktop.
+	if err := buildAMI(); err != nil {
+		fatalf("ami build: %v", err)
 	}
 
 	// Adopt or create the test desktop.
@@ -631,37 +617,4 @@ func loadConfigYAML(path string) (*minimalConfig, error) {
 		return nil, err
 	}
 	return &c, nil
-}
-
-// injectActiveAMI reads the YAML config at path, sets desktop.active_ami[region]
-// to amiID, and writes the file back. Used when skipping the Packer build.
-func injectActiveAMI(path, region, amiID string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal into a generic map so we preserve all existing fields.
-	var doc map[string]any
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return err
-	}
-
-	desktop, _ := doc["desktop"].(map[string]any)
-	if desktop == nil {
-		desktop = map[string]any{}
-		doc["desktop"] = desktop
-	}
-	activeAMI, _ := desktop["active_ami"].(map[string]any)
-	if activeAMI == nil {
-		activeAMI = map[string]any{}
-		desktop["active_ami"] = activeAMI
-	}
-	activeAMI[region] = amiID
-
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, out, 0600)
 }
