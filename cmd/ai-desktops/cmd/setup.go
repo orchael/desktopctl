@@ -268,9 +268,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Println("Before continuing, create a GitHub personal access token with these scopes:")
 		fmt.Println("  • admin:public_key  (register SSH keys)")
-		fmt.Println("  • repo              (clone, push, PRs)")
+		fmt.Println("  • repo              (clone, push, PRs; includes security_events)")
 		fmt.Println("  • workflow          (GitHub Actions)")
-		fmt.Println("  • security_events   (code scanning, secret scanning)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (required by gh CLI auth)")
 		fmt.Println("  • read:packages     (install packages from GitHub Packages)")
@@ -498,7 +497,7 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	return line
 }
 
-var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key", "read:packages"}
+var requiredScopes = []string{"repo", "workflow", "admin:public_key", "read:packages"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
