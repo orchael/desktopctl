@@ -259,7 +259,7 @@ pulumi:
   backend_bucket: %s
   infra_dir: %s
 fleet:
-  table_name: ai-desktops-test-fleet
+  table_name: ai-desktops-fleet-test
   environment: %s
 github:
   owner: %s

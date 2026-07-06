@@ -196,7 +196,7 @@ Pulumi state remains the source of truth for cloud resources. DynamoDB is the op
 Table name:
 
 ```text
-ai-desktops-fleet
+ai-desktops-fleet-<env>   (e.g. ai-desktops-fleet-dev, ai-desktops-fleet-test, ai-desktops-fleet-prod)
 ```
 
 Primary key:

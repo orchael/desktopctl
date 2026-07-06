@@ -123,7 +123,7 @@ pulumi:
   backend_bucket: my-ai-desktops-pulumi-state
 
 fleet:
-  table_name: ai-desktops-fleet
+  table_name: ai-desktops-fleet-dev
   environment: dev    # prod | dev | test
 
 github:

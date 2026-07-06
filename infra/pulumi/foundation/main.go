@@ -20,17 +20,17 @@ func run(ctx *pulumi.Context) error {
 	cfg := config.New(ctx, "")
 
 	zone := cfg.Require("zone")
+	environment := cfg.Get("environment")
+	if environment == "" {
+		environment = "dev"
+	}
 	fleetTable := cfg.Get("fleetTable")
 	if fleetTable == "" {
-		fleetTable = "ai-desktops-fleet"
+		fleetTable = "ai-desktops-fleet-" + environment
 	}
 	operatorCIDR := cfg.Get("operatorCIDR")
 	if operatorCIDR == "" {
 		operatorCIDR = "0.0.0.0/0"
-	}
-	environment := cfg.Get("environment")
-	if environment == "" {
-		environment = "dev"
 	}
 	vpcID := cfg.Get("vpcId")
 
@@ -275,7 +275,7 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- DynamoDB fleet table ---
-	table, err := dynamodb.NewTable(ctx, "ai-desktops-fleet", &dynamodb.TableArgs{
+	table, err := dynamodb.NewTable(ctx, "fleet-table", &dynamodb.TableArgs{
 		Name:        pulumi.String(fleetTable),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
 		HashKey:     pulumi.String("desktop_id"),

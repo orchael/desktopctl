@@ -22,7 +22,7 @@ pulumi:
 fleet:
   # DynamoDB table name for fleet metadata.
   # Created by `ai-desktops bootstrap`.
-  table_name: ai-desktops-fleet
+  table_name: ai-desktops-fleet-dev
 
   # Environment tag. Affects DNS zone selection:
   #   prod  → desktops.orchael.com

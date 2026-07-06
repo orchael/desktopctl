@@ -8,7 +8,7 @@ config:
   zone:
     default: desktops.orchael.dev
   fleetTable:
-    default: ai-desktops-fleet
+    default: ai-desktops-fleet-dev
   operatorCIDR:
     default: ""
   vpcId:

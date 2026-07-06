@@ -38,7 +38,7 @@ func TestDefaults(t *testing.T) {
 	if c.Fleet.Environment != EnvDev {
 		t.Errorf("default env: got %q", c.Fleet.Environment)
 	}
-	if c.Fleet.TableName != DefaultFleetTable {
+	if c.Fleet.TableName != DefaultFleetTablePrefix+"-"+EnvDev {
 		t.Errorf("default table: got %q", c.Fleet.TableName)
 	}
 	if c.Agent.BridgePort != DefaultBridgePort {
