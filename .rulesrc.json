@@ -27,7 +27,6 @@
   "paths": {
     "ansible": [
       "ansible/desktop-setup",
-      "internal/provision/ansible/desktop-setup",
       "packer"
     ],
     "go": [
