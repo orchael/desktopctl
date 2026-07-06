@@ -92,10 +92,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	if isExisting {
 		fmt.Println("Welcome to ai-desktops setup — updating existing configuration.")
+		fmt.Printf("Config: %s\n", cfgPath)
 		fmt.Println("Press Enter to keep the current value shown in brackets.")
 	} else {
 		fmt.Println("Welcome to ai-desktops setup.")
-		fmt.Println("This wizard will create ~/.ai-desktops/config.yaml and provision your GitHub credentials.")
+		fmt.Printf("This wizard will create %s and provision your GitHub credentials.\n", cfgPath)
 	}
 	fmt.Println()
 
