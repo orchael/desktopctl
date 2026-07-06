@@ -94,7 +94,7 @@ test-integration: check-deps build
 	@set -o pipefail; \
 	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
 	if [ -f tests/integration/config.yaml ]; then \
-	  AI_DESKTOPS_TEST_CONFIG=tests/integration/config.yaml \
+	  AI_DESKTOPS_TEST_CONFIG=$$(pwd)/tests/integration/config.yaml \
 	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	else \
 	  AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
