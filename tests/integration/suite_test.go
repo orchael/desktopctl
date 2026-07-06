@@ -101,15 +101,16 @@ func TestMain(m *testing.M) {
 	// When set, ssh key generation is skipped if ssh_key_path in the config
 	// already points to an existing file.
 	var sshKey string
+	var owner string
 	if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
-		configPath = preExistingConfig
-		fmt.Fprintf(os.Stderr, "integration: using pre-existing config %s\n", configPath)
+		fmt.Fprintf(os.Stderr, "integration: using pre-existing config %s\n", preExistingConfig)
 
 		// Load config to discover owner, bucket, and ssh_key_path.
-		parsedCfg, parseErr := loadConfigYAML(configPath)
+		parsedCfg, parseErr := loadConfigYAML(preExistingConfig)
 		if parseErr != nil {
-			fatalf("parse test config %s: %v", configPath, parseErr)
+			fatalf("parse test config %s: %v", preExistingConfig, parseErr)
 		}
+		owner = parsedCfg.GitHub.Owner
 		if parsedCfg.Desktop.SSHKeyPath != "" {
 			if _, statErr := os.Stat(parsedCfg.Desktop.SSHKeyPath); statErr == nil {
 				sshKey = parsedCfg.Desktop.SSHKeyPath
@@ -126,15 +127,24 @@ func TestMain(m *testing.M) {
 			}
 		}
 
+		// Resolve infra_dir to an absolute path so the CLI binary can find
+		// the Pulumi stacks regardless of its working directory.
+		resolvedConfig, resolveErr := resolveInfraDir(preExistingConfig, moduleRoot, tmpDir)
+		if resolveErr != nil {
+			fatalf("resolve infra_dir in config: %v", resolveErr)
+		}
+		configPath = resolvedConfig
+
 		// Print startup banner.
 		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
 		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
 		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
+		fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
 		fmt.Fprintf(os.Stderr, "  config      : %s\n", configPath)
 		fmt.Fprintf(os.Stderr, "==========================================\n\n")
 	} else {
 		// Derive config from environment variables (original behaviour).
-		owner := requireEnv("AI_DESKTOPS_GITHUB_OWNER")
+		owner = requireEnv("AI_DESKTOPS_GITHUB_OWNER")
 		bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
 
 		// Print startup banner.
@@ -603,6 +613,7 @@ type minimalConfig struct {
 	} `yaml:"github"`
 	Pulumi struct {
 		BackendBucket string `yaml:"backend_bucket"`
+		InfraDir      string `yaml:"infra_dir"`
 	} `yaml:"pulumi"`
 }
 
@@ -617,4 +628,50 @@ func loadConfigYAML(path string) (*minimalConfig, error) {
 		return nil, err
 	}
 	return &c, nil
+}
+
+// resolveInfraDir ensures that the infra_dir in the config at srcPath is an
+// absolute path.  When infra_dir is "." or any other relative path, this
+// function writes a patched copy of the config to dir (resolving the path
+// against moduleRoot) and returns the new path.  If infra_dir is already
+// absolute, srcPath is returned unchanged.
+func resolveInfraDir(srcPath, moduleRoot, dir string) (string, error) {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Use a generic map so we preserve all fields verbatim.
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return "", err
+	}
+
+	pulumi, _ := raw["pulumi"].(map[string]any)
+	if pulumi == nil {
+		// No pulumi section — nothing to fix.
+		return srcPath, nil
+	}
+	infraDir, _ := pulumi["infra_dir"].(string)
+	if infraDir == "" {
+		infraDir = "."
+	}
+	if filepath.IsAbs(infraDir) {
+		// Already absolute; use config as-is.
+		return srcPath, nil
+	}
+
+	// Resolve relative path against module root and write a patched copy.
+	pulumi["infra_dir"] = filepath.Join(moduleRoot, infraDir)
+	raw["pulumi"] = pulumi
+
+	patched, err := yaml.Marshal(raw)
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, "config-resolved.yaml")
+	if err := os.WriteFile(dst, patched, 0600); err != nil {
+		return "", err
+	}
+	return dst, nil
 }
