@@ -237,6 +237,30 @@ func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner strin
 	return aws.ToString(best.ImageId), nil
 }
 
+// FindSubnetByTag returns the subnet ID of the first subnet tagged with
+// Name=ai-desktops-subnet and environment=<environment>. This locates the
+// subnet created by the foundation Pulumi stack so Packer can launch its
+// build instance inside the project VPC rather than requiring a default VPC.
+// Returns ("", nil) when no matching subnet is found so the caller can decide
+// whether to treat that as a fatal error or fall back to AWS defaults.
+func FindSubnetByTag(ctx context.Context, cfg aws.Config, environment string) (string, error) {
+	c := ec2.NewFromConfig(cfg)
+	out, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("tag:Name"), Values: []string{"ai-desktops-subnet"}},
+			{Name: aws.String("tag:environment"), Values: []string{environment}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("describe subnets: %w", err)
+	}
+	if len(out.Subnets) == 0 {
+		return "", nil
+	}
+	return aws.ToString(out.Subnets[0].SubnetId), nil
+}
+
 // StopInstance hibernates the given EC2 instance, saving RAM to the encrypted
 // root EBS volume, and waits until it reaches the stopped state (up to 10 minutes).
 // The instance must have been launched with HibernationOptions.Configured = true

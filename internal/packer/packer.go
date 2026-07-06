@@ -150,8 +150,9 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 // cliVersion is the ai-desktops CLI version baked into the AMI tag.
 // desktopWebVersion is the @markcallen/desktop-web npm package version to install.
 // novncDesktopVersion is the version string extracted from the base novnc-desktop AMI name.
+// subnetID is the subnet for the Packer build instance; pass "" to rely on the default VPC.
 // public controls whether the built AMI has public launch permissions.
-func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, cliVersion string, desktopWebVersion string, novncDesktopVersion string, public bool, w io.Writer) error {
+func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, cliVersion string, desktopWebVersion string, novncDesktopVersion string, subnetID string, public bool, w io.Writer) error {
 	args := []string{"build"}
 	if varsFile != "" {
 		args = append(args, "-var-file="+varsFile)
@@ -165,6 +166,9 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	args = append(args, "-var", "ai_desktops_version="+cliVersion)
 	args = append(args, "-var", "desktop_web_version="+desktopWebVersion)
 	args = append(args, "-var", "novnc_desktop_version="+novncDesktopVersion)
+	if subnetID != "" {
+		args = append(args, "-var", "subnet_id="+subnetID)
+	}
 	if public {
 		args = append(args, "-var", "ami_public=true")
 	}
