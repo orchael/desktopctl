@@ -20,6 +20,7 @@ import (
 	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // LoadConfig loads AWS configuration for the given region and optional profile.
@@ -38,6 +39,9 @@ func LoadConfig(ctx context.Context, region, profile string) (aws.Config, error)
 // BucketExists reports whether the S3 bucket exists and is accessible with the
 // current credentials. It returns false (not an error) when the bucket is
 // absent; it returns an error only when the check itself fails unexpectedly.
+// A 301 redirect means the bucket exists in a different region than the client's
+// configured region — this is treated as "exists" so state buckets in a fixed
+// region work regardless of which environment region the caller configures.
 func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, error) {
 	c := s3.NewFromConfig(cfg)
 	_, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
@@ -48,6 +52,12 @@ func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, err
 	var noSuchBucket *s3types.NoSuchBucket
 	if errors.As(err, &notFound) || errors.As(err, &noSuchBucket) {
 		return false, nil
+	}
+	// A 301 redirect means the bucket exists but was created in a different
+	// region than the one the client is configured for.
+	var httpErr *smithyhttp.ResponseError
+	if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 301 {
+		return true, nil
 	}
 	return false, fmt.Errorf("check bucket %s: %w", bucket, err)
 }
