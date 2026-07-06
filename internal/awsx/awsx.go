@@ -71,6 +71,11 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 	if err != nil {
 		var notFound *s3types.NotFound
 		var noSuchBucket *s3types.NoSuchBucket
+		var httpErr *smithyhttp.ResponseError
+		if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 301 {
+			// Bucket exists in a different region — nothing to create.
+			return nil
+		}
 		if !errors.As(err, &notFound) && !errors.As(err, &noSuchBucket) {
 			return fmt.Errorf("check bucket %s: %w", bucket, err)
 		}

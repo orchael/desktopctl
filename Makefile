@@ -36,7 +36,7 @@ setup-integration: check-deps build
 	@echo "  The wizard will ask for your configuration. When prompted for SSH key,"
 	@echo "  enter: $$(pwd)/tests/integration/id_ed25519"
 	@echo ""
-	./$(BINARY) setup --config-out tests/integration/config.yaml
+	./$(BINARY) setup --config tests/integration/config.yaml --config-out tests/integration/config.yaml
 	@echo ""
 	@echo "setup-integration: bootstrapping S3 backend..."
 	./$(BINARY) bootstrap --config tests/integration/config.yaml
