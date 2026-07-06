@@ -9,7 +9,6 @@ import (
 
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/packer"
-	internalpulumi "github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/orchael/ai-desktops/internal/version"
 	"github.com/spf13/cobra"
@@ -203,12 +202,7 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 	}
 	fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
 
-	// Look up the foundation stack subnet so Packer can launch the builder
-	// instance in a known VPC. This is required when the account has no default
-	// VPC (which is the common case for managed accounts).
-	subnetID := readFoundationSubnet(ctx, region)
-
-	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, amiPublic, subnetID, os.Stderr); err != nil {
+	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, amiPublic, os.Stderr); err != nil {
 		return "", "", fmt.Errorf("packer build for %s: %w", region, err)
 	}
 	manifest, err := packer.ParseManifest(filepath.Join(packerDir, "manifest.json"))
@@ -220,28 +214,4 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 		return "", "", fmt.Errorf("no AMI found in manifest for %s", region)
 	}
 	return amiID, novncDesktopVersion, nil
-}
-
-// readFoundationSubnet returns the subnet ID from the foundation stack for the
-// given region. When the stack outputs cannot be read (e.g. foundation not yet
-// deployed), an empty string is returned so Packer falls back to the default VPC.
-func readFoundationSubnet(ctx context.Context, region string) string {
-	env := cfg.Fleet.Environment
-	if env == "" {
-		env = "dev"
-	}
-	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	ref := internalpulumi.FoundationStackRef(backendURL, env, workDir)
-	runner := &internalpulumi.Runner{AWSProfile: cfg.AWS.Profile}
-	outputs, err := runner.Outputs(ctx, ref)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: could not read foundation stack outputs (will use default VPC): %v\n", err)
-		return ""
-	}
-	subnetID := outputs[internalpulumi.OutputSubnetID]
-	if subnetID != "" {
-		fmt.Fprintf(os.Stderr, "Using foundation subnet for Packer builder: %s\n", subnetID)
-	}
-	return subnetID
 }
