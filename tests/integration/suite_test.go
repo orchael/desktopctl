@@ -210,21 +210,19 @@ func TestMain(m *testing.M) {
 
 	// Always attempt cleanup when we own the desktop.
 	if fx.ownedByTest {
-		// Capture the EC2 instance ID before terminating. The foundation
-		// destroy (VPC teardown) fails with DependencyViolation when the EC2
-		// instance is still "terminating" and its public IP is still attached.
-		// We wait for the instance to reach "terminated" before proceeding.
-		ec2ID := getInstanceID(fx.ID)
-
 		if err := terminateDesktop(fx.ID); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: terminate %s failed: %v\n", fx.ID, err)
-		} else if ec2ID != "" {
-			waitForEC2Terminated(ec2ID, 10*time.Minute)
 		}
 	}
 
 	// Delete AMIs built during this test run.
 	teardownAMIs()
+
+	// Purge ALL non-terminated EC2 instances in the test VPC before destroying
+	// the foundation stack. This covers both the desktop instance and any Packer
+	// builder instances that ran during ami build — the IGW detach will fail
+	// with DependencyViolation if any instance still has a public IP attached.
+	purgeVPCInstances()
 
 	// Delete the EC2 key pair only when this suite imported it. When using a
 	// pre-existing config the key pair is managed externally and must not be
@@ -531,44 +529,82 @@ func terminateDesktop(id string) error {
 	return err
 }
 
-// getInstanceID returns the EC2 instance ID for the given desktop, or ""
-// if the status query fails or the field is absent.
-func getInstanceID(desktopID string) string {
-	out, err := runCLI(context.Background(), 30*time.Second,
-		"status", desktopID, "--config", configPath, "--json")
-	if err != nil {
-		return ""
-	}
-	var d struct {
-		InstanceID string `json:"instance_id"`
-	}
-	if err := json.Unmarshal(out, &d); err != nil {
-		return ""
-	}
-	return d.InstanceID
-}
+// purgeVPCInstances terminates every non-terminated EC2 instance that lives in
+// the test-environment foundation subnet (tagged environment=test), then waits
+// for all of them to reach "terminated" before returning. This prevents
+// DependencyViolation errors when the foundation stack's VPC/IGW teardown runs
+// while a Packer builder instance (or any other instance) still has a public IP
+// attached in the subnet.
+func purgeVPCInstances() {
+	fmt.Fprintln(os.Stderr, "integration: scanning for EC2 instances in test VPC to purge...")
 
-// waitForEC2Terminated blocks until the EC2 instance reaches "terminated"
-// state (via aws ec2 wait) or the timeout elapses. A VPC cannot be destroyed
-// while an instance in it is still "terminating" with a public IP attached.
-func waitForEC2Terminated(instanceID string, timeout time.Duration) {
-	fmt.Fprintf(os.Stderr, "integration: waiting for EC2 instance %s to reach terminated...\n", instanceID)
-	args := []string{"ec2", "wait", "instance-terminated",
-		"--instance-ids", instanceID,
+	// Build the describe-instances command. We filter by the subnet tag
+	// environment=test so we only touch instances in the test foundation subnet.
+	args := []string{
+		"ec2", "describe-instances",
 		"--region", testRegion,
+		"--filters",
+		"Name=subnet.tag:environment,Values=" + testEnv,
+		"Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped",
+		"--query", "Reservations[].Instances[].InstanceId",
+		"--output", "text",
 	}
 	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
 		args = append(args, "--profile", profile)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+	out, err := exec.Command("aws", args...).Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: describe-instances for purge failed: %v\n", err)
+		return
+	}
+
+	// Parse the whitespace-separated list of instance IDs.
+	var instanceIDs []string
+	for _, id := range strings.Fields(string(out)) {
+		if strings.HasPrefix(id, "i-") {
+			instanceIDs = append(instanceIDs, id)
+		}
+	}
+
+	if len(instanceIDs) == 0 {
+		fmt.Fprintln(os.Stderr, "integration: no EC2 instances to purge in test VPC")
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "integration: terminating %d EC2 instance(s) in test VPC: %s\n",
+		len(instanceIDs), strings.Join(instanceIDs, ", "))
+
+	// Terminate all discovered instances in one API call.
+	termArgs := append([]string{"ec2", "terminate-instances", "--region", testRegion,
+		"--instance-ids"}, instanceIDs...)
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		termArgs = append(termArgs, "--profile", profile)
+	}
+	termCmd := exec.Command("aws", termArgs...)
+	termCmd.Stdout = os.Stderr
+	termCmd.Stderr = os.Stderr
+	if err := termCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: terminate-instances failed: %v\n", err)
+		// Fall through and still wait; instances may already be terminating.
+	}
+
+	// Wait for all of them to reach "terminated".
+	waitArgs := append([]string{"ec2", "wait", "instance-terminated",
+		"--region", testRegion, "--instance-ids"}, instanceIDs...)
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		waitArgs = append(waitArgs, "--profile", profile)
+	}
+	fmt.Fprintf(os.Stderr, "integration: waiting for %d instance(s) to terminate...\n", len(instanceIDs))
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "aws", args...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: wait for EC2 terminated %s: %v\n", instanceID, err)
+	waitCmd := exec.CommandContext(ctx, "aws", waitArgs...)
+	waitCmd.Stdout = os.Stderr
+	waitCmd.Stderr = os.Stderr
+	if err := waitCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: wait instance-terminated failed: %v\n", err)
 	} else {
-		fmt.Fprintf(os.Stderr, "integration: EC2 instance %s is terminated\n", instanceID)
+		fmt.Fprintln(os.Stderr, "integration: all test VPC instances are terminated")
 	}
 }
 
