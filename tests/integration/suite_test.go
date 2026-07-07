@@ -210,8 +210,16 @@ func TestMain(m *testing.M) {
 
 	// Always attempt cleanup when we own the desktop.
 	if fx.ownedByTest {
+		// Capture the EC2 instance ID before terminating. The foundation
+		// destroy (VPC teardown) fails with DependencyViolation when the EC2
+		// instance is still "terminating" and its public IP is still attached.
+		// We wait for the instance to reach "terminated" before proceeding.
+		ec2ID := getInstanceID(fx.ID)
+
 		if err := terminateDesktop(fx.ID); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: terminate %s failed: %v\n", fx.ID, err)
+		} else if ec2ID != "" {
+			waitForEC2Terminated(ec2ID, 10*time.Minute)
 		}
 	}
 
@@ -521,6 +529,47 @@ func terminateDesktop(id string) error {
 	_, err := runCLI(context.Background(), 30*time.Minute,
 		"terminate", id, "--config", configPath, "--force")
 	return err
+}
+
+// getInstanceID returns the EC2 instance ID for the given desktop, or ""
+// if the status query fails or the field is absent.
+func getInstanceID(desktopID string) string {
+	out, err := runCLI(context.Background(), 30*time.Second,
+		"status", desktopID, "--config", configPath, "--json")
+	if err != nil {
+		return ""
+	}
+	var d struct {
+		InstanceID string `json:"instance_id"`
+	}
+	if err := json.Unmarshal(out, &d); err != nil {
+		return ""
+	}
+	return d.InstanceID
+}
+
+// waitForEC2Terminated blocks until the EC2 instance reaches "terminated"
+// state (via aws ec2 wait) or the timeout elapses. A VPC cannot be destroyed
+// while an instance in it is still "terminating" with a public IP attached.
+func waitForEC2Terminated(instanceID string, timeout time.Duration) {
+	fmt.Fprintf(os.Stderr, "integration: waiting for EC2 instance %s to reach terminated...\n", instanceID)
+	args := []string{"ec2", "wait", "instance-terminated",
+		"--instance-ids", instanceID,
+		"--region", testRegion,
+	}
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "aws", args...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: wait for EC2 terminated %s: %v\n", instanceID, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "integration: EC2 instance %s is terminated\n", instanceID)
+	}
 }
 
 // waitForState polls `ai-desktops status <id>` until lifecycle_state matches

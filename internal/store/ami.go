@@ -137,10 +137,10 @@ func (s *DynamoAMIStore) ListAMIs(ctx context.Context, region string) ([]*AMIRec
 }
 
 func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMIRecord, error) {
+	// The table uses ami_id as the sole hash key (region is a non-key attribute).
 	result, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
-			"region": &types.AttributeValueMemberS{Value: region},
 			"ami_id": &types.AttributeValueMemberS{Value: amiID},
 		},
 	})
@@ -160,10 +160,10 @@ func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMI
 }
 
 func (s *DynamoAMIStore) DeleteAMI(ctx context.Context, region, amiID string) error {
+	// The table uses ami_id as the sole hash key (region is a non-key attribute).
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
-			"region": &types.AttributeValueMemberS{Value: region},
 			"ami_id": &types.AttributeValueMemberS{Value: amiID},
 		},
 	})
