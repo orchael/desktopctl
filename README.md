@@ -100,21 +100,31 @@ Or build directly:
 go build -o ai-desktops ./cmd/ai-desktops
 ```
 
+## Region and environment mapping
+
+| Environment | AWS Region  |
+|-------------|-------------|
+| `prod`      | us-east-1   |
+| `dev`       | us-east-2   |
+| `test`      | us-west-2   |
+
+Each environment gets its own foundation stack, DynamoDB fleet table, and DNS zone. The `prod` and `dev` environments use separate hosted zones (`desktops.orchael.com` and `desktops.orchael.dev`); the `test` environment shares the `dev` zone.
+
 ## Configuration
 
 Create `~/.ai-desktops/config.yaml` (or pass `--config <path>`):
 
 ```yaml
 aws:
-  region: us-east-1
+  region: us-east-2   # us-east-1 = prod, us-east-2 = dev, us-west-2 = test
   profile: myprofile
 
 pulumi:
   backend_bucket: my-ai-desktops-pulumi-state
 
 fleet:
-  table_name: ai-desktops-fleet
-  environment: dev    # dev or prod
+  table_name: ai-desktops-fleet-dev
+  environment: dev    # prod | dev | test
 
 github:
   owner: myorg
@@ -207,7 +217,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 
 ```hcl
 # packer/variables.pkrvars.hcl
-aws_region              = "us-east-2"
+aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
 ai_agent_bridge_version = "v0.1.0"
 go_version              = "1.23.0"
 uv_version              = "0.4.0"
@@ -229,10 +239,10 @@ export GITHUB_NPM_TOKEN=ghp_...
 ai-desktops ami build --regions us-east-2
 ```
 
-Build multiple regions sequentially:
+Build all three regions:
 
 ```bash
-ai-desktops ami build --regions us-east-1,us-west-2
+ai-desktops ami build --regions us-east-1,us-east-2,us-west-2
 ```
 
 Use an explicit base AMI instead of the auto-lookup (single region only):
@@ -345,7 +355,7 @@ If repos are missing or the clone failed, check the cloud-init bootstrap logs fr
 
 ```bash
 INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep "Instance ID" | awk -F: '{print $2}' | xargs)
-aws ssm start-session --target $INSTANCE_ID --region us-east-2
+aws ssm start-session --target $INSTANCE_ID --region us-east-2  # adjust region for your environment
 # Then inside the session:
 tail -100 /var/log/cloud-init-output.log
 ```
@@ -449,7 +459,7 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 
 - [ ] `ai-desktops bootstrap` completes without error; re-run is a no-op
 - [ ] `ai-desktops init-foundation` completes; outputs include subnetId, securityGroupId, instanceProfile, zoneId
-- [ ] `ai-desktops ami build --regions us-east-2` completes; `ai-desktops ami list` shows registered AMI ID (optional)
+- [ ] `ai-desktops ami build --regions us-east-2` completes; `ai-desktops ami list` shows registered AMI ID (optional — dev region)
 - [ ] `ai-desktops create --repos myorg/test-repo` returns a desktop ID
 - [ ] `ai-desktops list` shows the new desktop in state `ready`
 - [ ] `ai-desktops status <id>` shows hostname, novnc_url, ssh_target

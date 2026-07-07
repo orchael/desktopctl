@@ -5,7 +5,7 @@ CMD     := ./cmd/ai-desktops
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
 AI_DESKTOPS_GITHUB_OWNER ?= orchael
 
-.PHONY: build test test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
+.PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
 
 build:
 	go build -o $(BINARY) $(CMD)
@@ -13,11 +13,44 @@ build:
 test:
 	go test ./...
 
+# setup-integration performs one-time setup for the integration test environment.
+#
+# It generates an SSH key pair at tests/integration/id_ed25519, runs the
+# ai-desktops setup wizard writing to tests/integration/config.yaml, then
+# bootstraps the S3 backend and deploys the foundation stack.
+#
+# Run once before `make test-integration`. Re-running is idempotent.
+#
+# The generated files are gitignored. Copy tests/integration/config.yaml.example
+# as a reference for the expected format.
+setup-integration: check-deps build
+	@echo "setup-integration: generating SSH key pair..."
+	@if [ ! -f tests/integration/id_ed25519 ]; then \
+	  ssh-keygen -t ed25519 -f tests/integration/id_ed25519 -N "" -C "ai-desktops-integration" > /dev/null; \
+	  echo "setup-integration: generated tests/integration/id_ed25519"; \
+	else \
+	  echo "setup-integration: SSH key already exists, skipping keygen"; \
+	fi
+	@echo ""
+	@echo "setup-integration: running ai-desktops setup..."
+	@echo "  The wizard will ask for your configuration. When prompted for SSH key,"
+	@echo "  enter: $$(pwd)/tests/integration/id_ed25519"
+	@echo ""
+	./$(BINARY) setup --config tests/integration/config.yaml --config-out tests/integration/config.yaml
+	@echo ""
+	@echo "setup-integration: bootstrapping S3 backend..."
+	./$(BINARY) bootstrap --config tests/integration/config.yaml
+	@echo ""
+	@echo "setup-integration: deploying foundation stack (env=test)..."
+	./$(BINARY) init-foundation --config tests/integration/config.yaml --env test
+	@echo ""
+	@echo "setup-integration: done. Run 'make test-integration' to execute the suite."
+
 # test-integration runs the full end-to-end integration suite.
 #
 # The suite is self-contained: it generates its own SSH key pair, writes its
 # own config file, bootstraps the S3 Pulumi backend, deploys the foundation
-# stack in us-east-1 (env=test), creates a desktop, runs all FR checks, then
+# stack in us-west-2 (env=test), creates a desktop, runs all FR checks, then
 # terminates the desktop.  It never reads ~/.ai-desktops/config.yaml or any
 # key from ~/.ssh.
 #
@@ -32,34 +65,42 @@ test:
 # Optional:
 #   AI_DESKTOPS_TEST_REPO     — repo URL to clone (enables FR-6/7 workspace tests)
 #   AI_DESKTOPS_EXISTING_ID   — adopt an already-running desktop instead of creating one
-#   AI_DESKTOPS_AMI_ID        — AMI ID to verify FR-9.7 config preference
 #
 # The full suite always runs the Packer AMI build (15–20 min) before
 # creating the test desktop.  Total expected runtime: ~2h.
 test-integration: check-deps build
-	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
-	  echo ""; \
-	  echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; \
-	  echo ""; \
-	  echo "Set it to a globally-unique S3 bucket name for Pulumi state, e.g.:"; \
-	  echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
-	  echo ""; \
-	  exit 1; \
-	}
-	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
-	  echo ""; \
-	  echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; \
-	  echo ""; \
-	  echo "Set it to the GitHub org or user for the test desktop, e.g.:"; \
-	  echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
-	  echo ""; \
-	  exit 1; \
-	}
+	@if [ -f tests/integration/config.yaml ]; then \
+	  echo "test-integration: using tests/integration/config.yaml (from make setup-integration)"; \
+	else \
+	  test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
+	    echo ""; \
+	    echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set and tests/integration/config.yaml does not exist."; \
+	    echo ""; \
+	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
+	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
+	  test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
+	    echo ""; \
+	    echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set and tests/integration/config.yaml does not exist."; \
+	    echo ""; \
+	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
+	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
+	fi
 	@set -o pipefail; \
 	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
-	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
-	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
-	  go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	if [ -f tests/integration/config.yaml ]; then \
+	  AI_DESKTOPS_TEST_CONFIG=$$(pwd)/tests/integration/config.yaml \
+	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	else \
+	  AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
+	    AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
+	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
+	fi; \
 	testret=$${PIPESTATUS[0]}; \
 	echo ""; \
 	echo "=== Integration Test Summary ==="; \
@@ -142,7 +183,7 @@ clean:
 	rm -f $(BINARY)
 
 # clean-integration tears down any surviving test desktops and the foundation
-# stack in us-east-1 (env=test) without needing a full integration run.
+# stack in us-west-2 (env=test) without needing a full integration run.
 #
 # It builds the CLI, writes a temporary test config, terminates all desktops
 # whose fleet record lives in the test DynamoDB table, then destroys the
@@ -163,8 +204,9 @@ clean-integration: build
 	}
 	@which jq > /dev/null 2>&1 || { echo "ERROR: jq is required but not found"; exit 1; }
 	@tmpconf=$$(mktemp /tmp/ai-desktops-clean-XXXXXX.yaml); \
-	printf 'aws:\n  region: us-east-1\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-test-fleet\n  environment: test\ngithub:\n  owner: %s\n  pat_secret: /ai-desktops/github/pat\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
+	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /ai-desktops/%s/github\n  agent_secret: /ai-desktops/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
 	  "$(AWS_PROFILE)" "$(AI_DESKTOPS_TEST_BUCKET)" "$$(pwd)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
+	  "$(AI_DESKTOPS_GITHUB_OWNER)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
 	  > "$$tmpconf"; \
 	echo "clean-integration: config written to $$tmpconf"; \
 	echo "clean-integration: listing test desktops..."; \

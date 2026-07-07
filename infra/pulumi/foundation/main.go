@@ -20,17 +20,17 @@ func run(ctx *pulumi.Context) error {
 	cfg := config.New(ctx, "")
 
 	zone := cfg.Require("zone")
+	environment := cfg.Get("environment")
+	if environment == "" {
+		environment = "dev"
+	}
 	fleetTable := cfg.Get("fleetTable")
 	if fleetTable == "" {
-		fleetTable = "ai-desktops-fleet"
+		fleetTable = "ai-desktops-fleet-" + environment
 	}
 	operatorCIDR := cfg.Get("operatorCIDR")
 	if operatorCIDR == "" {
 		operatorCIDR = "0.0.0.0/0"
-	}
-	environment := cfg.Get("environment")
-	if environment == "" {
-		environment = "dev"
 	}
 	vpcID := cfg.Get("vpcId")
 
@@ -275,7 +275,9 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- DynamoDB fleet table ---
-	table, err := dynamodb.NewTable(ctx, "ai-desktops-fleet", &dynamodb.TableArgs{
+	// pulumi.Aliases preserves the prior logical name ("ai-desktops-fleet") so
+	// existing stacks don't force a delete/recreate on the next `pulumi up`.
+	table, err := dynamodb.NewTable(ctx, "fleet-table", &dynamodb.TableArgs{
 		Name:        pulumi.String(fleetTable),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
 		HashKey:     pulumi.String("desktop_id"),
@@ -289,14 +291,15 @@ func run(ctx *pulumi.Context) error {
 			"managed-by":  pulumi.String("ai-desktops"),
 			"environment": pulumi.String(environment),
 		},
-	})
+	}, pulumi.Aliases([]pulumi.Alias{{Name: pulumi.StringInput(pulumi.String("ai-desktops-fleet"))}}))
 	if err != nil {
 		return err
 	}
 
 	// --- DynamoDB AMI history table ---
+	amiTableName := "ai-desktops-ami-" + environment
 	amiTable, err := dynamodb.NewTable(ctx, "ai-desktops-ami", &dynamodb.TableArgs{
-		Name:        pulumi.String("ai-desktops-ami"),
+		Name:        pulumi.String(amiTableName),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
 		HashKey:     pulumi.String("ami_id"),
 		Attributes: dynamodb.TableAttributeArray{

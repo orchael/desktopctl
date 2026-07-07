@@ -202,7 +202,15 @@ func buildAMIForRegion(ctx context.Context, packerDir, varsFile, region string) 
 	}
 	fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
 
-	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, amiPublic, os.Stderr); err != nil {
+	subnetID, err := awsx.FindSubnetByTag(ctx, awsCfg, cfg.Fleet.Environment)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: subnet lookup failed for %s: %v; Packer will rely on the default VPC\n", region, err)
+		subnetID = ""
+	} else if subnetID != "" {
+		fmt.Fprintf(os.Stderr, "Packer build subnet: %s\n", subnetID)
+	}
+
+	if err := packer.Run(ctx, packerDir, varsFile, region, baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, subnetID, amiPublic, os.Stderr); err != nil {
 		return "", "", fmt.Errorf("packer build for %s: %w", region, err)
 	}
 	manifest, err := packer.ParseManifest(filepath.Join(packerDir, "manifest.json"))

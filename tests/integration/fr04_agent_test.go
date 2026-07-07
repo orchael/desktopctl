@@ -4,7 +4,7 @@
 //
 // Acceptance criteria tested here:
 //
-//	AC-4.1  ai-agent-bridge systemd service is active on the desktop
+//	AC-4.1  bridgectl user-level systemd service is active on the desktop
 //	AC-4.2  Bridge is bound to localhost only (not 0.0.0.0)
 //	AC-4.4  `ai-desktops agent <id> status` returns bridge status without error
 //	AC-4.5  Agent command works through the CLI-managed tunnel
@@ -18,25 +18,26 @@ import (
 	"time"
 )
 
-// TestFR4_BridgeServiceActive verifies that the ai-agent-bridge systemd unit
-// is running (AC-4.1).
+// TestFR4_BridgeServiceActive verifies that the bridgectl user-level systemd
+// unit is running (AC-4.1). The bridge binary was renamed from ai-agent-bridge
+// to bridgectl and is managed as a user service under loginctl linger.
 func TestFR4_BridgeServiceActive(t *testing.T) {
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify systemd unit")
 	}
-	assertSystemdActive(t, fx.SSHTarget, fx.SSHKey, "ai-agent-bridge")
+	assertSystemdUserActive(t, fx.SSHTarget, fx.SSHKey, "bridgectl")
 }
 
-// TestFR4_BridgeLocalhostOnly verifies that ai-agent-bridge is bound to
-// 127.0.0.1 and not 0.0.0.0, enforcing FR-4.6 (bridge not on public internet).
+// TestFR4_BridgeLocalhostOnly verifies that bridgectl is bound to 127.0.0.1
+// and not 0.0.0.0, enforcing FR-4.6 (bridge not on public internet).
 func TestFR4_BridgeLocalhostOnly(t *testing.T) {
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify bridge binding")
 	}
-	out := sshRun(t, fx.SSHTarget, fx.SSHKey,
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
 		"ss -tlnp 2>/dev/null | grep ':9445'")
-	if out == "" {
-		t.Error("bridge port 9445 not listening — is ai-agent-bridge running?")
+	if err != nil || strings.TrimSpace(out) == "" {
+		t.Error("bridge port 9445 not listening — is bridgectl running?")
 		return
 	}
 	// The address field should be 127.0.0.1:9445, not 0.0.0.0:9445 or *:9445.
@@ -63,7 +64,7 @@ func TestFR4_AgentStatusCommand(t *testing.T) {
 }
 
 // TestFR4_AgentProvidersCommand verifies that the agent providers subcommand
-// lists the expected AI providers (AC-4.3 — Codex, Claude, Gemini).
+// lists the expected AI providers (AC-4.3 — Codex, Claude).
 func TestFR4_AgentProvidersCommand(t *testing.T) {
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot establish agent tunnel")
@@ -76,7 +77,7 @@ func TestFR4_AgentProvidersCommand(t *testing.T) {
 	}
 
 	s := strings.ToLower(string(out))
-	for _, provider := range []string{"codex", "claude", "gemini"} {
+	for _, provider := range []string{"codex", "claude"} {
 		if !strings.Contains(s, provider) {
 			t.Errorf("agent providers output missing %q\nraw: %s", provider, out)
 		}

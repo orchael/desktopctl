@@ -126,6 +126,23 @@ func assertSystemdActive(t interface {
 	}
 }
 
+// assertSystemdUserActive asserts that the named user-level systemd unit is
+// active. User services run under loginctl linger and are checked with
+// systemctl --user.
+func assertSystemdUserActive(t interface {
+	Helper()
+	Errorf(string, ...any)
+	Fatalf(string, ...any)
+}, host, keyPath, unit string) {
+	t.Helper()
+	out, err := sshRunE(host, keyPath,
+		fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active %s 2>&1", unit))
+	state := strings.TrimSpace(out)
+	if err != nil || state != "active" {
+		t.Errorf("systemd user unit %q: got %q (err=%v), want active", unit, state, err)
+	}
+}
+
 // assertCommandExists asserts that a command is on PATH with the given version
 // flag producing output (e.g. --version).
 func assertCommandExists(t interface {

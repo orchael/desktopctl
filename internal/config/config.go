@@ -17,11 +17,11 @@ const (
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
 
-	DefaultFleetTable   = "ai-desktops-fleet"
-	DefaultAMITable     = "ai-desktops-ami"
-	DefaultBridgePort   = 9445
-	DefaultInstanceType = "t3.large"
-	DefaultVolumeSize   = 100
+	DefaultFleetTablePrefix = "ai-desktops-fleet"
+	DefaultAMITablePrefix   = "ai-desktops-ami"
+	DefaultBridgePort       = 9445
+	DefaultInstanceType     = "t3.large"
+	DefaultVolumeSize       = 100
 )
 
 // Config holds all operator configuration for ai-desktops.
@@ -120,10 +120,10 @@ func (c *Config) Defaults() {
 		c.Fleet.Environment = EnvDev
 	}
 	if c.Fleet.TableName == "" {
-		c.Fleet.TableName = DefaultFleetTable
+		c.Fleet.TableName = DefaultFleetTablePrefix + "-" + c.Fleet.Environment
 	}
 	if c.Fleet.AMITableName == "" {
-		c.Fleet.AMITableName = DefaultAMITable
+		c.Fleet.AMITableName = DefaultAMITablePrefix + "-" + c.Fleet.Environment
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType

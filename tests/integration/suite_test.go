@@ -10,7 +10,7 @@
 //
 //	make test-integration
 //
-// Required environment variables:
+// Required environment variables (when not using AI_DESKTOPS_TEST_CONFIG):
 //
 //	AI_DESKTOPS_TEST_BUCKET   — globally-unique S3 bucket name for Pulumi state
 //	                            (created if it doesn't exist; never touches prod/dev buckets)
@@ -21,9 +21,12 @@
 //
 // Optional:
 //
+//	AI_DESKTOPS_TEST_CONFIG — path to a pre-existing config file (e.g. tests/integration/config.yaml).
+//	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
+//	                          from the config file and SSH key generation is skipped when ssh_key_path
+//	                          in the config already points to an existing file.
 //	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
-//	AI_DESKTOPS_AMI_ID      — AMI ID to verify FR-9.7 config preference
 package integration_test
 
 import (
@@ -37,6 +40,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // DesktopFixture holds state for the desktop created (or adopted) by TestMain
@@ -67,23 +72,21 @@ var configPath string
 // moduleRootPath is the repo root, used to resolve packer-dir and other paths.
 var moduleRootPath string
 
+// testKeyPairName is the EC2 key pair name imported during setup; deleted in teardown.
+var testKeyPairName string
+
+// testKeyPairImported is true only when this suite imported the key pair
+// itself (env-var path). When using a pre-existing config the key pair was
+// imported by `make setup-integration` and must not be deleted on teardown.
+var testKeyPairImported bool
+
 const (
-	testRegion = "us-east-1"
+	testRegion = "us-west-2"
 	testEnv    = "test"
 )
 
 func TestMain(m *testing.M) {
-	owner := requireEnv("AI_DESKTOPS_GITHUB_OWNER")
-	bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
 	testRepo := os.Getenv("AI_DESKTOPS_TEST_REPO")
-
-	// Print startup banner so CI logs clearly show what environment is under test.
-	fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
-	fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
-	fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
-	fmt.Fprintf(os.Stderr, "  bucket      : %s\n", bucket)
-	fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
-	fmt.Fprintf(os.Stderr, "==========================================\n\n")
 
 	// All generated files live in a temp dir that is cleaned up on exit.
 	tmpDir, err := os.MkdirTemp("", "ai-desktops-integration-*")
@@ -92,21 +95,80 @@ func TestMain(m *testing.M) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Generate a fresh SSH key pair for this test run.
-	sshKey, err := generateSSHKey(tmpDir)
-	if err != nil {
-		fatalf("generate SSH key: %v", err)
-	}
-
-	// Write a self-contained config file for this test run.
 	moduleRoot, err := findModuleRoot()
 	if err != nil {
 		fatalf("find module root: %v", err)
 	}
 	moduleRootPath = moduleRoot
-	configPath, err = writeTestConfig(tmpDir, moduleRoot, bucket, sshKey, owner)
-	if err != nil {
-		fatalf("write test config: %v", err)
+
+	// AI_DESKTOPS_TEST_CONFIG: use a pre-existing config file (e.g. generated
+	// by `make setup-integration`) rather than deriving one from env vars.
+	// When set, ssh key generation is skipped if ssh_key_path in the config
+	// already points to an existing file.
+	var sshKey string
+	var owner string
+	if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
+		fmt.Fprintf(os.Stderr, "integration: using pre-existing config %s\n", preExistingConfig)
+
+		// Load config to discover owner, bucket, and ssh_key_path.
+		parsedCfg, parseErr := loadConfigYAML(preExistingConfig)
+		if parseErr != nil {
+			fatalf("parse test config %s: %v", preExistingConfig, parseErr)
+		}
+		owner = parsedCfg.GitHub.Owner
+		if owner == "" {
+			fatalf("github.owner is not set in %s; run `make setup-integration`", preExistingConfig)
+		}
+		if parsedCfg.Desktop.SSHKeyPath == "" {
+			fatalf("desktop.ssh_key_path is not set in %s; run `make setup-integration` to generate a key", preExistingConfig)
+		}
+		if _, statErr := os.Stat(parsedCfg.Desktop.SSHKeyPath); statErr != nil {
+			fatalf("desktop.ssh_key_path %q does not exist; run `make setup-integration` to generate a key", parsedCfg.Desktop.SSHKeyPath)
+		}
+		sshKey = parsedCfg.Desktop.SSHKeyPath
+		fmt.Fprintf(os.Stderr, "integration: using SSH key from config: %s\n", sshKey)
+		// Track key pair name for teardown so it can be deleted after the run.
+		testKeyPairName = parsedCfg.Desktop.SSHKeyName
+
+		// Resolve infra_dir to an absolute path so the CLI binary can find
+		// the Pulumi stacks regardless of its working directory.
+		resolvedConfig, resolveErr := resolveInfraDir(preExistingConfig, moduleRoot, tmpDir)
+		if resolveErr != nil {
+			fatalf("resolve infra_dir in config: %v", resolveErr)
+		}
+		configPath = resolvedConfig
+
+		// Print startup banner.
+		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
+		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
+		fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
+		fmt.Fprintf(os.Stderr, "  config      : %s\n", configPath)
+		fmt.Fprintf(os.Stderr, "==========================================\n\n")
+	} else {
+		// Derive config from environment variables (original behaviour).
+		owner = requireEnv("AI_DESKTOPS_GITHUB_OWNER")
+		bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
+
+		// Print startup banner.
+		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
+		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
+		fmt.Fprintf(os.Stderr, "  bucket      : %s\n", bucket)
+		fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
+		fmt.Fprintf(os.Stderr, "==========================================\n\n")
+
+		// Generate a fresh SSH key pair for this test run.
+		sshKey, err = generateSSHKey(tmpDir)
+		if err != nil {
+			fatalf("generate SSH key: %v", err)
+		}
+
+		// Write a self-contained config file for this test run.
+		configPath, err = writeTestConfig(tmpDir, moduleRoot, bucket, sshKey, owner)
+		if err != nil {
+			fatalf("write test config: %v", err)
+		}
 	}
 
 	// Build the CLI binary into the temp dir so tests use a fresh compile.
@@ -121,8 +183,7 @@ func TestMain(m *testing.M) {
 		fatalf("setup foundation: %v", err)
 	}
 
-	// Build an AMI before creating the desktop so the full integration run
-	// exercises the Packer pipeline and the desktop boots from a pre-baked image.
+	// Build an AMI before creating the desktop.
 	if err := buildAMI(); err != nil {
 		fatalf("ami build: %v", err)
 	}
@@ -156,6 +217,19 @@ func TestMain(m *testing.M) {
 
 	// Delete AMIs built during this test run.
 	teardownAMIs()
+
+	// Purge ALL non-terminated EC2 instances in the test VPC before destroying
+	// the foundation stack. This covers both the desktop instance and any Packer
+	// builder instances that ran during ami build — the IGW detach will fail
+	// with DependencyViolation if any instance still has a public IP attached.
+	purgeVPCInstances()
+
+	// Delete the EC2 key pair only when this suite imported it. When using a
+	// pre-existing config the key pair is managed externally and must not be
+	// removed here.
+	if testKeyPairImported && testKeyPairName != "" {
+		teardownKeyPair(testKeyPairName)
+	}
 
 	// Tear down the foundation stack so test resources don't persist.
 	teardownFoundation()
@@ -206,18 +280,19 @@ pulumi:
   backend_bucket: %s
   infra_dir: %s
 fleet:
-  table_name: ai-desktops-test-fleet
+  table_name: ai-desktops-fleet-test
   environment: %s
 github:
   owner: %s
-  pat_secret: /ai-desktops/github/pat
+  github_secret: /ai-desktops/%s/github
+  agent_secret: /ai-desktops/%s/agents
 desktop:
   instance_type: t3.large
   operator_cidr: 0.0.0.0/0
   ssh_key_path: %s
 agent:
   bridge_port: 9445
-`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, sshKeyPath)
+`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, owner, owner, sshKeyPath)
 
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
@@ -289,6 +364,24 @@ func teardownAMIs() {
 		if delErr != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: delete AMI %s failed: %v\n", e.AMIID, delErr)
 		}
+	}
+}
+
+// teardownKeyPair deletes the named EC2 key pair so it does not accumulate
+// across test runs. Only called when setup-integration imported a key pair.
+func teardownKeyPair(keyName string) {
+	fmt.Fprintf(os.Stderr, "integration: deleting EC2 key pair %q...\n", keyName)
+	args := []string{"ec2", "delete-key-pair", "--key-name", keyName, "--region", testRegion}
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		args = append(args, "--profile", profile)
+	}
+	cmd := exec.Command("aws", args...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: delete EC2 key pair %q failed: %v\n", keyName, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "integration: deleted EC2 key pair %q\n", keyName)
 	}
 }
 
@@ -436,6 +529,111 @@ func terminateDesktop(id string) error {
 	return err
 }
 
+// purgeVPCInstances terminates every non-terminated EC2 instance that lives in
+// the test-environment foundation subnet (tagged environment=test), then waits
+// for all of them to reach "terminated" before returning. This prevents
+// DependencyViolation errors when the foundation stack's VPC/IGW teardown runs
+// while a Packer builder instance (or any other instance) still has a public IP
+// attached in the subnet.
+//
+// Two-step approach: resolve the foundation subnet ID first via describe-subnets
+// (filtering by the environment tag), then filter instances by that explicit
+// subnet-id. Filtering describe-instances by subnet.tag is not reliably
+// supported; subnet-id is a first-class filter that always works.
+func purgeVPCInstances() {
+	fmt.Fprintln(os.Stderr, "integration: scanning for EC2 instances in test VPC to purge...")
+
+	// awsArgs appends the optional --profile flag and returns the full arg list.
+	awsArgs := func(subcmd ...string) []string {
+		a := append([]string{}, subcmd...)
+		if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+			a = append(a, "--profile", profile)
+		}
+		return a
+	}
+
+	// Step 1: resolve the foundation subnet IDs by their environment tag.
+	subnetOut, err := exec.Command("aws", awsArgs(
+		"ec2", "describe-subnets",
+		"--region", testRegion,
+		"--filters", "Name=tag:environment,Values="+testEnv,
+		"--query", "Subnets[].SubnetId",
+		"--output", "text",
+	)...).Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: describe-subnets for purge failed: %v\n", err)
+		return
+	}
+	var subnetIDs []string
+	for _, id := range strings.Fields(string(subnetOut)) {
+		if strings.HasPrefix(id, "subnet-") {
+			subnetIDs = append(subnetIDs, id)
+		}
+	}
+	if len(subnetIDs) == 0 {
+		fmt.Fprintln(os.Stderr, "integration: no test foundation subnets found — skipping instance purge")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "integration: found test subnet(s): %s\n", strings.Join(subnetIDs, ", "))
+
+	// Step 2: list all non-terminated instances in those subnets.
+	out, err := exec.Command("aws", awsArgs(
+		"ec2", "describe-instances",
+		"--region", testRegion,
+		"--filters",
+		"Name=subnet-id,Values="+strings.Join(subnetIDs, ","),
+		"Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped",
+		"--query", "Reservations[].Instances[].InstanceId",
+		"--output", "text",
+	)...).Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: describe-instances for purge failed: %v\n", err)
+		return
+	}
+
+	// Parse the whitespace-separated list of instance IDs.
+	var instanceIDs []string
+	for _, id := range strings.Fields(string(out)) {
+		if strings.HasPrefix(id, "i-") {
+			instanceIDs = append(instanceIDs, id)
+		}
+	}
+
+	if len(instanceIDs) == 0 {
+		fmt.Fprintln(os.Stderr, "integration: no EC2 instances to purge in test VPC")
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "integration: terminating %d EC2 instance(s) in test VPC: %s\n",
+		len(instanceIDs), strings.Join(instanceIDs, ", "))
+
+	// Terminate all discovered instances in one API call.
+	termCmd := exec.Command("aws", awsArgs(append(
+		[]string{"ec2", "terminate-instances", "--region", testRegion, "--instance-ids"},
+		instanceIDs...)...)...)
+	termCmd.Stdout = os.Stderr
+	termCmd.Stderr = os.Stderr
+	if err := termCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: terminate-instances failed: %v\n", err)
+		// Fall through and still wait; instances may already be terminating.
+	}
+
+	// Wait for all of them to reach "terminated".
+	fmt.Fprintf(os.Stderr, "integration: waiting for %d instance(s) to terminate...\n", len(instanceIDs))
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	waitCmd := exec.CommandContext(ctx, "aws", awsArgs(append(
+		[]string{"ec2", "wait", "instance-terminated", "--region", testRegion, "--instance-ids"},
+		instanceIDs...)...)...)
+	waitCmd.Stdout = os.Stderr
+	waitCmd.Stderr = os.Stderr
+	if err := waitCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: wait instance-terminated failed: %v\n", err)
+	} else {
+		fmt.Fprintln(os.Stderr, "integration: all test VPC instances are terminated")
+	}
+}
+
 // waitForState polls `ai-desktops status <id>` until lifecycle_state matches
 // want or the deadline elapses. It prints progress every 30 seconds so CI logs
 // do not appear to hang during long-running operations like TLS provisioning.
@@ -514,4 +712,82 @@ func runCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte,
 		return out, fmt.Errorf("cli %s: %w", strings.Join(args, " "), err)
 	}
 	return out, nil
+}
+
+// minimalConfig holds the fields from config.yaml that TestMain needs when
+// reading a pre-existing config via AI_DESKTOPS_TEST_CONFIG.
+type minimalConfig struct {
+	AWS struct {
+		Region string `yaml:"region"`
+	} `yaml:"aws"`
+	Desktop struct {
+		SSHKeyPath string `yaml:"ssh_key_path"`
+		SSHKeyName string `yaml:"ssh_key_name"`
+	} `yaml:"desktop"`
+	GitHub struct {
+		Owner string `yaml:"owner"`
+	} `yaml:"github"`
+	Pulumi struct {
+		BackendBucket string `yaml:"backend_bucket"`
+		InfraDir      string `yaml:"infra_dir"`
+	} `yaml:"pulumi"`
+}
+
+// loadConfigYAML parses enough of path to extract fields used by TestMain.
+func loadConfigYAML(path string) (*minimalConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var c minimalConfig
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// resolveInfraDir ensures that the infra_dir in the config at srcPath is an
+// absolute path.  When infra_dir is "." or any other relative path, this
+// function writes a patched copy of the config to dir (resolving the path
+// against moduleRoot) and returns the new path.  If infra_dir is already
+// absolute, srcPath is returned unchanged.
+func resolveInfraDir(srcPath, moduleRoot, dir string) (string, error) {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Use a generic map so we preserve all fields verbatim.
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return "", err
+	}
+
+	pulumi, _ := raw["pulumi"].(map[string]any)
+	if pulumi == nil {
+		// No pulumi section — nothing to fix.
+		return srcPath, nil
+	}
+	infraDir, _ := pulumi["infra_dir"].(string)
+	if infraDir == "" {
+		infraDir = "."
+	}
+	if filepath.IsAbs(infraDir) {
+		// Already absolute; use config as-is.
+		return srcPath, nil
+	}
+
+	// Resolve relative path against module root and write a patched copy.
+	pulumi["infra_dir"] = filepath.Join(moduleRoot, infraDir)
+	raw["pulumi"] = pulumi
+
+	patched, err := yaml.Marshal(raw)
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, "config-resolved.yaml")
+	if err := os.WriteFile(dst, patched, 0600); err != nil {
+		return "", err
+	}
+	return dst, nil
 }

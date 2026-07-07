@@ -51,14 +51,20 @@ func DesktopStackRef(backendURL, desktopID, workDir string) *StackRef {
 type StackConfig map[string]string
 
 // FoundationConfig builds the Pulumi config for the foundation stack.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment string) StackConfig {
-	return StackConfig{
+// vpcID is optional; when non-empty the foundation stack will use the existing VPC
+// instead of creating a new one.
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID string) StackConfig {
+	cfg := StackConfig{
 		"aws:region":   region,
 		"zone":         zone,
 		"fleetTable":   fleetTable,
 		"operatorCIDR": operatorCIDR,
 		"environment":  environment,
 	}
+	if vpcID != "" {
+		cfg["vpcId"] = vpcID
+	}
+	return cfg
 }
 
 // DesktopConfig builds the Pulumi config for a desktop stack.

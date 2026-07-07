@@ -156,7 +156,13 @@ func TestDynamoAMIStore_ListAMIs_Error(t *testing.T) {
 }
 
 func TestDynamoAMIStore_DeleteAMI_Success(t *testing.T) {
-	mock := &mockDynamoClient{}
+	record := newAMIRecord("us-east-1", "ami-del-001")
+	item, _ := attributevalue.MarshalMap(record)
+	mock := &mockDynamoClient{
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
 	s := &DynamoAMIStore{client: mock, tableName: "amis"}
 	if err := s.DeleteAMI(context.Background(), "us-east-1", "ami-del-001"); err != nil {
 		t.Fatalf("DeleteAMI: %v", err)
@@ -164,7 +170,12 @@ func TestDynamoAMIStore_DeleteAMI_Success(t *testing.T) {
 }
 
 func TestDynamoAMIStore_DeleteAMI_Error(t *testing.T) {
+	record := newAMIRecord("us-east-1", "ami-err")
+	item, _ := attributevalue.MarshalMap(record)
 	mock := &mockDynamoClient{
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
 		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
 			return nil, errors.New("delete failed")
 		},
@@ -172,5 +183,39 @@ func TestDynamoAMIStore_DeleteAMI_Error(t *testing.T) {
 	s := &DynamoAMIStore{client: mock, tableName: "amis"}
 	if err := s.DeleteAMI(context.Background(), "us-east-1", "ami-err"); err == nil {
 		t.Fatal("expected error from DeleteItem failure")
+	}
+}
+
+func TestDynamoAMIStore_DeleteAMI_RegionMismatch(t *testing.T) {
+	// Record stored under us-west-2, but caller requests us-east-1 — should be a no-op.
+	record := newAMIRecord("us-west-2", "ami-cross-region")
+	item, _ := attributevalue.MarshalMap(record)
+	mock := &mockDynamoClient{
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, errors.New("DeleteItem must not be called on region mismatch")
+		},
+	}
+	s := &DynamoAMIStore{client: mock, tableName: "amis"}
+	if err := s.DeleteAMI(context.Background(), "us-east-1", "ami-cross-region"); err != nil {
+		t.Fatalf("DeleteAMI region mismatch should be a no-op, got: %v", err)
+	}
+}
+
+func TestDynamoAMIStore_GetAMI_RegionMismatch(t *testing.T) {
+	// Record stored under us-west-2, but caller requests us-east-1 — should return ErrNotFound.
+	record := newAMIRecord("us-west-2", "ami-cross-region")
+	item, _ := attributevalue.MarshalMap(record)
+	mock := &mockDynamoClient{
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+	s := &DynamoAMIStore{client: mock, tableName: "amis"}
+	_, err := s.GetAMI(context.Background(), "us-east-1", "ami-cross-region")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound for region mismatch, got %v", err)
 	}
 }

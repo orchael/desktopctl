@@ -66,6 +66,12 @@ variable "ami_public" {
   description = "When true, set the built AMI's launch permissions to public."
 }
 
+variable "subnet_id" {
+  type        = string
+  default     = ""
+  description = "Subnet ID for the Packer build instance. Set by the CLI when no default VPC exists in the target region (e.g. the foundation VPC subnet). Leave empty to let AWS select a default-VPC subnet."
+}
+
 source "amazon-ebs" "ubuntu" {
   ami_name        = "ai-desktops-${var.ai_agent_bridge_version}-{{timestamp}}"
   ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
@@ -74,6 +80,8 @@ source "amazon-ebs" "ubuntu" {
   source_ami      = var.source_ami
 
   ami_groups = var.ami_public ? ["all"] : []
+
+  subnet_id = var.subnet_id != "" ? var.subnet_id : null
 
   associate_public_ip_address = true
   ebs_optimized               = true

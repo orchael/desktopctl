@@ -251,7 +251,7 @@ func TestStoreSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestStoreSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestStoreSecret_DescribeError(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner")
+	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err == nil {
 		t.Fatal("expected error for non-NotFound DescribeSecret failure")
 	}
@@ -451,7 +451,7 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestStoreAgentSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner")
+	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -497,4 +497,116 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// makeEC2Config returns an aws.Config wired to a local httptest server URL.
+func makeEC2Config(serverURL string) aws.Config {
+	return aws.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+		EndpointResolverWithOptions: aws.EndpointResolverWithOptionsFunc(
+			func(service, region string, _ ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{URL: serverURL, HostnameImmutable: true}, nil
+			},
+		),
+	}
+}
+
+func TestImportEC2KeyPair_Success(t *testing.T) {
+	var importCalled bool
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.FormValue("Action") == "ImportKeyPair" {
+			importCalled = true
+			w.Header().Set("Content-Type", "text/xml")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<ImportKeyPairResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
+  <requestId>test-id</requestId>
+  <keyName>ai-desktops-test</keyName>
+  <keyFingerprint>ab:cd:ef</keyFingerprint>
+</ImportKeyPairResponse>`))
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeEC2Config(srv.URL)
+	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !importCalled {
+		t.Error("expected ImportKeyPair to be called")
+	}
+}
+
+func TestImportEC2KeyPair_Duplicate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.FormValue("Action") == "ImportKeyPair" {
+			w.Header().Set("Content-Type", "text/xml")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Errors>
+    <Error>
+      <Code>InvalidKeyPair.Duplicate</Code>
+      <Message>The key pair &apos;ai-desktops-test&apos; already exists.</Message>
+    </Error>
+  </Errors>
+  <RequestID>test-id</RequestID>
+</Response>`))
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeEC2Config(srv.URL)
+	// Duplicate key pair should be treated as success (no error).
+	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	if err != nil {
+		t.Fatalf("expected duplicate key pair to be treated as success, got: %v", err)
+	}
+}
+
+func TestImportEC2KeyPair_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.FormValue("Action") == "ImportKeyPair" {
+			w.Header().Set("Content-Type", "text/xml")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Errors>
+    <Error>
+      <Code>AuthFailure</Code>
+      <Message>AWS was not able to validate the provided access credentials</Message>
+    </Error>
+  </Errors>
+  <RequestID>test-id</RequestID>
+</Response>`))
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeEC2Config(srv.URL)
+	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	if err == nil {
+		t.Fatal("expected an error for auth failure, got nil")
+	}
 }

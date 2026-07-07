@@ -19,8 +19,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -29,6 +32,10 @@ import (
 
 // githubAPIBase is the GitHub REST API base URL. Overridden in tests.
 var githubAPIBase = "https://api.github.com"
+
+var (
+	setupConfigOut string
+)
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
@@ -43,11 +50,12 @@ The wizard will:
   1. Collect AWS and GitHub configuration interactively
   2. Optionally validate and rotate the GitHub token + SSH key
   3. Store updated credentials in AWS Secrets Manager
-  4. Write ~/.ai-desktops/config.yaml`,
+  4. Write ~/.ai-desktops/config.yaml (or --config-out path)`,
 	RunE: runSetup,
 }
 
 func init() {
+	setupCmd.Flags().StringVar(&setupConfigOut, "config-out", "", "write config to this path instead of ~/.ai-desktops/config.yaml")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -63,6 +71,8 @@ type setupAnswers struct {
 	AnthropicKey  string
 	OpenAIKey     string
 	GeminiKey     string
+	SSHKeyPath    string
+	SSHKeyName    string
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
@@ -73,17 +83,21 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
 	}
-	cfgPath := filepath.Join(home, ".ai-desktops", "config.yaml")
+	cfgPath := setupConfigOut
+	if cfgPath == "" {
+		cfgPath = filepath.Join(home, ".ai-desktops", "config.yaml")
+	}
 
 	_, statErr := os.Stat(cfgPath)
 	isExisting := statErr == nil
 
 	if isExisting {
 		fmt.Println("Welcome to ai-desktops setup — updating existing configuration.")
+		fmt.Printf("Config: %s\n", cfgPath)
 		fmt.Println("Press Enter to keep the current value shown in brackets.")
 	} else {
 		fmt.Println("Welcome to ai-desktops setup.")
-		fmt.Println("This wizard will create ~/.ai-desktops/config.yaml and provision your GitHub credentials.")
+		fmt.Printf("This wizard will create %s and provision your GitHub credentials.\n", cfgPath)
 	}
 	fmt.Println()
 
@@ -129,7 +143,84 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		bucketLabel = fmt.Sprintf("Pulumi state S3 bucket [%s]", existingBucket)
 	}
 	a.BackendBucket = prompt(reader, bucketLabel, existingBucket)
-	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod) [%s]", existingEnv), existingEnv)
+	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod/test) [%s]", existingEnv), existingEnv)
+
+	fmt.Println()
+	fmt.Println("── SSH (Desktop Access) ─────────────────────────────")
+
+	// Detect existing SSH key path from config or auto-detect from ~/.ssh.
+	existingSSHKeyPath := ""
+	existingSSHKeyName := ""
+	if cfg != nil {
+		existingSSHKeyPath = cfg.Desktop.SSHKeyPath
+		existingSSHKeyName = cfg.Desktop.SSHKeyName
+	}
+	if existingSSHKeyPath == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			for _, f := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
+				p := filepath.Join(home, ".ssh", f)
+				if _, err := os.Stat(p); err == nil {
+					existingSSHKeyPath = p
+					break
+				}
+			}
+		}
+	}
+
+	sshKeyPathLabel := "Local SSH private key path (used to SSH into desktops)"
+	if existingSSHKeyPath != "" {
+		sshKeyPathLabel = fmt.Sprintf("Local SSH private key path [%s]", existingSSHKeyPath)
+	}
+	a.SSHKeyPath = prompt(reader, sshKeyPathLabel, existingSSHKeyPath)
+
+	if a.SSHKeyPath != "" {
+		// Verify the key file exists.
+		if _, err := os.Stat(a.SSHKeyPath); err != nil {
+			fmt.Printf("  Warning: key file %s not found — verify the path before creating desktops.\n", a.SSHKeyPath)
+		} else {
+			// Offer to register the public key as an EC2 key pair.
+			// a.GitHubOwner hasn't been prompted yet (GitHub section follows
+			// SSH), so use existingOwner from the loaded config as the suffix.
+			defaultKeyName := "ai-desktops-" + existingOwner
+			if existingSSHKeyName != "" {
+				defaultKeyName = existingSSHKeyName
+			}
+			fmt.Printf("Register %s.pub as EC2 key pair [y/N]: ", a.SSHKeyPath)
+			registerAnswer, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(registerAnswer)) == "y" {
+				keyNameLabel := fmt.Sprintf("EC2 key pair name [%s]", defaultKeyName)
+				a.SSHKeyName = prompt(reader, keyNameLabel, defaultKeyName)
+
+				pubPath := a.SSHKeyPath + ".pub"
+				pubBytes, err := os.ReadFile(pubPath)
+				if err != nil {
+					fmt.Printf("  Warning: could not read %s: %v\n  EC2 key pair not registered.\n", pubPath, err)
+					a.SSHKeyName = existingSSHKeyName
+				} else {
+					ec2Cfg, err := awscfg.LoadDefaultConfig(ctx,
+						awscfg.WithRegion(a.AWSRegion),
+						awscfg.WithSharedConfigProfile(a.AWSProfile),
+					)
+					if err != nil {
+						fmt.Printf("  Warning: could not load AWS config: %v\n  EC2 key pair not registered.\n", err)
+						a.SSHKeyName = existingSSHKeyName
+					} else {
+						fmt.Printf("Registering EC2 key pair %q in %s... ", a.SSHKeyName, a.AWSRegion)
+						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes))); err != nil {
+							fmt.Println("✗")
+							fmt.Printf("  Warning: %v\n  EC2 key pair not registered — set ssh_key_name manually if needed.\n", err)
+							a.SSHKeyName = existingSSHKeyName
+						} else {
+							fmt.Println("✓")
+						}
+					}
+				}
+			} else {
+				a.SSHKeyName = existingSSHKeyName
+			}
+		}
+	}
 
 	fmt.Println()
 	fmt.Println("── GitHub ───────────────────────────────────────────")
@@ -182,7 +273,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  • admin:public_key  (register SSH keys)")
 		fmt.Println("  • repo              (clone, push, PRs)")
 		fmt.Println("  • workflow          (GitHub Actions)")
-		fmt.Println("  • security_events   (code scanning, secret scanning)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (required by gh CLI auth)")
 		fmt.Println("  • read:packages     (install packages from GitHub Packages)")
@@ -247,7 +337,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("build secret JSON: %w", err)
 		}
 
-		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner); err != nil {
+		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner, a.Environment); err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("store secret: %w", err)
 		}
@@ -336,7 +426,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("build agent secret JSON: %w", err)
 			}
 
-			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, string(b), a.GitHubOwner); err != nil {
+			if err := storeAgentSecret(ctx, agentAwsCfg, agentSecretPath, string(b), a.GitHubOwner, a.Environment); err != nil {
 				fmt.Println("✗")
 				return fmt.Errorf("store agent secret: %w", err)
 			}
@@ -363,6 +453,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.GitHub.Owner = a.GitHubOwner
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
+	if a.SSHKeyPath != "" {
+		newCfg.Desktop.SSHKeyPath = a.SSHKeyPath
+	}
+	if a.SSHKeyName != "" {
+		newCfg.Desktop.SSHKeyName = a.SSHKeyName
+	}
 	// Preserve the existing secret path when the operator declined rotation;
 	// overwrite only when a new token was stored (or on first run).
 	if updateToken || cfg == nil || cfg.GitHub.GitHubSecret == "" {
@@ -404,7 +500,7 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 	return line
 }
 
-var requiredScopes = []string{"repo", "workflow", "security_events", "admin:public_key", "read:packages"}
+var requiredScopes = []string{"repo", "workflow", "admin:public_key", "read:packages"}
 
 func validateGitHubToken(ctx context.Context, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBase+"/user", nil)
@@ -442,6 +538,33 @@ func validateGitHubToken(ctx context.Context, token string) error {
 		}
 	}
 
+	return nil
+}
+
+// importEC2KeyPair imports a public key into AWS EC2 as a named key pair.
+// If a key pair with that name already exists it is left unchanged (treated as success).
+func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMaterial string) error {
+	svc := ec2.NewFromConfig(awsCfg)
+	_, err := svc.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
+		KeyName:           aws.String(name),
+		PublicKeyMaterial: []byte(publicKeyMaterial),
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeKeyPair,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+				},
+			},
+		},
+	})
+	if err != nil {
+		// InvalidKeyPair.Duplicate means the key pair already exists — not an error.
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidKeyPair.Duplicate" {
+			return nil
+		}
+		return err
+	}
 	return nil
 }
 
@@ -562,7 +685,7 @@ func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, er
 	return string(b), nil
 }
 
-func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {
+func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	_, err := svc.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
@@ -588,12 +711,13 @@ func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, o
 		Tags: []types.Tag{
 			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
+			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},
 	})
 	return err
 }
 
-func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner string) error {
+func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	// Check if secret already exists
@@ -623,6 +747,7 @@ func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner 
 		Tags: []types.Tag{
 			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
+			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},
 	})
 	return err

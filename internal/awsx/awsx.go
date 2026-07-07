@@ -20,6 +20,7 @@ import (
 	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // LoadConfig loads AWS configuration for the given region and optional profile.
@@ -38,6 +39,9 @@ func LoadConfig(ctx context.Context, region, profile string) (aws.Config, error)
 // BucketExists reports whether the S3 bucket exists and is accessible with the
 // current credentials. It returns false (not an error) when the bucket is
 // absent; it returns an error only when the check itself fails unexpectedly.
+// A 301 redirect means the bucket exists in a different region than the client's
+// configured region — this is treated as "exists" so state buckets in a fixed
+// region work regardless of which environment region the caller configures.
 func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, error) {
 	c := s3.NewFromConfig(cfg)
 	_, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
@@ -48,6 +52,12 @@ func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, err
 	var noSuchBucket *s3types.NoSuchBucket
 	if errors.As(err, &notFound) || errors.As(err, &noSuchBucket) {
 		return false, nil
+	}
+	// A 301 redirect means the bucket exists but was created in a different
+	// region than the one the client is configured for.
+	var httpErr *smithyhttp.ResponseError
+	if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 301 {
+		return true, nil
 	}
 	return false, fmt.Errorf("check bucket %s: %w", bucket, err)
 }
@@ -61,6 +71,11 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 	if err != nil {
 		var notFound *s3types.NotFound
 		var noSuchBucket *s3types.NoSuchBucket
+		var httpErr *smithyhttp.ResponseError
+		if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 301 {
+			// Bucket exists in a different region — nothing to create.
+			return nil
+		}
 		if !errors.As(err, &notFound) && !errors.As(err, &noSuchBucket) {
 			return fmt.Errorf("check bucket %s: %w", bucket, err)
 		}
@@ -109,6 +124,38 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 		},
 	}); err != nil {
 		return fmt.Errorf("block public access on %s: %w", bucket, err)
+	}
+
+	// Merge desired tags into the existing tag set so we don't overwrite tags
+	// applied by other tools (e.g. cost allocation tags set by Pulumi or AWS).
+	desiredTags := map[string]string{
+		"managed-by":  "ai-desktops",
+		"ai-desktops": "true",
+	}
+	existing, err := c.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(bucket)})
+	var mergedTags []s3types.Tag
+	if err != nil {
+		// NoSuchTagSet is normal for a freshly created bucket — start from empty.
+		var apiErr interface{ ErrorCode() string }
+		if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "NoSuchTagSet" {
+			return fmt.Errorf("get tags for bucket %s: %w", bucket, err)
+		}
+	} else {
+		for _, t := range existing.TagSet {
+			if _, owned := desiredTags[aws.ToString(t.Key)]; !owned {
+				mergedTags = append(mergedTags, t)
+			}
+		}
+	}
+	for k, v := range desiredTags {
+		k, v := k, v
+		mergedTags = append(mergedTags, s3types.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+	if _, err := c.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+		Bucket:  aws.String(bucket),
+		Tagging: &s3types.Tagging{TagSet: mergedTags},
+	}); err != nil {
+		return fmt.Errorf("tag bucket %s: %w", bucket, err)
 	}
 
 	return nil
@@ -208,6 +255,30 @@ func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner strin
 		}
 	}
 	return aws.ToString(best.ImageId), nil
+}
+
+// FindSubnetByTag returns the subnet ID of the first subnet tagged with
+// Name=ai-desktops-subnet and environment=<environment>. This locates the
+// subnet created by the foundation Pulumi stack so Packer can launch its
+// build instance inside the project VPC rather than requiring a default VPC.
+// Returns ("", nil) when no matching subnet is found so the caller can decide
+// whether to treat that as a fatal error or fall back to AWS defaults.
+func FindSubnetByTag(ctx context.Context, cfg aws.Config, environment string) (string, error) {
+	c := ec2.NewFromConfig(cfg)
+	out, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("tag:Name"), Values: []string{"ai-desktops-subnet"}},
+			{Name: aws.String("tag:environment"), Values: []string{environment}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("describe subnets: %w", err)
+	}
+	if len(out.Subnets) == 0 {
+		return "", nil
+	}
+	return aws.ToString(out.Subnets[0].SubnetId), nil
 }
 
 // StopInstance hibernates the given EC2 instance, saving RAM to the encrypted
