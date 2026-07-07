@@ -126,14 +126,34 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 		return fmt.Errorf("block public access on %s: %w", bucket, err)
 	}
 
+	// Merge desired tags into the existing tag set so we don't overwrite tags
+	// applied by other tools (e.g. cost allocation tags set by Pulumi or AWS).
+	desiredTags := map[string]string{
+		"managed-by":  "ai-desktops",
+		"ai-desktops": "true",
+	}
+	existing, err := c.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(bucket)})
+	var mergedTags []s3types.Tag
+	if err != nil {
+		// NoSuchTagSet is normal for a freshly created bucket — start from empty.
+		var apiErr interface{ ErrorCode() string }
+		if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "NoSuchTagSet" {
+			return fmt.Errorf("get tags for bucket %s: %w", bucket, err)
+		}
+	} else {
+		for _, t := range existing.TagSet {
+			if _, owned := desiredTags[aws.ToString(t.Key)]; !owned {
+				mergedTags = append(mergedTags, t)
+			}
+		}
+	}
+	for k, v := range desiredTags {
+		k, v := k, v
+		mergedTags = append(mergedTags, s3types.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
 	if _, err := c.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
-		Bucket: aws.String(bucket),
-		Tagging: &s3types.Tagging{
-			TagSet: []s3types.Tag{
-				{Key: aws.String("managed-by"), Value: aws.String("ai-desktops")},
-				{Key: aws.String("ai-desktops"), Value: aws.String("true")},
-			},
-		},
+		Bucket:  aws.String(bucket),
+		Tagging: &s3types.Tagging{TagSet: mergedTags},
 	}); err != nil {
 		return fmt.Errorf("tag bucket %s: %w", bucket, err)
 	}

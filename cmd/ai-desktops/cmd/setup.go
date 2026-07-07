@@ -23,6 +23,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -142,7 +143,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		bucketLabel = fmt.Sprintf("Pulumi state S3 bucket [%s]", existingBucket)
 	}
 	a.BackendBucket = prompt(reader, bucketLabel, existingBucket)
-	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod) [%s]", existingEnv), existingEnv)
+	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod/test) [%s]", existingEnv), existingEnv)
 
 	fmt.Println()
 	fmt.Println("── SSH (Desktop Access) ─────────────────────────────")
@@ -556,7 +557,8 @@ func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMat
 	})
 	if err != nil {
 		// InvalidKeyPair.Duplicate means the key pair already exists — not an error.
-		if strings.Contains(err.Error(), "InvalidKeyPair.Duplicate") {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidKeyPair.Duplicate" {
 			return nil
 		}
 		return err

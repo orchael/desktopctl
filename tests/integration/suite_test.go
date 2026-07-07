@@ -75,6 +75,11 @@ var moduleRootPath string
 // testKeyPairName is the EC2 key pair name imported during setup; deleted in teardown.
 var testKeyPairName string
 
+// testKeyPairImported is true only when this suite imported the key pair
+// itself (env-var path). When using a pre-existing config the key pair was
+// imported by `make setup-integration` and must not be deleted on teardown.
+var testKeyPairImported bool
+
 const (
 	testRegion = "us-west-2"
 	testEnv    = "test"
@@ -111,6 +116,9 @@ func TestMain(m *testing.M) {
 			fatalf("parse test config %s: %v", preExistingConfig, parseErr)
 		}
 		owner = parsedCfg.GitHub.Owner
+		if owner == "" {
+			fatalf("github.owner is not set in %s; run `make setup-integration`", preExistingConfig)
+		}
 		if parsedCfg.Desktop.SSHKeyPath == "" {
 			fatalf("desktop.ssh_key_path is not set in %s; run `make setup-integration` to generate a key", preExistingConfig)
 		}
@@ -210,8 +218,10 @@ func TestMain(m *testing.M) {
 	// Delete AMIs built during this test run.
 	teardownAMIs()
 
-	// Delete the EC2 key pair imported by setup-integration, if any.
-	if testKeyPairName != "" {
+	// Delete the EC2 key pair only when this suite imported it. When using a
+	// pre-existing config the key pair is managed externally and must not be
+	// removed here.
+	if testKeyPairImported && testKeyPairName != "" {
 		teardownKeyPair(testKeyPairName)
 	}
 

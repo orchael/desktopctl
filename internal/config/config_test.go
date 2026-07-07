@@ -41,6 +41,9 @@ func TestDefaults(t *testing.T) {
 	if c.Fleet.TableName != DefaultFleetTablePrefix+"-"+EnvDev {
 		t.Errorf("default table: got %q", c.Fleet.TableName)
 	}
+	if c.Fleet.AMITableName != DefaultAMITablePrefix+"-"+EnvDev {
+		t.Errorf("default AMI table: got %q", c.Fleet.AMITableName)
+	}
 	if c.Agent.BridgePort != DefaultBridgePort {
 		t.Errorf("default bridge port: got %d", c.Agent.BridgePort)
 	}
