@@ -535,25 +535,57 @@ func terminateDesktop(id string) error {
 // DependencyViolation errors when the foundation stack's VPC/IGW teardown runs
 // while a Packer builder instance (or any other instance) still has a public IP
 // attached in the subnet.
+//
+// Two-step approach: resolve the foundation subnet ID first via describe-subnets
+// (filtering by the environment tag), then filter instances by that explicit
+// subnet-id. Filtering describe-instances by subnet.tag is not reliably
+// supported; subnet-id is a first-class filter that always works.
 func purgeVPCInstances() {
 	fmt.Fprintln(os.Stderr, "integration: scanning for EC2 instances in test VPC to purge...")
 
-	// Build the describe-instances command. We filter by the subnet tag
-	// environment=test so we only touch instances in the test foundation subnet.
-	args := []string{
+	// awsArgs appends the optional --profile flag and returns the full arg list.
+	awsArgs := func(subcmd ...string) []string {
+		a := append([]string{}, subcmd...)
+		if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+			a = append(a, "--profile", profile)
+		}
+		return a
+	}
+
+	// Step 1: resolve the foundation subnet IDs by their environment tag.
+	subnetOut, err := exec.Command("aws", awsArgs(
+		"ec2", "describe-subnets",
+		"--region", testRegion,
+		"--filters", "Name=tag:environment,Values="+testEnv,
+		"--query", "Subnets[].SubnetId",
+		"--output", "text",
+	)...).Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: describe-subnets for purge failed: %v\n", err)
+		return
+	}
+	var subnetIDs []string
+	for _, id := range strings.Fields(string(subnetOut)) {
+		if strings.HasPrefix(id, "subnet-") {
+			subnetIDs = append(subnetIDs, id)
+		}
+	}
+	if len(subnetIDs) == 0 {
+		fmt.Fprintln(os.Stderr, "integration: no test foundation subnets found — skipping instance purge")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "integration: found test subnet(s): %s\n", strings.Join(subnetIDs, ", "))
+
+	// Step 2: list all non-terminated instances in those subnets.
+	out, err := exec.Command("aws", awsArgs(
 		"ec2", "describe-instances",
 		"--region", testRegion,
 		"--filters",
-		"Name=subnet.tag:environment,Values=" + testEnv,
+		"Name=subnet-id,Values="+strings.Join(subnetIDs, ","),
 		"Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped",
 		"--query", "Reservations[].Instances[].InstanceId",
 		"--output", "text",
-	}
-	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
-		args = append(args, "--profile", profile)
-	}
-
-	out, err := exec.Command("aws", args...).Output()
+	)...).Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: describe-instances for purge failed: %v\n", err)
 		return
@@ -576,12 +608,9 @@ func purgeVPCInstances() {
 		len(instanceIDs), strings.Join(instanceIDs, ", "))
 
 	// Terminate all discovered instances in one API call.
-	termArgs := append([]string{"ec2", "terminate-instances", "--region", testRegion,
-		"--instance-ids"}, instanceIDs...)
-	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
-		termArgs = append(termArgs, "--profile", profile)
-	}
-	termCmd := exec.Command("aws", termArgs...)
+	termCmd := exec.Command("aws", awsArgs(append(
+		[]string{"ec2", "terminate-instances", "--region", testRegion, "--instance-ids"},
+		instanceIDs...)...)...)
 	termCmd.Stdout = os.Stderr
 	termCmd.Stderr = os.Stderr
 	if err := termCmd.Run(); err != nil {
@@ -590,15 +619,12 @@ func purgeVPCInstances() {
 	}
 
 	// Wait for all of them to reach "terminated".
-	waitArgs := append([]string{"ec2", "wait", "instance-terminated",
-		"--region", testRegion, "--instance-ids"}, instanceIDs...)
-	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
-		waitArgs = append(waitArgs, "--profile", profile)
-	}
 	fmt.Fprintf(os.Stderr, "integration: waiting for %d instance(s) to terminate...\n", len(instanceIDs))
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	waitCmd := exec.CommandContext(ctx, "aws", waitArgs...)
+	waitCmd := exec.CommandContext(ctx, "aws", awsArgs(append(
+		[]string{"ec2", "wait", "instance-terminated", "--region", testRegion, "--instance-ids"},
+		instanceIDs...)...)...)
 	waitCmd.Stdout = os.Stderr
 	waitCmd.Stderr = os.Stderr
 	if err := waitCmd.Run(); err != nil {

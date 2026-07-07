@@ -180,7 +180,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  Warning: key file %s not found — verify the path before creating desktops.\n", a.SSHKeyPath)
 		} else {
 			// Offer to register the public key as an EC2 key pair.
-			defaultKeyName := "ai-desktops-" + a.GitHubOwner
+			// a.GitHubOwner hasn't been prompted yet (GitHub section follows
+			// SSH), so use existingOwner from the loaded config as the suffix.
+			defaultKeyName := "ai-desktops-" + existingOwner
 			if existingSSHKeyName != "" {
 				defaultKeyName = existingSSHKeyName
 			}

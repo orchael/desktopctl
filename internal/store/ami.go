@@ -137,7 +137,10 @@ func (s *DynamoAMIStore) ListAMIs(ctx context.Context, region string) ([]*AMIRec
 }
 
 func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMIRecord, error) {
-	// The table uses ami_id as the sole hash key (region is a non-key attribute).
+	// The table uses ami_id as the sole hash key; region is a non-key attribute.
+	// We fetch by ami_id then validate the region field so that callers get
+	// ErrNotFound (rather than the wrong record) when the same ami_id exists
+	// under a different region.
 	result, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -156,11 +159,22 @@ func (s *DynamoAMIStore) GetAMI(ctx context.Context, region, amiID string) (*AMI
 	if err = attributevalue.UnmarshalMap(result.Item, record); err != nil {
 		return nil, fmt.Errorf("unmarshal AMI record: %w", err)
 	}
+	if record.Region != region {
+		return nil, ErrNotFound
+	}
 	return record, nil
 }
 
 func (s *DynamoAMIStore) DeleteAMI(ctx context.Context, region, amiID string) error {
-	// The table uses ami_id as the sole hash key (region is a non-key attribute).
+	// The table uses ami_id as the sole hash key; region is a non-key attribute.
+	// Verify the record belongs to the requested region before deleting so we
+	// do not silently remove a record whose region doesn't match.
+	if _, err := s.GetAMI(ctx, region, amiID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil // nothing to delete
+		}
+		return fmt.Errorf("verify AMI record before delete: %w", err)
+	}
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
