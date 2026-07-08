@@ -428,6 +428,88 @@
         executable: /bin/bash
       changed_when: false
 
+    - name: Pre-configure nginx to listen only on port 8443 (remove HTTP server block)
+      ansible.builtin.shell: |
+        python3 - <<'PYEOF'
+        import re, sys
+
+        nginx_site = "/etc/nginx/sites-available/novnc"
+        marker = "# ai-desktops port reconfiguration"
+
+        with open(nginx_site) as fh:
+            content = fh.read()
+
+        if marker in content:
+            print("nginx port pre-configuration already applied — skipping")
+            sys.exit(0)
+
+        # Remove the entire HTTP redirect server block (listen 80 / [::]:80).
+        # The block spans from "# Redirect all HTTP" (or the first server {) through
+        # the matching closing brace. We locate it by finding a server block that
+        # contains only a listen *:80 directive and a redirect location.
+        def remove_http_server_block(text):
+            """Remove the server block that listens on port 80 (HTTP redirect)."""
+            pattern = re.compile(r'\bserver\s*\{')
+            i = 0
+            while i < len(text):
+                m = pattern.search(text, i)
+                if not m:
+                    break
+                brace_pos = m.end() - 1
+                depth = 0
+                j = brace_pos
+                while j < len(text):
+                    if text[j] == '{':
+                        depth += 1
+                    elif text[j] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            block = text[m.start():j + 1]
+                            if re.search(r'\blisten\s+(\[::\]:)?80\b', block) and \
+                               re.search(r'return\s+301', block):
+                                # Strip a leading blank line or comment before the block
+                                start = m.start()
+                                prefix = text[:start].rstrip('\n')
+                                suffix = text[j + 1:]
+                                return prefix + '\n' + suffix.lstrip('\n')
+                            break
+                    j += 1
+                i = m.end()
+            return text
+
+        content = remove_http_server_block(content)
+
+        # Replace listen 443 and [::]:443 with 8443 in the HTTPS server block.
+        content = re.sub(r'(\blisten\s+)443(\s)', r'\g<1>8443\2', content)
+        content = re.sub(r'(\blisten\s+\[::\]:)443(\s)', r'\g<1>8443\2', content)
+
+        # Validate the edits actually took effect before writing the marker.
+        # If the upstream nginx config changed format and neither edit matched,
+        # we must fail loudly rather than silently mark the step as done and
+        # let ai-desktops-setup-tls skip runtime reconfiguration.
+        if re.search(r'\blisten\s+(\[::\]:)?443\b', content):
+            print("ERROR: port 443 still present in listen directives after edits; "
+                  "upstream nginx config may have changed — aborting", file=sys.stderr)
+            sys.exit(1)
+        if not re.search(r'\blisten\s+(\[::\]:)?8443\b', content):
+            print("ERROR: port 8443 not found in listen directives after edits; "
+                  "upstream nginx config may have changed — aborting", file=sys.stderr)
+            sys.exit(1)
+
+        # Inject the port-reconfiguration marker so ai-desktops-setup-tls step 1
+        # detects the change as already applied and skips it.
+        content = "# " + marker + "\n" + content
+
+        with open(nginx_site, "w") as fh:
+            fh.write(content)
+
+        print("nginx pre-configured: HTTP server block removed, HTTPS → port 8443")
+        PYEOF
+      args:
+        executable: /bin/bash
+      register: nginx_preconfigure_result
+      changed_when: '"already applied" not in nginx_preconfigure_result.stdout'
+
     - name: Install ai-desktops-setup-tls wrapper script
       ansible.builtin.copy:
         src: files/ai-desktops-setup-tls
