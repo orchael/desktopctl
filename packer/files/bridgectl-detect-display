@@ -1,0 +1,6 @@
+#!/bin/sh
+# Detect the running X display from Xvfb lock files and write DISPLAY=:N
+# to the bridgectl environment file. Falls back to :1 if nothing is found.
+disp=$(ls /tmp/.X*-lock 2>/dev/null | sed 's|/tmp/.X||;s|-lock||' | sort -n | head -1)
+: "${disp:=1}"
+printf 'DISPLAY=:%s\n' "$disp" > "${HOME}/.config/bridgectl/display.env"
