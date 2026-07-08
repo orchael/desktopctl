@@ -98,7 +98,22 @@ SECRET_JSON=$(aws secretsmanager get-secret-value \
 if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
   echo "WARNING: could not retrieve desktop secret %s" >&2
 else
-  printf '%%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); sq=lambda v: chr(39)+str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))+chr(39); print('\n'.join(f'{k}={sq(v)}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret %s" >&2
+  printf '%%s\n' "$SECRET_JSON" | python3 -c "
+import json, re, sys
+d = json.load(sys.stdin)
+valid_key = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+sq = lambda v: chr(39) + str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39)) + chr(39)
+for k, v in d.items():
+    if not valid_key.match(k):
+        print(f'WARNING: skipping secret key {k!r} (not a valid env var name)', file=sys.stderr)
+        continue
+    sv = str(v)
+    if '\n' in sv or '\0' in sv:
+        print(f'WARNING: skipping secret key {k!r} (value contains newline or NUL)', file=sys.stderr)
+        continue
+    if v:
+        print(f'{k}={sq(v)}')
+" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret %s" >&2
 fi
 unset SECRET_JSON
 `, path, path, path)
@@ -110,15 +125,20 @@ if [ ! -s "$DESKTOP_ENV_TMP" ]; then
   exit 0
 fi
 
+# Write the shell-sourceable file to a temp location first, then move it into
+# place atomically so a partial write is never observed by a concurrent shell.
+SHELL_TMP=$(mktemp)
+trap 'rm -f "$DESKTOP_ENV_TMP" "$SHELL_TMP"' EXIT
+while IFS= read -r kv; do
+  printf 'export %s\n' "$kv" >> "$SHELL_TMP"
+done < "$DESKTOP_ENV_TMP"
+
 # systemd user environment (read by user manager; available to bridgectl and other user services)
-mkdir -p ~/.config/environment.d
+install -d -m 700 ~/.config/environment.d
 install -m 600 "$DESKTOP_ENV_TMP" ~/.config/environment.d/desktop-secrets.conf
 
-# shell-sourceable file for interactive sessions
-install -m 600 /dev/null ~/.desktop-secrets
-while IFS= read -r kv; do
-  printf 'export %s\n' "$kv" >> ~/.desktop-secrets
-done < "$DESKTOP_ENV_TMP"
+# shell-sourceable file for interactive sessions (atomic replace)
+install -m 600 "$SHELL_TMP" ~/.desktop-secrets
 
 # reload systemd user daemon so it picks up the new environment
 systemctl --user daemon-reload

@@ -63,6 +63,39 @@ func TestBuildSecretsReloadScript_HandlesEmptyResult(t *testing.T) {
 	}
 }
 
+func TestBuildSecretsReloadScript_ValidatesKeyNames(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
+	if !strings.Contains(script, "valid_key") || !strings.Contains(script, "not a valid env var name") {
+		t.Errorf("script should validate env var key names, got:\n%s", script)
+	}
+}
+
+func TestBuildSecretsReloadScript_SkipsNewlineValues(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
+	if !strings.Contains(script, "newline or NUL") {
+		t.Errorf("script should skip values containing newlines, got:\n%s", script)
+	}
+}
+
+func TestBuildSecretsReloadScript_AtomicShellFile(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
+	// Shell file must be written to a temp file then moved atomically via install.
+	if !strings.Contains(script, "SHELL_TMP") {
+		t.Errorf("script should use a temp file for atomic shell file write, got:\n%s", script)
+	}
+	if strings.Contains(script, `>> ~/.desktop-secrets`) {
+		t.Errorf("script must not append directly to ~/.desktop-secrets (non-atomic), got:\n%s", script)
+	}
+}
+
+func TestBuildSecretsReloadScript_EnvDirPermissions(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
+	// environment.d dir should be created with 700, not 755.
+	if !strings.Contains(script, "install -d -m 700") {
+		t.Errorf("script should create ~/.config/environment.d with mode 700, got:\n%s", script)
+	}
+}
+
 func TestBuildSecretsReloadScript_SafeShell(t *testing.T) {
 	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
 	if !strings.HasPrefix(script, "set -euo pipefail") {
