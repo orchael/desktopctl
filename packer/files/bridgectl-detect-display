@@ -1,6 +1,17 @@
 #!/bin/sh
 # Detect the running X display from Xvfb lock files and write DISPLAY=:N
-# to the bridgectl environment file. Falls back to :1 if nothing is found.
-disp=$(ls /tmp/.X*-lock 2>/dev/null | sed 's|/tmp/.X||;s|-lock||' | sort -n | head -1)
+# to the bridgectl environment file. Falls back to :1 if no live X process
+# is found.
+mkdir -p "${HOME}/.config/bridgectl"
+
+disp=""
+for lockfile in $(ls /tmp/.X*-lock 2>/dev/null | sort -t X -k2 -n); do
+    n=$(printf '%s' "$lockfile" | sed 's|/tmp/.X||;s|-lock||')
+    pid=$(cat "$lockfile" 2>/dev/null | tr -d ' \n')
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        disp="$n"
+        break
+    fi
+done
 : "${disp:=1}"
 printf 'DISPLAY=:%s\n' "$disp" > "${HOME}/.config/bridgectl/display.env"
