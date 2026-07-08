@@ -282,6 +282,7 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 		"bridgectl-credentials-env",
 		"bridgectl-claude-configured",
 		"bridgectl-codex-configured",
+		"bridgectl-display-env",
 		"bridgectl-service-active",
 	}
 	for _, n := range required {

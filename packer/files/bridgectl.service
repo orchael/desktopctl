@@ -5,8 +5,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/workspace
+ExecStartPre=/usr/local/bin/bridgectl-detect-display
 ExecStart=bridgectl server start --config %h/.config/bridgectl/config.yaml
 EnvironmentFile=-%h/.config/bridgectl/agents.env
+EnvironmentFile=-%h/.config/bridgectl/display.env
 Restart=on-failure
 RestartSec=10s
 

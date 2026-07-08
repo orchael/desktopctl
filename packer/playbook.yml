@@ -526,6 +526,14 @@
         group: root
         mode: "0755"
 
+    - name: Install bridgectl-detect-display script
+      ansible.builtin.copy:
+        src: files/bridgectl-detect-display
+        dest: /usr/local/bin/bridgectl-detect-display
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Create /opt/ai-desktops/web directory
       ansible.builtin.file:
         path: /opt/ai-desktops/web
