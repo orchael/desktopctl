@@ -390,7 +390,7 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 			"grep -q 'codex:' /home/ubuntu/.config/bridgectl/config.yaml", t),
 		// DISPLAY env file written by ExecStartPre (confirms novnc-desktop display was detected)
 		NewSSHChecker("bridgectl-display-env", hostname, sshPort, user, keyPath,
-			"test -s /home/ubuntu/.config/bridgectl/display.env && grep -q '^DISPLAY=:' /home/ubuntu/.config/bridgectl/display.env", t),
+			"test -s /home/ubuntu/.config/bridgectl/display.env && grep -qE '^DISPLAY=:[0-9]+$' /home/ubuntu/.config/bridgectl/display.env", t),
 		// Systemd user service status (checked as ubuntu via XDG_RUNTIME_DIR)
 		NewSSHChecker("bridgectl-service-active", hostname, sshPort, user, keyPath,
 			fmt.Sprintf(
