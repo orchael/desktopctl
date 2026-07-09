@@ -347,8 +347,9 @@ runcmd:
 
     # Install agent if not already present (pre-baked AMIs may include it)
     if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
+      CW_ARCH=$(dpkg --print-architecture)
       wget -q \
-        https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
+        "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/${CW_ARCH}/latest/amazon-cloudwatch-agent.deb" \
         -O /tmp/amazon-cloudwatch-agent.deb \
         && dpkg -i /tmp/amazon-cloudwatch-agent.deb \
         && rm -f /tmp/amazon-cloudwatch-agent.deb \

@@ -352,7 +352,10 @@ func repoStrings(repos []*repo.Repo) []string {
 // An error is returned when the swap would leave fewer than 20 GiB on the root
 // volume for the OS and application data.
 func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int, error) {
-	if flagValue < 0 {
+	if flagValue < -1 {
+		return 0, fmt.Errorf("invalid --swap-size %d: use -1 to disable swap, 0 for auto, or a positive integer for an explicit size in GiB", flagValue)
+	}
+	if flagValue == -1 {
 		return 0, nil
 	}
 	swapSizeGiB := flagValue

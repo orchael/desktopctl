@@ -121,6 +121,14 @@ func TestResolveSwapSize(t *testing.T) {
 			wantSwap:     0,
 		},
 		{
+			name:         "values below -1 are rejected",
+			flagValue:    -2,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantErr:      true,
+			errContains:  "invalid --swap-size",
+		},
+		{
 			name:         "auto: 2x memory for t3.large (8 GiB RAM → 16 GiB swap)",
 			flagValue:    0,
 			instanceType: "t3.large",
