@@ -33,7 +33,9 @@ type BootstrapConfig struct {
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
-
+	// SwapSizeGB is the size of the swap file to create in GiB.
+	// 0 means no swap file is created.
+	SwapSizeGB int
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -312,6 +314,110 @@ runcmd:
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user daemon-reload || echo "WARNING: daemon-reload failed; user bus may not be ready yet"
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user enable bridgectl || echo "WARNING: bridgectl enable failed; it will be enabled at next login"
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user start bridgectl || echo "WARNING: bridgectl user service failed to start; it will start at next login"
+    )
+
+{{- if gt .SwapSizeGB 0}}
+  # --- swap file (prevents OOM crashes under memory pressure) ---
+  - |
+    (
+    set -e
+    SWAP_SIZE_GB="{{ .SwapSizeGB }}"
+    SWAP_FILE="/swapfile"
+    if [ -f "$SWAP_FILE" ]; then
+      echo "Swap file $SWAP_FILE already exists; skipping creation"
+    else
+      fallocate -l "${SWAP_SIZE_GB}G" "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1G count="$SWAP_SIZE_GB"
+      chmod 600 "$SWAP_FILE"
+      mkswap "$SWAP_FILE"
+      swapon "$SWAP_FILE"
+      echo "${SWAP_FILE} none swap sw 0 0" >> /etc/fstab
+      echo "Swap file ${SWAP_SIZE_GB}G created and activated"
+    fi
+    # Reduce swappiness: prefer RAM, use swap only under real pressure
+    echo 'vm.swappiness=10' > /etc/sysctl.d/99-ai-desktops.conf
+    sysctl -p /etc/sysctl.d/99-ai-desktops.conf
+    )
+{{- end}}
+
+  # --- CloudWatch agent: memory/disk metrics and system log forwarding ---
+  - |
+    (
+    DESKTOP_ID="{{ .DesktopID }}"
+    AWS_REGION="{{ .AWSRegion }}"
+
+    # Install agent if not already present (pre-baked AMIs may include it)
+    if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
+      wget -q \
+        https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
+        -O /tmp/amazon-cloudwatch-agent.deb \
+        && dpkg -i /tmp/amazon-cloudwatch-agent.deb \
+        && rm -f /tmp/amazon-cloudwatch-agent.deb \
+        || echo "WARNING: CloudWatch agent download/install failed; metrics will not be collected"
+    fi
+
+    if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
+      echo "WARNING: CloudWatch agent not available; skipping configuration"
+    else
+      mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+      python3 -c "
+    import json, sys
+    config = {
+      'agent': {
+        'metrics_collection_interval': 60,
+        'region': '$AWS_REGION'
+      },
+      'metrics': {
+        'namespace': 'ai-desktops',
+        'append_dimensions': {
+          'DesktopId': '$DESKTOP_ID'
+        },
+        'metrics_collected': {
+          'mem': {
+            'measurement': ['mem_used_percent', 'mem_used', 'mem_available', 'mem_total'],
+            'metrics_collection_interval': 60
+          },
+          'disk': {
+            'measurement': ['disk_used_percent', 'disk_used', 'disk_free'],
+            'metrics_collection_interval': 60,
+            'resources': ['/']
+          },
+          'swap': {
+            'measurement': ['swap_used_percent', 'swap_used', 'swap_free'],
+            'metrics_collection_interval': 60
+          }
+        }
+      },
+      'logs': {
+        'logs_collected': {
+          'files': {
+            'collect_list': [
+              {
+                'file_path': '/var/log/syslog',
+                'log_group_name': '/ai-desktops/syslog',
+                'log_stream_name': '{instance_id}',
+                'retention_in_days': 15
+              },
+              {
+                'file_path': '/var/log/cloud-init-output.log',
+                'log_group_name': '/ai-desktops/cloud-init',
+                'log_stream_name': '{instance_id}',
+                'retention_in_days': 15
+              }
+            ]
+          }
+        }
+      }
+    }
+    print(json.dumps(config, indent=2))
+    " > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+      /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+        -a fetch-config \
+        -m ec2 \
+        -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+        -s \
+        || echo "WARNING: CloudWatch agent failed to start; metrics will not be collected"
+    fi
     )
 
   # --- write desktop metadata ---

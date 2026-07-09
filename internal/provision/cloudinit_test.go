@@ -341,6 +341,90 @@ func TestRenderCloudInit_noDesktopSecretPaths(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_swapPresent(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:   "d-swap",
+		Hostname:    "d-swap.desktops.orchael.dev",
+		GitHubOwner: "acme",
+		AWSRegion:   "us-east-1",
+		SwapSizeGB:  16,
+	}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"swapfile",
+		"fallocate",
+		"mkswap",
+		"swapon",
+		"/etc/fstab",
+		"vm.swappiness",
+		"16",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("swap block missing %q", want)
+		}
+	}
+
+	var v any
+	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+		t.Errorf("rendered cloud-init with swap is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_swapAbsent(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:   "d-noswap",
+		Hostname:    "d-noswap.desktops.orchael.dev",
+		GitHubOwner: "acme",
+		AWSRegion:   "us-east-1",
+		SwapSizeGB:  0,
+	}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	if strings.Contains(out, "fallocate") || strings.Contains(out, "mkswap") {
+		t.Error("swap commands should be absent when SwapSizeGB is 0")
+	}
+}
+
+func TestRenderCloudInit_cloudWatch(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:   "d-cw",
+		Hostname:    "d-cw.desktops.orchael.dev",
+		GitHubOwner: "acme",
+		AWSRegion:   "us-east-1",
+	}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"amazon-cloudwatch-agent",
+		"ai-desktops/syslog",
+		"ai-desktops/cloud-init",
+		"retention_in_days",
+		"mem_used_percent",
+		"disk_used_percent",
+		"swap_used_percent",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("CloudWatch block missing %q", want)
+		}
+	}
+
+	var v any
+	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+		t.Errorf("rendered cloud-init with CloudWatch is not valid YAML: %v", err)
+	}
+}
+
 func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:            "d-cloud",

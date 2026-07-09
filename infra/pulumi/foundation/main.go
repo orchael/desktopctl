@@ -263,6 +263,31 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
+	// CloudWatch Agent permissions: publish metrics and write logs.
+	// The CloudWatch agent collects memory, disk, and swap metrics (not natively
+	// reported by EC2) and forwards system logs for crash/OOM post-mortem analysis.
+	cloudWatchPolicy := `{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "cloudwatch:PutMetricData",
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+      "logs:PutRetentionPolicy"
+    ],
+    "Resource": "*"
+  }]
+}`
+	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-cloudwatch-policy", &iam.RolePolicyArgs{
+		Role:   role.Name,
+		Policy: pulumi.String(cloudWatchPolicy),
+	}); err != nil {
+		return err
+	}
+
 	instanceProfile, err := iam.NewInstanceProfile(ctx, "ai-desktops-profile", &iam.InstanceProfileArgs{
 		Role: role.Name,
 		Tags: pulumi.StringMap{
