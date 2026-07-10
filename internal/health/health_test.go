@@ -204,6 +204,29 @@ func TestSSHChecker_skippedWhenNoKey(t *testing.T) {
 	}
 }
 
+func TestSSHOptionalChecker_skippedWhenNoKey(t *testing.T) {
+	c := NewSSHOptionalChecker("swap-active", "host", 22, "ubuntu", "",
+		"test -f /swapfile", "no swap configured",
+		"swapon --show --noheadings | grep -q '^/swapfile'", 5*1e9)
+	result := c.Run(context.Background())
+	if result.Status != StatusSkipped {
+		t.Errorf("expected skipped when keyPath is empty, got %q", result.Status)
+	}
+}
+
+func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
+	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "key")
+	names := make(map[string]bool, len(checkers))
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, want := range []string{"swap-active", "cloudwatch-agent-active"} {
+		if !names[want] {
+			t.Errorf("SystemCheckers missing %q", want)
+		}
+	}
+}
+
 func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {
 	checkers := SSHCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
 

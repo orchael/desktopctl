@@ -269,6 +269,73 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
 
+// SSHOptionalChecker runs a prerequisite command first; if it exits non-zero the
+// check is skipped rather than failing. Used for features that may not be
+// configured on every desktop (e.g. swap file).
+type SSHOptionalChecker struct {
+	name    string
+	host    string
+	port    int
+	user    string
+	keyPath string
+	prereq  string // must exit 0 for the check to run
+	command string
+	skip    string // message returned when prereq fails
+	timeout time.Duration
+}
+
+// NewSSHOptionalChecker creates a checker that skips when prereq exits non-zero.
+func NewSSHOptionalChecker(name, host string, port int, user, keyPath, prereq, skipMsg, command string, timeout time.Duration) *SSHOptionalChecker {
+	return &SSHOptionalChecker{
+		name: name, host: host, port: port, user: user, keyPath: keyPath,
+		prereq: prereq, command: command, skip: skipMsg, timeout: timeout,
+	}
+}
+
+func (c *SSHOptionalChecker) Name() string { return c.name }
+
+func (c *SSHOptionalChecker) Run(ctx context.Context) CheckResult {
+	if c.keyPath == "" {
+		return CheckResult{Name: c.name, Status: StatusSkipped, Message: "no SSH key configured"}
+	}
+	user := c.user
+	if user == "" {
+		user = "ubuntu"
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	sshArgs := []string{
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ConnectTimeout=10",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
+		"-i", c.keyPath,
+		"-p", fmt.Sprintf("%d", c.port),
+		fmt.Sprintf("%s@%s", user, c.host),
+	}
+
+	prereqCmd := exec.CommandContext(ctx, "ssh", append(sshArgs, c.prereq)...) //nolint:gosec
+	if err := prereqCmd.Run(); err != nil {
+		msg := c.skip
+		if msg == "" {
+			msg = "not configured"
+		}
+		return CheckResult{Name: c.name, Status: StatusSkipped, Message: msg}
+	}
+
+	checkCmd := exec.CommandContext(ctx, "ssh", append(sshArgs, c.command)...) //nolint:gosec
+	out, err := checkCmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return CheckResult{Name: c.name, Status: StatusFail, Message: msg}
+	}
+	return CheckResult{Name: c.name, Status: StatusPass}
+}
+
 // StandardCheckers returns the set of network-reachability checks run against a
 // provisioned desktop.
 func StandardCheckers(hostname string, sshPort int) []Checker {
@@ -347,10 +414,11 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-// SystemCheckers returns checks for system health (disk, memory, services, certificate).
+// SystemCheckers returns checks for system health (disk, memory, services, certificate,
+// swap file, and CloudWatch agent).
 func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
-	checkers := []Checker{
+	return []Checker{
 		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
 			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
@@ -359,8 +427,14 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 			`sudo bash -c 'found=0; for cert in /etc/letsencrypt/live/*/fullchain.pem; do [ -f "$cert" ] || continue; found=1; openssl x509 -in "$cert" -noout -checkend 604800 || exit 1; done; [ $found -eq 1 ] || exit 1'`, t), // 604800 = 7 days; fails if no certs exist
 		NewSSHChecker("certbot-timer-enabled", hostname, sshPort, user, keyPath,
 			"systemctl is-enabled certbot.timer", t),
+		// Swap: skipped when no swapfile was configured at create time.
+		NewSSHOptionalChecker("swap-active", hostname, sshPort, user, keyPath,
+			"test -f /swapfile", "no swap configured",
+			"swapon --show --noheadings | grep -q '^/swapfile'", t),
+		// CloudWatch agent is always installed by cloud-init.
+		NewSSHChecker("cloudwatch-agent-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active amazon-cloudwatch-agent", t),
 	}
-	return checkers
 }
 
 // BridgectlCheckers returns checks for the bridgectl user service running as ubuntu.

@@ -66,6 +66,10 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - certbot-cert-valid    — TLS certificate is valid (>7 days until expiry)
     - certbot-timer-enabled — certbot auto-renewal timer is enabled
 
+  Swap & Monitoring:
+    - swap-active              — /swapfile is active (skipped when swap not configured)
+    - cloudwatch-agent-active  — CloudWatch agent systemd service is active
+
   bridgectl Agent Server:
     - bridgectl-installed         — bridgectl CLI is on PATH
     - bridgectl-version           — bridgectl --version exits successfully
