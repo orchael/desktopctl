@@ -396,13 +396,13 @@ runcmd:
                 'file_path': '/var/log/syslog',
                 'log_group_name': '/ai-desktops/syslog',
                 'log_stream_name': '{instance_id}',
-                'retention_in_days': 15
+                'retention_in_days': 14
               },
               {
                 'file_path': '/var/log/cloud-init-output.log',
                 'log_group_name': '/ai-desktops/cloud-init',
                 'log_stream_name': '{instance_id}',
-                'retention_in_days': 15
+                'retention_in_days': 14
               }
             ]
           }
