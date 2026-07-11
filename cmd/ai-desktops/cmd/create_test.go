@@ -102,3 +102,104 @@ func TestParseAndValidateRepos(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSwapSize(t *testing.T) {
+	tests := []struct {
+		name         string
+		flagValue    int
+		instanceType string
+		volumeGiB    int
+		wantSwap     int
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name:         "disabled with -1",
+			flagValue:    -1,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantSwap:     0,
+		},
+		{
+			name:         "values below -1 are rejected",
+			flagValue:    -2,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantErr:      true,
+			errContains:  "invalid --swap-size",
+		},
+		{
+			name:         "auto: 2x memory for t3.large (8 GiB RAM → 16 GiB swap)",
+			flagValue:    0,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantSwap:     16,
+		},
+		{
+			name:         "auto: 2x memory for m5.xlarge (16 GiB RAM → 32 GiB swap)",
+			flagValue:    0,
+			instanceType: "m5.xlarge",
+			volumeGiB:    100,
+			wantSwap:     32,
+		},
+		{
+			name:         "auto: unknown instance type falls back to 4 GiB → 8 GiB swap",
+			flagValue:    0,
+			instanceType: "x99.mega",
+			volumeGiB:    100,
+			wantSwap:     8,
+		},
+		{
+			name:         "explicit size",
+			flagValue:    4,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantSwap:     4,
+		},
+		{
+			name:         "swap + OS reservation exactly fits volume",
+			flagValue:    80,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantSwap:     80,
+		},
+		{
+			name:         "swap + OS reservation exceeds volume",
+			flagValue:    81,
+			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantErr:      true,
+			errContains:  "exceeds root volume size",
+		},
+		{
+			name:         "auto swap too large for small volume",
+			flagValue:    0,
+			instanceType: "r5.2xlarge", // 64 GiB RAM → 128 GiB swap
+			volumeGiB:    100,
+			wantErr:      true,
+			errContains:  "exceeds root volume size",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveSwapSize(tt.flagValue, tt.instanceType, tt.volumeGiB)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (swap=%d)", got)
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.wantSwap {
+				t.Errorf("resolveSwapSize(%d, %q, %d) = %d, want %d",
+					tt.flagValue, tt.instanceType, tt.volumeGiB, got, tt.wantSwap)
+			}
+		})
+	}
+}

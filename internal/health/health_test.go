@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildReport_allPass(t *testing.T) {
@@ -201,6 +202,42 @@ func TestSSHChecker_skippedWhenNoKey(t *testing.T) {
 	result := c.Run(context.Background())
 	if result.Status != StatusSkipped {
 		t.Errorf("expected skipped when keyPath is empty, got %q", result.Status)
+	}
+}
+
+func TestSSHOptionalChecker_skippedWhenNoKey(t *testing.T) {
+	c := NewSSHOptionalChecker("swap-active", "host", 22, "ubuntu", "",
+		"test -f /swapfile", "no swap configured",
+		"swapon --show --noheadings | grep -q '^/swapfile'", 5*1e9)
+	result := c.Run(context.Background())
+	if result.Status != StatusSkipped {
+		t.Errorf("expected skipped when keyPath is empty, got %q", result.Status)
+	}
+}
+
+func TestSSHOptionalChecker_failsOnTransportError(t *testing.T) {
+	// Use localhost on port 1 — connection refused is immediate, causing SSH
+	// to exit 255 (transport failure) before our context times out.
+	// The checker must return StatusFail, not StatusSkipped.
+	c := NewSSHOptionalChecker("swap-active", "127.0.0.1", 1, "ubuntu", "/dev/null",
+		"test -f /swapfile", "no swap configured",
+		"swapon --show --noheadings | grep -q '^/swapfile'", 10*time.Second)
+	result := c.Run(context.Background())
+	if result.Status != StatusFail {
+		t.Errorf("expected fail on SSH transport error, got %q (msg: %s)", result.Status, result.Message)
+	}
+}
+
+func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
+	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "key")
+	names := make(map[string]bool, len(checkers))
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, want := range []string{"swap-active", "cloudwatch-agent-active"} {
+		if !names[want] {
+			t.Errorf("SystemCheckers missing %q", want)
+		}
 	}
 }
 

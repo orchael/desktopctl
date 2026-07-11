@@ -24,6 +24,7 @@ var (
 	createEnv        string
 	createAMI        string
 	createVolumeSize int
+	createSwapSize   int
 )
 
 var createCmd = &cobra.Command{
@@ -49,6 +50,7 @@ func init() {
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
+	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -179,6 +181,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
 
+	volumeSize := createVolumeSize
+	if volumeSize <= 0 {
+		volumeSize = cfg.Desktop.VolumeSize
+	}
+	if volumeSize <= 0 {
+		return fmt.Errorf("volume size must be a positive integer (got %d); set --volume-size or desktop.volume_size in config", volumeSize)
+	}
+
+	swapSizeGB, err := resolveSwapSize(createSwapSize, cfg.Desktop.InstanceType, volumeSize)
+	if err != nil {
+		return err
+	}
+
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
 	userData := ""
 	hostname := desktop.Hostname(desktopID, zone)
@@ -212,19 +227,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
+		SwapSizeGB:           swapSizeGB,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)
 	if renderErr != nil {
 		return fmt.Errorf("render cloud-init: %w", renderErr)
-	}
-
-	volumeSize := createVolumeSize
-	if volumeSize <= 0 {
-		volumeSize = cfg.Desktop.VolumeSize
-	}
-	if volumeSize <= 0 {
-		return fmt.Errorf("volume size must be a positive integer (got %d); set --volume-size or desktop.volume_size in config", volumeSize)
 	}
 
 	stackCfg := pulumi.DesktopConfig(
@@ -331,4 +339,41 @@ func repoStrings(repos []*repo.Repo) []string {
 		out[i] = r.String()
 	}
 	return out
+}
+
+// resolveSwapSize determines the swap file size in GiB.
+//
+// flag values:
+//
+//	-1 — swap disabled (returns 0, no error)
+//	 0 — auto: 2× instance memory (falls back to 4 GiB for unknown types)
+//	>0 — explicit size in GiB
+//
+// An error is returned when the swap would leave fewer than 20 GiB on the root
+// volume for the OS and application data.
+func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int, error) {
+	if flagValue < -1 {
+		return 0, fmt.Errorf("invalid --swap-size %d: use -1 to disable swap, 0 for auto, or a positive integer for an explicit size in GiB", flagValue)
+	}
+	if flagValue == -1 {
+		return 0, nil
+	}
+	swapSizeGiB := flagValue
+	if swapSizeGiB == 0 {
+		memGiB := provision.InstanceMemoryGiB(instanceType)
+		if memGiB == 0 {
+			// Unknown instance type: default to 4 GiB so swap is still created.
+			memGiB = 4
+		}
+		swapSizeGiB = 2 * memGiB
+	}
+	const minOSReservedGiB = 20
+	if swapSizeGiB+minOSReservedGiB > volumeSizeGiB {
+		return 0, fmt.Errorf(
+			"swap size %d GiB + minimum OS reservation %d GiB exceeds root volume size %d GiB; "+
+				"increase --volume-size or reduce --swap-size (use -1 to disable swap)",
+			swapSizeGiB, minOSReservedGiB, volumeSizeGiB,
+		)
+	}
+	return swapSizeGiB, nil
 }
