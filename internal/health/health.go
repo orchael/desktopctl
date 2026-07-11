@@ -269,9 +269,10 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
 
-// SSHOptionalChecker runs a prerequisite command first; if it exits non-zero the
-// check is skipped rather than failing. Used for features that may not be
-// configured on every desktop (e.g. swap file).
+// SSHOptionalChecker runs a prerequisite command first; if the remote host
+// executes it and it exits non-zero the check is skipped (feature not
+// configured). SSH transport failures (exit code 255: DNS, auth, connection
+// refused) are treated as hard failures so they are not masked as "skipped".
 type SSHOptionalChecker struct {
 	name    string
 	host    string
@@ -280,11 +281,12 @@ type SSHOptionalChecker struct {
 	keyPath string
 	prereq  string // must exit 0 for the check to run
 	command string
-	skip    string // message returned when prereq fails
+	skip    string // message returned when prereq exits non-zero on the remote
 	timeout time.Duration
 }
 
-// NewSSHOptionalChecker creates a checker that skips when prereq exits non-zero.
+// NewSSHOptionalChecker creates a checker that skips when prereq exits non-zero
+// on the remote host, but fails on SSH transport errors.
 func NewSSHOptionalChecker(name, host string, port int, user, keyPath, prereq, skipMsg, command string, timeout time.Duration) *SSHOptionalChecker {
 	return &SSHOptionalChecker{
 		name: name, host: host, port: port, user: user, keyPath: keyPath,
@@ -317,6 +319,12 @@ func (c *SSHOptionalChecker) Run(ctx context.Context) CheckResult {
 
 	prereqCmd := exec.CommandContext(ctx, "ssh", append(sshArgs, c.prereq)...) //nolint:gosec
 	if err := prereqCmd.Run(); err != nil {
+		// Exit code 255 means SSH itself failed (transport/auth/DNS), not the
+		// remote command. Treat that as a hard failure so connectivity issues
+		// are not silently reported as "not configured".
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 255 {
+			return CheckResult{Name: c.name, Status: StatusFail, Message: err.Error()}
+		}
 		msg := c.skip
 		if msg == "" {
 			msg = "not configured"

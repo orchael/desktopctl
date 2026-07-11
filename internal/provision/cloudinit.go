@@ -324,14 +324,21 @@ runcmd:
     SWAP_SIZE_GB="{{ .SwapSizeGB }}"
     SWAP_FILE="/swapfile"
     if [ -f "$SWAP_FILE" ]; then
-      echo "Swap file $SWAP_FILE already exists; skipping creation"
+      echo "Swap file $SWAP_FILE already exists; ensuring it is active"
     else
       fallocate -l "${SWAP_SIZE_GB}G" "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1G count="$SWAP_SIZE_GB"
       chmod 600 "$SWAP_FILE"
       mkswap "$SWAP_FILE"
+      echo "Swap file ${SWAP_SIZE_GB}G created"
+    fi
+    # Activate swap if not already on (idempotent)
+    if ! swapon --show --noheadings | grep -q "^${SWAP_FILE}"; then
       swapon "$SWAP_FILE"
+      echo "Swap activated"
+    fi
+    # Ensure fstab entry exists (idempotent)
+    if ! grep -qF "${SWAP_FILE} none swap" /etc/fstab; then
       echo "${SWAP_FILE} none swap sw 0 0" >> /etc/fstab
-      echo "Swap file ${SWAP_SIZE_GB}G created and activated"
     fi
     # Reduce swappiness: prefer RAM, use swap only under real pressure
     echo 'vm.swappiness=10' > /etc/sysctl.d/99-ai-desktops.conf
@@ -348,7 +355,7 @@ runcmd:
     # Install agent if not already present (pre-baked AMIs may include it)
     if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
       CW_ARCH=$(dpkg --print-architecture)
-      wget -q \
+      wget -q --timeout=60 --tries=3 \
         "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/${CW_ARCH}/latest/amazon-cloudwatch-agent.deb" \
         -O /tmp/amazon-cloudwatch-agent.deb \
         && dpkg -i /tmp/amazon-cloudwatch-agent.deb \
