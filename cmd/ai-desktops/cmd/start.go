@@ -113,7 +113,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Desktop ID  : %s\n", result["desktop_id"])
 	fmt.Printf("Hostname    : %s\n", result["hostname"])
-	fmt.Printf("noVNC URL   : %s\n", result["novnc_url"])
+	fmt.Printf("Desktop URL : %s\n", result["novnc_url"])
 	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
 	fmt.Printf("AMI ID      : %s\n", result["ami_id"])
 	fmt.Printf("Region      : %s\n", result["region"])

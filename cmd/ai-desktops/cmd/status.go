@@ -52,7 +52,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Owner        : %s\n", d.GitHubOwner)
 	fmt.Printf("Region       : %s\n", region)
 	fmt.Printf("Hostname     : %s\n", d.Hostname)
-	fmt.Printf("noVNC URL    : %s\n", d.NoVNCURL)
+	fmt.Printf("Desktop URL  : %s\n", d.NoVNCURL)
 	fmt.Printf("SSH target   : %s\n", d.SSHTarget)
 	fmt.Printf("Instance ID  : %s\n", d.InstanceID)
 	if d.AMIID != "" {
