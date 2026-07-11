@@ -88,7 +88,7 @@ describe('buildDesktopInfo real mode', () => {
       expect(info.github_owner).toBe('testorg');
       expect(info.bridge_port).toBe(9999);
       expect(info.environment).toBe('prod');
-      expect(info.novnc_url).toBe('https://myhost.com:8443/novnc/vnc.html');
+      expect(info.novnc_url).toBe('https://myhost.com:8443/');
     } finally {
       unlinkSync(tmpFile);
     }
