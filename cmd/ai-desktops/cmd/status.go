@@ -65,6 +65,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Pulumi stack : %s\n", d.StackName)
 	fmt.Printf("Readiness    : %s\n", d.Readiness)
+	if len(d.Repos) > 0 {
+		fmt.Printf("Repos        : %s\n", strings.Join(d.Repos, ", "))
+	}
+	if len(d.Secrets) > 0 {
+		fmt.Printf("Secrets      : %s\n", strings.Join(d.Secrets, ", "))
+	}
 	fmt.Printf("Created      : %s\n", d.CreatedAt)
 	fmt.Printf("Updated      : %s\n", d.UpdatedAt)
 	if d.FailurePhase != "" {
