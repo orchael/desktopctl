@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
@@ -108,12 +109,15 @@ func fetchNoVNCDesktopURL(d *store.Desktop) string {
 	if d.State != store.StateReady && d.State != store.StateUnhealthy {
 		return ""
 	}
-	out, _ := exec.Command("ssh",
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "ssh", //nolint:gosec
 		"-i", cfg.Desktop.SSHKeyPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=5",
 		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
+		"--",
 		d.SSHTarget,
 		"novnc-desktop-url",
 	).CombinedOutput()
