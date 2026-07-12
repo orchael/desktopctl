@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
@@ -53,6 +55,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Region       : %s\n", region)
 	fmt.Printf("Hostname     : %s\n", d.Hostname)
 	fmt.Printf("Desktop URL  : %s\n", d.NoVNCURL)
+	if liveURL := fetchNoVNCDesktopURL(d); liveURL != "" {
+		fmt.Printf("NoVNC URL    : %s\n", liveURL)
+	}
 	fmt.Printf("SSH target   : %s\n", d.SSHTarget)
 	fmt.Printf("Instance ID  : %s\n", d.InstanceID)
 	if d.AMIID != "" {
@@ -67,4 +72,32 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Failure msg  : %s\n", d.FailureMsg)
 	}
 	return nil
+}
+
+// fetchNoVNCDesktopURL SSHes into the desktop and runs novnc-desktop-url to
+// retrieve the live URL. Returns empty string on any error so callers can
+// treat it as optional.
+func fetchNoVNCDesktopURL(d *store.Desktop) string {
+	if d.SSHTarget == "" || cfg.Desktop.SSHKeyPath == "" {
+		return ""
+	}
+	if d.State != store.StateReady && d.State != store.StateUnhealthy {
+		return ""
+	}
+	out, _ := exec.Command("ssh",
+		"-i", cfg.Desktop.SSHKeyPath,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "ConnectTimeout=5",
+		"-o", "BatchMode=yes",
+		d.SSHTarget,
+		"novnc-desktop-url",
+	).CombinedOutput()
+	for _, line := range strings.Split(string(out), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(trimmed, "Desktop URL :"); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
 }
