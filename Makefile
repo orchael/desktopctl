@@ -8,7 +8,7 @@ AI_DESKTOPS_GITHUB_OWNER ?= orchael
 .PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
 
 build:
-	go build -o $(BINARY) $(CMD)
+	GOGC=50 go build -p 1 -o $(BINARY) $(CMD)
 
 test:
 	go test ./...
