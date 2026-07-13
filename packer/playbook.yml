@@ -158,7 +158,7 @@
           -o /tmp/flutter.tar.xz
         tar xJ -C /opt -f /tmp/flutter.tar.xz
         rm -f /tmp/flutter.tar.xz
-        chown -R root:root /opt/flutter
+        chown -R ubuntu:ubuntu /opt/flutter
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
@@ -175,6 +175,7 @@
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
       args:
         executable: /bin/bash
+      become: false
       changed_when: false
 
     - name: Install AWS CLI v2
