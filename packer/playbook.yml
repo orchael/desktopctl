@@ -150,21 +150,26 @@
 
     - name: Install Flutter SDK
       ansible.builtin.shell: |
-        curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{{ flutter_version }}-stable.tar.xz" \
-          | tar xJ -C /opt
+        set -euo pipefail
+        curl -fsSL --retry 3 --retry-delay 5 \
+          "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{{ flutter_version }}-stable.tar.xz" \
+          -o /tmp/flutter.tar.xz
+        tar xJ -C /opt -f /tmp/flutter.tar.xz
+        rm -f /tmp/flutter.tar.xz
         chown -R root:root /opt/flutter
       args:
+        executable: /bin/bash
         creates: /opt/flutter/bin/flutter
 
     - name: Add Flutter to system PATH
       ansible.builtin.copy:
         dest: /etc/profile.d/flutter.sh
-        content: 'export PATH="$PATH:/opt/flutter/bin"'
+        content: 'export PATH="/opt/flutter/bin:$PATH"'
         mode: "0644"
 
     - name: Run flutter precache for linux and web targets
       ansible.builtin.shell: |
-        export PATH="$PATH:/opt/flutter/bin"
+        export PATH="/opt/flutter/bin:$PATH"
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
       args:
         executable: /bin/bash
