@@ -28,6 +28,11 @@
         that: uv_version is defined and uv_version | length > 0
         fail_msg: "uv_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require flutter_version
+      ansible.builtin.assert:
+        that: flutter_version is defined and flutter_version | length > 0
+        fail_msg: "flutter_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
     - name: Require ai_agent_bridge_version
       ansible.builtin.assert:
         that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
@@ -130,6 +135,40 @@
         rm -rf /tmp/uv-x86_64-unknown-linux-gnu
       args:
         creates: /usr/local/bin/uv
+
+    - name: Install Flutter dependencies
+      ansible.builtin.apt:
+        name:
+          - clang
+          - cmake
+          - ninja-build
+          - pkg-config
+          - libgtk-3-dev
+          - liblzma-dev
+          - libstdc++-12-dev
+        state: present
+
+    - name: Install Flutter SDK
+      ansible.builtin.shell: |
+        curl -fsSL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{{ flutter_version }}-stable.tar.xz" \
+          | tar xJ -C /opt
+        chown -R root:root /opt/flutter
+      args:
+        creates: /opt/flutter/bin/flutter
+
+    - name: Add Flutter to system PATH
+      ansible.builtin.copy:
+        dest: /etc/profile.d/flutter.sh
+        content: 'export PATH="$PATH:/opt/flutter/bin"'
+        mode: "0644"
+
+    - name: Run flutter precache for linux and web targets
+      ansible.builtin.shell: |
+        export PATH="$PATH:/opt/flutter/bin"
+        flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Install AWS CLI v2
       ansible.builtin.shell: |
@@ -672,6 +711,18 @@
           WARNING: uv version mismatch — expected {{ uv_version }},
           got {{ uv_ver_out.stdout }}
       when: "uv_version not in uv_ver_out.stdout"
+
+    - name: Verify Flutter is installed
+      ansible.builtin.command: /opt/flutter/bin/flutter --version
+      register: flutter_ver_out
+      changed_when: false
+
+    - name: Warn if Flutter version does not match expected
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Flutter version mismatch — expected {{ flutter_version }},
+          got {{ flutter_ver_out.stdout_lines[0] | default('unknown') }}
+      when: "flutter_version not in flutter_ver_out.stdout"
 
     - name: Verify ai-agent-bridge is installed
       ansible.builtin.command: dpkg-query -W -f='${Version}' ai-agent-bridge
