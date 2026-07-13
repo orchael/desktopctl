@@ -158,11 +158,13 @@
           -o /tmp/flutter.tar.xz
         tar xJ -C /opt -f /tmp/flutter.tar.xz
         rm -f /tmp/flutter.tar.xz
-        # Remove .git so Flutter cannot attempt git-based version checks that
-        # would fail because /opt/flutter is root-owned and AMI-locked anyway.
-        rm -rf /opt/flutter/.git
         chown -R root:root /opt/flutter
         chmod -R a+rX /opt/flutter
+        # Flutter writes .git/FETCH_HEAD when checking for updates. The SDK is
+        # root-owned and AMI-locked, but flutter refuses to run as root and
+        # needs to write into .git. Make .git world-writable so the ubuntu user
+        # can run flutter without ownership of the rest of the tree.
+        chmod -R a+w /opt/flutter/.git
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
@@ -179,6 +181,7 @@
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
       args:
         executable: /bin/bash
+      become: false
       changed_when: false
 
     - name: Install AWS CLI v2
