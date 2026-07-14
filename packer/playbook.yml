@@ -160,11 +160,10 @@
         rm -f /tmp/flutter.tar.xz
         chown -R root:root /opt/flutter
         chmod -R a+rX /opt/flutter
-        # Flutter writes .git/FETCH_HEAD when checking for updates. The SDK is
-        # root-owned and AMI-locked, but flutter refuses to run as root and
-        # needs to write into .git. Make .git world-writable so the ubuntu user
-        # can run flutter without ownership of the rest of the tree.
-        chmod -R a+w /opt/flutter/.git
+        # Flutter writes .git/FETCH_HEAD on every invocation. Scope write
+        # access to the ubuntu group rather than all users.
+        chown -R root:ubuntu /opt/flutter/.git
+        chmod -R g+w /opt/flutter/.git
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
@@ -175,9 +174,13 @@
         content: 'export PATH="/opt/flutter/bin:$PATH"'
         mode: "0644"
 
-    - name: Allow all users to run git in /opt/flutter (git safe.directory)
-      ansible.builtin.command:
-        cmd: git config --system --add safe.directory /opt/flutter
+    - name: Allow ubuntu group to run git in /opt/flutter (git safe.directory)
+      ansible.builtin.shell: |
+        git config --system --get-all safe.directory | grep -qxF /opt/flutter || \
+          git config --system --add safe.directory /opt/flutter
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Run flutter precache for linux and web targets
       ansible.builtin.shell: |
@@ -187,8 +190,10 @@
         executable: /bin/bash
       changed_when: false
 
-    - name: Make Flutter cache writable for all users
-      ansible.builtin.shell: chmod -R a+w /opt/flutter/bin/cache
+    - name: Make Flutter engine cache writable for ubuntu group
+      ansible.builtin.shell: |
+        chown -R root:ubuntu /opt/flutter/bin/cache
+        chmod -R g+w /opt/flutter/bin/cache
       args:
         executable: /bin/bash
       changed_when: false
