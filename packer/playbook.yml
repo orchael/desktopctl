@@ -175,6 +175,10 @@
         content: 'export PATH="/opt/flutter/bin:$PATH"'
         mode: "0644"
 
+    - name: Allow all users to run git in /opt/flutter (git safe.directory)
+      ansible.builtin.command:
+        cmd: git config --system --add safe.directory /opt/flutter
+
     - name: Run flutter precache for linux and web targets
       ansible.builtin.shell: |
         export PATH="/opt/flutter/bin:$PATH"
