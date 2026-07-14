@@ -118,8 +118,9 @@ source "amazon-ebs" "ubuntu" {
     Environment        = "base"
   }
 
-  ssh_username = "ubuntu"
-  ssh_timeout  = "10m"
+  ssh_username             = "ubuntu"
+  ssh_timeout              = "10m"
+  ssh_keep_alive_interval  = "10s"
 }
 
 build {

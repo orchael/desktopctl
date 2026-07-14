@@ -249,10 +249,6 @@
       environment:
         ANDROID_HOME: /opt/android-sdk
       become: false
-      # system-images;android-35;google_apis;x86_64 is ~1.5 GiB; run async so
-      # the SSH connection does not idle-timeout during the silent download.
-      async: 1800
-      poll: 30
       args:
         creates: /opt/android-sdk/platform-tools/adb
 
