@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
@@ -25,6 +26,7 @@ var (
 	createAMI        string
 	createVolumeSize int
 	createSwapSize   int
+	createAVDs       []string
 )
 
 var createCmd = &cobra.Command{
@@ -51,6 +53,7 @@ func init() {
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
+	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable, e.g. flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -194,6 +197,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Merge --avd flags with config-file defaults; CLI flags take precedence (replace, not append).
+	avds := cfg.Desktop.AVDs
+	if len(createAVDs) > 0 {
+		parsed, err := parseAVDs(createAVDs)
+		if err != nil {
+			return err
+		}
+		avds = parsed
+	}
+
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
 	userData := ""
 	hostname := desktop.Hostname(desktopID, zone)
@@ -228,6 +241,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
 		SwapSizeGB:           swapSizeGB,
+		AVDs:                 avds,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)
@@ -339,6 +353,23 @@ func repoStrings(repos []*repo.Repo) []string {
 		out[i] = r.String()
 	}
 	return out
+}
+
+// parseAVDs parses --avd flag values in name:image[:device] format.
+func parseAVDs(specs []string) ([]config.AVDConfig, error) {
+	avds := make([]config.AVDConfig, 0, len(specs))
+	for _, spec := range specs {
+		parts := strings.SplitN(spec, ":", 3)
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid --avd %q: must be name:image or name:image:device", spec)
+		}
+		avd := config.AVDConfig{Name: parts[0], Image: parts[1]}
+		if len(parts) == 3 {
+			avd.Device = parts[2]
+		}
+		avds = append(avds, avd)
+	}
+	return avds, nil
 }
 
 // resolveSwapSize determines the swap file size in GiB.

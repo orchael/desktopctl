@@ -79,6 +79,17 @@ type GitHubConfig struct {
 	GitUserEmail string `yaml:"git_user_email,omitempty"`
 }
 
+// AVDConfig describes a single Android Virtual Device to create at desktop boot.
+type AVDConfig struct {
+	// Name is the AVD identifier passed to avdmanager -n (e.g. "flutter_dev").
+	Name string `yaml:"name"`
+	// Image is the system image package key (e.g. "system-images;android-35;google_apis;x86_64").
+	Image string `yaml:"image"`
+	// Device is the hardware profile passed to avdmanager --device (e.g. "pixel_6").
+	// Optional; omit to use avdmanager's default.
+	Device string `yaml:"device,omitempty"`
+}
+
 type DesktopConfig struct {
 	DefaultProfile string `yaml:"default_profile"`
 	InstanceType   string `yaml:"instance_type"`
@@ -88,6 +99,10 @@ type DesktopConfig struct {
 	SSHKeyName     string `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
 	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
+	// AVDs lists Android Virtual Devices to create at desktop boot.
+	// Empty means no AVDs are created. Passed as --avd flags on the create command
+	// or set here as the default set for all desktops.
+	AVDs []AVDConfig `yaml:"avds,omitempty"`
 }
 
 type AgentConfig struct {

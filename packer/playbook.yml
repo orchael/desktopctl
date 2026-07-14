@@ -33,6 +33,11 @@
         that: flutter_version is defined and flutter_version | length > 0
         fail_msg: "flutter_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require android_cmdline_tools_version
+      ansible.builtin.assert:
+        that: android_cmdline_tools_version is defined and android_cmdline_tools_version | length > 0
+        fail_msg: "android_cmdline_tools_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
     - name: Require ai_agent_bridge_version
       ansible.builtin.assert:
         that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
@@ -199,6 +204,60 @@
         runuser -l ubuntu -c 'export PATH="/opt/flutter/bin:$PATH" && flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia'
       args:
         executable: /bin/bash
+      changed_when: false
+
+    - name: Install Android SDK command-line tools
+      ansible.builtin.shell: |
+        set -euo pipefail
+        mkdir -p /opt/android-sdk/cmdline-tools
+        curl -fsSL --retry 3 --retry-delay 5 \
+          "https://dl.google.com/android/repository/commandlinetools-linux-{{ android_cmdline_tools_version }}_latest.zip" \
+          -o /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extract
+        mv /tmp/cmdline-tools-extract/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+        rm -rf /tmp/cmdline-tools.zip /tmp/cmdline-tools-extract
+        chown -R root:root /opt/android-sdk
+        setfacl -R -m g:flutterusers:rwX /opt/android-sdk
+        find /opt/android-sdk -type d -exec setfacl -d -m g:flutterusers:rwX {} +
+      args:
+        executable: /bin/bash
+        creates: /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
+
+    - name: Add Android SDK to system PATH
+      ansible.builtin.copy:
+        dest: /etc/profile.d/android-sdk.sh
+        content: |
+          export ANDROID_HOME=/opt/android-sdk
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+        mode: "0644"
+
+    - name: Accept Android SDK licenses
+      ansible.builtin.shell: |
+        yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
+      environment:
+        ANDROID_HOME: /opt/android-sdk
+      become: false
+      changed_when: false
+
+    - name: Install Android SDK components
+      ansible.builtin.shell: |
+        /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+          "platform-tools" \
+          "emulator" \
+          "platforms;android-35" \
+          "system-images;android-35;google_apis;x86_64"
+      environment:
+        ANDROID_HOME: /opt/android-sdk
+      become: false
+      args:
+        creates: /opt/android-sdk/platform-tools/adb
+
+    - name: Configure Flutter to use Android SDK
+      ansible.builtin.shell: |
+        /opt/flutter/bin/flutter config --android-sdk /opt/android-sdk
+      environment:
+        ANDROID_HOME: /opt/android-sdk
+      become: false
       changed_when: false
 
     - name: Install AWS CLI v2
@@ -754,6 +813,18 @@
           WARNING: Flutter version mismatch — expected {{ flutter_version }},
           got {{ flutter_ver_out.stdout_lines[0] | default('unknown') }}
       when: "flutter_version not in flutter_ver_out.stdout"
+
+    - name: Verify Android SDK sdkmanager is installed
+      ansible.builtin.command: /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
+      environment:
+        ANDROID_HOME: /opt/android-sdk
+      register: sdkmanager_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show Android SDK sdkmanager version
+      ansible.builtin.debug:
+        msg: "Android sdkmanager version: {{ sdkmanager_ver_out.stdout }}"
 
     - name: Verify ai-agent-bridge is installed
       ansible.builtin.command: dpkg-query -W -f='${Version}' ai-agent-bridge

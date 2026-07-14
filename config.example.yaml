@@ -62,6 +62,15 @@ desktop:
   #   us-east-2: ami-0123456789abcdef1
   #   us-west-2: ami-0123456789abcdef2
 
+  # Android Virtual Devices to create at desktop boot.
+  # Each entry defines an AVD that avdmanager will create for the ubuntu user.
+  # The AMI must have the Android SDK and the requested system-image pre-installed.
+  # CLI flag --avd overrides this list entirely (it does not append).
+  # avds:
+  #   - name: flutter_dev
+  #     image: "system-images;android-35;google_apis;x86_64"
+  #     device: pixel_6   # optional hardware profile; omit for avdmanager default
+
   # CIDR range from which SSH (port 22) is allowed in the security group.
   # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.
   operator_cidr: 0.0.0.0/0
