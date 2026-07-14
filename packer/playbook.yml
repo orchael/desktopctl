@@ -196,11 +196,9 @@
 
     - name: Run flutter precache for linux and web targets
       ansible.builtin.shell: |
-        export PATH="/opt/flutter/bin:$PATH"
-        flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
+        runuser -l ubuntu -c 'export PATH="/opt/flutter/bin:$PATH" && flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia'
       args:
         executable: /bin/bash
-      become: false
       changed_when: false
 
     - name: Install AWS CLI v2
