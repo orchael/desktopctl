@@ -170,10 +170,12 @@
         tar xJ -C /opt -f /tmp/flutter.tar.xz
         rm -f /tmp/flutter.tar.xz
         chown -R root:root /opt/flutter
-        # Grant flutterusers group rwx on all existing files and set a default
-        # ACL so files Flutter creates at runtime inherit group write access.
-        setfacl -R -m g:flutterusers:rwx /opt/flutter
-        setfacl -d -m g:flutterusers:rwX /opt/flutter
+        # Grant flutterusers group rwX (uppercase: execute only on dirs and
+        # already-executable files) on all existing entries.
+        setfacl -R -m g:flutterusers:rwX /opt/flutter
+        # Set the default ACL on every directory so files Flutter creates at
+        # runtime inherit group write access regardless of nesting depth.
+        find /opt/flutter -type d -exec setfacl -d -m g:flutterusers:rwX {} +
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
