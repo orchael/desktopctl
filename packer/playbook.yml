@@ -185,7 +185,12 @@
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
       args:
         executable: /bin/bash
-      become: false
+      changed_when: false
+
+    - name: Make Flutter cache writable for all users
+      ansible.builtin.shell: chmod -R a+w /opt/flutter/bin/cache
+      args:
+        executable: /bin/bash
       changed_when: false
 
     - name: Install AWS CLI v2
