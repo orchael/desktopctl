@@ -158,12 +158,12 @@
           -o /tmp/flutter.tar.xz
         tar xJ -C /opt -f /tmp/flutter.tar.xz
         rm -f /tmp/flutter.tar.xz
-        chown -R root:root /opt/flutter
-        chmod -R a+rX /opt/flutter
-        # Flutter writes .git/FETCH_HEAD on every invocation. Scope write
-        # access to the ubuntu group rather than all users.
-        chown -R root:ubuntu /opt/flutter/.git
-        chmod -R g+w /opt/flutter/.git
+        # Flutter modifies many parts of its own tree at runtime (pub cache,
+        # git metadata, engine stamps, package lock files). Keep root as owner
+        # but grant the ubuntu group write access to the whole tree so flutter
+        # works correctly without world-writable permissions.
+        chown -R root:ubuntu /opt/flutter
+        chmod -R g+w /opt/flutter
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
@@ -186,14 +186,6 @@
       ansible.builtin.shell: |
         export PATH="/opt/flutter/bin:$PATH"
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
-      args:
-        executable: /bin/bash
-      changed_when: false
-
-    - name: Make Flutter engine cache writable for ubuntu group
-      ansible.builtin.shell: |
-        chown -R root:ubuntu /opt/flutter/bin/cache
-        chmod -R g+w /opt/flutter/bin/cache
       args:
         executable: /bin/bash
       changed_when: false
