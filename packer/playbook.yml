@@ -150,6 +150,17 @@
           - openjdk-17-jdk
         state: present
 
+    - name: Create flutterusers group
+      ansible.builtin.group:
+        name: flutterusers
+        state: present
+
+    - name: Add ubuntu to flutterusers group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: flutterusers
+        append: true
+
     - name: Install Flutter SDK
       ansible.builtin.shell: |
         set -euo pipefail
@@ -158,12 +169,11 @@
           -o /tmp/flutter.tar.xz
         tar xJ -C /opt -f /tmp/flutter.tar.xz
         rm -f /tmp/flutter.tar.xz
-        # Flutter modifies many parts of its own tree at runtime (pub cache,
-        # git metadata, engine stamps, package lock files). Keep root as owner
-        # but grant the ubuntu group write access to the whole tree so flutter
-        # works correctly without world-writable permissions.
-        chown -R root:ubuntu /opt/flutter
-        chmod -R g+w /opt/flutter
+        chown -R root:root /opt/flutter
+        # Grant flutterusers group rwx on all existing files and set a default
+        # ACL so files Flutter creates at runtime inherit group write access.
+        setfacl -R -m g:flutterusers:rwx /opt/flutter
+        setfacl -d -m g:flutterusers:rwX /opt/flutter
       args:
         executable: /bin/bash
         creates: /opt/flutter/bin/flutter
@@ -174,7 +184,7 @@
         content: 'export PATH="/opt/flutter/bin:$PATH"'
         mode: "0644"
 
-    - name: Allow ubuntu group to run git in /opt/flutter (git safe.directory)
+    - name: Allow flutterusers group to run git in /opt/flutter (git safe.directory)
       ansible.builtin.shell: |
         git config --system --get-all safe.directory | grep -qxF /opt/flutter || \
           git config --system --add safe.directory /opt/flutter
@@ -188,6 +198,7 @@
         flutter precache --linux --web --no-android --no-ios --no-macos --no-windows --no-fuchsia
       args:
         executable: /bin/bash
+      become: false
       changed_when: false
 
     - name: Install AWS CLI v2
