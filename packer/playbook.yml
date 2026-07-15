@@ -231,13 +231,30 @@
         executable: /bin/bash
         creates: /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
 
-    - name: Add Android SDK to system PATH
+    - name: Add Android SDK to system PATH (login shells)
       ansible.builtin.copy:
         dest: /etc/profile.d/android-sdk.sh
         content: |
           export ANDROID_HOME=/opt/android-sdk
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
         mode: "0644"
+
+    - name: Add Android SDK to /etc/environment (all sessions including non-interactive)
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        regexp: "^ANDROID_HOME="
+        line: "ANDROID_HOME=/opt/android-sdk"
+        create: true
+        mode: "0644"
+
+    - name: Append Android SDK bin dirs to PATH in /etc/environment
+      ansible.builtin.shell: |
+        if ! grep -q '/opt/android-sdk' /etc/environment; then
+          sed -i 's|^PATH="\(.*\)"$|PATH="\1:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/emulator"|' /etc/environment
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Accept Android SDK licenses
       ansible.builtin.shell: |
@@ -251,6 +268,7 @@
         runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
           "platform-tools" \
           "emulator" \
+          "build-tools;35.0.1" \
           "platforms;android-35" \
           "system-images;android-35;google_apis;x86_64"'
       args:
@@ -829,6 +847,19 @@
     - name: Show Android SDK sdkmanager version
       ansible.builtin.debug:
         msg: "Android sdkmanager version: {{ sdkmanager_ver_out.stdout }}"
+
+    - name: Verify Android build-tools are installed
+      ansible.builtin.shell: |
+        runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --list_installed'
+      args:
+        executable: /bin/bash
+      register: sdk_installed_out
+      changed_when: false
+
+    - name: Assert build-tools 35.0.1 is installed
+      ansible.builtin.assert:
+        that: "'build-tools;35.0.1' in sdk_installed_out.stdout"
+        fail_msg: "build-tools;35.0.1 is not installed — Flutter Android toolchain will not validate"
 
     - name: Verify ai-agent-bridge is installed
       ansible.builtin.command: dpkg-query -W -f='${Version}' ai-agent-bridge
