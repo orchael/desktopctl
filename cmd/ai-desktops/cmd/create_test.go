@@ -149,6 +149,29 @@ func TestParseAVDs(t *testing.T) {
 			specs:   []string{},
 			wantLen: 0,
 		},
+		{
+			name:        "name with shell metacharacter rejected",
+			specs:       []string{"flutter$(evil):system-images;android-35;google_apis;x86_64"},
+			wantErr:     true,
+			errContains: "invalid --avd name",
+		},
+		{
+			name:        "image with shell metacharacter rejected",
+			specs:       []string{"flutter_dev:system-images;android-35;google_apis;x86_64$(evil)"},
+			wantErr:     true,
+			errContains: "invalid --avd image",
+		},
+		{
+			name:        "device with shell metacharacter rejected",
+			specs:       []string{"flutter_dev:system-images;android-35;google_apis;x86_64:pixel$(evil)"},
+			wantErr:     true,
+			errContains: "invalid --avd device",
+		},
+		{
+			name:    "name with hyphens allowed",
+			specs:   []string{"my-avd:system-images;android-35;google_apis;x86_64"},
+			wantLen: 1,
+		},
 	}
 
 	for _, tt := range tests {

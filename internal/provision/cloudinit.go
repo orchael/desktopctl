@@ -438,21 +438,21 @@ runcmd:
   # --- create Android Virtual Devices ---
 {{ range .AVDs }}
   - |
-    (
-    set -e
     ANDROID_HOME=/opt/android-sdk
     AVD_DIR="/home/ubuntu/.android/avd/{{ .Name }}.avd"
-    if [ -d "$AVD_DIR" ]; then
+    if [ ! -x "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" ]; then
+      echo "WARNING: avdmanager not found — skipping AVD {{ .Name }} (Android SDK not pre-installed in this AMI)"
+    elif [ -d "$AVD_DIR" ]; then
       echo "AVD {{ .Name }} already exists — skipping"
-      exit 0
+    else
+      sudo -u ubuntu env ANDROID_HOME="$ANDROID_HOME" \
+        "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
+        -n "{{ .Name }}" \
+        -k "{{ .Image }}" \
+        --force{{ if .Device }} \
+        --device "{{ .Device }}"{{ end }} \
+        || echo "WARNING: failed to create AVD {{ .Name }} — check /var/log/cloud-init-output.log"
     fi
-    sudo -u ubuntu env ANDROID_HOME="$ANDROID_HOME" \
-      "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
-      -n "{{ .Name }}" \
-      -k "{{ .Image }}" \
-      --force{{ if .Device }} \
-      --device "{{ .Device }}"{{ end }}
-    )
 {{ end }}
 {{- end}}
 

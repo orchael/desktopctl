@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
@@ -206,6 +207,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 		avds = parsed
 	}
+	if len(avds) > 0 && amiID == "" {
+		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
+			"Run `ai-desktops ami build` to produce a compatible AMI, then set active_ami in your config.")
+	}
 
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
 	userData := ""
@@ -355,6 +360,12 @@ func repoStrings(repos []*repo.Repo) []string {
 	return out
 }
 
+// avdNameRe allows alphanumerics, underscores, and hyphens — safe for shell args.
+var avdNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// avdImageRe allows the system-images;<api>;<tag>;<abi> format used by sdkmanager.
+var avdImageRe = regexp.MustCompile(`^[A-Za-z0-9_;.-]+$`)
+
 // parseAVDs parses --avd flag values in name:image[:device] format.
 func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 	avds := make([]config.AVDConfig, 0, len(specs))
@@ -363,8 +374,17 @@ func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("invalid --avd %q: must be name:image or name:image:device", spec)
 		}
+		if !avdNameRe.MatchString(parts[0]) {
+			return nil, fmt.Errorf("invalid --avd name %q: only alphanumerics, underscores, and hyphens are allowed", parts[0])
+		}
+		if !avdImageRe.MatchString(parts[1]) {
+			return nil, fmt.Errorf("invalid --avd image %q: only alphanumerics and the characters _;.- are allowed", parts[1])
+		}
 		avd := config.AVDConfig{Name: parts[0], Image: parts[1]}
 		if len(parts) == 3 {
+			if parts[2] != "" && !avdNameRe.MatchString(parts[2]) {
+				return nil, fmt.Errorf("invalid --avd device %q: only alphanumerics, underscores, and hyphens are allowed", parts[2])
+			}
 			avd.Device = parts[2]
 		}
 		avds = append(avds, avd)
