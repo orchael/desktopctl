@@ -233,31 +233,27 @@
 
     - name: Accept Android SDK licenses
       ansible.builtin.shell: |
-        yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
-      environment:
-        ANDROID_HOME: /opt/android-sdk
-      become: false
+        yes | runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses'
+      args:
+        executable: /bin/bash
       changed_when: false
 
     - name: Install Android SDK components
       ansible.builtin.shell: |
-        yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+        runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
           "platform-tools" \
           "emulator" \
           "platforms;android-35" \
-          "system-images;android-35;google_apis;x86_64"
-      environment:
-        ANDROID_HOME: /opt/android-sdk
-      become: false
+          "system-images;android-35;google_apis;x86_64"'
       args:
+        executable: /bin/bash
         creates: /opt/android-sdk/platform-tools/adb
 
     - name: Configure Flutter to use Android SDK
       ansible.builtin.shell: |
-        /opt/flutter/bin/flutter config --android-sdk /opt/android-sdk
-      environment:
-        ANDROID_HOME: /opt/android-sdk
-      become: false
+        runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/flutter/bin/flutter config --android-sdk /opt/android-sdk'
+      args:
+        executable: /bin/bash
       changed_when: false
 
     - name: Install AWS CLI v2
@@ -815,12 +811,12 @@
       when: "flutter_version not in flutter_ver_out.stdout"
 
     - name: Verify Android SDK sdkmanager is installed
-      ansible.builtin.command: /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
-      environment:
-        ANDROID_HOME: /opt/android-sdk
+      ansible.builtin.shell: |
+        runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --version'
+      args:
+        executable: /bin/bash
       register: sdkmanager_ver_out
       changed_when: false
-      become: false
 
     - name: Show Android SDK sdkmanager version
       ansible.builtin.debug:
