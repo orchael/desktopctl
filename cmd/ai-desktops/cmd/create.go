@@ -54,7 +54,7 @@ func init() {
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
-	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable, e.g. flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6)")
+	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -210,6 +210,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if len(avds) > 0 && amiID == "" {
 		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
 			"Run `ai-desktops ami build` to produce a compatible AMI, then set active_ami in your config.")
+	}
+	if len(avds) > 0 {
+		names := make([]string, len(avds))
+		for i, a := range avds {
+			names[i] = a.Name
+		}
+		req.AVDNames = names
 	}
 
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.

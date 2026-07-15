@@ -445,7 +445,7 @@ runcmd:
     elif [ -d "$AVD_DIR" ]; then
       echo "AVD {{ .Name }} already exists — skipping"
     else
-      sudo -u ubuntu env ANDROID_HOME="$ANDROID_HOME" \
+      sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME="$ANDROID_HOME" \
         "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
         -n "{{ .Name }}" \
         -k "{{ .Image }}" \

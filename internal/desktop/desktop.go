@@ -63,6 +63,7 @@ type CreateRequest struct {
 	SSHKeyName    string // EC2 key pair name (registered in AWS)
 	GitHubSecret  string
 	Secrets       []string // AWS Secrets Manager paths injected into the ubuntu environment
+	AVDNames      []string // Android Virtual Device names created at boot
 	BackendBucket string
 	Region        string
 	Profile       string
@@ -100,6 +101,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		WorkspacePath: "/workspace",
 		Repos:         req.Repos,
 		Secrets:       req.Secrets,
+		AVDNames:      req.AVDNames,
 	}
 	return m.Store.Create(ctx, d)
 }

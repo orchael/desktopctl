@@ -86,6 +86,10 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - desktop-secrets-env-file  — /home/ubuntu/.config/environment.d/desktop-secrets.conf exists and is non-empty
     - desktop-secrets-bash-file — /home/ubuntu/.desktop-secrets exists and is non-empty
 
+  Android Virtual Devices (only when --avd was specified at create time):
+    - avdmanager-installed — avdmanager binary is present at /opt/android-sdk/cmdline-tools/latest/bin/avdmanager
+    - avd-<name>           — each named AVD is listed by avdmanager list avd (skipped when Android SDK absent)
+
   Repositories:
     - repo-<name>         — each configured repository is cloned under /workspace`,
 	Args: cobra.ExactArgs(1),
@@ -125,6 +129,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Secrets", Checkers: health.SecretsCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Secrets)},
+		{Label: "Android Virtual Devices", Checkers: health.AVDCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.AVDNames)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},
 	}
 	runner := health.NewRunnerGroups(id, groups...)
