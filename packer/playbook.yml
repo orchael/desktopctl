@@ -132,6 +132,19 @@
         groups: docker
         append: true
 
+    - name: Install KVM support packages
+      ansible.builtin.apt:
+        name:
+          - qemu-kvm
+          - cpu-checker
+        state: present
+
+    - name: Add ubuntu user to kvm group
+      ansible.builtin.user:
+        name: ubuntu
+        groups: kvm
+        append: true
+
     - name: Install Go
       ansible.builtin.shell: |
         curl -fsSL https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz | \
