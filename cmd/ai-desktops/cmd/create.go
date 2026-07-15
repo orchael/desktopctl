@@ -194,7 +194,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("generate desktop ID: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s) ...\n", desktopID, env, owner)
+	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
+	if nestedVirt {
+		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via CpuOptions.AmdSevSnp=disabled)")
+	}
+	if len(req.AVDNames) > 0 {
+		fmt.Fprintf(os.Stderr, "  AVDs                  : %s\n", strings.Join(req.AVDNames, ", "))
+	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
@@ -313,14 +319,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	)
 
 	if createPreview {
-		fmt.Printf("Desktop ID  : %s\n", desktopID)
-		fmt.Printf("Zone        : %s\n", zone)
-		fmt.Printf("Hostname    : %s\n", hostname)
-		fmt.Printf("Repos       : %v\n", createRepos)
+		fmt.Printf("Desktop ID    : %s\n", desktopID)
+		fmt.Printf("Zone          : %s\n", zone)
+		fmt.Printf("Hostname      : %s\n", hostname)
+		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
+		fmt.Printf("Nested virt   : %v\n", nestedVirt)
+		fmt.Printf("Repos         : %v\n", createRepos)
+		if len(req.AVDNames) > 0 {
+			fmt.Printf("AVDs          : %s\n", strings.Join(req.AVDNames, ", "))
+		}
 		if amiID != "" {
-			fmt.Printf("AMI         : %s (pre-baked, ~1min boot)\n", amiID)
+			fmt.Printf("AMI           : %s (pre-baked, ~1min boot)\n", amiID)
 		} else {
-			fmt.Printf("AMI         : none (cloud-init bootstrap, ~5-10min boot)\n")
+			fmt.Printf("AMI           : none (cloud-init bootstrap, ~5-10min boot)\n")
 		}
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
@@ -350,26 +361,38 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("mark ready: %w", err)
 	}
 
+	nestedVirtStr := "false"
+	if nestedVirt {
+		nestedVirtStr = "true"
+	}
 	result := map[string]string{
-		"desktop_id": desktopID,
-		"hostname":   hostname,
-		"novnc_url":  desktop.NoVNCURL(hostname),
-		"ssh_target": desktop.SSHTarget(hostname),
-		"stack":      desktop.StackName(desktopID),
-		"ami_id":     amiID,
-		"region":     cfg.AWS.Region,
+		"desktop_id":            desktopID,
+		"hostname":              hostname,
+		"novnc_url":             desktop.NoVNCURL(hostname),
+		"ssh_target":            desktop.SSHTarget(hostname),
+		"stack":                 desktop.StackName(desktopID),
+		"ami_id":                amiID,
+		"region":                cfg.AWS.Region,
+		"instance_type":         cfg.Desktop.InstanceType,
+		"nested_virtualization": nestedVirtStr,
+		"avd_names":             strings.Join(req.AVDNames, ", "),
 	}
 
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 
-	fmt.Printf("Desktop ID  : %s\n", result["desktop_id"])
-	fmt.Printf("Hostname    : %s\n", result["hostname"])
-	fmt.Printf("Desktop URL : %s\n", result["novnc_url"])
-	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
-	fmt.Printf("AMI ID      : %s\n", result["ami_id"])
-	fmt.Printf("Region      : %s\n", result["region"])
+	fmt.Printf("Desktop ID    : %s\n", result["desktop_id"])
+	fmt.Printf("Hostname      : %s\n", result["hostname"])
+	fmt.Printf("Desktop URL   : %s\n", result["novnc_url"])
+	fmt.Printf("SSH target    : %s\n", result["ssh_target"])
+	fmt.Printf("Instance type : %s\n", result["instance_type"])
+	fmt.Printf("Nested virt   : %s\n", result["nested_virtualization"])
+	if result["avd_names"] != "" {
+		fmt.Printf("AVDs          : %s\n", result["avd_names"])
+	}
+	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
+	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
 }
 

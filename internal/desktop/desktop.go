@@ -98,6 +98,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		NoVNCURL:      NoVNCURL(hostname),
 		SSHTarget:     SSHTarget(hostname),
 		AMIID:         req.AMIID,
+		InstanceType:  req.InstanceType,
 		WorkspacePath: "/workspace",
 		Repos:         req.Repos,
 		Secrets:       req.Secrets,
