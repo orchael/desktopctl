@@ -19,15 +19,18 @@ import (
 )
 
 var (
-	createOwner      string
-	createRepos      []string
-	createSecrets    []string
-	createPreview    bool
-	createEnv        string
-	createAMI        string
-	createVolumeSize int
-	createSwapSize   int
-	createAVDs       []string
+	createOwner         string
+	createRepos         []string
+	createSecrets       []string
+	createPreview       bool
+	createEnv           string
+	createAMI           string
+	createVolumeSize    int
+	createSwapSize      int
+	createAVDs          []string
+	createNestedVirt    bool
+	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
+	createMobile        bool
 )
 
 var createCmd = &cobra.Command{
@@ -55,6 +58,8 @@ func init() {
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
+	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization via CpuOptions.AmdSevSnp=disabled (requires a supported Nitro x86_64 instance type: c7i, c8i, m7i, m8i, r7i, r8i)")
+	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -63,6 +68,30 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := context.Background()
+
+	// --mobile implies nested virtualization and a mobile-appropriate instance type.
+	if createMobile {
+		createNestedVirt = true
+		createNestedVirtSet = true
+		// Only upgrade the instance type when the operator hasn't set a specific type
+		// in config (i.e. it's still the plain desktop default).
+		if cfg.Desktop.InstanceType == config.DefaultInstanceType {
+			cfg.Desktop.InstanceType = config.DefaultMobileInstanceType
+		}
+	}
+
+	// --nested-virtualization flag overrides config when explicitly passed.
+	if cmd.Flags().Changed("nested-virtualization") {
+		createNestedVirtSet = true
+	}
+	nestedVirt := cfg.Desktop.NestedVirtualization
+	if createNestedVirtSet {
+		nestedVirt = createNestedVirt
+	}
+
+	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
+		return fmt.Errorf("nested virtualization requires a supported Nitro x86_64 instance type (c7i, c8i, m7i, m8i, r7i, r8i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
+	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.
 	if createOwner == "" && cfg.GitHub.Owner != "" {
@@ -199,6 +228,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Merge --avd flags with config-file defaults; CLI flags take precedence (replace, not append).
+	// --mobile adds a default AVD when neither --avd nor config AVDs are set.
 	avds := cfg.Desktop.AVDs
 	if len(createAVDs) > 0 {
 		parsed, err := parseAVDs(createAVDs)
@@ -206,6 +236,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		avds = parsed
+	} else if createMobile && len(avds) == 0 {
+		avds = []config.AVDConfig{{
+			Name:   config.DefaultMobileAVDName,
+			Image:  config.DefaultMobileAVDImage,
+			Device: config.DefaultMobileAVDDevice,
+		}}
 	}
 	if len(avds) > 0 && amiID == "" {
 		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
@@ -273,6 +309,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		amiID,
 		userData,
 		env,
+		nestedVirt,
 	)
 
 	if createPreview {

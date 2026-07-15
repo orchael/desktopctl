@@ -57,6 +57,8 @@ func run(ctx *pulumi.Context) error {
 		return fmt.Errorf("amiId is required: set it to a Packer-built ai-desktops AMI (see packer/ubuntu-desktop.pkr.hcl)")
 	}
 
+	nestedVirtualization := cfg.Get("nestedVirtualization") == "true"
+
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
 	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
@@ -90,6 +92,14 @@ func run(ctx *pulumi.Context) error {
 			"github-owner": pulumi.String(githubOwner),
 			"environment":  pulumi.String(environment),
 		},
+	}
+	if nestedVirtualization {
+		// AmdSevSnp=disabled enables /dev/kvm on supported Nitro x86_64 instances
+		// (c7i, c8i, m7i, m8i, r7i, r8i) without requiring a launch template.
+		// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
+		instanceArgs.CpuOptions = &ec2.InstanceCpuOptionsArgs{
+			AmdSevSnp: pulumi.String("disabled"),
+		}
 	}
 	if sshKeyName != "" {
 		instanceArgs.KeyName = pulumi.String(sshKeyName)

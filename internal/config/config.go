@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,12 +18,27 @@ const (
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
 
-	DefaultFleetTablePrefix = "ai-desktops-fleet"
-	DefaultAMITablePrefix   = "ai-desktops-ami"
-	DefaultBridgePort       = 9445
-	DefaultInstanceType     = "t3.large"
-	DefaultVolumeSize       = 100
+	DefaultFleetTablePrefix   = "ai-desktops-fleet"
+	DefaultAMITablePrefix     = "ai-desktops-ami"
+	DefaultBridgePort         = 9445
+	DefaultInstanceType       = "t3.large"
+	DefaultMobileInstanceType = "c7i.xlarge"
+	DefaultVolumeSize         = 100
+
+	// DefaultMobileAVD is the AVD created by --mobile when no --avd flags are given.
+	DefaultMobileAVDName   = "flutter_dev"
+	DefaultMobileAVDImage  = "system-images;android-35;google_apis;x86_64"
+	DefaultMobileAVDDevice = "pixel_6"
 )
+
+// NestedVirtInstanceFamilies lists the EC2 instance families that support
+// nested virtualization via CpuOptions.AmdSevSnp=disabled (Nitro x86_64).
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
+var NestedVirtInstanceFamilies = []string{
+	"c7i", "c8i",
+	"m7i", "m8i",
+	"r7i", "r8i",
+}
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
@@ -103,6 +119,11 @@ type DesktopConfig struct {
 	// Empty means no AVDs are created. Passed as --avd flags on the create command
 	// or set here as the default set for all desktops.
 	AVDs []AVDConfig `yaml:"avds,omitempty"`
+	// NestedVirtualization enables KVM hardware acceleration on the desktop instance
+	// by setting CpuOptions.AmdSevSnp=disabled on the EC2 instance.
+	// Requires a supported Nitro x86_64 instance type (c7i, c8i, m7i, m8i, r7i, r8i).
+	// See NestedVirtInstanceFamilies for the full list.
+	NestedVirtualization bool `yaml:"nested_virtualization,omitempty"`
 }
 
 type AgentConfig struct {
@@ -111,6 +132,17 @@ type AgentConfig struct {
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.
 	TrustHost bool `yaml:"trust_host"`
+}
+
+// SupportsNestedVirt reports whether instanceType belongs to a family that
+// supports nested virtualization via CpuOptions.AmdSevSnp=disabled.
+func SupportsNestedVirt(instanceType string) bool {
+	for _, family := range NestedVirtInstanceFamilies {
+		if strings.HasPrefix(instanceType, family+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.
