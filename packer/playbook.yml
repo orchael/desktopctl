@@ -893,6 +893,18 @@
       ansible.builtin.debug:
         msg: "Ballast version: {{ ballast_ver_out.stdout }}"
 
+    - name: Unmask unattended-upgrades timers before re-enabling
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        masked: false
+        daemon_reload: true
+      loop:
+        - apt-daily.service
+        - apt-daily.timer
+        - apt-daily-upgrade.service
+        - apt-daily-upgrade.timer
+        - unattended-upgrades.service
+
     - name: Re-enable unattended-upgrades timers so launched instances get security updates
       ansible.builtin.systemd:
         name: "{{ item }}"

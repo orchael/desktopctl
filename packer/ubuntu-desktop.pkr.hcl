@@ -136,6 +136,7 @@ build {
       "sudo systemctl stop apt-daily.timer apt-daily-upgrade.timer || true",
       "sudo systemctl stop unattended-upgrades.service apt-daily.service || true",
       "sudo systemctl kill --kill-who=all apt-daily.service unattended-upgrades.service || true",
+      "sudo systemctl mask apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer unattended-upgrades.service || true",
       "timeout 120 bash -c 'while sudo fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock >/dev/null 2>&1; do echo \"Waiting for dpkg lock...\"; sleep 5; done'",
     ]
   }
