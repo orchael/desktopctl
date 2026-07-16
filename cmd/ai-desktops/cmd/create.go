@@ -36,6 +36,7 @@ var (
 	createNestedVirt    bool
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
+	createInstanceType  string
 )
 
 var createCmd = &cobra.Command{
@@ -65,6 +66,7 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
+	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -83,6 +85,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if cfg.Desktop.InstanceType == config.DefaultInstanceType {
 			cfg.Desktop.InstanceType = config.DefaultMobileInstanceType
 		}
+	}
+
+	// --instance-type overrides config and --mobile's default.
+	if createInstanceType != "" {
+		cfg.Desktop.InstanceType = createInstanceType
 	}
 
 	// --nested-virtualization flag overrides config when explicitly passed.
