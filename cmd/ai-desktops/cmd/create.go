@@ -211,10 +211,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
 	}
-	if len(req.AVDNames) > 0 {
-		fmt.Fprintf(os.Stderr, "  AVDs                  : %s\n", strings.Join(req.AVDNames, ", "))
-	}
-
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
@@ -272,6 +268,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			names[i] = a.Name
 		}
 		req.AVDNames = names
+	}
+	if len(req.AVDNames) > 0 {
+		fmt.Fprintf(os.Stderr, "  AVDs                  : %s\n", strings.Join(req.AVDNames, ", "))
 	}
 
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
@@ -340,7 +339,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// InstanceCpuOptionsArgs. As of pulumi-aws v6.83.3 the field is not present;
 	// watch https://github.com/pulumi/pulumi-aws/releases for a version that adds
 	// NestedVirtualization to InstanceCpuOptionsArgs and update go.mod accordingly.
-	if nestedVirt {
+	if nestedVirt && !createPreview {
 		lp := &instanceLaunchParams{
 			amiID:           amiID,
 			instanceType:    cfg.Desktop.InstanceType,
@@ -607,7 +606,11 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 5*time.Minute); err != nil {
-		return instanceID, fmt.Errorf("wait for instance running: %w", err)
+		// Best-effort terminate to avoid leaving a billable instance behind.
+		_, _ = ec2Client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+			InstanceIds: []string{instanceID},
+		})
+		return "", fmt.Errorf("wait for instance running: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
 	return instanceID, nil

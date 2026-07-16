@@ -528,8 +528,8 @@ func SecretsCheckers(hostname string, sshPort int, user, keyPath string, secretP
 // is omitted from doctor output entirely.
 //
 // Nested virtualization on AWS requires a supported Nitro instance type
-// (c8i, m8i, r8i) launched with CpuOptions.AmdSevSnp=disabled. On Intel
-// instances the VMX flag is exposed; on AMD instances the SVM flag is exposed.
+// (c7i, c8i, m7i, m8i, r7i, r8i) launched with CpuOptions.NestedVirtualization=enabled.
+// On Intel instances the VMX flag is exposed; on AMD instances the SVM flag is exposed.
 func NestedVirtCheckers(hostname string, sshPort int, user, keyPath string, nestedVirt bool) []Checker {
 	if !nestedVirt {
 		return nil
@@ -572,7 +572,7 @@ func AVDCheckers(hostname string, sshPort int, user, keyPath string, avdNames []
 			"avd-"+name, hostname, sshPort, user, keyPath,
 			avdmanagerPrereq, skipMsg,
 			fmt.Sprintf(
-				`sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/avdmanager list avd | grep -q %s`,
+				`sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/avdmanager list avd | grep -qF %s`,
 				shellQuote("Name: "+name),
 			),
 			t,

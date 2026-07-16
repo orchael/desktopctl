@@ -131,7 +131,7 @@ type DesktopConfig struct {
 	// or set here as the default set for all desktops.
 	AVDs []AVDConfig `yaml:"avds,omitempty"`
 	// NestedVirtualization enables KVM hardware acceleration on the desktop instance
-	// by setting CpuOptions.AmdSevSnp=disabled on the EC2 instance.
+	// by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
 	// Requires a supported Nitro x86_64 instance type (c7i, c8i, m7i, m8i, r7i, r8i).
 	// See NestedVirtInstanceFamilies for the full list.
 	NestedVirtualization bool `yaml:"nested_virtualization,omitempty"`
@@ -146,7 +146,7 @@ type AgentConfig struct {
 }
 
 // SupportsNestedVirt reports whether instanceType belongs to a family that
-// supports nested virtualization via CpuOptions.AmdSevSnp=disabled.
+// supports nested virtualization via CpuOptions.NestedVirtualization=enabled.
 func SupportsNestedVirt(instanceType string) bool {
 	for _, family := range NestedVirtInstanceFamilies {
 		if strings.HasPrefix(instanceType, family+".") {

@@ -75,7 +75,7 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
 // amiID is the pre-baked AMI ID.
 // userData is the pre-rendered cloud-init user-data.
-// nestedVirtualization enables KVM by setting CpuOptions.AmdSevSnp=disabled on the EC2 instance.
+// nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
