@@ -231,19 +231,24 @@ func TestSupportsNestedVirt(t *testing.T) {
 		instanceType string
 		want         bool
 	}{
+		// 5th-gen Intel (launch support, Feb 2026)
 		{"c8i.large", true},
 		{"c8i.xlarge", true},
 		{"m8i.xlarge", true},
 		{"m8i.4xlarge", true},
 		{"r8i.2xlarge", true},
-		{"c7i.xlarge", false}, // 4th-gen Intel does not expose VMX despite SupportedFeatures listing
-		{"c7i.2xlarge", false},
-		{"m7i.xlarge", false},
-		{"r7i.xlarge", false},
+		{"x8i.xlarge", true},
+		// 4th-gen Intel (added June 2026)
+		{"c7i.xlarge", true},
+		{"c7i.2xlarge", true},
+		{"m7i.xlarge", true},
+		{"r7i.xlarge", true},
+		{"i7i.xlarge", true},
+		// unsupported
 		{"t3.large", false},
 		{"t3.medium", false},
 		{"m5.xlarge", false},
-		{"c7g.xlarge", false}, // ARM64, not x86_64 Nitro nested virt
+		{"c7g.xlarge", false}, // ARM64
 		{"c8i", false},        // family prefix only, no size
 		{"", false},
 	}

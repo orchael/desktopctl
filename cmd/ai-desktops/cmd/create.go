@@ -9,6 +9,10 @@ import (
 	"regexp"
 	"strings"
 
+	"time"
+
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -58,7 +62,7 @@ func init() {
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
-	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization via CpuOptions.AmdSevSnp=disabled (requires a 5th-gen Intel Nitro instance: c8i, m8i, r8i)")
+	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	rootCmd.AddCommand(createCmd)
 }
@@ -90,7 +94,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
-		return fmt.Errorf("nested virtualization requires a 5th-gen Intel Nitro instance type (c8i, m8i, r8i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
+		return fmt.Errorf("nested virtualization requires a supported Intel Nitro instance type (c8i, m8i, r8i, c7i, m7i, r7i, i7i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
 	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.
@@ -197,7 +201,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
 	if nestedVirt {
-		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via CpuOptions.AmdSevSnp=disabled)")
+		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
 	}
 	if len(req.AVDNames) > 0 {
 		fmt.Fprintf(os.Stderr, "  AVDs                  : %s\n", strings.Join(req.AVDNames, ", "))
@@ -358,6 +362,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
 		return fmt.Errorf("update fleet record: %w", err)
 	}
+
+	// Enable nested virtualization via ModifyInstanceCpuOptions (stop → modify → start).
+	// The Pulumi AWS Go SDK does not yet expose the NestedVirtualization CpuOptions
+	// field, so we apply it post-deploy using the AWS SDK directly.
+	if nestedVirt {
+		instanceID := outputs[pulumi.OutputInstanceID]
+		if instanceID == "" {
+			return fmt.Errorf("nested virtualization: instance ID not found in stack outputs")
+		}
+		if err := enableNestedVirt(ctx, instanceID, cfg.AWS.Region, cfg.AWS.Profile); err != nil {
+			return fmt.Errorf("enable nested virtualization on %s: %w", instanceID, err)
+		}
+	}
+
 	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
 		return fmt.Errorf("mark ready: %w", err)
 	}
@@ -458,6 +476,62 @@ func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 		avds = append(avds, avd)
 	}
 	return avds, nil
+}
+
+// enableNestedVirt stops the instance, sets NestedVirtualization=enabled via
+// ModifyInstanceCpuOptions, then restarts it. This is necessary because the
+// Pulumi AWS Go SDK does not yet expose the NestedVirtualization CpuOptions field.
+func enableNestedVirt(ctx context.Context, instanceID, region, profile string) error {
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return fmt.Errorf("load AWS config: %w", err)
+	}
+	ec2Client := ec2sdk.NewFromConfig(awsCfg)
+
+	fmt.Fprintf(os.Stderr, "Nested virt: stopping %s to apply NestedVirtualization=enabled ...\n", instanceID)
+	_, err = ec2Client.StopInstances(ctx, &ec2sdk.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return fmt.Errorf("stop instance: %w", err)
+	}
+
+	stopWaiter := ec2sdk.NewInstanceStoppedWaiter(ec2Client)
+	if err := stopWaiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 5*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance stopped: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Nested virt: applying NestedVirtualization=enabled ...\n")
+	_, err = ec2Client.ModifyInstanceCpuOptions(ctx, &ec2sdk.ModifyInstanceCpuOptionsInput{
+		InstanceId:           &instanceID,
+		NestedVirtualization: ec2types.NestedVirtualizationSpecificationEnabled,
+	})
+	if err != nil {
+		// Start the instance back up even if modification fails.
+		_, _ = ec2Client.StartInstances(ctx, &ec2sdk.StartInstancesInput{
+			InstanceIds: []string{instanceID},
+		})
+		return fmt.Errorf("modify cpu options: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Nested virt: restarting %s ...\n", instanceID)
+	_, err = ec2Client.StartInstances(ctx, &ec2sdk.StartInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return fmt.Errorf("start instance: %w", err)
+	}
+
+	runWaiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
+	if err := runWaiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 5*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance running: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
+	return nil
 }
 
 // resolveSwapSize determines the swap file size in GiB.

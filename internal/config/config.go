@@ -31,17 +31,24 @@ const (
 	DefaultMobileAVDDevice = "pixel_6"
 )
 
-// NestedVirtInstanceFamilies lists the EC2 instance families that support
-// nested virtualization via CpuOptions.AmdSevSnp=disabled (Nitro x86_64).
-// Only 5th-gen Intel (Emerald Rapids) and later families reliably expose the
-// VMX flag to the guest OS. 4th-gen Intel (Sapphire Rapids, c7i/m7i/r7i) and
-// older families list nested-virtualization in SupportedFeatures but do not
-// expose VMX even with AmdSevSnp=disabled.
+// NestedVirtInstanceFamilies lists the EC2 instance families that support the
+// CpuOptions NestedVirtualization=enabled parameter (Nitro x86_64).
+// AWS added first-class nested virtualization support in February 2026.
+// 5th-gen Intel (c8i, m8i, r8i) was supported at launch; 4th-gen Intel
+// (c7i, m7i, r7i, i7i) was added in June 2026.
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
 var NestedVirtInstanceFamilies = []string{
 	"c8i",
 	"m8i",
 	"r8i",
+	"c8id",
+	"m8id",
+	"r8id",
+	"x8i",
+	"c7i",
+	"m7i",
+	"r7i",
+	"i7i",
 }
 
 // Config holds all operator configuration for ai-desktops.
