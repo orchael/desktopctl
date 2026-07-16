@@ -64,6 +64,7 @@ type CreateRequest struct {
 	GitHubSecret  string
 	Secrets       []string // AWS Secrets Manager paths injected into the ubuntu environment
 	AVDNames      []string // Android Virtual Device names created at boot
+	NestedVirt    bool     // true when the instance was launched with AmdSevSnp=disabled (--mobile / --nested-virtualization)
 	BackendBucket string
 	Region        string
 	Profile       string
@@ -99,6 +100,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		SSHTarget:     SSHTarget(hostname),
 		AMIID:         req.AMIID,
 		InstanceType:  req.InstanceType,
+		NestedVirt:    req.NestedVirt,
 		WorkspacePath: "/workspace",
 		Repos:         req.Repos,
 		Secrets:       req.Secrets,

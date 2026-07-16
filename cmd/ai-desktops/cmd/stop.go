@@ -13,7 +13,7 @@ import (
 
 var stopCmd = &cobra.Command{
 	Use:   "stop <desktop-id>",
-	Short: "Hibernate a running desktop (preserves disk and RAM state)",
+	Short: "Stop a running desktop (hibernates when supported, otherwise powers off)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runStop,
 }
@@ -47,16 +47,26 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AWS config: %w", err)
 	}
 
-	fmt.Printf("Hibernating instance %s ...\n", d.InstanceID)
-	if err := awsx.StopInstance(ctx, awsCfg, d.InstanceID); err != nil {
-		return err
-	}
-
 	mgr := desktop.NewManager(s)
-	if err := mgr.MarkStopped(ctx, id); err != nil {
-		return err
-	}
 
-	fmt.Printf("Desktop %s hibernated.\n", id)
+	if d.NestedVirt {
+		fmt.Printf("Stopping instance %s (nested virtualization enabled; hibernation not supported) ...\n", d.InstanceID)
+		if err := awsx.HaltInstance(ctx, awsCfg, d.InstanceID); err != nil {
+			return err
+		}
+		if err := mgr.MarkStopped(ctx, id); err != nil {
+			return err
+		}
+		fmt.Printf("Desktop %s stopped.\n", id)
+	} else {
+		fmt.Printf("Hibernating instance %s ...\n", d.InstanceID)
+		if err := awsx.StopInstance(ctx, awsCfg, d.InstanceID); err != nil {
+			return err
+		}
+		if err := mgr.MarkStopped(ctx, id); err != nil {
+			return err
+		}
+		fmt.Printf("Desktop %s hibernated.\n", id)
+	}
 	return nil
 }

@@ -51,6 +51,7 @@ type Desktop struct {
 	Secrets       []string       `dynamodbav:"secrets,omitempty"         json:"secrets,omitempty"`
 	AVDNames      []string       `dynamodbav:"avd_names,omitempty"       json:"avd_names,omitempty"`
 	InstanceType  string         `dynamodbav:"instance_type,omitempty"   json:"instance_type,omitempty"`
+	NestedVirt    bool           `dynamodbav:"nested_virt,omitempty"     json:"nested_virt,omitempty"`
 	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
 	CreatedAt     string         `dynamodbav:"created_at"       json:"created_at"`
 	UpdatedAt     string         `dynamodbav:"updated_at"       json:"updated_at"`

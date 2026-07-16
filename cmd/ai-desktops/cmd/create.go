@@ -175,6 +175,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Repos:         repoStrings(repos),
 		Secrets:       createSecrets,
 		InstanceType:  cfg.Desktop.InstanceType,
+		NestedVirt:    nestedVirt,
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
