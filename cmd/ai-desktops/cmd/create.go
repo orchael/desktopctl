@@ -58,7 +58,7 @@ func init() {
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
-	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization via CpuOptions.AmdSevSnp=disabled (requires a supported Nitro x86_64 instance type: c7i, c8i, m7i, m8i, r7i, r8i)")
+	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization via CpuOptions.AmdSevSnp=disabled (requires a 5th-gen Intel Nitro instance: c8i, m8i, r8i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	rootCmd.AddCommand(createCmd)
 }
@@ -90,7 +90,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
-		return fmt.Errorf("nested virtualization requires a supported Nitro x86_64 instance type (c7i, c8i, m7i, m8i, r7i, r8i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
+		return fmt.Errorf("nested virtualization requires a 5th-gen Intel Nitro instance type (c8i, m8i, r8i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
 	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.

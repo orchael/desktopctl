@@ -231,18 +231,20 @@ func TestSupportsNestedVirt(t *testing.T) {
 		instanceType string
 		want         bool
 	}{
-		{"c7i.xlarge", true},
-		{"c7i.2xlarge", true},
 		{"c8i.large", true},
-		{"m7i.xlarge", true},
+		{"c8i.xlarge", true},
+		{"m8i.xlarge", true},
 		{"m8i.4xlarge", true},
-		{"r7i.xlarge", true},
 		{"r8i.2xlarge", true},
+		{"c7i.xlarge", false}, // 4th-gen Intel does not expose VMX despite SupportedFeatures listing
+		{"c7i.2xlarge", false},
+		{"m7i.xlarge", false},
+		{"r7i.xlarge", false},
 		{"t3.large", false},
 		{"t3.medium", false},
 		{"m5.xlarge", false},
 		{"c7g.xlarge", false}, // ARM64, not x86_64 Nitro nested virt
-		{"c7i", false},        // family prefix only, no size
+		{"c8i", false},        // family prefix only, no size
 		{"", false},
 	}
 	for _, tt := range tests {

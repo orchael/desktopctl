@@ -22,7 +22,7 @@ const (
 	DefaultAMITablePrefix     = "ai-desktops-ami"
 	DefaultBridgePort         = 9445
 	DefaultInstanceType       = "t3.large"
-	DefaultMobileInstanceType = "c7i.xlarge"
+	DefaultMobileInstanceType = "m8i.xlarge"
 	DefaultVolumeSize         = 100
 
 	// DefaultMobileAVD is the AVD created by --mobile when no --avd flags are given.
@@ -33,11 +33,15 @@ const (
 
 // NestedVirtInstanceFamilies lists the EC2 instance families that support
 // nested virtualization via CpuOptions.AmdSevSnp=disabled (Nitro x86_64).
+// Only 5th-gen Intel (Emerald Rapids) and later families reliably expose the
+// VMX flag to the guest OS. 4th-gen Intel (Sapphire Rapids, c7i/m7i/r7i) and
+// older families list nested-virtualization in SupportedFeatures but do not
+// expose VMX even with AmdSevSnp=disabled.
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
 var NestedVirtInstanceFamilies = []string{
-	"c7i", "c8i",
-	"m7i", "m8i",
-	"r7i", "r8i",
+	"c8i",
+	"m8i",
+	"r8i",
 }
 
 // Config holds all operator configuration for ai-desktops.

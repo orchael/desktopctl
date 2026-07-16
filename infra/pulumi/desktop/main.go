@@ -98,8 +98,10 @@ func run(ctx *pulumi.Context) error {
 		},
 	}
 	if nestedVirtualization {
-		// AmdSevSnp=disabled enables /dev/kvm on supported Nitro x86_64 instances
-		// (c7i, c8i, m7i, m8i, r7i, r8i) without requiring a launch template.
+		// AmdSevSnp=disabled enables /dev/kvm on supported Nitro x86_64 instances.
+		// Only 5th-gen Intel (c8i, m8i, r8i) reliably expose VMX to the guest;
+		// 4th-gen Intel (c7i, m7i, r7i) do not despite listing nested-virtualization
+		// in their SupportedFeatures. Use m8i.xlarge or larger for mobile workloads.
 		// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
 		instanceArgs.CpuOptions = &ec2.InstanceCpuOptionsArgs{
 			AmdSevSnp: pulumi.String("disabled"),
