@@ -59,6 +59,15 @@ func run(ctx *pulumi.Context) error {
 
 	nestedVirtualization := cfg.Get("nestedVirtualization") == "true"
 
+	// importInstanceId is set by the CLI when the instance was pre-launched via
+	// RunInstances with CpuOptions.NestedVirtualization=enabled. Pulumi imports
+	// the existing resource instead of creating a new one.
+	// TODO: remove this workaround once pulumi-aws exposes NestedVirtualization
+	// on InstanceCpuOptionsArgs. Track:
+	// https://github.com/pulumi/pulumi-aws/issues — field not yet in v6.83.3;
+	// watch for a new minor that adds NestedVirtualization to InstanceCpuOptionsArgs.
+	importInstanceID := cfg.Get("importInstanceId")
+
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
 	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
@@ -97,15 +106,25 @@ func run(ctx *pulumi.Context) error {
 			"environment":  pulumi.String(environment),
 		},
 	}
-	// NestedVirtualization is set post-launch by the CLI via ModifyInstanceCpuOptions
-	// because the Pulumi AWS Go SDK does not yet expose the NestedVirtualization field
-	// on InstanceCpuOptionsArgs. The nestedVirtualization flag is still used here to
-	// suppress hibernation (hibernation is incompatible with nested virtualization).
+	// NestedVirtualization is set at launch time by the CLI via RunInstances with
+	// CpuOptions.NestedVirtualization=enabled, because the Pulumi AWS Go SDK does
+	// not yet expose the NestedVirtualization field on InstanceCpuOptionsArgs.
+	// When importInstanceID is set, Pulumi adopts the pre-launched instance;
+	// IgnoreChanges on cpuOptions prevents Pulumi from trying to remove settings
+	// it cannot set itself.
 	if sshKeyName != "" {
 		instanceArgs.KeyName = pulumi.String(sshKeyName)
 	}
 
-	instance, err := ec2.NewInstance(ctx, "desktop-"+desktopID, instanceArgs)
+	instanceResourceOpts := []pulumi.ResourceOption{}
+	if importInstanceID != "" {
+		instanceResourceOpts = append(instanceResourceOpts,
+			pulumi.Import(pulumi.ID(importInstanceID)),
+			pulumi.IgnoreChanges([]string{"cpuOptions"}),
+		)
+	}
+
+	instance, err := ec2.NewInstance(ctx, "desktop-"+desktopID, instanceArgs, instanceResourceOpts...)
 	if err != nil {
 		return err
 	}

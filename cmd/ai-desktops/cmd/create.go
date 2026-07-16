@@ -2,15 +2,16 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/awsx"
@@ -323,6 +324,37 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		nestedVirt,
 	)
 
+	// When nested virtualization is requested, launch the EC2 instance directly via
+	// RunInstances with CpuOptions.NestedVirtualization=enabled before calling Pulumi.
+	// Pulumi then imports the existing instance instead of creating a new one, avoiding
+	// the stop/modify/start cycle that would change the public IP and break Route53.
+	//
+	// TODO: remove this workaround once pulumi-aws exposes NestedVirtualization on
+	// InstanceCpuOptionsArgs. As of pulumi-aws v6.83.3 the field is not present;
+	// watch https://github.com/pulumi/pulumi-aws/releases for a version that adds
+	// NestedVirtualization to InstanceCpuOptionsArgs and update go.mod accordingly.
+	if nestedVirt {
+		lp := &instanceLaunchParams{
+			amiID:           amiID,
+			instanceType:    cfg.Desktop.InstanceType,
+			subnetID:        foundationOutputs[pulumi.OutputSubnetID],
+			sgID:            foundationOutputs[pulumi.OutputSGID],
+			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
+			sshKeyName:      cfg.Desktop.SSHKeyName,
+			userData:        userData,
+			volumeSize:      volumeSize,
+			hostname:        hostname,
+			desktopID:       desktopID,
+			githubOwner:     owner,
+			environment:     env,
+		}
+		importID, err := launchNestedVirtInstance(ctx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+		if err != nil {
+			return fmt.Errorf("launch nested-virt instance: %w", err)
+		}
+		stackCfg["importInstanceId"] = importID
+	}
+
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
 		fmt.Printf("Zone          : %s\n", zone)
@@ -361,19 +393,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
 		return fmt.Errorf("update fleet record: %w", err)
-	}
-
-	// Enable nested virtualization via ModifyInstanceCpuOptions (stop → modify → start).
-	// The Pulumi AWS Go SDK does not yet expose the NestedVirtualization CpuOptions
-	// field, so we apply it post-deploy using the AWS SDK directly.
-	if nestedVirt {
-		instanceID := outputs[pulumi.OutputInstanceID]
-		if instanceID == "" {
-			return fmt.Errorf("nested virtualization: instance ID not found in stack outputs")
-		}
-		if err := enableNestedVirt(ctx, instanceID, cfg.AWS.Region, cfg.AWS.Profile); err != nil {
-			return fmt.Errorf("enable nested virtualization on %s: %w", instanceID, err)
-		}
 	}
 
 	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
@@ -478,60 +497,113 @@ func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 	return avds, nil
 }
 
-// enableNestedVirt stops the instance, sets NestedVirtualization=enabled via
-// ModifyInstanceCpuOptions, then restarts it. This is necessary because the
-// Pulumi AWS Go SDK does not yet expose the NestedVirtualization CpuOptions field.
-func enableNestedVirt(ctx context.Context, instanceID, region, profile string) error {
+type instanceLaunchParams struct {
+	amiID           string
+	instanceType    string
+	subnetID        string
+	sgID            string
+	instanceProfile string
+	sshKeyName      string
+	userData        string
+	volumeSize      int
+	hostname        string
+	desktopID       string
+	githubOwner     string
+	environment     string
+}
+
+// launchNestedVirtInstance launches an EC2 instance directly via RunInstances with
+// CpuOptions.NestedVirtualization=enabled, then returns the instance ID so that
+// Pulumi can import it instead of creating a new one.
+//
+// This avoids the stop/modify/start cycle that would otherwise be needed when
+// setting NestedVirtualization post-launch via ModifyInstanceCpuOptions — which
+// releases and reassigns the public IP, causing Route53 to point at the stale address.
+//
+// TODO: remove this workaround once the Pulumi AWS Go SDK exposes NestedVirtualization
+// on InstanceCpuOptionsArgs. The instance launch can then be handled entirely by
+// the Pulumi desktop stack program (infra/pulumi/desktop/main.go).
+// Track: https://github.com/pulumi/pulumi-aws/issues/XXXX
+func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams) (string, error) {
 	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
 	if err != nil {
-		return fmt.Errorf("load AWS config: %w", err)
+		return "", fmt.Errorf("load AWS config: %w", err)
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
 
-	fmt.Fprintf(os.Stderr, "Nested virt: stopping %s to apply NestedVirtualization=enabled ...\n", instanceID)
-	_, err = ec2Client.StopInstances(ctx, &ec2sdk.StopInstancesInput{
-		InstanceIds: []string{instanceID},
-	})
-	if err != nil {
-		return fmt.Errorf("stop instance: %w", err)
+	fmt.Fprintf(os.Stderr, "Nested virt: launching %s with NestedVirtualization=enabled ...\n", p.instanceType)
+
+	input := &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String(p.amiID),
+		InstanceType: ec2types.InstanceType(p.instanceType),
+		MinCount:     aws.Int32(1),
+		MaxCount:     aws.Int32(1),
+		CpuOptions: &ec2types.CpuOptionsRequest{
+			NestedVirtualization: ec2types.NestedVirtualizationSpecificationEnabled,
+		},
+		IamInstanceProfile: &ec2types.IamInstanceProfileSpecification{
+			Name: aws.String(p.instanceProfile),
+		},
+		// UserData must be base64-encoded in RunInstances; Pulumi encodes it automatically
+		// but we're bypassing Pulumi for this call.
+		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(p.userData))),
+		// AssociatePublicIpAddress must be set via NetworkInterfaces in a VPC subnet;
+		// it is not available as a top-level parameter when SubnetId is also specified.
+		NetworkInterfaces: []ec2types.InstanceNetworkInterfaceSpecification{
+			{
+				DeviceIndex:              aws.Int32(0),
+				SubnetId:                 aws.String(p.subnetID),
+				Groups:                   []string{p.sgID},
+				AssociatePublicIpAddress: aws.Bool(true),
+			},
+		},
+		BlockDeviceMappings: []ec2types.BlockDeviceMapping{
+			{
+				DeviceName: aws.String("/dev/sda1"),
+				Ebs: &ec2types.EbsBlockDevice{
+					VolumeSize:          aws.Int32(int32(p.volumeSize)),
+					VolumeType:          ec2types.VolumeTypeGp3,
+					Encrypted:           aws.Bool(true),
+					DeleteOnTermination: aws.Bool(true),
+				},
+			},
+		},
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeInstance,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("Name"), Value: aws.String(p.hostname)},
+					{Key: aws.String("managed-by"), Value: aws.String("ai-desktops")},
+					{Key: aws.String("desktop-id"), Value: aws.String(p.desktopID)},
+					{Key: aws.String("github-owner"), Value: aws.String(p.githubOwner)},
+					{Key: aws.String("environment"), Value: aws.String(p.environment)},
+				},
+			},
+		},
+	}
+	if p.sshKeyName != "" {
+		input.KeyName = aws.String(p.sshKeyName)
 	}
 
-	stopWaiter := ec2sdk.NewInstanceStoppedWaiter(ec2Client)
-	if err := stopWaiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+	result, err := ec2Client.RunInstances(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("run instance: %w", err)
+	}
+	if len(result.Instances) == 0 {
+		return "", fmt.Errorf("run instance returned no instances")
+	}
+
+	instanceID := aws.ToString(result.Instances[0].InstanceId)
+	fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", instanceID)
+
+	waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
+	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 5*time.Minute); err != nil {
-		return fmt.Errorf("wait for instance stopped: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Nested virt: applying NestedVirtualization=enabled ...\n")
-	_, err = ec2Client.ModifyInstanceCpuOptions(ctx, &ec2sdk.ModifyInstanceCpuOptionsInput{
-		InstanceId:           &instanceID,
-		NestedVirtualization: ec2types.NestedVirtualizationSpecificationEnabled,
-	})
-	if err != nil {
-		// Start the instance back up even if modification fails.
-		_, _ = ec2Client.StartInstances(ctx, &ec2sdk.StartInstancesInput{
-			InstanceIds: []string{instanceID},
-		})
-		return fmt.Errorf("modify cpu options: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Nested virt: restarting %s ...\n", instanceID)
-	_, err = ec2Client.StartInstances(ctx, &ec2sdk.StartInstancesInput{
-		InstanceIds: []string{instanceID},
-	})
-	if err != nil {
-		return fmt.Errorf("start instance: %w", err)
-	}
-
-	runWaiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
-	if err := runWaiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}, 5*time.Minute); err != nil {
-		return fmt.Errorf("wait for instance running: %w", err)
+		return instanceID, fmt.Errorf("wait for instance running: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
-	return nil
+	return instanceID, nil
 }
 
 // resolveSwapSize determines the swap file size in GiB.
