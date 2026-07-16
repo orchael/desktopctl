@@ -68,6 +68,9 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 	}
 	fmt.Fprintf(w, "SSH target   : %s\n", d.SSHTarget)
 	fmt.Fprintf(w, "Instance ID  : %s\n", d.InstanceID)
+	if d.InstanceType != "" {
+		fmt.Fprintf(w, "Instance type: %s\n", d.InstanceType)
+	}
 	if d.AMIID != "" {
 		fmt.Fprintf(w, "AMI ID       : %s\n", d.AMIID)
 	}

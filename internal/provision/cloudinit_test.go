@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/orchael/ai-desktops/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -422,6 +423,63 @@ func TestRenderCloudInit_cloudWatch(t *testing.T) {
 	var v any
 	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
 		t.Errorf("rendered cloud-init with CloudWatch is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_withAVDs(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-avd",
+		Hostname:             "d-avd.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		AWSRegion:            "us-east-1",
+		PackagesPreInstalled: true,
+		AVDs: []config.AVDConfig{
+			{Name: "flutter_dev", Image: "system-images;android-35;google_apis;x86_64", Device: "pixel_6"},
+			{Name: "wear_dev", Image: "system-images;android-33;google_apis;x86_64"},
+		},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"avdmanager",
+		"flutter_dev",
+		"system-images;android-35;google_apis;x86_64",
+		"pixel_6",
+		"wear_dev",
+		"system-images;android-33;google_apis;x86_64",
+		"ANDROID_HOME=/opt/android-sdk",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("AVD block missing %q", want)
+		}
+	}
+
+	var v any
+	if err := yaml.Unmarshal([]byte(out), &v); err != nil {
+		t.Errorf("rendered cloud-init with AVDs is not valid YAML: %v", err)
+	}
+}
+
+func TestRenderCloudInit_noAVDs(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:   "d-noavd",
+		Hostname:    "d-noavd.desktops.orchael.dev",
+		GitHubOwner: "acme",
+		AWSRegion:   "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	if strings.Contains(out, "avdmanager") {
+		t.Error("avdmanager should be absent when no AVDs are configured")
 	}
 }
 

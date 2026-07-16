@@ -2,13 +2,20 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
@@ -17,14 +24,19 @@ import (
 )
 
 var (
-	createOwner      string
-	createRepos      []string
-	createSecrets    []string
-	createPreview    bool
-	createEnv        string
-	createAMI        string
-	createVolumeSize int
-	createSwapSize   int
+	createOwner         string
+	createRepos         []string
+	createSecrets       []string
+	createPreview       bool
+	createEnv           string
+	createAMI           string
+	createVolumeSize    int
+	createSwapSize      int
+	createAVDs          []string
+	createNestedVirt    bool
+	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
+	createMobile        bool
+	createInstanceType  string
 )
 
 var createCmd = &cobra.Command{
@@ -51,6 +63,10 @@ func init() {
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
+	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
+	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
+	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
+	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -59,6 +75,35 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := context.Background()
+
+	// --mobile implies nested virtualization and a mobile-appropriate instance type.
+	if createMobile {
+		createNestedVirt = true
+		createNestedVirtSet = true
+		// Only upgrade the instance type when the operator hasn't set a specific type
+		// in config (i.e. it's still the plain desktop default).
+		if cfg.Desktop.InstanceType == config.DefaultInstanceType {
+			cfg.Desktop.InstanceType = config.DefaultMobileInstanceType
+		}
+	}
+
+	// --instance-type overrides config and --mobile's default.
+	if createInstanceType != "" {
+		cfg.Desktop.InstanceType = createInstanceType
+	}
+
+	// --nested-virtualization flag overrides config when explicitly passed.
+	if cmd.Flags().Changed("nested-virtualization") {
+		createNestedVirtSet = true
+	}
+	nestedVirt := cfg.Desktop.NestedVirtualization
+	if createNestedVirtSet {
+		nestedVirt = createNestedVirt
+	}
+
+	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
+		return fmt.Errorf("nested virtualization requires a supported Intel Nitro instance type (c8i, m8i, r8i, c7i, m7i, r7i, i7i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
+	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.
 	if createOwner == "" && cfg.GitHub.Owner != "" {
@@ -142,6 +187,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Repos:         repoStrings(repos),
 		Secrets:       createSecrets,
 		InstanceType:  cfg.Desktop.InstanceType,
+		NestedVirt:    nestedVirt,
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
@@ -161,8 +207,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("generate desktop ID: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s) ...\n", desktopID, env, owner)
-
+	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
+	if nestedVirt {
+		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
+	}
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
@@ -192,6 +240,37 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	swapSizeGB, err := resolveSwapSize(createSwapSize, cfg.Desktop.InstanceType, volumeSize)
 	if err != nil {
 		return err
+	}
+
+	// Merge --avd flags with config-file defaults; CLI flags take precedence (replace, not append).
+	// --mobile adds a default AVD when neither --avd nor config AVDs are set.
+	avds := cfg.Desktop.AVDs
+	if len(createAVDs) > 0 {
+		parsed, err := parseAVDs(createAVDs)
+		if err != nil {
+			return err
+		}
+		avds = parsed
+	} else if createMobile && len(avds) == 0 {
+		avds = []config.AVDConfig{{
+			Name:   config.DefaultMobileAVDName,
+			Image:  config.DefaultMobileAVDImage,
+			Device: config.DefaultMobileAVDDevice,
+		}}
+	}
+	if len(avds) > 0 && amiID == "" {
+		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
+			"Run `ai-desktops ami build` to produce a compatible AMI, then set active_ami in your config.")
+	}
+	if len(avds) > 0 {
+		names := make([]string, len(avds))
+		for i, a := range avds {
+			names[i] = a.Name
+		}
+		req.AVDNames = names
+	}
+	if len(req.AVDNames) > 0 {
+		fmt.Fprintf(os.Stderr, "  AVDs                  : %s\n", strings.Join(req.AVDNames, ", "))
 	}
 
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
@@ -228,6 +307,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
 		SwapSizeGB:           swapSizeGB,
+		AVDs:                 avds,
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)
@@ -247,17 +327,54 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		amiID,
 		userData,
 		env,
+		nestedVirt,
 	)
 
+	// When nested virtualization is requested, launch the EC2 instance directly via
+	// RunInstances with CpuOptions.NestedVirtualization=enabled before calling Pulumi.
+	// Pulumi then imports the existing instance instead of creating a new one, avoiding
+	// the stop/modify/start cycle that would change the public IP and break Route53.
+	//
+	// TODO: remove this workaround once pulumi-aws exposes NestedVirtualization on
+	// InstanceCpuOptionsArgs. As of pulumi-aws v6.83.3 the field is not present;
+	// watch https://github.com/pulumi/pulumi-aws/releases for a version that adds
+	// NestedVirtualization to InstanceCpuOptionsArgs and update go.mod accordingly.
+	if nestedVirt && !createPreview {
+		lp := &instanceLaunchParams{
+			amiID:           amiID,
+			instanceType:    cfg.Desktop.InstanceType,
+			subnetID:        foundationOutputs[pulumi.OutputSubnetID],
+			sgID:            foundationOutputs[pulumi.OutputSGID],
+			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
+			sshKeyName:      cfg.Desktop.SSHKeyName,
+			userData:        userData,
+			volumeSize:      volumeSize,
+			hostname:        hostname,
+			desktopID:       desktopID,
+			githubOwner:     owner,
+			environment:     env,
+		}
+		importID, err := launchNestedVirtInstance(ctx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+		if err != nil {
+			return fmt.Errorf("launch nested-virt instance: %w", err)
+		}
+		stackCfg["importInstanceId"] = importID
+	}
+
 	if createPreview {
-		fmt.Printf("Desktop ID  : %s\n", desktopID)
-		fmt.Printf("Zone        : %s\n", zone)
-		fmt.Printf("Hostname    : %s\n", hostname)
-		fmt.Printf("Repos       : %v\n", createRepos)
+		fmt.Printf("Desktop ID    : %s\n", desktopID)
+		fmt.Printf("Zone          : %s\n", zone)
+		fmt.Printf("Hostname      : %s\n", hostname)
+		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
+		fmt.Printf("Nested virt   : %v\n", nestedVirt)
+		fmt.Printf("Repos         : %v\n", createRepos)
+		if len(req.AVDNames) > 0 {
+			fmt.Printf("AVDs          : %s\n", strings.Join(req.AVDNames, ", "))
+		}
 		if amiID != "" {
-			fmt.Printf("AMI         : %s (pre-baked, ~1min boot)\n", amiID)
+			fmt.Printf("AMI           : %s (pre-baked, ~1min boot)\n", amiID)
 		} else {
-			fmt.Printf("AMI         : none (cloud-init bootstrap, ~5-10min boot)\n")
+			fmt.Printf("AMI           : none (cloud-init bootstrap, ~5-10min boot)\n")
 		}
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
@@ -283,30 +400,43 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
 		return fmt.Errorf("update fleet record: %w", err)
 	}
+
 	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
 		return fmt.Errorf("mark ready: %w", err)
 	}
 
+	nestedVirtStr := "false"
+	if nestedVirt {
+		nestedVirtStr = "true"
+	}
 	result := map[string]string{
-		"desktop_id": desktopID,
-		"hostname":   hostname,
-		"novnc_url":  desktop.NoVNCURL(hostname),
-		"ssh_target": desktop.SSHTarget(hostname),
-		"stack":      desktop.StackName(desktopID),
-		"ami_id":     amiID,
-		"region":     cfg.AWS.Region,
+		"desktop_id":            desktopID,
+		"hostname":              hostname,
+		"novnc_url":             desktop.NoVNCURL(hostname),
+		"ssh_target":            desktop.SSHTarget(hostname),
+		"stack":                 desktop.StackName(desktopID),
+		"ami_id":                amiID,
+		"region":                cfg.AWS.Region,
+		"instance_type":         cfg.Desktop.InstanceType,
+		"nested_virtualization": nestedVirtStr,
+		"avd_names":             strings.Join(req.AVDNames, ", "),
 	}
 
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 
-	fmt.Printf("Desktop ID  : %s\n", result["desktop_id"])
-	fmt.Printf("Hostname    : %s\n", result["hostname"])
-	fmt.Printf("Desktop URL : %s\n", result["novnc_url"])
-	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
-	fmt.Printf("AMI ID      : %s\n", result["ami_id"])
-	fmt.Printf("Region      : %s\n", result["region"])
+	fmt.Printf("Desktop ID    : %s\n", result["desktop_id"])
+	fmt.Printf("Hostname      : %s\n", result["hostname"])
+	fmt.Printf("Desktop URL   : %s\n", result["novnc_url"])
+	fmt.Printf("SSH target    : %s\n", result["ssh_target"])
+	fmt.Printf("Instance type : %s\n", result["instance_type"])
+	fmt.Printf("Nested virt   : %s\n", result["nested_virtualization"])
+	if result["avd_names"] != "" {
+		fmt.Printf("AVDs          : %s\n", result["avd_names"])
+	}
+	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
+	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
 }
 
@@ -339,6 +469,151 @@ func repoStrings(repos []*repo.Repo) []string {
 		out[i] = r.String()
 	}
 	return out
+}
+
+// avdNameRe allows alphanumerics, underscores, and hyphens — safe for shell args.
+var avdNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// avdImageRe allows the system-images;<api>;<tag>;<abi> format used by sdkmanager.
+var avdImageRe = regexp.MustCompile(`^[A-Za-z0-9_;.-]+$`)
+
+// parseAVDs parses --avd flag values in name:image[:device] format.
+func parseAVDs(specs []string) ([]config.AVDConfig, error) {
+	avds := make([]config.AVDConfig, 0, len(specs))
+	for _, spec := range specs {
+		parts := strings.SplitN(spec, ":", 3)
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid --avd %q: must be name:image or name:image:device", spec)
+		}
+		if !avdNameRe.MatchString(parts[0]) {
+			return nil, fmt.Errorf("invalid --avd name %q: only alphanumerics, underscores, and hyphens are allowed", parts[0])
+		}
+		if !avdImageRe.MatchString(parts[1]) {
+			return nil, fmt.Errorf("invalid --avd image %q: only alphanumerics and the characters _;.- are allowed", parts[1])
+		}
+		avd := config.AVDConfig{Name: parts[0], Image: parts[1]}
+		if len(parts) == 3 {
+			if parts[2] != "" && !avdNameRe.MatchString(parts[2]) {
+				return nil, fmt.Errorf("invalid --avd device %q: only alphanumerics, underscores, and hyphens are allowed", parts[2])
+			}
+			avd.Device = parts[2]
+		}
+		avds = append(avds, avd)
+	}
+	return avds, nil
+}
+
+type instanceLaunchParams struct {
+	amiID           string
+	instanceType    string
+	subnetID        string
+	sgID            string
+	instanceProfile string
+	sshKeyName      string
+	userData        string
+	volumeSize      int
+	hostname        string
+	desktopID       string
+	githubOwner     string
+	environment     string
+}
+
+// launchNestedVirtInstance launches an EC2 instance directly via RunInstances with
+// CpuOptions.NestedVirtualization=enabled, then returns the instance ID so that
+// Pulumi can import it instead of creating a new one.
+//
+// This avoids the stop/modify/start cycle that would otherwise be needed when
+// setting NestedVirtualization post-launch via ModifyInstanceCpuOptions — which
+// releases and reassigns the public IP, causing Route53 to point at the stale address.
+//
+// TODO: remove this workaround once the Pulumi AWS Go SDK exposes NestedVirtualization
+// on InstanceCpuOptionsArgs. The instance launch can then be handled entirely by
+// the Pulumi desktop stack program (infra/pulumi/desktop/main.go).
+// Track: https://github.com/pulumi/pulumi-aws/issues/XXXX
+func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams) (string, error) {
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return "", fmt.Errorf("load AWS config: %w", err)
+	}
+	ec2Client := ec2sdk.NewFromConfig(awsCfg)
+
+	fmt.Fprintf(os.Stderr, "Nested virt: launching %s with NestedVirtualization=enabled ...\n", p.instanceType)
+
+	input := &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String(p.amiID),
+		InstanceType: ec2types.InstanceType(p.instanceType),
+		MinCount:     aws.Int32(1),
+		MaxCount:     aws.Int32(1),
+		CpuOptions: &ec2types.CpuOptionsRequest{
+			NestedVirtualization: ec2types.NestedVirtualizationSpecificationEnabled,
+		},
+		IamInstanceProfile: &ec2types.IamInstanceProfileSpecification{
+			Name: aws.String(p.instanceProfile),
+		},
+		// UserData must be base64-encoded in RunInstances; Pulumi encodes it automatically
+		// but we're bypassing Pulumi for this call.
+		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(p.userData))),
+		// AssociatePublicIpAddress must be set via NetworkInterfaces in a VPC subnet;
+		// it is not available as a top-level parameter when SubnetId is also specified.
+		NetworkInterfaces: []ec2types.InstanceNetworkInterfaceSpecification{
+			{
+				DeviceIndex:              aws.Int32(0),
+				SubnetId:                 aws.String(p.subnetID),
+				Groups:                   []string{p.sgID},
+				AssociatePublicIpAddress: aws.Bool(true),
+			},
+		},
+		BlockDeviceMappings: []ec2types.BlockDeviceMapping{
+			{
+				DeviceName: aws.String("/dev/sda1"),
+				Ebs: &ec2types.EbsBlockDevice{
+					VolumeSize:          aws.Int32(int32(p.volumeSize)),
+					VolumeType:          ec2types.VolumeTypeGp3,
+					Encrypted:           aws.Bool(true),
+					DeleteOnTermination: aws.Bool(true),
+				},
+			},
+		},
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeInstance,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("Name"), Value: aws.String(p.hostname)},
+					{Key: aws.String("managed-by"), Value: aws.String("ai-desktops")},
+					{Key: aws.String("desktop-id"), Value: aws.String(p.desktopID)},
+					{Key: aws.String("github-owner"), Value: aws.String(p.githubOwner)},
+					{Key: aws.String("environment"), Value: aws.String(p.environment)},
+				},
+			},
+		},
+	}
+	if p.sshKeyName != "" {
+		input.KeyName = aws.String(p.sshKeyName)
+	}
+
+	result, err := ec2Client.RunInstances(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("run instance: %w", err)
+	}
+	if len(result.Instances) == 0 {
+		return "", fmt.Errorf("run instance returned no instances")
+	}
+
+	instanceID := aws.ToString(result.Instances[0].InstanceId)
+	fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", instanceID)
+
+	waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
+	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 5*time.Minute); err != nil {
+		// Best-effort terminate to avoid leaving a billable instance behind.
+		_, _ = ec2Client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+			InstanceIds: []string{instanceID},
+		})
+		return "", fmt.Errorf("wait for instance running: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
+	return instanceID, nil
 }
 
 // resolveSwapSize determines the swap file size in GiB.

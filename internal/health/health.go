@@ -522,3 +522,61 @@ func SecretsCheckers(hostname string, sshPort int, user, keyPath string, secretP
 			"test -s /home/ubuntu/.desktop-secrets", t),
 	}
 }
+
+// NestedVirtCheckers returns checks that verify KVM nested virtualization is
+// functional on the desktop. Returns nil when nestedVirt is false so the group
+// is omitted from doctor output entirely.
+//
+// Nested virtualization on AWS requires a supported Nitro instance type
+// (c7i, c8i, m7i, m8i, r7i, r8i) launched with CpuOptions.NestedVirtualization=enabled.
+// On Intel instances the VMX flag is exposed; on AMD instances the SVM flag is exposed.
+func NestedVirtCheckers(hostname string, sshPort int, user, keyPath string, nestedVirt bool) []Checker {
+	if !nestedVirt {
+		return nil
+	}
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("kvm-device", hostname, sshPort, user, keyPath,
+			"test -c /dev/kvm", t),
+		NewSSHChecker("kvm-ok", hostname, sshPort, user, keyPath,
+			"sudo kvm-ok 2>&1 | grep -q 'KVM acceleration can be used'", t),
+		NewSSHChecker("cpu-virt-flag", hostname, sshPort, user, keyPath,
+			"grep -qE 'vmx|svm' /proc/cpuinfo", t),
+	}
+}
+
+// avdmanagerPrereq is the prereq command used by AVD checkers: passes when avdmanager
+// is present in the expected SDK location, fails when the AMI has no Android SDK.
+const avdmanagerPrereq = "test -x /opt/android-sdk/cmdline-tools/latest/bin/avdmanager"
+
+// AVDCheckers returns checks that verify the Android SDK and named AVDs are present
+// on the desktop. Returns nil when no AVD names are configured so the group is omitted
+// from doctor output entirely.
+//
+// All checks are optional: they are skipped (not failed) when avdmanager is absent,
+// which indicates the desktop was provisioned without the Android SDK AMI.
+func AVDCheckers(hostname string, sshPort int, user, keyPath string, avdNames []string) []Checker {
+	if len(avdNames) == 0 {
+		return nil
+	}
+	t := 30 * time.Second
+	skipMsg := "Android SDK not installed in this AMI"
+	checkers := make([]Checker, 0, 1+len(avdNames))
+	checkers = append(checkers, NewSSHOptionalChecker(
+		"avdmanager-installed", hostname, sshPort, user, keyPath,
+		avdmanagerPrereq, skipMsg,
+		"test -x /opt/android-sdk/cmdline-tools/latest/bin/avdmanager", t,
+	))
+	for _, name := range avdNames {
+		checkers = append(checkers, NewSSHOptionalChecker(
+			"avd-"+name, hostname, sshPort, user, keyPath,
+			avdmanagerPrereq, skipMsg,
+			fmt.Sprintf(
+				`sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/avdmanager list avd | grep -qF %s`,
+				shellQuote("Name: "+name),
+			),
+			t,
+		))
+	}
+	return checkers
+}

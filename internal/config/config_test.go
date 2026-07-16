@@ -225,3 +225,37 @@ github:
 		t.Errorf("legacy migration: got %q", c.GitHub.GitHubSecret)
 	}
 }
+
+func TestSupportsNestedVirt(t *testing.T) {
+	tests := []struct {
+		instanceType string
+		want         bool
+	}{
+		// 5th-gen Intel (launch support, Feb 2026)
+		{"c8i.large", true},
+		{"c8i.xlarge", true},
+		{"m8i.xlarge", true},
+		{"m8i.4xlarge", true},
+		{"r8i.2xlarge", true},
+		{"x8i.xlarge", true},
+		// 4th-gen Intel (added June 2026)
+		{"c7i.xlarge", true},
+		{"c7i.2xlarge", true},
+		{"m7i.xlarge", true},
+		{"r7i.xlarge", true},
+		{"i7i.xlarge", true},
+		// unsupported
+		{"t3.large", false},
+		{"t3.medium", false},
+		{"m5.xlarge", false},
+		{"c7g.xlarge", false}, // ARM64
+		{"c8i", false},        // family prefix only, no size
+		{"", false},
+	}
+	for _, tt := range tests {
+		got := SupportsNestedVirt(tt.instanceType)
+		if got != tt.want {
+			t.Errorf("SupportsNestedVirt(%q) = %v, want %v", tt.instanceType, got, tt.want)
+		}
+	}
+}

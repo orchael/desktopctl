@@ -103,6 +103,128 @@ func TestParseAndValidateRepos(t *testing.T) {
 	}
 }
 
+func TestParseAVDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		specs       []string
+		wantLen     int
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "name:image",
+			specs:   []string{"flutter_dev:system-images;android-35;google_apis;x86_64"},
+			wantLen: 1,
+		},
+		{
+			name:    "name:image:device",
+			specs:   []string{"flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6"},
+			wantLen: 1,
+		},
+		{
+			name:    "multiple AVDs",
+			specs:   []string{"avd1:system-images;android-35;google_apis;x86_64", "avd2:system-images;android-33;google_apis;x86_64:pixel_4"},
+			wantLen: 2,
+		},
+		{
+			name:        "missing image",
+			specs:       []string{"flutter_dev"},
+			wantErr:     true,
+			errContains: "invalid --avd",
+		},
+		{
+			name:        "empty name",
+			specs:       []string{":system-images;android-35;google_apis;x86_64"},
+			wantErr:     true,
+			errContains: "invalid --avd",
+		},
+		{
+			name:        "empty image",
+			specs:       []string{"flutter_dev:"},
+			wantErr:     true,
+			errContains: "invalid --avd",
+		},
+		{
+			name:    "empty list",
+			specs:   []string{},
+			wantLen: 0,
+		},
+		{
+			name:        "name with shell metacharacter rejected",
+			specs:       []string{"flutter$(evil):system-images;android-35;google_apis;x86_64"},
+			wantErr:     true,
+			errContains: "invalid --avd name",
+		},
+		{
+			name:        "image with shell metacharacter rejected",
+			specs:       []string{"flutter_dev:system-images;android-35;google_apis;x86_64$(evil)"},
+			wantErr:     true,
+			errContains: "invalid --avd image",
+		},
+		{
+			name:        "device with shell metacharacter rejected",
+			specs:       []string{"flutter_dev:system-images;android-35;google_apis;x86_64:pixel$(evil)"},
+			wantErr:     true,
+			errContains: "invalid --avd device",
+		},
+		{
+			name:    "name with hyphens allowed",
+			specs:   []string{"my-avd:system-images;android-35;google_apis;x86_64"},
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAVDs(tt.specs)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != tt.wantLen {
+				t.Errorf("len(got) = %d, want %d", len(got), tt.wantLen)
+			}
+		})
+	}
+
+	t.Run("fields are populated correctly", func(t *testing.T) {
+		got, err := parseAVDs([]string{"my_avd:system-images;android-35;google_apis;x86_64:pixel_6"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected 1 AVD, got %d", len(got))
+		}
+		if got[0].Name != "my_avd" {
+			t.Errorf("Name = %q, want %q", got[0].Name, "my_avd")
+		}
+		if got[0].Image != "system-images;android-35;google_apis;x86_64" {
+			t.Errorf("Image = %q, want %q", got[0].Image, "system-images;android-35;google_apis;x86_64")
+		}
+		if got[0].Device != "pixel_6" {
+			t.Errorf("Device = %q, want %q", got[0].Device, "pixel_6")
+		}
+	})
+
+	t.Run("device is optional", func(t *testing.T) {
+		got, err := parseAVDs([]string{"my_avd:system-images;android-35;google_apis;x86_64"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0].Device != "" {
+			t.Errorf("Device should be empty when not specified, got %q", got[0].Device)
+		}
+	})
+}
+
 func TestResolveSwapSize(t *testing.T) {
 	tests := []struct {
 		name         string

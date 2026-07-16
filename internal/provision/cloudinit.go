@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"text/template"
+
+	"github.com/orchael/ai-desktops/internal/config"
 )
 
 const (
@@ -36,6 +38,10 @@ type BootstrapConfig struct {
 	// SwapSizeGB is the size of the swap file to create in GiB.
 	// 0 means no swap file is created.
 	SwapSizeGB int
+	// AVDs lists Android Virtual Devices to create at boot.
+	// Requires the Android SDK to be pre-installed in the AMI (ANDROID_HOME=/opt/android-sdk).
+	// Empty means no AVDs are created.
+	AVDs []config.AVDConfig
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -427,6 +433,28 @@ runcmd:
         || echo "WARNING: CloudWatch agent failed to start; metrics will not be collected"
     fi
     )
+
+{{- if .AVDs}}
+  # --- create Android Virtual Devices ---
+{{ range .AVDs }}
+  - |
+    ANDROID_HOME=/opt/android-sdk
+    AVD_DIR="/home/ubuntu/.android/avd/{{ .Name }}.avd"
+    if [ ! -x "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" ]; then
+      echo "WARNING: avdmanager not found — skipping AVD {{ .Name }} (Android SDK not pre-installed in this AMI)"
+    elif [ -d "$AVD_DIR" ]; then
+      echo "AVD {{ .Name }} already exists — skipping"
+    else
+      sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME="$ANDROID_HOME" \
+        "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
+        -n "{{ .Name }}" \
+        -k "{{ .Image }}" \
+        --force{{ if .Device }} \
+        --device "{{ .Device }}"{{ end }} \
+        || echo "WARNING: failed to create AVD {{ .Name }} — check /var/log/cloud-init-output.log"
+    fi
+{{ end }}
+{{- end}}
 
   # --- write desktop metadata ---
   - |

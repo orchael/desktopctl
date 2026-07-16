@@ -303,6 +303,27 @@ func StopInstance(ctx context.Context, cfg aws.Config, instanceID string) error 
 	return nil
 }
 
+// HaltInstance stops the given EC2 instance without hibernating it and waits
+// until it reaches the stopped state (up to 10 minutes). Use this for instances
+// that do not support hibernation, such as those with nested virtualization
+// enabled (AmdSevSnp=disabled).
+func HaltInstance(ctx context.Context, cfg aws.Config, instanceID string) error {
+	c := ec2.NewFromConfig(cfg)
+	_, err := c.StopInstances(ctx, &ec2.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	if err != nil {
+		return fmt.Errorf("stop instance %s: %w", instanceID, err)
+	}
+	waiter := ec2.NewInstanceStoppedWaiter(c)
+	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 10*time.Minute); err != nil {
+		return fmt.Errorf("wait for instance %s to reach stopped state: %w", instanceID, err)
+	}
+	return nil
+}
+
 // StartInstance starts the given EC2 instance and waits until it is running
 // (up to 10 minutes).
 func StartInstance(ctx context.Context, cfg aws.Config, instanceID string) error {

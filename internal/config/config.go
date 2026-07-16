@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,12 +18,38 @@ const (
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
 
-	DefaultFleetTablePrefix = "ai-desktops-fleet"
-	DefaultAMITablePrefix   = "ai-desktops-ami"
-	DefaultBridgePort       = 9445
-	DefaultInstanceType     = "t3.large"
-	DefaultVolumeSize       = 100
+	DefaultFleetTablePrefix   = "ai-desktops-fleet"
+	DefaultAMITablePrefix     = "ai-desktops-ami"
+	DefaultBridgePort         = 9445
+	DefaultInstanceType       = "t3.large"
+	DefaultMobileInstanceType = "m8i.xlarge"
+	DefaultVolumeSize         = 100
+
+	// DefaultMobileAVD is the AVD created by --mobile when no --avd flags are given.
+	DefaultMobileAVDName   = "flutter_dev"
+	DefaultMobileAVDImage  = "system-images;android-35;google_apis;x86_64"
+	DefaultMobileAVDDevice = "pixel_6"
 )
+
+// NestedVirtInstanceFamilies lists the EC2 instance families that support the
+// CpuOptions NestedVirtualization=enabled parameter (Nitro x86_64).
+// AWS added first-class nested virtualization support in February 2026.
+// 5th-gen Intel (c8i, m8i, r8i) was supported at launch; 4th-gen Intel
+// (c7i, m7i, r7i, i7i) was added in June 2026.
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
+var NestedVirtInstanceFamilies = []string{
+	"c8i",
+	"m8i",
+	"r8i",
+	"c8id",
+	"m8id",
+	"r8id",
+	"x8i",
+	"c7i",
+	"m7i",
+	"r7i",
+	"i7i",
+}
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
@@ -79,6 +106,17 @@ type GitHubConfig struct {
 	GitUserEmail string `yaml:"git_user_email,omitempty"`
 }
 
+// AVDConfig describes a single Android Virtual Device to create at desktop boot.
+type AVDConfig struct {
+	// Name is the AVD identifier passed to avdmanager -n (e.g. "flutter_dev").
+	Name string `yaml:"name"`
+	// Image is the system image package key (e.g. "system-images;android-35;google_apis;x86_64").
+	Image string `yaml:"image"`
+	// Device is the hardware profile passed to avdmanager --device (e.g. "pixel_6").
+	// Optional; omit to use avdmanager's default.
+	Device string `yaml:"device,omitempty"`
+}
+
 type DesktopConfig struct {
 	DefaultProfile string `yaml:"default_profile"`
 	InstanceType   string `yaml:"instance_type"`
@@ -88,6 +126,15 @@ type DesktopConfig struct {
 	SSHKeyName     string `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
 	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
+	// AVDs lists Android Virtual Devices to create at desktop boot.
+	// Empty means no AVDs are created. Passed as --avd flags on the create command
+	// or set here as the default set for all desktops.
+	AVDs []AVDConfig `yaml:"avds,omitempty"`
+	// NestedVirtualization enables KVM hardware acceleration on the desktop instance
+	// by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
+	// Requires a supported Nitro x86_64 instance type (c7i, c8i, m7i, m8i, r7i, r8i).
+	// See NestedVirtInstanceFamilies for the full list.
+	NestedVirtualization bool `yaml:"nested_virtualization,omitempty"`
 }
 
 type AgentConfig struct {
@@ -96,6 +143,17 @@ type AgentConfig struct {
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.
 	TrustHost bool `yaml:"trust_host"`
+}
+
+// SupportsNestedVirt reports whether instanceType belongs to a family that
+// supports nested virtualization via CpuOptions.NestedVirtualization=enabled.
+func SupportsNestedVirt(instanceType string) bool {
+	for _, family := range NestedVirtInstanceFamilies {
+		if strings.HasPrefix(instanceType, family+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // DNSZone returns the Route53 hosted zone name for the configured environment.

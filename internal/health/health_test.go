@@ -339,6 +339,43 @@ func TestBridgectlCheckers_allSkippedWithNoKey(t *testing.T) {
 	}
 }
 
+func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
+	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
+	if checkers != nil {
+		t.Errorf("expected nil for empty AVD names, got %d checkers", len(checkers))
+	}
+}
+
+func TestAVDCheckers_returnsExpectedChecks(t *testing.T) {
+	avdNames := []string{"flutter_dev", "pixel_test"}
+	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", avdNames)
+
+	// avdmanager-installed + one per AVD
+	if len(checkers) != 3 {
+		t.Fatalf("expected 3 checkers (1 + 2 AVDs), got %d", len(checkers))
+	}
+	names := make(map[string]bool, len(checkers))
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, want := range []string{"avdmanager-installed", "avd-flutter_dev", "avd-pixel_test"} {
+		if !names[want] {
+			t.Errorf("AVDCheckers missing expected checker %q; got %v", want, names)
+		}
+	}
+}
+
+func TestAVDCheckers_allSkippedWithNoKey(t *testing.T) {
+	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", []string{"flutter_dev"})
+	for _, c := range checkers {
+		result := c.Run(context.Background())
+		if result.Status != StatusSkipped {
+			t.Errorf("checker %q: expected skipped with empty key, got %q (msg: %s)",
+				c.Name(), result.Status, result.Message)
+		}
+	}
+}
+
 func TestRepoBaseName(t *testing.T) {
 	cases := []struct {
 		input string

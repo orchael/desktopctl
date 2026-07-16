@@ -26,6 +26,16 @@ variable "uv_version" {
   description = "uv version to install (e.g. 0.4.0)"
 }
 
+variable "flutter_version" {
+  type        = string
+  description = "Flutter SDK version to install (e.g. 3.32.0)"
+}
+
+variable "android_cmdline_tools_version" {
+  type        = string
+  description = "Android SDK command-line tools build number (e.g. 11076708); see https://developer.android.com/studio#command-tools"
+}
+
 variable "desktop_web_version" {
   type        = string
   description = "desktop-web npm package version to install (e.g. 0.2.0)"
@@ -88,7 +98,7 @@ source "amazon-ebs" "ubuntu" {
 
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
-    volume_size           = 20
+    volume_size           = 40
     volume_type           = "gp3"
     delete_on_termination = true
   }
@@ -100,14 +110,17 @@ source "amazon-ebs" "ubuntu" {
     BridgeVersion      = var.ai_agent_bridge_version
     GoVersion          = var.go_version
     UvVersion          = var.uv_version
-    DesktopWebVersion  = var.desktop_web_version
+    FlutterVersion            = var.flutter_version
+    AndroidCmdlineToolsVersion = var.android_cmdline_tools_version
+    DesktopWebVersion         = var.desktop_web_version
     NovncDesktopVersion = var.novnc_desktop_version
     BaseAMI            = var.source_ami
     Environment        = "base"
   }
 
-  ssh_username = "ubuntu"
-  ssh_timeout  = "10m"
+  ssh_username             = "ubuntu"
+  ssh_timeout              = "10m"
+  ssh_keep_alive_interval  = "10s"
 }
 
 build {
@@ -123,6 +136,7 @@ build {
       "sudo systemctl stop apt-daily.timer apt-daily-upgrade.timer || true",
       "sudo systemctl stop unattended-upgrades.service apt-daily.service || true",
       "sudo systemctl kill --kill-who=all apt-daily.service unattended-upgrades.service || true",
+      "sudo systemctl mask apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer unattended-upgrades.service || true",
       "timeout 120 bash -c 'while sudo fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock >/dev/null 2>&1; do echo \"Waiting for dpkg lock...\"; sleep 5; done'",
     ]
   }
@@ -132,7 +146,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} ai_agent_bridge_version=${var.ai_agent_bridge_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} ai_agent_bridge_version=${var.ai_agent_bridge_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
@@ -150,7 +164,9 @@ build {
       bridge_version        = var.ai_agent_bridge_version
       go_version            = var.go_version
       uv_version            = var.uv_version
-      base_ami              = var.source_ami
+      flutter_version                = var.flutter_version
+      android_cmdline_tools_version  = var.android_cmdline_tools_version
+      base_ami                       = var.source_ami
       desktop_web_version   = var.desktop_web_version
       novnc_desktop_version = var.novnc_desktop_version
     }

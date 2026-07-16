@@ -32,7 +32,7 @@ func TestDesktopConfig(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
 		[]string{"github.com/acme/app"}, 9445, 100,
-		"", "", "dev")
+		"", "", "dev", false)
 
 	if cfg["desktopId"] != "d-001" {
 		t.Errorf("desktopId: got %q", cfg["desktopId"])
@@ -49,13 +49,16 @@ func TestDesktopConfig(t *testing.T) {
 	if cfg["volumeSize"] != "100" {
 		t.Errorf("volumeSize: got %q", cfg["volumeSize"])
 	}
+	if _, ok := cfg["nestedVirtualization"]; ok {
+		t.Error("nestedVirtualization should not be set when false")
+	}
 }
 
 func TestDesktopConfig_withAMI(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-ami", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 0,
-		"ami-0abc123", "my-user-data", "dev")
+		"ami-0abc123", "my-user-data", "dev", false)
 
 	if cfg["amiId"] != "ami-0abc123" {
 		t.Errorf("amiId: got %q", cfg["amiId"])
@@ -65,6 +68,17 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 	}
 	if _, ok := cfg["sshKeyName"]; ok {
 		t.Error("sshKeyName should not be set when empty")
+	}
+}
+
+func TestDesktopConfig_nestedVirt(t *testing.T) {
+	cfg := DesktopConfig("us-east-1", "d-nv", "acme", "desktops.orchael.dev",
+		"c7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
+		[]string{}, 9445, 100,
+		"ami-0abc123", "", "dev", true)
+
+	if cfg["nestedVirtualization"] != "true" {
+		t.Errorf("nestedVirtualization: got %q, want \"true\"", cfg["nestedVirtualization"])
 	}
 }
 
