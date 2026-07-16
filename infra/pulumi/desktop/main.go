@@ -69,6 +69,10 @@ func run(ctx *pulumi.Context) error {
 
 	// The Pulumi AWS provider base64-encodes UserData automatically;
 	// pass the raw string to avoid double-encoding.
+	// AmdSevSnp=disabled (nested virtualization) is incompatible with hibernation;
+	// AWS does not allow an instance to be hibernated when AmdSevSnp is disabled.
+	hibernation := !nestedVirtualization
+
 	instanceArgs := &ec2.InstanceArgs{
 		Ami:                      pulumi.String(amiID),
 		InstanceType:             pulumi.String(instanceType),
@@ -78,7 +82,7 @@ func run(ctx *pulumi.Context) error {
 		UserData:                 pulumi.String(userData),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
-		Hibernation:              pulumi.Bool(true),
+		Hibernation:              pulumi.Bool(hibernation),
 		RootBlockDevice: &ec2.InstanceRootBlockDeviceArgs{
 			VolumeSize:          pulumi.Int(volumeSize),
 			VolumeType:          pulumi.String("gp3"),
