@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -36,6 +37,9 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list desktops: %w", err)
 	}
 	desktops = filterListedDesktops(desktops, listAll)
+	sort.Slice(desktops, func(i, j int) bool {
+		return desktops[i].CreatedAt < desktops[j].CreatedAt
+	})
 
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(desktops)
