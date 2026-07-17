@@ -107,7 +107,7 @@ func TestFR7_03_WorkspacePersists(t *testing.T) {
 		t.Skip("no SSH key — cannot verify workspace persistence")
 	}
 	if len(fx.Repos) == 0 {
-		t.Skip("no repos configured in fixture — set AI_DESKTOPS_TEST_REPO")
+		t.Skip("no repos in fixture")
 	}
 
 	// Wait for SSH to be responsive after start.  After a stop+start cycle the

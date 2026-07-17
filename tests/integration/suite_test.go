@@ -25,7 +25,8 @@
 //	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
 //	                          from the config file and SSH key generation is skipped when ssh_key_path
 //	                          in the config already points to an existing file.
-//	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests
+//	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests.  When unset the suite
+//	                          defaults to github.com/<owner>/ai-desktops so FR-6/7 always run.
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
 package integration_test
 
@@ -54,6 +55,9 @@ type DesktopFixture struct {
 	SSHKey    string
 	Owner     string
 	Repos     []string
+	// Secrets holds the --secret paths passed at create time so FR-8 tests can
+	// verify that env var injection actually happened on the desktop.
+	Secrets []string
 
 	// ownedByTest is true when TestMain created the desktop and is responsible
 	// for terminating it on exit.
@@ -192,17 +196,30 @@ func TestMain(m *testing.M) {
 	if existingID := os.Getenv("AI_DESKTOPS_EXISTING_ID"); existingID != "" {
 		fx, err = adoptDesktop(existingID, sshKey, owner)
 	} else {
-		repos := []string{}
-		if testRepo != "" {
-			repos = []string{testRepo}
+		// When AI_DESKTOPS_TEST_REPO is unset, fall back to the project's own
+		// public repo so the standard suite always exercises the clone path
+		// without requiring extra environment variables (issue #90).
+		repos := []string{testRepo}
+		if testRepo == "" {
+			repos = []string{fmt.Sprintf("github.com/%s/ai-desktops", owner)}
 		}
-		fx, err = createDesktop(owner, sshKey, repos)
+
+		// Always pass the github secret via --secret so the standard suite also
+		// exercises the secret-injection path (issue #90).  This secret already
+		// exists in Secrets Manager — it is required for the desktop to clone
+		// repos at all.
+		secretPath := fmt.Sprintf("/ai-desktops/%s/github", owner)
+		if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
+			parsedCfg, _ := loadConfigYAML(preExistingConfig)
+			if parsedCfg != nil && parsedCfg.GitHub.GitHubSecret != "" {
+				secretPath = parsedCfg.GitHub.GitHubSecret
+			}
+		}
+
+		fx, err = createDesktop(owner, sshKey, repos, []string{secretPath})
 	}
 	if err != nil {
 		fatalf("fixture setup: %v", err)
-	}
-	if testRepo != "" && len(fx.Repos) == 0 {
-		fx.Repos = []string{testRepo}
 	}
 
 	// Run all tests and capture the exit code.
@@ -431,7 +448,7 @@ func findModuleRoot() (string, error) {
 
 // createDesktop runs `ai-desktops create` and waits for the desktop to reach
 // state=ready.  It returns an owned fixture (will be terminated on cleanup).
-func createDesktop(owner, sshKey string, repos []string) (*DesktopFixture, error) {
+func createDesktop(owner, sshKey string, repos, secrets []string) (*DesktopFixture, error) {
 	args := []string{
 		"create",
 		"--config", configPath,
@@ -441,6 +458,9 @@ func createDesktop(owner, sshKey string, repos []string) (*DesktopFixture, error
 	}
 	for _, r := range repos {
 		args = append(args, "--repo", r)
+	}
+	for _, s := range secrets {
+		args = append(args, "--secret", s)
 	}
 
 	fmt.Fprintln(os.Stderr, "integration: creating desktop...")
@@ -475,6 +495,7 @@ func createDesktop(owner, sshKey string, repos []string) (*DesktopFixture, error
 		SSHKey:      sshKey,
 		Owner:       owner,
 		Repos:       repos,
+		Secrets:     secrets,
 		ownedByTest: true,
 	}, nil
 }
@@ -725,7 +746,8 @@ type minimalConfig struct {
 		SSHKeyName string `yaml:"ssh_key_name"`
 	} `yaml:"desktop"`
 	GitHub struct {
-		Owner string `yaml:"owner"`
+		Owner        string `yaml:"owner"`
+		GitHubSecret string `yaml:"github_secret"`
 	} `yaml:"github"`
 	Pulumi struct {
 		BackendBucket string `yaml:"backend_bucket"`
