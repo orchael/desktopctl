@@ -210,8 +210,11 @@ func TestMain(m *testing.M) {
 		// repos at all.
 		secretPath := fmt.Sprintf("/ai-desktops/%s/github", owner)
 		if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
-			parsedCfg, _ := loadConfigYAML(preExistingConfig)
-			if parsedCfg != nil && parsedCfg.GitHub.GitHubSecret != "" {
+			parsedCfg, cfgErr := loadConfigYAML(preExistingConfig)
+			if cfgErr != nil {
+				fmt.Fprintf(os.Stderr, "integration: WARNING: re-parse of %s failed (%v); using default secret path %s\n",
+					preExistingConfig, cfgErr, secretPath)
+			} else if parsedCfg != nil && parsedCfg.GitHub.GitHubSecret != "" {
 				secretPath = parsedCfg.GitHub.GitHubSecret
 			}
 		}

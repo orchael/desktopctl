@@ -44,8 +44,9 @@ func TestFR8_SecretFilePresent(t *testing.T) {
 	}
 }
 
-// TestFR8_SecretBashrcSources verifies that .bashrc sources .desktop-secrets
-// so that interactive SSH sessions inherit the injected variables (AC-8.2).
+// TestFR8_SecretBashrcSources verifies that .bashrc has an active (un-commented)
+// line that sources .desktop-secrets so interactive SSH sessions inherit the
+// injected variables (AC-8.2).
 func TestFR8_SecretBashrcSources(t *testing.T) {
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify secret injection")
@@ -59,10 +60,11 @@ func TestFR8_SecretBashrcSources(t *testing.T) {
 		return err
 	})
 
+	// grep for a non-commented line that sources .desktop-secrets.
 	out := sshRun(t, fx.SSHTarget, fx.SSHKey,
-		"grep -c desktop-secrets /home/ubuntu/.bashrc 2>/dev/null || echo 0")
+		`grep -cE '^[^#].*(source|\.).*desktop-secrets' /home/ubuntu/.bashrc 2>/dev/null || echo 0`)
 	if out == "0" {
-		t.Error(".bashrc does not source .desktop-secrets")
+		t.Error(".bashrc does not have an active (un-commented) line sourcing .desktop-secrets")
 	}
 }
 
