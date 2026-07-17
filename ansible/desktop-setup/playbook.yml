@@ -106,7 +106,66 @@
         - "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
 
     # ------------------------------------------------------------------
-    # 3. Setup complete
+    # 3. Install Android SDK components and create AVDs
+    # ------------------------------------------------------------------
+    - name: Install Android SDK components for AVD
+      ansible.builtin.shell: |
+        yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
+          /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+          "platform-tools" "emulator"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      when: avds is defined and avds | length > 0
+
+    - name: Install Android platform for each AVD image
+      ansible.builtin.shell: |
+        API_LEVEL=$(echo "{{ item.image }}" | awk -F';' '{print $2}')
+        yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
+          /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+          "platforms;${API_LEVEL}"
+      args:
+        executable: /bin/bash
+      loop: "{{ avds }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+      when: avds is defined and avds | length > 0
+
+    - name: Install system image for each AVD
+      ansible.builtin.shell: |
+        yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
+          /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+          "{{ item.image }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ avds }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+      when: avds is defined and avds | length > 0
+
+    - name: Create AVDs
+      ansible.builtin.shell: |
+        AVD_DIR="/home/ubuntu/.android/avd/{{ item.name }}.avd"
+        if [ -d "$AVD_DIR" ]; then
+          echo "AVD {{ item.name }} already exists — skipping"
+          exit 0
+        fi
+        sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
+          /opt/android-sdk/cmdline-tools/latest/bin/avdmanager create avd \
+          --name "{{ item.name }}" \
+          --package "{{ item.image }}" \
+          {{ '--device "' + item.device + '"' if item.device else '' }}
+      args:
+        executable: /bin/bash
+      loop: "{{ avds }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: avds is defined and avds | length > 0
+
+    # ------------------------------------------------------------------
+    # 4. Setup complete
     # ------------------------------------------------------------------
     - name: Desktop setup complete
       ansible.builtin.debug:

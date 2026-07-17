@@ -141,6 +141,19 @@ build {
     ]
   }
 
+  provisioner "file" {
+    source      = "${path.root}/../ansible/desktop-setup/playbook.yml"
+    destination = "/tmp/desktop-setup.yml"
+  }
+
+  provisioner "shell" {
+    inline = [
+      "sudo mkdir -p /opt/ai-desktops",
+      "sudo mv /tmp/desktop-setup.yml /opt/ai-desktops/desktop-setup.yml",
+      "sudo chmod 644 /opt/ai-desktops/desktop-setup.yml",
+    ]
+  }
+
   provisioner "ansible" {
     playbook_file        = "${path.root}/playbook.yml"
     galaxy_file          = "${path.root}/requirements.yml"

@@ -310,6 +310,12 @@
         classic: true
         state: present
 
+    - name: Install Android Studio via snap
+      community.general.snap:
+        name: android-studio
+        classic: true
+        state: present
+
     - name: Install Homebrew for Linux
       ansible.builtin.shell: |
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"

@@ -2,6 +2,7 @@ package provision
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"text/template"
 
@@ -434,26 +435,16 @@ runcmd:
     fi
     )
 
-{{- if .AVDs}}
-  # --- create Android Virtual Devices ---
-{{ range .AVDs }}
+{{- if .AVDsJSON}}
+  # --- provision Android Virtual Devices via Ansible ---
   - |
-    ANDROID_HOME=/opt/android-sdk
-    AVD_DIR="/home/ubuntu/.android/avd/{{ .Name }}.avd"
-    if [ ! -x "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" ]; then
-      echo "WARNING: avdmanager not found — skipping AVD {{ .Name }} (Android SDK not pre-installed in this AMI)"
-    elif [ -d "$AVD_DIR" ]; then
-      echo "AVD {{ .Name }} already exists — skipping"
-    else
-      sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME="$ANDROID_HOME" \
-        "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
-        -n "{{ .Name }}" \
-        -k "{{ .Image }}" \
-        --force{{ if .Device }} \
-        --device "{{ .Device }}"{{ end }} \
-        || echo "WARNING: failed to create AVD {{ .Name }} — check /var/log/cloud-init-output.log"
-    fi
-{{ end }}
+    printf '%s' '{{ .AVDsJSON }}' > /tmp/avd-vars.json
+    ansible-playbook /opt/ai-desktops/desktop-setup.yml \
+      --connection local \
+      --inventory localhost, \
+      --extra-vars @/tmp/avd-vars.json \
+      || echo "WARNING: AVD provisioning failed — check /var/log/cloud-init-output.log"
+    rm -f /tmp/avd-vars.json
 {{- end}}
 
   # --- write desktop metadata ---
@@ -489,14 +480,37 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
 
-	// Expose version constants to the template via a wrapper.
+	// Pre-compute AVD vars JSON for the desktop-setup Ansible playbook.
+	var avdsJSON string
+	if len(cfg.AVDs) > 0 {
+		type avdVar struct {
+			Name   string `json:"name"`
+			Image  string `json:"image"`
+			Device string `json:"device,omitempty"`
+		}
+		vars := struct {
+			AVDs []avdVar `json:"avds"`
+		}{}
+		for _, a := range cfg.AVDs {
+			vars.AVDs = append(vars.AVDs, avdVar{Name: a.Name, Image: a.Image, Device: a.Device})
+		}
+		b, err := json.Marshal(vars)
+		if err != nil {
+			return "", err
+		}
+		avdsJSON = string(b)
+	}
+
+	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
 		BridgeVersion string
+		AVDsJSON      string
 	}
 	data := templateData{
 		BootstrapConfig: cfg,
 		BridgeVersion:   AIAgentBridgeVersion,
+		AVDsJSON:        avdsJSON,
 	}
 
 	funcMap := template.FuncMap{

@@ -445,13 +445,14 @@ func TestRenderCloudInit_withAVDs(t *testing.T) {
 	}
 
 	checks := []string{
-		"avdmanager",
+		"ansible-playbook",
+		"/opt/ai-desktops/desktop-setup.yml",
 		"flutter_dev",
 		"system-images;android-35;google_apis;x86_64",
 		"pixel_6",
 		"wear_dev",
 		"system-images;android-33;google_apis;x86_64",
-		"ANDROID_HOME=/opt/android-sdk",
+		"avd-vars.json",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
