@@ -2,6 +2,7 @@ package provision
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"text/template"
@@ -435,16 +436,22 @@ runcmd:
     fi
     )
 
-{{- if .AVDsJSON}}
+{{- if .AVDsJSONB64}}
   # --- provision Android Virtual Devices via Ansible ---
   - |
-    printf '%s' '{{ .AVDsJSON }}' > /tmp/avd-vars.json
-    ansible-playbook /opt/ai-desktops/desktop-setup.yml \
-      --connection local \
-      --inventory localhost, \
-      --extra-vars @/tmp/avd-vars.json \
-      || echo "WARNING: AVD provisioning failed — check /var/log/cloud-init-output.log"
-    rm -f /tmp/avd-vars.json
+    if [ ! -f /opt/ai-desktops/desktop-setup.yml ]; then
+      echo "WARNING: /opt/ai-desktops/desktop-setup.yml not found — skipping AVD provisioning"
+    elif ! command -v ansible-playbook >/dev/null 2>&1; then
+      echo "WARNING: ansible-playbook not found — skipping AVD provisioning"
+    else
+      echo '{{ .AVDsJSONB64 }}' | base64 -d > /tmp/avd-vars.json
+      ansible-playbook /opt/ai-desktops/desktop-setup.yml \
+        --connection local \
+        --inventory localhost, \
+        --extra-vars @/tmp/avd-vars.json \
+        || echo "WARNING: AVD provisioning failed — check /var/log/cloud-init-output.log"
+      rm -f /tmp/avd-vars.json
+    fi
 {{- end}}
 
   # --- write desktop metadata ---
@@ -480,8 +487,9 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
 
-	// Pre-compute AVD vars JSON for the desktop-setup Ansible playbook.
-	var avdsJSON string
+	// Pre-compute AVD vars JSON (base64-encoded) for safe shell embedding in cloud-init.
+	// Base64 avoids heredoc indentation issues and shell quote escaping.
+	var avdsJSONB64 string
 	if len(cfg.AVDs) > 0 {
 		type avdVar struct {
 			Name   string `json:"name"`
@@ -498,19 +506,19 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		avdsJSON = string(b)
+		avdsJSONB64 = base64.StdEncoding.EncodeToString(b)
 	}
 
 	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
 		BridgeVersion string
-		AVDsJSON      string
+		AVDsJSONB64   string
 	}
 	data := templateData{
 		BootstrapConfig: cfg,
 		BridgeVersion:   AIAgentBridgeVersion,
-		AVDsJSON:        avdsJSON,
+		AVDsJSONB64:     avdsJSONB64,
 	}
 
 	funcMap := template.FuncMap{

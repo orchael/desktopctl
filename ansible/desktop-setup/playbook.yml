@@ -108,6 +108,21 @@
     # ------------------------------------------------------------------
     # 3. Install Android SDK components and create AVDs
     # ------------------------------------------------------------------
+    - name: Verify Android SDK is available
+      ansible.builtin.stat:
+        path: /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
+      register: sdkmanager_stat
+      when: avds is defined and avds | length > 0
+
+    - name: Fail early if Android SDK is not available
+      ansible.builtin.fail:
+        msg: >-
+          Android SDK not found at /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager
+          — ensure the AMI was built with the Android SDK pre-installed
+      when:
+        - avds is defined and avds | length > 0
+        - not sdkmanager_stat.stat.exists
+
     - name: Install Android SDK components for AVD
       ansible.builtin.shell: |
         yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
@@ -147,11 +162,6 @@
 
     - name: Create AVDs
       ansible.builtin.shell: |
-        AVD_DIR="/home/ubuntu/.android/avd/{{ item.name }}.avd"
-        if [ -d "$AVD_DIR" ]; then
-          echo "AVD {{ item.name }} already exists — skipping"
-          exit 0
-        fi
         sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
           /opt/android-sdk/cmdline-tools/latest/bin/avdmanager create avd \
           --name "{{ item.name }}" \
@@ -159,6 +169,7 @@
           {{ '--device "' + item.device + '"' if item.device else '' }}
       args:
         executable: /bin/bash
+        creates: "/home/ubuntu/.android/avd/{{ item.name }}.avd"
       loop: "{{ avds }}"
       loop_control:
         label: "{{ item.name }}"

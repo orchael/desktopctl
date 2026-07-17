@@ -1,6 +1,8 @@
 package provision
 
 import (
+	"encoding/base64"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -447,16 +449,35 @@ func TestRenderCloudInit_withAVDs(t *testing.T) {
 	checks := []string{
 		"ansible-playbook",
 		"/opt/ai-desktops/desktop-setup.yml",
-		"flutter_dev",
-		"system-images;android-35;google_apis;x86_64",
-		"pixel_6",
-		"wear_dev",
-		"system-images;android-33;google_apis;x86_64",
+		"base64 -d",
 		"avd-vars.json",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
 			t.Errorf("AVD block missing %q", want)
+		}
+	}
+
+	// Decode the base64 blob and verify AVD content is present in the JSON.
+	re := regexp.MustCompile(`echo '([A-Za-z0-9+/=]+)' \| base64 -d`)
+	m := re.FindStringSubmatch(out)
+	if len(m) < 2 {
+		t.Fatal("could not find base64-encoded AVD vars in rendered output")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatalf("base64 decode failed: %v", err)
+	}
+	jsonChecks := []string{
+		"flutter_dev",
+		"system-images;android-35;google_apis;x86_64",
+		"pixel_6",
+		"wear_dev",
+		"system-images;android-33;google_apis;x86_64",
+	}
+	for _, want := range jsonChecks {
+		if !strings.Contains(string(decoded), want) {
+			t.Errorf("decoded AVD JSON missing %q", want)
 		}
 	}
 
