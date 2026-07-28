@@ -27,7 +27,7 @@ func TestFR6_ReposPresent(t *testing.T) {
 		t.Skip("no SSH key — cannot verify workspace")
 	}
 	if len(fx.Repos) == 0 {
-		t.Skip("no repos configured in fixture — set AI_DESKTOPS_TEST_REPO")
+		t.Skip("no repos configured in fixture")
 	}
 
 	for _, repoURL := range fx.Repos {
@@ -49,7 +49,7 @@ func TestFR6_WorkspaceIsGitRepo(t *testing.T) {
 		t.Skip("no SSH key — cannot verify workspace")
 	}
 	if len(fx.Repos) == 0 {
-		t.Skip("no repos configured in fixture")
+		t.Skip("no repos in fixture")
 	}
 
 	for _, repoURL := range fx.Repos {
@@ -74,7 +74,7 @@ func TestFR6_WorkspaceOwnerBoundary(t *testing.T) {
 		t.Skip("no SSH key — cannot verify workspace owner boundary")
 	}
 	if len(fx.Repos) == 0 {
-		t.Skip("no repos configured in fixture")
+		t.Skip("no repos in fixture")
 	}
 
 	for _, repoURL := range fx.Repos {
