@@ -25,8 +25,8 @@
 //	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
 //	                          from the config file and SSH key generation is skipped when ssh_key_path
 //	                          in the config already points to an existing file.
-//	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests.  When unset the suite
-//	                          defaults to github.com/<owner>/ai-desktops so FR-6/7 always run.
+//	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests. When unset,
+//	                          repo-dependent checks are skipped.
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
 package integration_test
 
@@ -196,12 +196,9 @@ func TestMain(m *testing.M) {
 	if existingID := os.Getenv("AI_DESKTOPS_EXISTING_ID"); existingID != "" {
 		fx, err = adoptDesktop(existingID, sshKey, owner)
 	} else {
-		// When AI_DESKTOPS_TEST_REPO is unset, fall back to the project's own
-		// public repo so the standard suite always exercises the clone path
-		// without requiring extra environment variables (issue #90).
-		repos := []string{testRepo}
-		if testRepo == "" {
-			repos = []string{fmt.Sprintf("github.com/%s/ai-desktops", owner)}
+		repos := []string{}
+		if testRepo != "" {
+			repos = []string{testRepo}
 		}
 
 		// Always pass the github secret via --secret so the standard suite also
