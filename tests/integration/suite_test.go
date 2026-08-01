@@ -25,8 +25,11 @@
 //	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
 //	                          from the config file and SSH key generation is skipped when ssh_key_path
 //	                          in the config already points to an existing file.
-//	AI_DESKTOPS_TEST_REPO   — a valid repo URL for FR-6/7 workspace tests. When unset,
-//	                          repo-dependent checks are skipped.
+//	AI_DESKTOPS_TEST_REPO   — a valid repo URL (e.g. "owner/repo") for FR-6/7 workspace
+//	                          tests. When unset, TestFR6_ReposPresent and
+//	                          TestFR7_WorkspacePersistence are skipped. Set this variable
+//	                          to exercise repository cloning and workspace persistence,
+//	                          which are core acceptance paths for this project.
 //	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
 package integration_test
 
