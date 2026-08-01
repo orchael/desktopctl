@@ -2,6 +2,8 @@ package provision
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"text/template"
 
@@ -434,26 +436,22 @@ runcmd:
     fi
     )
 
-{{- if .AVDs}}
-  # --- create Android Virtual Devices ---
-{{ range .AVDs }}
+{{- if .AVDsJSONB64}}
+  # --- provision Android Virtual Devices via Ansible ---
   - |
-    ANDROID_HOME=/opt/android-sdk
-    AVD_DIR="/home/ubuntu/.android/avd/{{ .Name }}.avd"
-    if [ ! -x "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" ]; then
-      echo "WARNING: avdmanager not found — skipping AVD {{ .Name }} (Android SDK not pre-installed in this AMI)"
-    elif [ -d "$AVD_DIR" ]; then
-      echo "AVD {{ .Name }} already exists — skipping"
+    if [ ! -f /opt/ai-desktops/desktop-setup.yml ]; then
+      echo "WARNING: /opt/ai-desktops/desktop-setup.yml not found — skipping AVD provisioning"
+    elif ! command -v ansible-playbook >/dev/null 2>&1; then
+      echo "WARNING: ansible-playbook not found — skipping AVD provisioning"
     else
-      sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME="$ANDROID_HOME" \
-        "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" create avd \
-        -n "{{ .Name }}" \
-        -k "{{ .Image }}" \
-        --force{{ if .Device }} \
-        --device "{{ .Device }}"{{ end }} \
-        || echo "WARNING: failed to create AVD {{ .Name }} — check /var/log/cloud-init-output.log"
+      echo '{{ .AVDsJSONB64 }}' | base64 -d > /tmp/avd-vars.json
+      ansible-playbook /opt/ai-desktops/desktop-setup.yml \
+        --connection local \
+        --inventory localhost, \
+        --extra-vars @/tmp/avd-vars.json \
+        || echo "WARNING: AVD provisioning failed — check /var/log/cloud-init-output.log"
+      rm -f /tmp/avd-vars.json
     fi
-{{ end }}
 {{- end}}
 
   # --- write desktop metadata ---
@@ -489,14 +487,38 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
 
-	// Expose version constants to the template via a wrapper.
+	// Pre-compute AVD vars JSON (base64-encoded) for safe shell embedding in cloud-init.
+	// Base64 avoids heredoc indentation issues and shell quote escaping.
+	var avdsJSONB64 string
+	if len(cfg.AVDs) > 0 {
+		type avdVar struct {
+			Name   string `json:"name"`
+			Image  string `json:"image"`
+			Device string `json:"device,omitempty"`
+		}
+		vars := struct {
+			AVDs []avdVar `json:"avds"`
+		}{}
+		for _, a := range cfg.AVDs {
+			vars.AVDs = append(vars.AVDs, avdVar{Name: a.Name, Image: a.Image, Device: a.Device})
+		}
+		b, err := json.Marshal(vars)
+		if err != nil {
+			return "", err
+		}
+		avdsJSONB64 = base64.StdEncoding.EncodeToString(b)
+	}
+
+	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
 		BridgeVersion string
+		AVDsJSONB64   string
 	}
 	data := templateData{
 		BootstrapConfig: cfg,
 		BridgeVersion:   AIAgentBridgeVersion,
+		AVDsJSONB64:     avdsJSONB64,
 	}
 
 	funcMap := template.FuncMap{

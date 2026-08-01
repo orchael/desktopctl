@@ -282,7 +282,11 @@
           "platform-tools" \
           "emulator" \
           "build-tools;35.0.1" \
+          "build-tools;37.0.0" \
+          "ndk;27.0.12077973" \
+          "platforms;android-34" \
           "platforms;android-35" \
+          "system-images;android-34;google_apis_playstore;x86_64" \
           "system-images;android-35;google_apis;x86_64"'
       args:
         executable: /bin/bash
@@ -307,6 +311,12 @@
     - name: Install neovim via snap
       community.general.snap:
         name: nvim
+        classic: true
+        state: present
+
+    - name: Install Android Studio via snap
+      community.general.snap:
+        name: android-studio
         classic: true
         state: present
 
@@ -389,6 +399,44 @@
         content: |
           if [ -f "$HOME/.cargo/env" ]; then
             . "$HOME/.cargo/env"
+          fi
+
+    - name: Install pyenv build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - libssl-dev
+          - zlib1g-dev
+          - libbz2-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - libncursesw5-dev
+          - xz-utils
+          - tk-dev
+          - libxml2-dev
+          - libxmlsec1-dev
+          - libffi-dev
+          - liblzma-dev
+        state: present
+
+    - name: Install pyenv for ubuntu user
+      ansible.builtin.shell: |
+        curl -fsSL https://pyenv.run | bash
+      args:
+        creates: /home/ubuntu/.pyenv/bin/pyenv
+      become: false
+
+    - name: Add pyenv to login shell PATH via /etc/profile.d
+      ansible.builtin.copy:
+        dest: /etc/profile.d/pyenv.sh
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          if [ -d "$HOME/.pyenv" ]; then
+            export PYENV_ROOT="$HOME/.pyenv"
+            export PATH="$PYENV_ROOT/bin:$PATH"
+            eval "$(pyenv init -)"
           fi
 
     - name: Add GitHub CLI apt repository
@@ -926,6 +974,16 @@
     - name: Show Rust version
       ansible.builtin.debug:
         msg: "Rust version: {{ rust_ver_out.stdout }}"
+
+    - name: Verify pyenv is installed
+      ansible.builtin.command: /home/ubuntu/.pyenv/bin/pyenv --version
+      register: pyenv_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show pyenv version
+      ansible.builtin.debug:
+        msg: "pyenv version: {{ pyenv_ver_out.stdout }}"
 
     - name: Verify ballast is installed
       ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/ballast --version

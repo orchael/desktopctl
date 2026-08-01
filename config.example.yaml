@@ -70,6 +70,12 @@ desktop:
   #   - name: flutter_dev
   #     image: "system-images;android-35;google_apis;x86_64"
   #     device: pixel_6   # optional hardware profile; omit for avdmanager default
+  #   - name: pixel_7_phone
+  #     image: "system-images;android-34;google_apis_playstore;x86_64"
+  #     device: pixel_7
+  #   - name: pixel_tablet
+  #     image: "system-images;android-34;google_apis_playstore;x86_64"
+  #     device: pixel_tablet
 
   # CIDR range from which SSH (port 22) is allowed in the security group.
   # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.

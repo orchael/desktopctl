@@ -269,6 +269,9 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - Homebrew
 - `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
+- Android Studio (via snap)
+- Android SDK with platforms `android-34` (including Google Play Store system image `x86_64`), build-tools 35.0.1 and 37.0.0, and NDK 27.0.12077973
+- pyenv (installed for the `ubuntu` user; Python version management at runtime)
 
 The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
 
@@ -447,8 +450,8 @@ The desktop configuration—including Homebrew setup, GitHub known_hosts, and to
 ai-desktops ssh d-a1b2c3d4
 
 # Inside the desktop, re-run the Ansible playbook
-cd /opt/ai-desktops/ansible
-ansible-playbook playbook.yml -i inventory.ini
+ansible-playbook /opt/ai-desktops/desktop-setup.yml \
+  -i localhost, -c local
 ```
 
 The playbook is idempotent and safe to re-run. This allows you to update existing desktops without rebuilding the AMI or recreating instances.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -29,8 +31,21 @@ verify connectivity before running this command.`,
 	RunE: runSecretsReload,
 }
 
+var secretsAddCmd = &cobra.Command{
+	Use:   "add <desktop-id> <secret-path> [<secret-path> ...]",
+	Short: "Add one or more secrets to a running desktop",
+	Long: `add appends one or more AWS Secrets Manager paths to the desktop's secret list,
+injects their values into the running instance, and persists the updated list so
+future reloads include the new paths.
+
+The desktop must be running and reachable via SSH.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: runSecretsAdd,
+}
+
 func init() {
 	secretsCmd.AddCommand(secretsReloadCmd)
+	secretsCmd.AddCommand(secretsAddCmd)
 	rootCmd.AddCommand(secretsCmd)
 }
 
@@ -75,6 +90,90 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	if err := runRemote(d, script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
+	return nil
+}
+
+func runSecretsAdd(cmd *cobra.Command, args []string) error {
+	if err := requireTools("ssh"); err != nil {
+		return err
+	}
+	if cfg.Desktop.SSHKeyPath == "" {
+		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
+	}
+
+	ctx := context.Background()
+	id := args[0]
+	newPaths := args[1:]
+
+	s, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+	d, err := s.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("desktop %q not found", id)
+		}
+		return err
+	}
+
+	if d.Hostname == "" {
+		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
+	}
+
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+
+	// Verify each new path exists in Secrets Manager before touching anything.
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("load AWS config to validate secrets: %w", err)
+	}
+	for _, path := range newPaths {
+		fmt.Printf("Checking secret %s ...\n", path)
+		ok, err := awsx.SecretExists(ctx, awsCfg, path)
+		if err != nil {
+			return fmt.Errorf("check secret %s: %w", path, err)
+		}
+		if !ok {
+			return fmt.Errorf("secret %q not found in Secrets Manager (region %s)", path, region)
+		}
+	}
+
+	// Deduplicate: skip paths already on the desktop.
+	existing := make(map[string]bool, len(d.Secrets))
+	for _, p := range d.Secrets {
+		existing[p] = true
+	}
+	var toAdd []string
+	for _, p := range newPaths {
+		if existing[p] {
+			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
+			continue
+		}
+		toAdd = append(toAdd, p)
+	}
+	if len(toAdd) == 0 {
+		fmt.Println("No new secrets to add.")
+		return nil
+	}
+
+	// Inject the new secrets onto the running instance first.
+	fmt.Printf("Injecting %d new secret(s) on %s (%s)...\n", len(toAdd), id, d.Hostname)
+	script := buildSecretsReloadScript(toAdd, region)
+	if err := runRemote(d, script); err != nil {
+		return fmt.Errorf("secrets inject failed: %w", err)
+	}
+
+	// Persist the updated secret list in the fleet record.
+	mgr := desktop.NewManager(s)
+	if err := mgr.AddSecrets(ctx, id, toAdd); err != nil {
+		return fmt.Errorf("update fleet record: %w", err)
+	}
+
+	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
 	return nil
 }
 

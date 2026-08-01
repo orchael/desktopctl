@@ -61,10 +61,10 @@ func TestFR8_SecretBashrcSources(t *testing.T) {
 	})
 
 	// grep for a non-commented line that sources .desktop-secrets.
-	out := sshRun(t, fx.SSHTarget, fx.SSHKey,
-		`grep -cE '^[^#].*(source|\.).*desktop-secrets' /home/ubuntu/.bashrc 2>/dev/null || echo 0`)
-	if out == "0" {
-		t.Error(".bashrc does not have an active (un-commented) line sourcing .desktop-secrets")
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
+		`grep -Eq '^[^#].*(source|\.).*desktop-secrets' /home/ubuntu/.bashrc`)
+	if err != nil {
+		t.Errorf(".bashrc does not have an active (un-commented) line sourcing .desktop-secrets (err=%v, output=%q)", err, out)
 	}
 }
 

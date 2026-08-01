@@ -242,21 +242,24 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Merge --avd flags with config-file defaults; CLI flags take precedence (replace, not append).
-	// --mobile adds a default AVD when neither --avd nor config AVDs are set.
-	avds := cfg.Desktop.AVDs
+	// AVDs are only activated when --avd or --mobile is explicitly passed.
+	// Config-file AVDs are ignored on plain desktop creates.
+	var avds []config.AVDConfig
 	if len(createAVDs) > 0 {
 		parsed, err := parseAVDs(createAVDs)
 		if err != nil {
 			return err
 		}
 		avds = parsed
-	} else if createMobile && len(avds) == 0 {
-		avds = []config.AVDConfig{{
-			Name:   config.DefaultMobileAVDName,
-			Image:  config.DefaultMobileAVDImage,
-			Device: config.DefaultMobileAVDDevice,
-		}}
+	} else if createMobile {
+		avds = cfg.Desktop.AVDs
+		if len(avds) == 0 {
+			avds = []config.AVDConfig{{
+				Name:   config.DefaultMobileAVDName,
+				Image:  config.DefaultMobileAVDImage,
+				Device: config.DefaultMobileAVDDevice,
+			}}
+		}
 	}
 	if len(avds) > 0 && amiID == "" {
 		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
