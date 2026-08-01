@@ -515,7 +515,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9/_+=.@-]+`)
+var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9_+=.@-]+`)
 
 func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, tailscaleNetwork, stepCAServer string) (string, string, error) {
 	tailscaleSecretPath := ""
@@ -544,7 +544,7 @@ func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, re
 			return "", "", fmt.Errorf("marshal Tailscale secret: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
-		if err := storeAgentSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env); err != nil {
+		if err := storeIntegrationSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env, "Tailscale"); err != nil {
 			return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
 		}
 	}
@@ -558,7 +558,7 @@ func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, re
 			return "", "", fmt.Errorf("marshal step-ca secret: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
-		if err := storeAgentSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env); err != nil {
+		if err := storeIntegrationSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env, "step-ca"); err != nil {
 			return "", "", fmt.Errorf("store step-ca provisioner secret: %w", err)
 		}
 	}

@@ -115,7 +115,12 @@ runcmd:
     TAILSCALE_HOSTNAME="{{ .DesktopID }}"
 
     if ! command -v tailscale >/dev/null 2>&1; then
-      curl -fsSL https://tailscale.com/install.sh | sh
+      TAILSCALE_INSTALL=$(mktemp)
+      trap 'rm -f "$TAILSCALE_INSTALL"' EXIT
+      curl -fsSL https://tailscale.com/install.sh -o "$TAILSCALE_INSTALL"
+      sh "$TAILSCALE_INSTALL"
+      rm -f "$TAILSCALE_INSTALL"
+      trap - EXIT
     fi
 
     systemctl enable tailscaled
@@ -209,19 +214,22 @@ runcmd:
     STEP_CA_PROVISIONER_PASSWORD=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['STEP_CA_PROVISIONER_PASSWORD'])")
     unset SECRET_JSON
 
-    printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > /tmp/step-ca-password
-    chmod 600 /tmp/step-ca-password
+    STEP_CA_PASSWORD_FILE=$(mktemp)
+    trap 'rm -f "$STEP_CA_PASSWORD_FILE"' EXIT
+    printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > "$STEP_CA_PASSWORD_FILE"
+    chmod 600 "$STEP_CA_PASSWORD_FILE"
     step ca certificate \
       "$CERT_NAME" \
       "$CERT_DIR/server.crt" \
       "$CERT_DIR/server.key" \
       --ca-url "https://${STEP_CA}" \
       --provisioner "$STEP_PROVISIONER" \
-      --provisioner-password-file /tmp/step-ca-password \
+      --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
       --san "{{ .Hostname }}" \
       --san "$CERT_NAME" \
       --force
-    rm -f /tmp/step-ca-password
+    rm -f "$STEP_CA_PASSWORD_FILE"
+    trap - EXIT
     unset STEP_CA_PROVISIONER_PASSWORD
     chown ubuntu:ubuntu "$CERT_DIR/server.crt" "$CERT_DIR/server.key"
     chmod 600 "$CERT_DIR/server.key"

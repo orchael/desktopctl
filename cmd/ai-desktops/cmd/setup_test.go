@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -457,6 +458,48 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	}
 	if !createCalled {
 		t.Error("expected CreateSecret to be called")
+	}
+}
+
+func TestStoreIntegrationSecret_CreateDescription(t *testing.T) {
+	var gotDescription string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "DescribeSecret"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"ResourceNotFoundException","Message":"not found"}`))
+		case strings.HasSuffix(target, "CreateSecret"):
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read request body: %v", err)
+			}
+			var req struct {
+				Description string
+			}
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode CreateSecret request: %v", err)
+			}
+			gotDescription = req.Description
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"InvalidRequestException","Message":"unexpected"}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	err := storeIntegrationSecret(context.Background(), cfg, "/ai-desktops/testowner/tailscale/test", `{"TS_AUTHKEY":"tskey"}`, "testowner", "dev", "Tailscale")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if gotDescription != "Tailscale integration secret for ai-desktops owner: testowner" {
+		t.Fatalf("description = %q", gotDescription)
 	}
 }
 

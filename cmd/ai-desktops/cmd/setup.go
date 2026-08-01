@@ -686,6 +686,14 @@ func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, er
 }
 
 func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
+	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, "AI provider API keys for ai-desktops owner: "+owner)
+}
+
+func storeIntegrationSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, integration string) error {
+	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, integration+" integration secret for ai-desktops owner: "+owner)
+}
+
+func storeDescribedSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, description string) error {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	_, err := svc.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
@@ -707,7 +715,7 @@ func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, o
 	_, err = svc.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name:         aws.String(secretID),
 		SecretString: aws.String(value),
-		Description:  aws.String("AI provider API keys for ai-desktops owner: " + owner),
+		Description:  aws.String(description),
 		Tags: []types.Tag{
 			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},

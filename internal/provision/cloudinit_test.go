@@ -179,6 +179,7 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 
 	checks := []string{
 		"tailscale.com/install.sh",
+		"TAILSCALE_INSTALL=$(mktemp)",
 		"systemctl enable tailscaled",
 		"/ai-desktops/acme/tailscale/acme-tailnet",
 		"TS_AUTHKEY",
@@ -190,6 +191,9 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("Tailscale block missing %q", want)
 		}
+	}
+	if strings.Contains(out, "curl -fsSL https://tailscale.com/install.sh | sh") {
+		t.Error("Tailscale install should not pipe curl directly into sh")
 	}
 }
 
@@ -219,6 +223,7 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"step ca health --ca-url \"https://${STEP_CA}\"",
 		"step ca bootstrap --ca-url \"https://${STEP_CA}\" --fingerprint \"$STEP_CA_FINGERPRINT\" --install --force",
 		"STEP_CA_PROVISIONER_PASSWORD",
+		"STEP_CA_PASSWORD_FILE=$(mktemp)",
 		"step ca certificate",
 		"server.crt",
 		"bridgectl.service.d/step-ca.conf",
@@ -228,6 +233,9 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		if !strings.Contains(out, want) {
 			t.Errorf("step-ca block missing %q", want)
 		}
+	}
+	if strings.Contains(out, "/tmp/step-ca-password") {
+		t.Error("step-ca password file should use mktemp, not a fixed /tmp path")
 	}
 
 	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {

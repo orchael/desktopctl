@@ -41,6 +41,13 @@ func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) 
 	}
 }
 
+func TestSecretPathSlugDisallowsSlash(t *testing.T) {
+	got := secretPathSlug("/team/tailnet/name/")
+	if got != "team-tailnet-name" {
+		t.Fatalf("secretPathSlug with slashes = %q, want team-tailnet-name", got)
+	}
+}
+
 func TestParseAndValidateRepos(t *testing.T) {
 	tests := []struct {
 		name        string
