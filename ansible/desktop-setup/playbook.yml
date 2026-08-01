@@ -135,7 +135,8 @@
 
     - name: Install Android platform for each AVD image
       ansible.builtin.shell: |
-        API_LEVEL=$(echo "{{ item.image }}" | awk -F';' '{print $2}')
+        IMAGE='{{ item.image }}'
+        API_LEVEL=$(printf '%s' "${IMAGE}" | awk -F';' '{print $2}')
         yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
           /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
           "platforms;${API_LEVEL}"
@@ -149,9 +150,10 @@
 
     - name: Install system image for each AVD
       ansible.builtin.shell: |
+        IMAGE='{{ item.image }}'
         yes | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
           /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
-          "{{ item.image }}"
+          "${IMAGE}"
       args:
         executable: /bin/bash
       loop: "{{ avds }}"
@@ -162,12 +164,19 @@
 
     - name: Create AVDs
       ansible.builtin.shell: |
+        NAME='{{ item.name }}'
+        IMAGE='{{ item.image }}'
+        DEVICE='{{ item.device | default("") }}'
+        DEVICE_ARG=""
+        if [ -n "${DEVICE}" ]; then
+          DEVICE_ARG="--device ${DEVICE}"
+        fi
         echo no | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
           /opt/android-sdk/cmdline-tools/latest/bin/avdmanager create avd \
-          --name "{{ item.name }}" \
-          --package "{{ item.image }}" \
+          --name "${NAME}" \
+          --package "${IMAGE}" \
           --force \
-          {{ '--device "' ~ (item.device | default('')) ~ '"' if (item.device | default('')) else '' }}
+          ${DEVICE_ARG}
       args:
         executable: /bin/bash
         creates: "/home/ubuntu/.android/avd/{{ item.name }}.avd"
