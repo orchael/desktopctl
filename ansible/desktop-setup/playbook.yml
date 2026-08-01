@@ -162,10 +162,11 @@
 
     - name: Create AVDs
       ansible.builtin.shell: |
-        sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
+        echo no | sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk \
           /opt/android-sdk/cmdline-tools/latest/bin/avdmanager create avd \
           --name "{{ item.name }}" \
           --package "{{ item.image }}" \
+          --force \
           {{ '--device "' ~ (item.device | default('')) ~ '"' if (item.device | default('')) else '' }}
       args:
         executable: /bin/bash

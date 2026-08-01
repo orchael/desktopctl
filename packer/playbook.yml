@@ -421,7 +421,7 @@
 
     - name: Install pyenv for ubuntu user
       ansible.builtin.shell: |
-        curl https://pyenv.run | bash
+        curl -fsSL https://pyenv.run | bash
       args:
         creates: /home/ubuntu/.pyenv/bin/pyenv
       become: false
