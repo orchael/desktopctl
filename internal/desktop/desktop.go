@@ -172,6 +172,26 @@ func (m *Manager) MarkTerminating(ctx context.Context, id string) error {
 	return m.Store.Update(ctx, d)
 }
 
+// AddSecrets appends new secret paths to the desktop record, deduplicating
+// against any paths already present.
+func (m *Manager) AddSecrets(ctx context.Context, id string, paths []string) error {
+	d, err := m.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]bool, len(d.Secrets))
+	for _, p := range d.Secrets {
+		existing[p] = true
+	}
+	for _, p := range paths {
+		if !existing[p] {
+			d.Secrets = append(d.Secrets, p)
+			existing[p] = true
+		}
+	}
+	return m.Store.Update(ctx, d)
+}
+
 // RecordFailure records a provisioning or lifecycle failure.
 func (m *Manager) RecordFailure(ctx context.Context, id, phase, message string) error {
 	return m.Store.RecordFailure(ctx, id, phase, message)
