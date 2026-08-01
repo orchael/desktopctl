@@ -523,6 +523,46 @@ func SecretsCheckers(hostname string, sshPort int, user, keyPath string, secretP
 	}
 }
 
+// TailscaleCheckers returns checks for desktops attached to a Tailscale network.
+// Returns nil when no network was configured so doctor omits the group.
+func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, network string) []Checker {
+	if network == "" {
+		return nil
+	}
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("tailscale-installed", hostname, sshPort, user, keyPath,
+			"command -v tailscale >/dev/null 2>&1", t),
+		NewSSHChecker("tailscaled-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active tailscaled", t),
+		NewSSHChecker("tailscale-running", hostname, sshPort, user, keyPath,
+			`tailscale status --json | python3 -c "import json,sys; exit(0 if json.load(sys.stdin).get('BackendState') == 'Running' else 1)"`, t),
+		NewSSHChecker("tailscale-network-metadata", hostname, sshPort, user, keyPath,
+			fmt.Sprintf("grep -qxF %s /opt/ai-desktops/tailscale.env", shellQuote(`TAILSCALE_NETWORK="`+network+`"`)), t),
+	}
+}
+
+// StepCACheckers returns checks for desktops bootstrapped against a step-ca
+// server. Returns nil when no step-ca server was configured.
+func StepCACheckers(hostname string, sshPort int, user, keyPath string, serverDNS string) []Checker {
+	if serverDNS == "" {
+		return nil
+	}
+	t := 20 * time.Second
+	return []Checker{
+		NewSSHChecker("step-cli-installed", hostname, sshPort, user, keyPath,
+			"command -v step >/dev/null 2>&1", t),
+		NewSSHChecker("step-ca-resolves", hostname, sshPort, user, keyPath,
+			fmt.Sprintf("getent hosts %s >/dev/null", shellQuote(serverDNS)), t),
+		NewSSHChecker("step-ca-health", hostname, sshPort, user, keyPath,
+			fmt.Sprintf("step ca health --ca-url %s", shellQuote("https://"+serverDNS)), t),
+		NewSSHChecker("bridgectl-step-ca-env", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", t),
+		NewSSHChecker("bridgectl-step-ca-cert", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.config/bridgectl/tls/server.crt && test -s /home/ubuntu/.config/bridgectl/tls/server.key", t),
+	}
+}
+
 // NestedVirtCheckers returns checks that verify KVM nested virtualization is
 // functional on the desktop. Returns nil when nestedVirt is false so the group
 // is omitted from doctor output entirely.

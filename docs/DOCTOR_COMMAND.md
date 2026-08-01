@@ -15,7 +15,7 @@ ai-desktops doctor d-001
 
 ## What It Checks
 
-The doctor command performs **14+ health checks** organized into categories (3 network + 11 SSH-based, depending on configuration):
+The doctor command performs health checks organized into categories. Optional groups are added only when the desktop was created with matching features such as `--secret`, Tailscale, step-ca, `--nested-virtualization`, `--mobile`, or `--avd`.
 
 ### Network Connectivity (Always Run)
 
@@ -23,7 +23,6 @@ These checks verify the desktop is reachable and responding:
 
 - **ssh-port** — SSH port 22 is reachable via TCP
 - **novnc-https** — noVNC HTTPS endpoint responding on port 8443
-- **agent-bridge** — ai-agent-bridge is reachable via SSM tunnel on the configured bridge port
 
 ### Essential Services (SSH-Based)
 
@@ -32,7 +31,10 @@ Require SSH key configured in `config.yaml`; skipped otherwise.
 - **docker-active** — Docker daemon is active and running
 - **nvim-installed** — Neovim is on the ubuntu user's PATH
 - **tmux-installed** — Tmux is on the ubuntu user's PATH
-- **bridge-active** — ai-agent-bridge systemd unit is active
+- **bridgectl-installed** — bridgectl CLI is on PATH
+- **bridgectl-config-exists** — bridgectl config exists
+- **bridgectl-credentials-env** — provider credentials env file exists
+- **bridgectl-service-active** — bridgectl user service is active
 
 ### System Resources (SSH-Based)
 
@@ -56,6 +58,25 @@ Verify workspace and repository configuration:
 - **workspace-mounted** — `/workspace` is mounted and writable
 - **repo-<name>** — Each configured repository is a valid git clone
 
+### Tailscale (Optional)
+
+Only runs when the desktop was created with Tailscale enabled by config or `--tailscale-network`.
+
+- **tailscale-installed** — Tailscale CLI is installed
+- **tailscaled-active** — tailscaled systemd service is active
+- **tailscale-running** — Tailscale backend state is Running
+- **tailscale-network-metadata** — requested network name was recorded on the desktop
+
+### step-ca (Optional)
+
+Only runs when the desktop was created with step-ca enabled by config or `--step-ca`.
+
+- **step-cli-installed** — Smallstep CLI is installed
+- **step-ca-resolves** — configured step-ca DNS name resolves
+- **step-ca-health** — `step ca health` succeeds
+- **bridgectl-step-ca-env** — bridgectl step-ca environment file exists
+- **bridgectl-step-ca-cert** — bridge TLS certificate and key were issued
+
 ## Output Formats
 
 ### Human-Readable (Default)
@@ -66,11 +87,11 @@ Summary : all checks passed
 
   ✓ ssh-port
   ✓ novnc-https
-  ✓ agent-bridge
   ✓ docker-active
   ✓ nvim-installed
   ✓ tmux-installed
-  ✓ bridge-active
+  ✓ bridgectl-installed
+  ✓ bridgectl-service-active
   ✓ disk-space
   ✓ memory-available
   ✓ novnc-running

@@ -37,6 +37,10 @@ var (
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
 	createInstanceType  string
+	createTailscaleNet  string
+	createStepCA        string
+	createStepCAProv    string
+	createStepCAFP      string
 )
 
 var createCmd = &cobra.Command{
@@ -67,6 +71,10 @@ func init() {
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
+	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "attach the desktop to a Tailscale tailnet/network; requires TAILSCALE_AUTHKEY in the local environment")
+	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD in the local environment")
+	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
+	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint for non-interactive private CA bootstrap (optional)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -120,6 +128,37 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
+	if createStepCA != "" && createStepCAProv == "" {
+		return fmt.Errorf("--step-ca-provisioner must not be empty when --step-ca is set")
+	}
+
+	tailscaleNetwork := cfg.Network.TailscaleNetwork
+	if cmd.Flags().Changed("tailscale-network") {
+		tailscaleNetwork = createTailscaleNet
+	}
+	stepCAServer := cfg.PKI.StepCAServer
+	if cmd.Flags().Changed("step-ca") {
+		stepCAServer = createStepCA
+	}
+	stepCAProvisioner := cfg.PKI.StepCAProvisioner
+	if cmd.Flags().Changed("step-ca-provisioner") {
+		stepCAProvisioner = createStepCAProv
+	}
+	stepCAFingerprint := cfg.PKI.StepCAFingerprint
+	if cmd.Flags().Changed("step-ca-fingerprint") {
+		stepCAFingerprint = createStepCAFP
+	}
+	if stepCAServer != "" && stepCAProvisioner == "" {
+		return fmt.Errorf("step-ca provisioner must not be empty when step-ca is configured")
+	}
+	if stepCAServer != "" && stepCAFingerprint == "" {
+		stepCAFingerprint = strings.TrimSpace(os.Getenv("STEP_CA_FINGERPRINT"))
+	}
+
+	env := createEnv
+	if env == "" {
+		env = cfg.Fleet.Environment
+	}
 
 	// Verify every repo is reachable before touching any infrastructure.
 	for _, r := range repos {
@@ -147,9 +186,43 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	env := createEnv
-	if env == "" {
-		env = cfg.Fleet.Environment
+	tailscaleSecretPath := ""
+	stepCASecretPath := ""
+	if tailscaleNetwork != "" || stepCAServer != "" {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config to store integration secrets: %w", err)
+		}
+		if tailscaleNetwork != "" {
+			authKey := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY"))
+			if authKey == "" {
+				return fmt.Errorf("TAILSCALE_AUTHKEY must be set when a Tailscale network is configured")
+			}
+			tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
+			payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
+			if err != nil {
+				return fmt.Errorf("marshal Tailscale secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
+			if err := storeAgentSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env); err != nil {
+				return fmt.Errorf("store Tailscale auth key secret: %w", err)
+			}
+		}
+		if stepCAServer != "" {
+			password := strings.TrimSpace(os.Getenv("STEP_CA_PROVISIONER_PASSWORD"))
+			if password == "" {
+				return fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set when step-ca is configured")
+			}
+			stepCASecretPath = fmt.Sprintf("/ai-desktops/%s/step-ca/%s", owner, secretPathSlug(stepCAServer))
+			payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
+			if err != nil {
+				return fmt.Errorf("marshal step-ca secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
+			if err := storeAgentSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env); err != nil {
+				return fmt.Errorf("store step-ca provisioner secret: %w", err)
+			}
+		}
 	}
 
 	zone, err := cfg.DNSZone()
@@ -186,6 +259,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
 		Secrets:       createSecrets,
+		TailscaleNet:  tailscaleNetwork,
+		StepCAServer:  stepCAServer,
 		InstanceType:  cfg.Desktop.InstanceType,
 		NestedVirt:    nestedVirt,
 		Zone:          zone,
@@ -210,6 +285,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
+	}
+	if tailscaleNetwork != "" {
+		fmt.Fprintf(os.Stderr, "  Tailscale network     : %s\n", tailscaleNetwork)
+	}
+	if stepCAServer != "" {
+		fmt.Fprintf(os.Stderr, "  step-ca server        : %s (provisioner=%s)\n", stepCAServer, stepCAProvisioner)
 	}
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
@@ -303,6 +384,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitHubSecretPath:     gitHubSecret,
 		AgentSecretPath:      cfg.GitHub.AgentSecret,
 		DesktopSecretPaths:   createSecrets,
+		TailscaleNetwork:     tailscaleNetwork,
+		TailscaleSecretPath:  tailscaleSecretPath,
+		StepCAServerDNS:      stepCAServer,
+		StepCAFingerprint:    stepCAFingerprint,
+		StepCAProvisioner:    stepCAProvisioner,
+		StepCASecretPath:     stepCASecretPath,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
@@ -370,6 +457,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
 		fmt.Printf("Nested virt   : %v\n", nestedVirt)
+		if tailscaleNetwork != "" {
+			fmt.Printf("Tailscale     : %s\n", tailscaleNetwork)
+		}
+		if stepCAServer != "" {
+			fmt.Printf("step-ca       : %s\n", stepCAServer)
+		}
 		fmt.Printf("Repos         : %v\n", createRepos)
 		if len(req.AVDNames) > 0 {
 			fmt.Printf("AVDs          : %s\n", strings.Join(req.AVDNames, ", "))
@@ -423,6 +516,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"instance_type":         cfg.Desktop.InstanceType,
 		"nested_virtualization": nestedVirtStr,
 		"avd_names":             strings.Join(req.AVDNames, ", "),
+		"tailscale_network":     tailscaleNetwork,
+		"step_ca":               stepCAServer,
 	}
 
 	if jsonOut {
@@ -438,9 +533,27 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if result["avd_names"] != "" {
 		fmt.Printf("AVDs          : %s\n", result["avd_names"])
 	}
+	if result["tailscale_network"] != "" {
+		fmt.Printf("Tailscale     : %s\n", result["tailscale_network"])
+	}
+	if result["step_ca"] != "" {
+		fmt.Printf("step-ca       : %s\n", result["step_ca"])
+	}
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9/_+=.@-]+`)
+
+func secretPathSlug(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, "/")
+	s = secretPathSlugRe.ReplaceAllString(s, "-")
+	if s == "" {
+		return "default"
+	}
+	return s
 }
 
 func parseAndValidateRepos(owner string, rawRepos []string) ([]*repo.Repo, string, error) {

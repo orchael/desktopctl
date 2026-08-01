@@ -59,6 +59,8 @@ type Config struct {
 	GitHub  GitHubConfig  `yaml:"github"`
 	Desktop DesktopConfig `yaml:"desktop"`
 	Agent   AgentConfig   `yaml:"agent"`
+	Network NetworkConfig `yaml:"network,omitempty"`
+	PKI     PKIConfig     `yaml:"pki,omitempty"`
 }
 
 // Env returns the configured environment, falling back to dev.
@@ -145,6 +147,26 @@ type AgentConfig struct {
 	TrustHost bool `yaml:"trust_host"`
 }
 
+type NetworkConfig struct {
+	// TailscaleNetwork optionally attaches created desktops to this Tailscale
+	// tailnet/network. The auth key is read from TAILSCALE_AUTHKEY at create time
+	// and stored in AWS Secrets Manager for cloud-init.
+	TailscaleNetwork string `yaml:"tailscale_network,omitempty"`
+}
+
+type PKIConfig struct {
+	// StepCAServer optionally bootstraps step-ca trust and a bridge host
+	// certificate from this CA DNS name. If the CA lives on Tailscale, combine
+	// this with network.tailscale_network.
+	StepCAServer string `yaml:"step_ca_server,omitempty"`
+	// StepCAProvisioner is the provisioner used for bridge host certificates.
+	// Defaults to "admin".
+	StepCAProvisioner string `yaml:"step_ca_provisioner,omitempty"`
+	// StepCAFingerprint pins the step-ca root certificate for non-interactive
+	// bootstrap. It may also be supplied via STEP_CA_FINGERPRINT.
+	StepCAFingerprint string `yaml:"step_ca_fingerprint,omitempty"`
+}
+
 // SupportsNestedVirt reports whether instanceType belongs to a family that
 // supports nested virtualization via CpuOptions.NestedVirtualization=enabled.
 func SupportsNestedVirt(instanceType string) bool {
@@ -209,6 +231,9 @@ func (c *Config) Defaults() {
 
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
+	}
+	if c.PKI.StepCAProvisioner == "" {
+		c.PKI.StepCAProvisioner = "admin"
 	}
 	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
 		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"

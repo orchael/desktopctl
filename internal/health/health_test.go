@@ -339,6 +339,46 @@ func TestBridgectlCheckers_allSkippedWithNoKey(t *testing.T) {
 	}
 }
 
+func TestTailscaleCheckers_emptyNetwork(t *testing.T) {
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
+	if len(checkers) != 0 {
+		t.Errorf("expected 0 checkers for empty Tailscale network, got %d", len(checkers))
+	}
+}
+
+func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "acme-tailnet")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata"} {
+		if !names[n] {
+			t.Errorf("TailscaleCheckers missing expected checker %q", n)
+		}
+	}
+}
+
+func TestStepCACheckers_emptyServer(t *testing.T) {
+	checkers := StepCACheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
+	if len(checkers) != 0 {
+		t.Errorf("expected 0 checkers for empty step-ca server, got %d", len(checkers))
+	}
+}
+
+func TestStepCACheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := StepCACheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "ca.tailnet.ts.net")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"step-cli-installed", "step-ca-resolves", "step-ca-health", "bridgectl-step-ca-env", "bridgectl-step-ca-cert"} {
+		if !names[n] {
+			t.Errorf("StepCACheckers missing expected checker %q", n)
+		}
+	}
+}
+
 func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
 	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
 	if checkers != nil {

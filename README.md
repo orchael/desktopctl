@@ -382,7 +382,39 @@ ai-desktops agent d-a1b2c3d4 stop <session-id>
 
 The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 11. Run diagnostics
+### 11. Optional private network and step-ca registration
+
+Attach a desktop to Tailscale by passing the tailnet/network name and providing a local auth key through the environment. The CLI stores the auth key in AWS Secrets Manager and cloud-init retrieves it at boot.
+
+```bash
+export TAILSCALE_AUTHKEY=tskey-auth-...
+
+ai-desktops create \
+  --github-owner myorg \
+  --tailscale-network my-tailnet
+```
+
+You can also set `network.tailscale_network` in `config.yaml` and omit the flag for desktops that should use that network by default.
+
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use both flags; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
+
+```bash
+export TAILSCALE_AUTHKEY=tskey-auth-...
+export STEP_CA_PROVISIONER_PASSWORD=...
+export STEP_CA_FINGERPRINT=...
+
+ai-desktops create \
+  --github-owner myorg \
+  --tailscale-network my-tailnet \
+  --step-ca ca.my-tailnet.ts.net \
+  --step-ca-provisioner admin
+```
+
+Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, and `pki.step_ca_fingerprint`. CLI flags override config values for a single desktop.
+
+`doctor` adds Tailscale and step-ca checks only for desktops created with those integrations enabled.
+
+### 12. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -391,7 +423,7 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 12. Debug with SSM (if diagnostics fail)
+### 13. Debug with SSM (if diagnostics fail)
 
 If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
 
@@ -412,11 +444,11 @@ tail -100 /var/log/cloud-init-output.log
 # Check novnc-desktop service status
 systemctl --user status novnc-desktop
 
-# Check ai-agent-bridge service status
-systemctl status ai-agent-bridge
+# Check bridgectl user service status
+sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user status bridgectl
 
 # View bridge logs
-journalctl -u ai-agent-bridge -n 50
+sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) journalctl --user -u bridgectl -n 50
 
 # Restart Pantheon session if noVNC shows black screen
 systemctl --user restart pantheon-session
@@ -424,7 +456,7 @@ systemctl --user restart pantheon-session
 
 Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
 
-### 13. Stop and start
+### 14. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # hibernates: RAM + disk preserved

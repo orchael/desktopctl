@@ -1,14 +1,16 @@
 SHELL   := bash
 BINARY := ai-desktops
 CMD     := ./cmd/ai-desktops
+BUILD_GOGC ?= 100
+BUILD_P    ?= 1
 
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
 AI_DESKTOPS_GITHUB_OWNER ?= orchael
 
-.PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean deps check-deps
+.PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean very-clean deps check-deps
 
 build:
-	GOGC=50 go build -p 1 -o $(BINARY) $(CMD)
+	GOGC=$(BUILD_GOGC) go build -p $(BUILD_P) -o $(BINARY) $(CMD)
 
 test:
 	go test ./...
@@ -181,6 +183,9 @@ test-integration-fr: check-deps build
 
 clean:
 	rm -f $(BINARY)
+
+very-clean: clean
+	go clean -cache -testcache
 
 # clean-integration tears down any surviving test desktops and the foundation
 # stack in us-west-2 (env=test) without needing a full integration run.

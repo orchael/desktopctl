@@ -49,6 +49,8 @@ type Desktop struct {
 	FailureMsg    string         `dynamodbav:"failure_message,omitempty" json:"failure_message,omitempty"`
 	Repos         []string       `dynamodbav:"repos,omitempty"           json:"repos,omitempty"`
 	Secrets       []string       `dynamodbav:"secrets,omitempty"         json:"secrets,omitempty"`
+	TailscaleNet  string         `dynamodbav:"tailscale_network,omitempty" json:"tailscale_network,omitempty"`
+	StepCAServer  string         `dynamodbav:"step_ca_server,omitempty"  json:"step_ca_server,omitempty"`
 	AVDNames      []string       `dynamodbav:"avd_names,omitempty"       json:"avd_names,omitempty"`
 	InstanceType  string         `dynamodbav:"instance_type,omitempty"   json:"instance_type,omitempty"`
 	NestedVirt    bool           `dynamodbav:"nested_virt,omitempty"     json:"nested_virt,omitempty"`

@@ -47,6 +47,9 @@ func TestDefaults(t *testing.T) {
 	if c.Agent.BridgePort != DefaultBridgePort {
 		t.Errorf("default bridge port: got %d", c.Agent.BridgePort)
 	}
+	if c.PKI.StepCAProvisioner != "admin" {
+		t.Errorf("default step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -94,6 +97,12 @@ pulumi:
 fleet:
   table_name: my-fleet
   environment: prod
+network:
+  tailscale_network: acme-tailnet
+pki:
+  step_ca_server: ca.acme-tailnet.ts.net
+  step_ca_provisioner: ops
+  step_ca_fingerprint: abcdef
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -117,6 +126,18 @@ fleet:
 	if c.Fleet.TableName != "my-fleet" {
 		t.Errorf("table: got %q", c.Fleet.TableName)
 	}
+	if c.Network.TailscaleNetwork != "acme-tailnet" {
+		t.Errorf("tailscale network: got %q", c.Network.TailscaleNetwork)
+	}
+	if c.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
+		t.Errorf("step-ca server: got %q", c.PKI.StepCAServer)
+	}
+	if c.PKI.StepCAProvisioner != "ops" {
+		t.Errorf("step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
+	}
+	if c.PKI.StepCAFingerprint != "abcdef" {
+		t.Errorf("step-ca fingerprint: got %q", c.PKI.StepCAFingerprint)
+	}
 }
 
 func TestSave_roundTrip(t *testing.T) {
@@ -130,6 +151,12 @@ func TestSave_roundTrip(t *testing.T) {
 				"us-east-1": "ami-0abc123",
 				"us-west-2": "ami-0def456",
 			},
+		},
+		Network: NetworkConfig{TailscaleNetwork: "acme-tailnet"},
+		PKI: PKIConfig{
+			StepCAServer:      "ca.acme-tailnet.ts.net",
+			StepCAProvisioner: "admin",
+			StepCAFingerprint: "abcdef",
 		},
 	}
 
@@ -162,6 +189,18 @@ func TestSave_roundTrip(t *testing.T) {
 		} else if amiID != "ami-0abc123" {
 			t.Errorf("us-east-1 AMI round-trip: got %q", amiID)
 		}
+	}
+	if loaded.Network.TailscaleNetwork != "acme-tailnet" {
+		t.Errorf("tailscale network round-trip: got %q", loaded.Network.TailscaleNetwork)
+	}
+	if loaded.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
+		t.Errorf("step-ca server round-trip: got %q", loaded.PKI.StepCAServer)
+	}
+	if loaded.PKI.StepCAProvisioner != "admin" {
+		t.Errorf("step-ca provisioner round-trip: got %q", loaded.PKI.StepCAProvisioner)
+	}
+	if loaded.PKI.StepCAFingerprint != "abcdef" {
+		t.Errorf("step-ca fingerprint round-trip: got %q", loaded.PKI.StepCAFingerprint)
 	}
 }
 

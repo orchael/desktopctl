@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
+	flag := createCmd.Flags().Lookup("step-ca-provisioner")
+	if flag == nil {
+		t.Fatal("step-ca-provisioner flag not registered")
+	}
+	if flag.DefValue != "admin" {
+		t.Fatalf("step-ca-provisioner default = %q, want admin", flag.DefValue)
+	}
+}
+
 func TestParseAndValidateRepos(t *testing.T) {
 	tests := []struct {
 		name        string

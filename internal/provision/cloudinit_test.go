@@ -127,6 +127,23 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				AgentSecretPath:  "/ai-desktops/acme/agents",
 			},
 		},
+		{
+			name: "with tailscale and step-ca",
+			cfg: &BootstrapConfig{
+				DesktopID:           "d-yaml",
+				Hostname:            "d-yaml.desktops.orchael.dev",
+				GitHubOwner:         "acme",
+				WorkspacePath:       "/workspace",
+				AWSRegion:           "us-east-1",
+				Environment:         "dev",
+				GitHubSecretPath:    "/ai-desktops/acme/github",
+				TailscaleNetwork:    "acme-tailnet",
+				TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+				StepCAServerDNS:     "ca.tailnet.ts.net",
+				StepCAProvisioner:   "ai-desktops",
+				StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -141,6 +158,80 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				t.Errorf("rendered cloud-init is not valid YAML: %v", err)
 			}
 		})
+	}
+}
+
+func TestRenderCloudInit_tailscale(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:           "d-ts",
+		Hostname:            "d-ts.desktops.orchael.dev",
+		GitHubOwner:         "acme",
+		GitHubSecretPath:    "/ai-desktops/acme/github",
+		AWSRegion:           "us-east-1",
+		TailscaleNetwork:    "acme-tailnet",
+		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"tailscale.com/install.sh",
+		"systemctl enable tailscaled",
+		"/ai-desktops/acme/tailscale/acme-tailnet",
+		"TS_AUTHKEY",
+		"tailscale up",
+		"--hostname \"$TAILSCALE_HOSTNAME\"",
+		"TAILSCALE_NETWORK",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("Tailscale block missing %q", want)
+		}
+	}
+}
+
+func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:           "d-ca",
+		Hostname:            "d-ca.desktops.orchael.dev",
+		GitHubOwner:         "acme",
+		GitHubSecretPath:    "/ai-desktops/acme/github",
+		AWSRegion:           "us-east-1",
+		TailscaleNetwork:    "acme-tailnet",
+		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+		StepCAServerDNS:     "ca.tailnet.ts.net",
+		StepCAFingerprint:   "abcdef",
+		StepCAProvisioner:   "ai-desktops",
+		StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"getent hosts \"$STEP_CA\"",
+		"packages.smallstep.com/stable/debian",
+		"step ca health --ca-url \"https://${STEP_CA}\"",
+		"step ca bootstrap --ca-url \"https://${STEP_CA}\" --fingerprint \"$STEP_CA_FINGERPRINT\" --install --force",
+		"STEP_CA_PROVISIONER_PASSWORD",
+		"step ca certificate",
+		"server.crt",
+		"bridgectl.service.d/step-ca.conf",
+		"EnvironmentFile=-%%h/.config/bridgectl/step-ca.env",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("step-ca block missing %q", want)
+		}
+	}
+
+	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {
+		t.Error("step-ca block should render after Tailscale so private CA DNS can become available first")
 	}
 }
 
