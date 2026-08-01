@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,31 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 	if flag.DefValue != "admin" {
 		t.Fatalf("step-ca-provisioner default = %q, want admin", flag.DefValue)
+	}
+}
+
+func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) {
+	t.Setenv("TAILSCALE_AUTHKEY", "")
+	t.Setenv("STEP_CA_PROVISIONER_PASSWORD", "")
+
+	tailscalePath, stepCAPath, err := prepareIntegrationSecrets(
+		context.Background(),
+		true,
+		"acme",
+		"dev",
+		"invalid-region-for-preview-test",
+		"invalid-profile-for-preview-test",
+		"acme-tailnet",
+		"ca.acme-tailnet.ts.net",
+	)
+	if err != nil {
+		t.Fatalf("prepareIntegrationSecrets preview returned error: %v", err)
+	}
+	if tailscalePath != "/ai-desktops/acme/tailscale/acme-tailnet" {
+		t.Fatalf("tailscale path = %q", tailscalePath)
+	}
+	if stepCAPath != "/ai-desktops/acme/step-ca/ca.acme-tailnet.ts.net" {
+		t.Fatalf("step-ca path = %q", stepCAPath)
 	}
 }
 

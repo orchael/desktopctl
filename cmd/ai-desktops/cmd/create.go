@@ -189,39 +189,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	tailscaleSecretPath := ""
 	stepCASecretPath := ""
 	if tailscaleNetwork != "" || stepCAServer != "" {
-		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		var err error
+		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, tailscaleNetwork, stepCAServer)
 		if err != nil {
-			return fmt.Errorf("load AWS config to store integration secrets: %w", err)
-		}
-		if tailscaleNetwork != "" {
-			authKey := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY"))
-			if authKey == "" {
-				return fmt.Errorf("TAILSCALE_AUTHKEY must be set when a Tailscale network is configured")
-			}
-			tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
-			payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
-			if err != nil {
-				return fmt.Errorf("marshal Tailscale secret: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
-			if err := storeAgentSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env); err != nil {
-				return fmt.Errorf("store Tailscale auth key secret: %w", err)
-			}
-		}
-		if stepCAServer != "" {
-			password := strings.TrimSpace(os.Getenv("STEP_CA_PROVISIONER_PASSWORD"))
-			if password == "" {
-				return fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set when step-ca is configured")
-			}
-			stepCASecretPath = fmt.Sprintf("/ai-desktops/%s/step-ca/%s", owner, secretPathSlug(stepCAServer))
-			payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
-			if err != nil {
-				return fmt.Errorf("marshal step-ca secret: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
-			if err := storeAgentSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env); err != nil {
-				return fmt.Errorf("store step-ca provisioner secret: %w", err)
-			}
+			return err
 		}
 	}
 
@@ -545,6 +516,54 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9/_+=.@-]+`)
+
+func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, tailscaleNetwork, stepCAServer string) (string, string, error) {
+	tailscaleSecretPath := ""
+	if tailscaleNetwork != "" {
+		tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
+	}
+	stepCASecretPath := ""
+	if stepCAServer != "" {
+		stepCASecretPath = fmt.Sprintf("/ai-desktops/%s/step-ca/%s", owner, secretPathSlug(stepCAServer))
+	}
+	if preview {
+		return tailscaleSecretPath, stepCASecretPath, nil
+	}
+
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return "", "", fmt.Errorf("load AWS config to store integration secrets: %w", err)
+	}
+	if tailscaleNetwork != "" {
+		authKey := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY"))
+		if authKey == "" {
+			return "", "", fmt.Errorf("TAILSCALE_AUTHKEY must be set when a Tailscale network is configured")
+		}
+		payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
+		if err != nil {
+			return "", "", fmt.Errorf("marshal Tailscale secret: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
+		if err := storeAgentSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env); err != nil {
+			return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
+		}
+	}
+	if stepCAServer != "" {
+		password := strings.TrimSpace(os.Getenv("STEP_CA_PROVISIONER_PASSWORD"))
+		if password == "" {
+			return "", "", fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set when step-ca is configured")
+		}
+		payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
+		if err != nil {
+			return "", "", fmt.Errorf("marshal step-ca secret: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
+		if err := storeAgentSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env); err != nil {
+			return "", "", fmt.Errorf("store step-ca provisioner secret: %w", err)
+		}
+	}
+	return tailscaleSecretPath, stepCASecretPath, nil
+}
 
 func secretPathSlug(s string) string {
 	s = strings.TrimSpace(s)
