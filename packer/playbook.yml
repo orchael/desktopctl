@@ -80,11 +80,18 @@
           - acl
         state: present
 
+    - name: Check for Pantheon dock binary
+      ansible.builtin.stat:
+        path: /usr/bin/io.elementary.dock
+      register: pantheon_dock_binary
+
     - name: Disable Pantheon dock in VNC sessions
       ansible.builtin.file:
         path: /usr/bin/io.elementary.dock
         mode: "0644"
-      when: ansible_facts['distribution'] == 'Ubuntu'
+      when:
+        - ansible_facts['distribution'] == 'Ubuntu'
+        - pantheon_dock_binary.stat.exists
 
     - name: Install Docker prerequisites
       ansible.builtin.apt:
