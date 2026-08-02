@@ -155,7 +155,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("desktopId", pulumi.String(desktopID))
 	ctx.Export("instanceId", instance.ID())
 	ctx.Export("hostname", pulumi.String(hostname))
-	ctx.Export("novncUrl", pulumi.Sprintf("https://%s:%d/", hostname, novncHTTPSPort))
+	ctx.Export("novncUrl", pulumi.Sprintf("https://%s:%d/novnc/vnc.html", hostname, novncHTTPSPort))
 	ctx.Export("sshTarget", pulumi.Sprintf("ubuntu@%s", hostname))
 	ctx.Export("workspacePath", pulumi.String("/workspace"))
 	ctx.Export("githubOwner", pulumi.String(githubOwner))

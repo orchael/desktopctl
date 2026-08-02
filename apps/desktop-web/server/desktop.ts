@@ -23,7 +23,7 @@ const MOCK_DATA = {
     { name: 'ai-agent-bridge', active: true, version: '1.2.3' },
     { name: 'novnc-desktop', active: true, version: '20260525-005909' }
   ],
-  novnc_url: 'https://localhost:8443/',
+  novnc_url: 'https://localhost:8443/novnc/vnc.html',
   desktop_web_version: '0.0.0-mock'
 };
 
@@ -149,7 +149,7 @@ export function buildDesktopInfo(requestHost?: string): object {
 
   const rawHost = requestHost ?? process.env.HOSTNAME ?? os.hostname();
   const hostname = rawHost.split(':')[0];
-  const novncUrl = `https://${hostname}:${NOVNC_HTTPS_PORT}/`;
+  const novncUrl = `https://${hostname}:${NOVNC_HTTPS_PORT}/novnc/vnc.html`;
 
   const serviceNames = ['docker', 'ai-agent-bridge', 'novnc-desktop'];
   const services = serviceNames.map((name) => ({

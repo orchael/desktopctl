@@ -41,10 +41,10 @@ func Hostname(desktopID, zone string) string {
 	return desktopID + "." + zone
 }
 
-// NoVNCURL returns the browser URL for the given hostname.
-// noVNC listens on HTTPS port 8443 (novnc-desktop v0.1.5+).
+// NoVNCURL returns the browser URL for the noVNC client.
+// The desktop-web dashboard owns /; noVNC is proxied under /novnc/.
 func NoVNCURL(hostname string) string {
-	return "https://" + hostname + ":8443/"
+	return "https://" + hostname + ":8443/novnc/vnc.html"
 }
 
 // SSHTarget returns the SSH connection string for the given hostname.

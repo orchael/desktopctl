@@ -68,7 +68,7 @@ func TestPrintDesktopStatus_basicFields(t *testing.T) {
 		State:       store.StateReady,
 		GitHubOwner: "acme",
 		Hostname:    "d-abc123.desktops.example.com",
-		NoVNCURL:    "https://d-abc123.desktops.example.com:8443/",
+		NoVNCURL:    "https://d-abc123.desktops.example.com:8443/novnc/vnc.html",
 		SSHTarget:   "ubuntu@d-abc123.desktops.example.com",
 		InstanceID:  "i-0abc123",
 		StackName:   "desktop-d-abc123",
@@ -87,7 +87,7 @@ func TestPrintDesktopStatus_basicFields(t *testing.T) {
 		{"Owner", "Owner        : acme"},
 		{"Region", "Region       : us-east-2"},
 		{"Hostname", "Hostname     : d-abc123.desktops.example.com"},
-		{"Desktop URL", "Desktop URL  : https://d-abc123.desktops.example.com:8443/"},
+		{"Desktop URL", "Desktop URL  : https://d-abc123.desktops.example.com:8443/novnc/vnc.html"},
 		{"SSH target", "SSH target   : ubuntu@d-abc123.desktops.example.com"},
 		{"Instance ID", "Instance ID  : i-0abc123"},
 		{"Pulumi stack", "Pulumi stack : desktop-d-abc123"},
@@ -106,7 +106,7 @@ func TestPrintDesktopStatus_noVNCURL(t *testing.T) {
 	d := &store.Desktop{
 		DesktopID: "d-abc123",
 		State:     store.StateReady,
-		NoVNCURL:  "https://d-abc123.desktops.example.com:8443/",
+		NoVNCURL:  "https://d-abc123.desktops.example.com:8443/novnc/vnc.html",
 	}
 
 	var buf bytes.Buffer
@@ -123,7 +123,7 @@ func TestPrintDesktopStatus_noVNCURLAbsentWhenEmpty(t *testing.T) {
 	d := &store.Desktop{
 		DesktopID: "d-abc123",
 		State:     store.StateStopped,
-		NoVNCURL:  "https://d-abc123.desktops.example.com:8443/",
+		NoVNCURL:  "https://d-abc123.desktops.example.com:8443/novnc/vnc.html",
 	}
 
 	var buf bytes.Buffer
