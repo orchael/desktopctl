@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -73,8 +76,8 @@ func init() {
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
-	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY in the local environment")
-	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD in the local environment")
+	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY or an existing integration secret")
+	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret")
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
 	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint for non-interactive private CA bootstrap (optional)")
 	rootCmd.AddCommand(createCmd)
@@ -619,32 +622,68 @@ func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, re
 	if tailscaleNetwork != "" {
 		authKey := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY"))
 		if authKey == "" {
-			return "", "", fmt.Errorf("TAILSCALE_AUTHKEY must be set when a Tailscale network is configured")
-		}
-		payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
-		if err != nil {
-			return "", "", fmt.Errorf("marshal Tailscale secret: %w", err)
-		}
-		fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
-		if err := storeIntegrationSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env, "Tailscale"); err != nil {
-			return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
+			ok, err := integrationSecretHasKey(ctx, awsCfg, tailscaleSecretPath, "TS_AUTHKEY")
+			if err != nil {
+				return "", "", err
+			}
+			if !ok {
+				return "", "", fmt.Errorf("TAILSCALE_AUTHKEY must be set or existing secret %q must contain TS_AUTHKEY when Tailscale is configured", tailscaleSecretPath)
+			}
+		} else {
+			payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
+			if err != nil {
+				return "", "", fmt.Errorf("marshal Tailscale secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
+			if err := storeIntegrationSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env, "Tailscale"); err != nil {
+				return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
+			}
 		}
 	}
 	if stepCAServer != "" {
 		password := strings.TrimSpace(os.Getenv("STEP_CA_PROVISIONER_PASSWORD"))
 		if password == "" {
-			return "", "", fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set when step-ca is configured")
-		}
-		payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
-		if err != nil {
-			return "", "", fmt.Errorf("marshal step-ca secret: %w", err)
-		}
-		fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
-		if err := storeIntegrationSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env, "step-ca"); err != nil {
-			return "", "", fmt.Errorf("store step-ca provisioner secret: %w", err)
+			ok, err := integrationSecretHasKey(ctx, awsCfg, stepCASecretPath, "STEP_CA_PROVISIONER_PASSWORD")
+			if err != nil {
+				return "", "", err
+			}
+			if !ok {
+				return "", "", fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set or existing secret %q must contain STEP_CA_PROVISIONER_PASSWORD when step-ca is configured", stepCASecretPath)
+			}
+		} else {
+			payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
+			if err != nil {
+				return "", "", fmt.Errorf("marshal step-ca secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
+			if err := storeIntegrationSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env, "step-ca"); err != nil {
+				return "", "", fmt.Errorf("store step-ca provisioner secret: %w", err)
+			}
 		}
 	}
 	return tailscaleSecretPath, stepCASecretPath, nil
+}
+
+func integrationSecretHasKey(ctx context.Context, awsCfg aws.Config, secretID, key string) (bool, error) {
+	svc := secretsmanager.NewFromConfig(awsCfg)
+	out, err := svc.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(secretID),
+	})
+	if err != nil {
+		var notFound *secretsmanagertypes.ResourceNotFoundException
+		if errors.As(err, &notFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read integration secret %q: %w", secretID, err)
+	}
+	if out.SecretString == nil {
+		return false, nil
+	}
+	values := map[string]string{}
+	if err := json.Unmarshal([]byte(*out.SecretString), &values); err != nil {
+		return false, fmt.Errorf("parse integration secret %q: %w", secretID, err)
+	}
+	return strings.TrimSpace(values[key]) != "", nil
 }
 
 func secretPathSlug(s string) string {

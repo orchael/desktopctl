@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -171,6 +173,84 @@ func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) 
 	}
 	if stepCAPath != "/ai-desktops/acme/step-ca/ca.acme-tailnet.ts.net" {
 		t.Fatalf("step-ca path = %q", stepCAPath)
+	}
+}
+
+func TestIntegrationSecretHasKey(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		want        bool
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:   "secret contains key",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"TS_AUTHKEY\":\"tskey-auth-test\"}"}`,
+			want:   true,
+		},
+		{
+			name:   "secret missing key",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"OTHER\":\"value\"}"}`,
+		},
+		{
+			name:   "secret key blank",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"TS_AUTHKEY\":\"  \"}"}`,
+		},
+		{
+			name:   "secret not found",
+			status: http.StatusBadRequest,
+			body:   `{"__type":"ResourceNotFoundException","Message":"not found"}`,
+		},
+		{
+			name:        "invalid json secret",
+			status:      http.StatusOK,
+			body:        `{"SecretString":"not-json"}`,
+			wantErr:     true,
+			errContains: "parse integration secret",
+		},
+		{
+			name:        "permission error",
+			status:      http.StatusBadRequest,
+			body:        `{"__type":"AccessDeniedException","Message":"denied"}`,
+			wantErr:     true,
+			errContains: "read integration secret",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if target := r.Header.Get("X-Amz-Target"); !strings.HasSuffix(target, "GetSecretValue") {
+					t.Fatalf("unexpected AWS target %q", target)
+				}
+				w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			got, err := integrationSecretHasKey(context.Background(), makeSecretsManagerConfig(srv.URL), "/ai-desktops/acme/tailscale/acme", "TS_AUTHKEY")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

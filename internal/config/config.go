@@ -150,7 +150,7 @@ type AgentConfig struct {
 type NetworkConfig struct {
 	// TailscaleNetwork is the default tailnet/network used when create is run
 	// with --tailscale. The auth key is read from TAILSCALE_AUTHKEY at create
-	// time and stored in AWS Secrets Manager for cloud-init.
+	// time, or reused from the existing integration secret, for cloud-init.
 	TailscaleNetwork string `yaml:"tailscale_network,omitempty"`
 }
 

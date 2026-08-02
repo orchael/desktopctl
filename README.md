@@ -384,7 +384,7 @@ The CLI connects directly to the desktop via SSH. The bridge is accessed over `l
 
 ### 11. Optional private network and step-ca registration
 
-Attach a desktop to Tailscale by passing `--tailscale` and providing a local auth key through the environment. The CLI stores the auth key in AWS Secrets Manager and cloud-init retrieves it at boot.
+Attach a desktop to Tailscale by passing `--tailscale` and providing an auth key through the local environment or an existing integration secret. When `TAILSCALE_AUTHKEY` is set, the CLI stores it in AWS Secrets Manager and cloud-init retrieves it at boot. If `TAILSCALE_AUTHKEY` is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/tailscale/<tailnet>` when it contains `TS_AUTHKEY`.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -397,7 +397,7 @@ ai-desktops create \
 
 You can also set `network.tailscale_network` in `config.yaml` and use `--tailscale` without `--tailscale-network`. Setting the config value alone does not attach every new desktop to Tailscale.
 
-Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...

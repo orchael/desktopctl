@@ -95,7 +95,8 @@ agent:
 
 network:
   # Optional Tailscale tailnet/network default used when running create with
-  # --tailscale. Requires TAILSCALE_AUTHKEY in the local environment.
+  # --tailscale. Requires TAILSCALE_AUTHKEY in the local environment or an
+  # existing /ai-desktops/<owner>/tailscale/<tailnet> secret with TS_AUTHKEY.
   # Can be overridden per desktop with --tailscale-network, which also enables
   # Tailscale for that desktop.
   # tailscale_network: my-tailnet
@@ -105,7 +106,8 @@ pki:
   # certificates. Used when running create with --step-ca, or with --tailscale
   # when this config value is set. If the CA is reachable only over Tailscale,
   # also configure network.tailscale_network.
-  # Requires STEP_CA_PROVISIONER_PASSWORD in the local environment when running create.
+  # Requires STEP_CA_PROVISIONER_PASSWORD in the local environment or an existing
+  # /ai-desktops/<owner>/step-ca/<server> secret with STEP_CA_PROVISIONER_PASSWORD.
   # Can be overridden per desktop with --step-ca.
   # step_ca_server: ca.my-tailnet.ts.net
 
