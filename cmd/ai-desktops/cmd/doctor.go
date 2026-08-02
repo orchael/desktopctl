@@ -86,13 +86,13 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - desktop-secrets-env-file  — /home/ubuntu/.config/environment.d/desktop-secrets.conf exists and is non-empty
     - desktop-secrets-bash-file — /home/ubuntu/.desktop-secrets exists and is non-empty
 
-  Tailscale (only when --tailscale-network was specified at create time):
+  Tailscale (only when --tailscale or --tailscale-network was specified at create time):
     - tailscale-installed         — tailscale CLI is on PATH
     - tailscaled-active           — tailscaled systemd service is active
     - tailscale-running           — Tailscale backend state is Running
     - tailscale-network-metadata  — requested network name was recorded on the desktop
 
-  step-ca (only when --step-ca was specified at create time):
+  step-ca (only when --step-ca was specified at create time, or --tailscale used pki.step_ca_server):
     - step-cli-installed     — Smallstep CLI is on PATH
     - step-ca-resolves       — configured step-ca DNS name resolves
     - step-ca-health         — step ca health succeeds

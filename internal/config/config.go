@@ -148,16 +148,16 @@ type AgentConfig struct {
 }
 
 type NetworkConfig struct {
-	// TailscaleNetwork optionally attaches created desktops to this Tailscale
-	// tailnet/network. The auth key is read from TAILSCALE_AUTHKEY at create time
-	// and stored in AWS Secrets Manager for cloud-init.
+	// TailscaleNetwork is the default tailnet/network used when create is run
+	// with --tailscale. The auth key is read from TAILSCALE_AUTHKEY at create
+	// time and stored in AWS Secrets Manager for cloud-init.
 	TailscaleNetwork string `yaml:"tailscale_network,omitempty"`
 }
 
 type PKIConfig struct {
-	// StepCAServer optionally bootstraps step-ca trust and a bridge host
-	// certificate from this CA DNS name. If the CA lives on Tailscale, combine
-	// this with network.tailscale_network.
+	// StepCAServer is the default CA DNS name used when create is run with
+	// --step-ca, or with --tailscale when this value is set. If the CA lives on
+	// Tailscale, combine this with network.tailscale_network.
 	StepCAServer string `yaml:"step_ca_server,omitempty"`
 	// StepCAProvisioner is the provisioner used for bridge host certificates.
 	// Defaults to "admin".

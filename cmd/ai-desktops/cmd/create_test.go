@@ -16,6 +16,139 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 }
 
+func TestResolveCreateIntegrations(t *testing.T) {
+	tests := []struct {
+		name          string
+		in            resolveCreateIntegrationsInput
+		wantTailnet   string
+		wantTailscale bool
+		wantStepCA    string
+		wantStepCAOn  bool
+		wantProv      string
+		wantFP        string
+		wantErr       string
+	}{
+		{
+			name: "config alone does not enable tailscale or step-ca",
+			in: resolveCreateIntegrationsInput{
+				configTailscaleNetwork:  "config-tailnet",
+				configStepCA:            "ca.config.ts.net",
+				configStepCAProvisioner: "admin",
+				configStepCAFingerprint: "config-fp",
+			},
+		},
+		{
+			name: "tailscale flag enables tailscale and configured step-ca",
+			in: resolveCreateIntegrationsInput{
+				tailscale:               true,
+				configTailscaleNetwork:  "config-tailnet",
+				configStepCA:            "ca.config.ts.net",
+				configStepCAProvisioner: "ai-desktops",
+				configStepCAFingerprint: "config-fp",
+			},
+			wantTailnet:   "config-tailnet",
+			wantTailscale: true,
+			wantStepCA:    "ca.config.ts.net",
+			wantStepCAOn:  true,
+			wantProv:      "ai-desktops",
+			wantFP:        "config-fp",
+		},
+		{
+			name: "tailscale flag requires tailnet",
+			in: resolveCreateIntegrationsInput{
+				tailscale: true,
+			},
+			wantErr: "--tailscale requires --tailscale-network",
+		},
+		{
+			name: "tailscale network flag enables tailscale and overrides config",
+			in: resolveCreateIntegrationsInput{
+				tailscaleNetwork:       "flag-tailnet",
+				tailscaleNetworkSet:    true,
+				configTailscaleNetwork: "config-tailnet",
+				configStepCA:           "ca.config.ts.net",
+			},
+			wantTailnet:   "flag-tailnet",
+			wantTailscale: true,
+		},
+		{
+			name: "step-ca flag enables step-ca without tailscale",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                 "ca.flag.ts.net",
+				stepCASet:              true,
+				stepCAProvisioner:      "ops",
+				stepCAProvisionerSet:   true,
+				stepCAFingerprint:      "flag-fp",
+				stepCAFingerprintSet:   true,
+				configTailscaleNetwork: "config-tailnet",
+			},
+			wantStepCA:   "ca.flag.ts.net",
+			wantStepCAOn: true,
+			wantProv:     "ops",
+			wantFP:       "flag-fp",
+		},
+		{
+			name: "step-ca fingerprint falls back to environment",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                  "ca.flag.ts.net",
+				stepCASet:               true,
+				configStepCAProvisioner: "admin",
+				envStepCAFingerprint:    "env-fp",
+			},
+			wantStepCA:   "ca.flag.ts.net",
+			wantStepCAOn: true,
+			wantProv:     "admin",
+			wantFP:       "env-fp",
+		},
+		{
+			name: "empty step-ca provisioner fails when step-ca enabled",
+			in: resolveCreateIntegrationsInput{
+				stepCA:               "ca.flag.ts.net",
+				stepCASet:            true,
+				stepCAProvisioner:    "",
+				stepCAProvisionerSet: true,
+			},
+			wantErr: "step-ca provisioner must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveCreateIntegrations(tt.in)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.tailscaleEnabled != tt.wantTailscale {
+				t.Errorf("tailscaleEnabled = %v, want %v", got.tailscaleEnabled, tt.wantTailscale)
+			}
+			if got.tailscaleNetwork != tt.wantTailnet {
+				t.Errorf("tailscaleNetwork = %q, want %q", got.tailscaleNetwork, tt.wantTailnet)
+			}
+			if got.stepCAEnabled != tt.wantStepCAOn {
+				t.Errorf("stepCAEnabled = %v, want %v", got.stepCAEnabled, tt.wantStepCAOn)
+			}
+			if got.stepCA != tt.wantStepCA {
+				t.Errorf("stepCA = %q, want %q", got.stepCA, tt.wantStepCA)
+			}
+			if got.stepCAProvisioner != tt.wantProv {
+				t.Errorf("stepCAProvisioner = %q, want %q", got.stepCAProvisioner, tt.wantProv)
+			}
+			if got.stepCAFingerprint != tt.wantFP {
+				t.Errorf("stepCAFingerprint = %q, want %q", got.stepCAFingerprint, tt.wantFP)
+			}
+		})
+	}
+}
+
 func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) {
 	t.Setenv("TAILSCALE_AUTHKEY", "")
 	t.Setenv("STEP_CA_PROVISIONER_PASSWORD", "")

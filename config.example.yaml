@@ -94,15 +94,17 @@ agent:
   # trust_host: false
 
 network:
-  # Optional Tailscale tailnet/network to attach newly created desktops to.
-  # Requires TAILSCALE_AUTHKEY in the local environment when running create.
-  # Can be overridden per desktop with --tailscale-network.
+  # Optional Tailscale tailnet/network default used when running create with
+  # --tailscale. Requires TAILSCALE_AUTHKEY in the local environment.
+  # Can be overridden per desktop with --tailscale-network, which also enables
+  # Tailscale for that desktop.
   # tailscale_network: my-tailnet
 
 pki:
   # Optional step-ca DNS name used to bootstrap trust and issue bridgectl host
-  # certificates on newly created desktops. If the CA is reachable only over
-  # Tailscale, also configure network.tailscale_network.
+  # certificates. Used when running create with --step-ca, or with --tailscale
+  # when this config value is set. If the CA is reachable only over Tailscale,
+  # also configure network.tailscale_network.
   # Requires STEP_CA_PROVISIONER_PASSWORD in the local environment when running create.
   # Can be overridden per desktop with --step-ca.
   # step_ca_server: ca.my-tailnet.ts.net

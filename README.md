@@ -384,19 +384,20 @@ The CLI connects directly to the desktop via SSH. The bridge is accessed over `l
 
 ### 11. Optional private network and step-ca registration
 
-Attach a desktop to Tailscale by passing the tailnet/network name and providing a local auth key through the environment. The CLI stores the auth key in AWS Secrets Manager and cloud-init retrieves it at boot.
+Attach a desktop to Tailscale by passing `--tailscale` and providing a local auth key through the environment. The CLI stores the auth key in AWS Secrets Manager and cloud-init retrieves it at boot.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
 
 ai-desktops create \
   --github-owner myorg \
+  --tailscale \
   --tailscale-network my-tailnet
 ```
 
-You can also set `network.tailscale_network` in `config.yaml` and omit the flag for desktops that should use that network by default.
+You can also set `network.tailscale_network` in `config.yaml` and use `--tailscale` without `--tailscale-network`. Setting the config value alone does not attach every new desktop to Tailscale.
 
-Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use both flags; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -405,12 +406,13 @@ export STEP_CA_FINGERPRINT=...
 
 ai-desktops create \
   --github-owner myorg \
+  --tailscale \
   --tailscale-network my-tailnet \
   --step-ca ca.my-tailnet.ts.net \
   --step-ca-provisioner admin
 ```
 
-Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, and `pki.step_ca_fingerprint`. CLI flags override config values for a single desktop.
+Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, and `pki.step_ca_fingerprint`. CLI flags override config values for a single desktop. When `--tailscale` is passed and `pki.step_ca_server` is configured, step-ca is enabled from config as part of the private-network setup.
 
 `doctor` adds Tailscale and step-ca checks only for desktops created with those integrations enabled.
 

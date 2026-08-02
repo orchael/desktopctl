@@ -60,7 +60,7 @@ Verify workspace and repository configuration:
 
 ### Tailscale (Optional)
 
-Only runs when the desktop was created with Tailscale enabled by config or `--tailscale-network`.
+Only runs when the desktop was created with Tailscale enabled by `--tailscale` or `--tailscale-network`.
 
 - **tailscale-installed** — Tailscale CLI is installed
 - **tailscaled-active** — tailscaled systemd service is active
@@ -69,7 +69,7 @@ Only runs when the desktop was created with Tailscale enabled by config or `--ta
 
 ### step-ca (Optional)
 
-Only runs when the desktop was created with step-ca enabled by config or `--step-ca`.
+Only runs when the desktop was created with step-ca enabled by `--step-ca`, or by `--tailscale` with `pki.step_ca_server` configured.
 
 - **step-cli-installed** — Smallstep CLI is installed
 - **step-ca-resolves** — configured step-ca DNS name resolves

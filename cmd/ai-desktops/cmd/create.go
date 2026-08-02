@@ -37,6 +37,7 @@ var (
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
 	createInstanceType  string
+	createTailscale     bool
 	createTailscaleNet  string
 	createStepCA        string
 	createStepCAProv    string
@@ -71,7 +72,8 @@ func init() {
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
-	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "attach the desktop to a Tailscale tailnet/network; requires TAILSCALE_AUTHKEY in the local environment")
+	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
+	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY in the local environment")
 	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD in the local environment")
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
 	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint for non-interactive private CA bootstrap (optional)")
@@ -128,32 +130,29 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
-	if createStepCA != "" && createStepCAProv == "" {
-		return fmt.Errorf("--step-ca-provisioner must not be empty when --step-ca is set")
+	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
+		tailscale:               createTailscale,
+		tailscaleNetwork:        createTailscaleNet,
+		tailscaleNetworkSet:     cmd.Flags().Changed("tailscale-network"),
+		stepCA:                  createStepCA,
+		stepCASet:               cmd.Flags().Changed("step-ca"),
+		stepCAProvisioner:       createStepCAProv,
+		stepCAProvisionerSet:    cmd.Flags().Changed("step-ca-provisioner"),
+		stepCAFingerprint:       createStepCAFP,
+		stepCAFingerprintSet:    cmd.Flags().Changed("step-ca-fingerprint"),
+		configTailscaleNetwork:  cfg.Network.TailscaleNetwork,
+		configStepCA:            cfg.PKI.StepCAServer,
+		configStepCAProvisioner: cfg.PKI.StepCAProvisioner,
+		configStepCAFingerprint: cfg.PKI.StepCAFingerprint,
+		envStepCAFingerprint:    strings.TrimSpace(os.Getenv("STEP_CA_FINGERPRINT")),
+	})
+	if err != nil {
+		return err
 	}
-
-	tailscaleNetwork := cfg.Network.TailscaleNetwork
-	if cmd.Flags().Changed("tailscale-network") {
-		tailscaleNetwork = createTailscaleNet
-	}
-	stepCAServer := cfg.PKI.StepCAServer
-	if cmd.Flags().Changed("step-ca") {
-		stepCAServer = createStepCA
-	}
-	stepCAProvisioner := cfg.PKI.StepCAProvisioner
-	if cmd.Flags().Changed("step-ca-provisioner") {
-		stepCAProvisioner = createStepCAProv
-	}
-	stepCAFingerprint := cfg.PKI.StepCAFingerprint
-	if cmd.Flags().Changed("step-ca-fingerprint") {
-		stepCAFingerprint = createStepCAFP
-	}
-	if stepCAServer != "" && stepCAProvisioner == "" {
-		return fmt.Errorf("step-ca provisioner must not be empty when step-ca is configured")
-	}
-	if stepCAServer != "" && stepCAFingerprint == "" {
-		stepCAFingerprint = strings.TrimSpace(os.Getenv("STEP_CA_FINGERPRINT"))
-	}
+	tailscaleNetwork := integrations.tailscaleNetwork
+	stepCAServer := integrations.stepCA
+	stepCAProvisioner := integrations.stepCAProvisioner
+	stepCAFingerprint := integrations.stepCAFingerprint
 
 	env := createEnv
 	if env == "" {
@@ -188,7 +187,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	tailscaleSecretPath := ""
 	stepCASecretPath := ""
-	if tailscaleNetwork != "" || stepCAServer != "" {
+	if integrations.tailscaleEnabled || integrations.stepCAEnabled {
 		var err error
 		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, tailscaleNetwork, stepCAServer)
 		if err != nil {
@@ -257,10 +256,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
 	}
-	if tailscaleNetwork != "" {
+	if integrations.tailscaleEnabled {
 		fmt.Fprintf(os.Stderr, "  Tailscale network     : %s\n", tailscaleNetwork)
 	}
-	if stepCAServer != "" {
+	if integrations.stepCAEnabled {
 		fmt.Fprintf(os.Stderr, "  step-ca server        : %s (provisioner=%s)\n", stepCAServer, stepCAProvisioner)
 	}
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
@@ -428,10 +427,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
 		fmt.Printf("Nested virt   : %v\n", nestedVirt)
-		if tailscaleNetwork != "" {
+		if integrations.tailscaleEnabled {
 			fmt.Printf("Tailscale     : %s\n", tailscaleNetwork)
 		}
-		if stepCAServer != "" {
+		if integrations.stepCAEnabled {
 			fmt.Printf("step-ca       : %s\n", stepCAServer)
 		}
 		fmt.Printf("Repos         : %v\n", createRepos)
@@ -516,6 +515,89 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9_+=.@-]+`)
+
+type resolveCreateIntegrationsInput struct {
+	tailscale bool
+
+	tailscaleNetwork    string
+	tailscaleNetworkSet bool
+
+	stepCA    string
+	stepCASet bool
+
+	stepCAProvisioner    string
+	stepCAProvisionerSet bool
+
+	stepCAFingerprint    string
+	stepCAFingerprintSet bool
+
+	configTailscaleNetwork  string
+	configStepCA            string
+	configStepCAProvisioner string
+	configStepCAFingerprint string
+	envStepCAFingerprint    string
+}
+
+type resolvedCreateIntegrations struct {
+	tailscaleEnabled  bool
+	tailscaleNetwork  string
+	stepCAEnabled     bool
+	stepCA            string
+	stepCAProvisioner string
+	stepCAFingerprint string
+}
+
+func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreateIntegrations, error) {
+	tailscaleNetwork := strings.TrimSpace(in.configTailscaleNetwork)
+	if in.tailscaleNetworkSet {
+		tailscaleNetwork = strings.TrimSpace(in.tailscaleNetwork)
+	}
+	tailscaleEnabled := in.tailscale || in.tailscaleNetworkSet
+	if tailscaleEnabled && tailscaleNetwork == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("--tailscale requires --tailscale-network or network.tailscale_network in config")
+	}
+	if !tailscaleEnabled {
+		tailscaleNetwork = ""
+	}
+
+	stepCA := strings.TrimSpace(in.configStepCA)
+	if in.stepCASet {
+		stepCA = strings.TrimSpace(in.stepCA)
+	}
+	stepCAEnabled := in.stepCASet || (in.tailscale && stepCA != "")
+	if !stepCAEnabled {
+		stepCA = ""
+	}
+
+	stepCAProvisioner := strings.TrimSpace(in.configStepCAProvisioner)
+	if in.stepCAProvisionerSet {
+		stepCAProvisioner = strings.TrimSpace(in.stepCAProvisioner)
+	}
+	if stepCAEnabled && stepCAProvisioner == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("step-ca provisioner must not be empty when step-ca is configured")
+	}
+
+	stepCAFingerprint := strings.TrimSpace(in.configStepCAFingerprint)
+	if in.stepCAFingerprintSet {
+		stepCAFingerprint = strings.TrimSpace(in.stepCAFingerprint)
+	}
+	if stepCAEnabled && stepCAFingerprint == "" {
+		stepCAFingerprint = strings.TrimSpace(in.envStepCAFingerprint)
+	}
+	if !stepCAEnabled {
+		stepCAProvisioner = ""
+		stepCAFingerprint = ""
+	}
+
+	return resolvedCreateIntegrations{
+		tailscaleEnabled:  tailscaleEnabled,
+		tailscaleNetwork:  tailscaleNetwork,
+		stepCAEnabled:     stepCAEnabled,
+		stepCA:            stepCA,
+		stepCAProvisioner: stepCAProvisioner,
+		stepCAFingerprint: stepCAFingerprint,
+	}, nil
+}
 
 func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, tailscaleNetwork, stepCAServer string) (string, string, error) {
 	tailscaleSecretPath := ""
