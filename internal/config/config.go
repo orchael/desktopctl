@@ -163,7 +163,8 @@ type PKIConfig struct {
 	// Defaults to "admin".
 	StepCAProvisioner string `yaml:"step_ca_provisioner,omitempty"`
 	// StepCAFingerprint pins the step-ca root certificate for non-interactive
-	// bootstrap. It may also be supplied via STEP_CA_FINGERPRINT.
+	// bootstrap. It is required when step-ca is enabled and may also be supplied
+	// via STEP_CA_FINGERPRINT.
 	StepCAFingerprint string `yaml:"step_ca_fingerprint,omitempty"`
 }
 

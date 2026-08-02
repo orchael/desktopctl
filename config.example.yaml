@@ -115,6 +115,7 @@ pki:
   # Can be overridden with --step-ca-provisioner.
   # step_ca_provisioner: admin
 
-  # Optional root certificate fingerprint for non-interactive private CA bootstrap.
+  # Root certificate fingerprint for non-interactive private CA bootstrap.
+  # Required when step-ca is enabled.
   # Can also be supplied by STEP_CA_FINGERPRINT or --step-ca-fingerprint.
   # step_ca_fingerprint: abcdef0123456789

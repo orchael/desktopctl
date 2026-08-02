@@ -12,7 +12,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.7.4"
+	AIAgentBridgeVersion  = "v0.8.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -138,7 +138,7 @@ runcmd:
       --auth-key "$TS_AUTHKEY" \
       --hostname "$TAILSCALE_HOSTNAME" \
       --accept-dns=true \
-      --ssh=false
+      --ssh=true
     unset TS_AUTHKEY
 
     for i in $(seq 1 60); do
@@ -167,6 +167,8 @@ runcmd:
     STEP_SECRET="{{ .StepCASecretPath }}"
     CERT_DIR="/home/ubuntu/.config/bridgectl/tls"
     CERT_NAME="{{ .DesktopID }}"
+    STEP_CA_ROOT="/root/.step/certs/root_ca.crt"
+    STEP_CA_API_ROOT="$STEP_CA_ROOT"
 
     # The CA often lives on Tailscale, so wait for DNS after optional Tailscale attachment.
     for i in $(seq 1 90); do
@@ -182,7 +184,7 @@ runcmd:
 
     if ! command -v step >/dev/null 2>&1; then
       apt-get update
-      apt-get install -y --no-install-recommends curl gpg ca-certificates
+      apt-get install -y --no-install-recommends curl gpg ca-certificates openssl
       install -d -m 0755 /etc/apt/keyrings
       curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
         -o /etc/apt/keyrings/smallstep.asc
@@ -196,14 +198,27 @@ runcmd:
       apt-get update
       apt-get install -y step-cli
     fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      apt-get update
+      apt-get install -y --no-install-recommends openssl
+    fi
 
-    if ! step ca health --ca-url "https://${STEP_CA}" >/dev/null 2>&1; then
+    if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_ROOT" >/dev/null 2>&1; then
       if [ -n "$STEP_CA_FINGERPRINT" ]; then
         step ca bootstrap --ca-url "https://${STEP_CA}" --fingerprint "$STEP_CA_FINGERPRINT" --install --force
       else
         step ca bootstrap --ca-url "https://${STEP_CA}" --install --force
       fi
     fi
+    if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_API_ROOT" >/dev/null 2>&1; then
+      for ROOT_CANDIDATE in /etc/ssl/certs/ISRG_Root_X1.pem /etc/ssl/certs/ISRG_Root_X2.pem; do
+        if [ -f "$ROOT_CANDIDATE" ] && step ca health --ca-url "https://${STEP_CA}" --root "$ROOT_CANDIDATE" >/dev/null 2>&1; then
+          STEP_CA_API_ROOT="$ROOT_CANDIDATE"
+          break
+        fi
+      done
+    fi
+    step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_API_ROOT" >/dev/null
 
     install -d -o ubuntu -g ubuntu -m 700 "$CERT_DIR"
     SECRET_JSON=$(aws secretsmanager get-secret-value \
@@ -215,20 +230,61 @@ runcmd:
     unset SECRET_JSON
 
     STEP_CA_PASSWORD_FILE=$(mktemp)
-    trap 'rm -f "$STEP_CA_PASSWORD_FILE"' EXIT
+    STEP_CA_TOKEN_FILE=$(mktemp)
+    STEP_CA_CSR_FILE=$(mktemp)
+    STEP_CA_SIGN_REQUEST=$(mktemp)
+    STEP_CA_SIGN_RESPONSE=$(mktemp)
+    trap 'rm -f "$STEP_CA_PASSWORD_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_CSR_FILE" "$STEP_CA_SIGN_REQUEST" "$STEP_CA_SIGN_RESPONSE"' EXIT
     printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > "$STEP_CA_PASSWORD_FILE"
     chmod 600 "$STEP_CA_PASSWORD_FILE"
-    step ca certificate \
+    step ca token \
       "$CERT_NAME" \
-      "$CERT_DIR/server.crt" \
-      "$CERT_DIR/server.key" \
       --ca-url "https://${STEP_CA}" \
+      --root "$STEP_CA_API_ROOT" \
       --provisioner "$STEP_PROVISIONER" \
       --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
       --san "{{ .Hostname }}" \
       --san "$CERT_NAME" \
-      --force
-    rm -f "$STEP_CA_PASSWORD_FILE"
+      > "$STEP_CA_TOKEN_FILE"
+    openssl req -new \
+      -newkey ec \
+      -pkeyopt ec_paramgen_curve:P-256 \
+      -nodes \
+      -keyout "$CERT_DIR/server.key" \
+      -out "$STEP_CA_CSR_FILE" \
+      -subj "/CN=${CERT_NAME}" \
+      -addext "subjectAltName=DNS:{{ .Hostname }},DNS:${CERT_NAME}"
+    python3 - "$STEP_CA_CSR_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_SIGN_REQUEST" <<'PY'
+    import json
+    import sys
+
+    csr_path, token_path, output_path = sys.argv[1:4]
+    with open(csr_path, encoding="utf-8") as csr_file:
+        csr = csr_file.read()
+    with open(token_path, encoding="utf-8") as token_file:
+        token = token_file.read().strip()
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        json.dump({"csr": csr, "ott": token}, output_file)
+    PY
+    curl -fsSL \
+      --cacert "$STEP_CA_API_ROOT" \
+      -H 'Content-Type: application/json' \
+      --data @"$STEP_CA_SIGN_REQUEST" \
+      "https://${STEP_CA}/1.0/sign" \
+      > "$STEP_CA_SIGN_RESPONSE"
+    python3 - "$STEP_CA_SIGN_RESPONSE" "$CERT_DIR/server.crt" <<'PY'
+    import json
+    import sys
+
+    response_path, cert_path = sys.argv[1:3]
+    with open(response_path, encoding="utf-8") as response_file:
+        response = json.load(response_file)
+    with open(cert_path, "w", encoding="utf-8") as cert_file:
+        cert_file.write(response["crt"])
+        if response.get("ca"):
+            cert_file.write(response["ca"])
+    PY
+    rm -f "$STEP_CA_PASSWORD_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_CSR_FILE" "$STEP_CA_SIGN_REQUEST" "$STEP_CA_SIGN_RESPONSE"
     trap - EXIT
     unset STEP_CA_PROVISIONER_PASSWORD
     chown ubuntu:ubuntu "$CERT_DIR/server.crt" "$CERT_DIR/server.key"
@@ -313,8 +369,17 @@ runcmd:
     chmod 600 /home/ubuntu/.ssh/config
     chown ubuntu:ubuntu /home/ubuntu/.ssh/config
 
-    # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
-    printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
+    # Authenticate gh CLI as ubuntu user without invoking the interactive login flow.
+    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/gh
+    {
+      printf 'github.com:\n'
+      printf '    oauth_token: %s\n' "$GITHUB_TOKEN"
+      printf '    git_protocol: ssh\n'
+      printf '    user: %s\n' "$OWNER"
+    } > /home/ubuntu/.config/gh/hosts.yml
+    chmod 600 /home/ubuntu/.config/gh/hosts.yml
+    chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
+    sudo -u ubuntu gh auth setup-git --hostname github.com || echo "WARNING: gh auth setup-git failed - gh CLI may not be fully configured"
 
     # Configure git commit identity (ubuntu)
     sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"

@@ -46,6 +46,8 @@ func TestRenderCloudInit(t *testing.T) {
 		"d-001.desktops.orchael.dev",
 		"npm.pkg.github.com",
 		"/home/ubuntu/.npmrc",
+		"/home/ubuntu/.config/gh/hosts.yml",
+		"gh auth setup-git --hostname github.com",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -185,6 +187,7 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 		"TS_AUTHKEY",
 		"tailscale up",
 		"--hostname \"$TAILSCALE_HOSTNAME\"",
+		"--ssh=true",
 		"TAILSCALE_NETWORK",
 	}
 	for _, want := range checks {
@@ -194,6 +197,9 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 	}
 	if strings.Contains(out, "curl -fsSL https://tailscale.com/install.sh | sh") {
 		t.Error("Tailscale install should not pipe curl directly into sh")
+	}
+	if strings.Contains(out, "--ssh=false") {
+		t.Error("Tailscale SSH should be enabled so tailscale ssh can verify desktops")
 	}
 }
 
@@ -220,11 +226,24 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 	checks := []string{
 		"getent hosts \"$STEP_CA\"",
 		"packages.smallstep.com/stable/debian",
-		"step ca health --ca-url \"https://${STEP_CA}\"",
+		"STEP_CA_ROOT=\"/root/.step/certs/root_ca.crt\"",
+		"STEP_CA_API_ROOT=\"$STEP_CA_ROOT\"",
+		"step ca health --ca-url \"https://${STEP_CA}\" --root \"$STEP_CA_ROOT\"",
 		"step ca bootstrap --ca-url \"https://${STEP_CA}\" --fingerprint \"$STEP_CA_FINGERPRINT\" --install --force",
+		"/etc/ssl/certs/ISRG_Root_X1.pem",
+		"/etc/ssl/certs/ISRG_Root_X2.pem",
 		"STEP_CA_PROVISIONER_PASSWORD",
 		"STEP_CA_PASSWORD_FILE=$(mktemp)",
-		"step ca certificate",
+		"STEP_CA_TOKEN_FILE=$(mktemp)",
+		"STEP_CA_CSR_FILE=$(mktemp)",
+		"STEP_CA_SIGN_REQUEST=$(mktemp)",
+		"STEP_CA_SIGN_RESPONSE=$(mktemp)",
+		"step ca token",
+		"--root \"$STEP_CA_API_ROOT\"",
+		"openssl req -new",
+		"json.dump({\"csr\": csr, \"ott\": token}, output_file)",
+		"\"https://${STEP_CA}/1.0/sign\"",
+		"cert_file.write(response[\"crt\"])",
 		"server.crt",
 		"bridgectl.service.d/step-ca.conf",
 		"EnvironmentFile=-%%h/.config/bridgectl/step-ca.env",
@@ -236,6 +255,9 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 	}
 	if strings.Contains(out, "/tmp/step-ca-password") {
 		t.Error("step-ca password file should use mktemp, not a fixed /tmp path")
+	}
+	if strings.Contains(out, "step ca certificate") {
+		t.Error("step-ca certificate issuance should use the sign API, not step ca certificate")
 	}
 
 	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {

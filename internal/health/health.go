@@ -555,7 +555,7 @@ func StepCACheckers(hostname string, sshPort int, user, keyPath string, serverDN
 		NewSSHChecker("step-ca-resolves", hostname, sshPort, user, keyPath,
 			fmt.Sprintf("getent hosts %s >/dev/null", shellQuote(serverDNS)), t),
 		NewSSHChecker("step-ca-health", hostname, sshPort, user, keyPath,
-			fmt.Sprintf("step ca health --ca-url %s", shellQuote("https://"+serverDNS)), t),
+			fmt.Sprintf("(sudo step ca health --ca-url %[1]s --root /root/.step/certs/root_ca.crt || sudo step ca health --ca-url %[1]s --root /etc/ssl/certs/ISRG_Root_X1.pem || sudo step ca health --ca-url %[1]s --root /etc/ssl/certs/ISRG_Root_X2.pem)", shellQuote("https://"+serverDNS)), t),
 		NewSSHChecker("bridgectl-step-ca-env", hostname, sshPort, user, keyPath,
 			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", t),
 		NewSSHChecker("bridgectl-step-ca-cert", hostname, sshPort, user, keyPath,

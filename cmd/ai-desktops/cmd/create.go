@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -377,6 +379,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if renderErr != nil {
 		return fmt.Errorf("render cloud-init: %w", renderErr)
 	}
+	userDataBase64, err := gzipBase64UserData(userData)
+	if err != nil {
+		return fmt.Errorf("compress cloud-init user-data: %w", err)
+	}
 
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
@@ -388,7 +394,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.Agent.BridgePort,
 		volumeSize,
 		amiID,
-		userData,
+		userDataBase64,
 		env,
 		nestedVirt,
 	)
@@ -410,7 +416,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			sgID:            foundationOutputs[pulumi.OutputSGID],
 			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
 			sshKeyName:      cfg.Desktop.SSHKeyName,
-			userData:        userData,
+			userDataBase64:  userDataBase64,
 			volumeSize:      volumeSize,
 			hostname:        hostname,
 			desktopID:       desktopID,
@@ -519,6 +525,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9_+=.@-]+`)
 
+func gzipBase64UserData(userData string) (string, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(userData)); err != nil {
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
 type resolveCreateIntegrationsInput struct {
 	tailscale bool
 
@@ -586,6 +604,9 @@ func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreat
 	}
 	if stepCAEnabled && stepCAFingerprint == "" {
 		stepCAFingerprint = strings.TrimSpace(in.envStepCAFingerprint)
+	}
+	if stepCAEnabled && stepCAFingerprint == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("step-ca fingerprint must be set with --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT when step-ca is configured")
 	}
 	if !stepCAEnabled {
 		stepCAProvisioner = ""
@@ -766,7 +787,7 @@ type instanceLaunchParams struct {
 	sgID            string
 	instanceProfile string
 	sshKeyName      string
-	userData        string
+	userDataBase64  string
 	volumeSize      int
 	hostname        string
 	desktopID       string
@@ -806,9 +827,10 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 		IamInstanceProfile: &ec2types.IamInstanceProfileSpecification{
 			Name: aws.String(p.instanceProfile),
 		},
-		// UserData must be base64-encoded in RunInstances; Pulumi encodes it automatically
-		// but we're bypassing Pulumi for this call.
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(p.userData))),
+		// UserData is already gzip-compressed and base64-encoded. Cloud-init
+		// detects gzip user data, and compression keeps the EC2 API payload under
+		// the 16 KiB raw user-data limit.
+		UserData: aws.String(p.userDataBase64),
 		// AssociatePublicIpAddress must be set via NetworkInterfaces in a VPC subnet;
 		// it is not available as a top-level parameter when SubnetId is also specified.
 		NetworkInterfaces: []ec2types.InstanceNetworkInterfaceSpecification{

@@ -377,6 +377,15 @@ func TestStepCACheckers_returnsExpectedChecks(t *testing.T) {
 			t.Errorf("StepCACheckers missing expected checker %q", n)
 		}
 	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /root/.step/certs/root_ca.crt") {
+		t.Error("step-ca-health should pass the bootstrapped root certificate explicitly")
+	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /etc/ssl/certs/ISRG_Root_X1.pem") {
+		t.Error("step-ca-health should fall back to ISRG Root X1")
+	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /etc/ssl/certs/ISRG_Root_X2.pem") {
+		t.Error("step-ca-health should fall back to ISRG Root X2")
+	}
 }
 
 func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
@@ -430,4 +439,15 @@ func TestRepoBaseName(t *testing.T) {
 			t.Errorf("repoBaseName(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
+}
+
+func checkerCommandContains(checkers []Checker, name, want string) bool {
+	for _, checker := range checkers {
+		if checker.Name() != name {
+			continue
+		}
+		sshChecker, ok := checker.(*SSHChecker)
+		return ok && strings.Contains(sshChecker.command, want)
+	}
+	return false
 }

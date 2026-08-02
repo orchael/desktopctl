@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,6 +76,15 @@ func TestResolveCreateIntegrations(t *testing.T) {
 			},
 			wantTailnet:   "flag-tailnet",
 			wantTailscale: true,
+		},
+		{
+			name: "step-ca requires fingerprint",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                  "ca.flag.ts.net",
+				stepCASet:               true,
+				configStepCAProvisioner: "admin",
+			},
+			wantErr: "step-ca fingerprint must be set",
 		},
 		{
 			name: "step-ca flag enables step-ca without tailscale",
@@ -251,6 +264,31 @@ func TestIntegrationSecretHasKey(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGzipBase64UserData(t *testing.T) {
+	const userData = "#cloud-config\nruncmd:\n  - echo hello\n"
+
+	encoded, err := gzipBase64UserData(userData)
+	if err != nil {
+		t.Fatalf("gzipBase64UserData returned error: %v", err)
+	}
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatalf("open gzip: %v", err)
+	}
+	defer zr.Close()
+	decoded, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read gzip: %v", err)
+	}
+	if string(decoded) != userData {
+		t.Fatalf("decoded user-data = %q, want %q", string(decoded), userData)
 	}
 }
 

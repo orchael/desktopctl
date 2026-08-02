@@ -218,7 +218,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.1.0"
+ai_agent_bridge_version = "v0.8.0"
 go_version              = "1.23.0"
 uv_version              = "0.4.0"
 ```
@@ -397,7 +397,25 @@ ai-desktops create \
 
 You can also set `network.tailscale_network` in `config.yaml` and use `--tailscale` without `--tailscale-network`. Setting the config value alone does not attach every new desktop to Tailscale.
 
-Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. `STEP_CA_FINGERPRINT` can also be supplied with `--step-ca-fingerprint`.
+Desktops join Tailscale with Tailscale SSH enabled. The tailnet policy must still allow SSH to the auth-key tag used for desktops, for example:
+
+```json
+{
+  "tagOwners": {
+    "tag:ai-desktop": ["autogroup:admin"]
+  },
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["autogroup:admin"],
+      "dst": ["tag:ai-desktop"],
+      "users": ["ubuntu"]
+    }
+  ]
+}
+```
+
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
