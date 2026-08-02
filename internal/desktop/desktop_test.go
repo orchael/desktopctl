@@ -39,7 +39,7 @@ func TestHostname(t *testing.T) {
 }
 
 func TestNoVNCURL(t *testing.T) {
-	if got := NoVNCURL("d-001.desktops.orchael.dev"); got != "https://d-001.desktops.orchael.dev:8443/" {
+	if got := NoVNCURL("d-001.desktops.orchael.dev"); got != "https://d-001.desktops.orchael.dev:8443/novnc/vnc.html" {
 		t.Errorf("got %q", got)
 	}
 }
