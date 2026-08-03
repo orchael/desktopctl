@@ -496,7 +496,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"nested_virtualization": nestedVirtStr,
 		"avd_names":             strings.Join(req.AVDNames, ", "),
 		"tailscale_network":     tailscaleNetwork,
-		"step_ca":               stepCAServer,
+		"step_ca_server":        stepCAServer,
 	}
 
 	if jsonOut {
@@ -515,8 +515,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if result["tailscale_network"] != "" {
 		fmt.Printf("Tailscale     : %s\n", result["tailscale_network"])
 	}
-	if result["step_ca"] != "" {
-		fmt.Printf("step-ca       : %s\n", result["step_ca"])
+	if result["step_ca_server"] != "" {
+		fmt.Printf("step-ca       : %s\n", result["step_ca_server"])
 	}
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
@@ -575,7 +575,7 @@ func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreat
 	}
 	tailscaleEnabled := in.tailscale || in.tailscaleNetworkSet
 	if tailscaleEnabled && tailscaleNetwork == "" {
-		return resolvedCreateIntegrations{}, fmt.Errorf("--tailscale requires --tailscale-network or network.tailscale_network in config")
+		return resolvedCreateIntegrations{}, fmt.Errorf("Tailscale requires --tailscale-network or network.tailscale_network in config")
 	}
 	if !tailscaleEnabled {
 		tailscaleNetwork = ""

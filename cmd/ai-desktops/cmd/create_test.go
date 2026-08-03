@@ -64,7 +64,7 @@ func TestResolveCreateIntegrations(t *testing.T) {
 			in: resolveCreateIntegrationsInput{
 				tailscale: true,
 			},
-			wantErr: "--tailscale requires --tailscale-network",
+			wantErr: "Tailscale requires --tailscale-network",
 		},
 		{
 			name: "tailscale network flag enables tailscale and overrides config",
