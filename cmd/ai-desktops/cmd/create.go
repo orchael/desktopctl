@@ -79,9 +79,9 @@ func init() {
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
 	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY or an existing integration secret")
-	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret")
+	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret, and a fingerprint via --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT")
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
-	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint for non-interactive private CA bootstrap (optional)")
+	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint; required when --step-ca is set (may also be supplied via pki.step_ca_fingerprint or STEP_CA_FINGERPRINT)")
 	rootCmd.AddCommand(createCmd)
 }
 
