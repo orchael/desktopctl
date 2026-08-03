@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    # go_version, uv_version, and ai_agent_bridge_version must be injected via --extra-vars
+    # go_version, uv_version, ai_agent_bridge_version, and tailscale_version must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
     # Minimum acceptable versions for apt-installed packages.
@@ -16,6 +16,7 @@
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
       ai-agent-bridge: "{{ ai_agent_bridge_version | regex_replace('^v', '') }}"
+      tailscale: "{{ tailscale_version | regex_replace('^v', '') }}"
 
   pre_tasks:
     - name: Require go_version
@@ -42,6 +43,11 @@
       ansible.builtin.assert:
         that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
         fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
+    - name: Require tailscale_version
+      ansible.builtin.assert:
+        that: tailscale_version is defined and tailscale_version | length > 0
+        fail_msg: "tailscale_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
     - name: Require novnc_desktop_version
       ansible.builtin.assert:
@@ -512,6 +518,27 @@
         state: present
         update_cache: true
 
+    - name: Add Tailscale apt signing key
+      ansible.builtin.shell: |
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/{{ ubuntu_codename.stdout }}.noarmor.gpg \
+          -o /etc/apt/keyrings/tailscale-archive-keyring.gpg
+        chmod 0644 /etc/apt/keyrings/tailscale-archive-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+
+    - name: Add Tailscale apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/tailscale.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ubuntu_codename.stdout }} main
+        mode: "0644"
+
+    - name: Install Tailscale from signed apt repository
+      ansible.builtin.apt:
+        name: "tailscale={{ tailscale_version | regex_replace('^v', '') }}"
+        state: present
+        update_cache: true
+
     - name: Run install-provider-runtime to install Claude and other provider CLIs
       ansible.builtin.command: /usr/lib/ai-agent-bridge/install-provider-runtime
       args:
@@ -927,12 +954,20 @@
       register: bridge_ver_out
       changed_when: false
 
-    - name: Warn if ai-agent-bridge version does not match expected
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: ai-agent-bridge version mismatch — expected {{ ai_agent_bridge_version }},
-          got {{ bridge_ver_out.stdout }}
-      when: "(ai_agent_bridge_version | regex_replace('^v', '')) not in bridge_ver_out.stdout"
+    - name: Assert ai-agent-bridge version matches expected
+      ansible.builtin.assert:
+        that: bridge_ver_out.stdout == (ai_agent_bridge_version | regex_replace('^v', ''))
+        fail_msg: "ai-agent-bridge version mismatch — expected {{ ai_agent_bridge_version | regex_replace('^v', '') }}, got {{ bridge_ver_out.stdout }}"
+
+    - name: Verify Tailscale is installed
+      ansible.builtin.command: dpkg-query -W -f='${Version}' tailscale
+      register: tailscale_ver_out
+      changed_when: false
+
+    - name: Assert Tailscale version matches expected
+      ansible.builtin.assert:
+        that: tailscale_ver_out.stdout == (tailscale_version | regex_replace('^v', ''))
+        fail_msg: "Tailscale version mismatch — expected {{ tailscale_version | regex_replace('^v', '') }}, got {{ tailscale_ver_out.stdout }}"
 
     - name: Verify Node.js 24 is installed
       ansible.builtin.command: node --version

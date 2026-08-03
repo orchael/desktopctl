@@ -219,6 +219,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
 ai_agent_bridge_version = "v0.8.0"
+tailscale_version       = "1.98.9"
 go_version              = "1.23.0"
 uv_version              = "0.4.0"
 ```
@@ -268,6 +269,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - neovim (via snap)
 - Homebrew
 - `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
+- Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
 - Android Studio (via snap)
 - Android SDK with platforms `android-34` (including Google Play Store system image `x86_64`), build-tools 35.0.1 and 37.0.0, and NDK 27.0.12077973
