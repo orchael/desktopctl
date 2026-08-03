@@ -79,6 +79,14 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
+	if d.TailscaleNet != "" {
+		fmt.Fprintf(os.Stderr, "Removing Tailscale machine %s from %s ...\n", id, d.TailscaleNet)
+		if err := removeTailscaleDesktopDevice(ctx, d.TailscaleNet, id); err != nil {
+			_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
+			return fmt.Errorf("remove tailscale machine: %w", err)
+		}
+	}
+
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
 		return fmt.Errorf("pulumi destroy: %w (desktop left running for diagnosis; record marked failed)", err)

@@ -38,6 +38,7 @@ The operator profile needs the following permissions:
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
+- `TAILSCALE_API_KEY` in the local environment is required by `terminate` when the desktop record has `tailscale_network` set, so the CLI can remove the matching Tailscale machine before destroying the stack.
 
 **Tunnel access (`agent` command):**
 - `ssm:StartSession` with document `AWS-StartPortForwardingSession`
@@ -495,6 +496,8 @@ ai-desktops terminate d-a1b2c3d4
 ```
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
+
+For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also removes the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access before terminating Tailscale-attached desktops.
 
 ## Updating existing desktops
 
