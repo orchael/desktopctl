@@ -47,6 +47,7 @@ var (
 	createStepCA        string
 	createStepCAProv    string
 	createStepCAFP      string
+	createStepCAClients []string
 )
 
 var createCmd = &cobra.Command{
@@ -82,6 +83,7 @@ func init() {
 	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret, and a fingerprint via --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT")
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
 	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint; required when --step-ca is set (may also be supplied via pki.step_ca_fingerprint or STEP_CA_FINGERPRINT)")
+	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -158,6 +160,17 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	stepCAServer := integrations.stepCA
 	stepCAProvisioner := integrations.stepCAProvisioner
 	stepCAFingerprint := integrations.stepCAFingerprint
+	var stepCAClients []provision.StepCAClient
+	if stepCAServer != "" || len(createStepCAClients) > 0 {
+		var err error
+		stepCAClients, err = resolveStepCAClients(cfg.PKI.StepCAClients, createStepCAClients)
+		if err != nil {
+			return err
+		}
+		if len(stepCAClients) > 0 && stepCAServer == "" {
+			return fmt.Errorf("step-ca clients require --step-ca or pki.step_ca_server")
+		}
+	}
 
 	env := createEnv
 	if env == "" {
@@ -365,6 +378,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		StepCAFingerprint:    stepCAFingerprint,
 		StepCAProvisioner:    stepCAProvisioner,
 		StepCASecretPath:     stepCASecretPath,
+		StepCAClients:        stepCAClients,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
@@ -788,6 +802,90 @@ func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 		avds = append(avds, avd)
 	}
 	return avds, nil
+}
+
+func resolveStepCAClients(configClients []config.StepCAClientConfig, flagSpecs []string) ([]provision.StepCAClient, error) {
+	clients := make([]config.StepCAClientConfig, 0, len(configClients)+len(flagSpecs))
+	clients = append(clients, configClients...)
+	for _, spec := range flagSpecs {
+		client, err := parseStepCAClientSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, client)
+	}
+
+	resolved := make([]provision.StepCAClient, 0, len(clients))
+	for i, client := range clients {
+		issuer := strings.TrimSpace(client.Issuer)
+		if !validStepCAClientIssuer(issuer) {
+			return nil, fmt.Errorf("step-ca client %d issuer %q must start with an alphanumeric character and contain only alphanumerics, hyphens, underscores, or dots", i, client.Issuer)
+		}
+		publicKey := strings.TrimSpace(client.PublicKey)
+		if publicKey == "" && strings.TrimSpace(client.PublicKeyPath) != "" {
+			b, err := os.ReadFile(strings.TrimSpace(client.PublicKeyPath))
+			if err != nil {
+				return nil, fmt.Errorf("read step-ca client %q public key %q: %w", issuer, client.PublicKeyPath, err)
+			}
+			publicKey = strings.TrimSpace(string(b))
+		}
+		if publicKey == "" {
+			return nil, fmt.Errorf("step-ca client %q requires public_key or public_key_path", issuer)
+		}
+		resolved = append(resolved, provision.StepCAClient{
+			Issuer:    issuer,
+			PublicKey: publicKey,
+			Required:  client.Required,
+		})
+	}
+	return resolved, nil
+}
+
+func parseStepCAClientSpec(spec string) (config.StepCAClientConfig, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return config.StepCAClientConfig{}, fmt.Errorf("--step-ca-client must not be empty")
+	}
+
+	var client config.StepCAClientConfig
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			return config.StepCAClientConfig{}, fmt.Errorf("invalid --step-ca-client part %q; expected key=value", part)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		switch key {
+		case "issuer":
+			client.Issuer = value
+		case "public-key-path", "public_key_path", "key-path", "key_path":
+			client.PublicKeyPath = value
+		case "public-key", "public_key":
+			client.PublicKey = value
+		case "required":
+			switch strings.ToLower(value) {
+			case "true", "1", "yes":
+				client.Required = true
+			case "false", "0", "no", "":
+				client.Required = false
+			default:
+				return config.StepCAClientConfig{}, fmt.Errorf("invalid required value %q in --step-ca-client %q", value, spec)
+			}
+		default:
+			return config.StepCAClientConfig{}, fmt.Errorf("unknown --step-ca-client key %q", key)
+		}
+	}
+	return client, nil
+}
+
+var stepCAClientIssuerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+func validStepCAClientIssuer(issuer string) bool {
+	return stepCAClientIssuerPattern.MatchString(issuer)
 }
 
 type instanceLaunchParams struct {

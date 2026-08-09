@@ -225,7 +225,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.8.0"
+ai_agent_bridge_version = "v0.8.1"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
 uv_version              = "0.4.0"
@@ -432,6 +432,24 @@ Register the bridgectl agent server with a step-ca server by passing the CA DNS 
 
 When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port. Tailscale-only desktops keep the safer localhost-only listener.
 
+Remote `bridgectl` clients also need JWT trust in addition to Step CA client certificates. Add known clients in config under `pki.step_ca_clients`, or pass them at create time:
+
+```yaml
+pki:
+  step_ca_clients:
+    - issuer: mark-macbook
+      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      required: true
+```
+
+```bash
+ai-desktops create \
+  --step-ca ca.my-tailnet.ts.net \
+  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub,required=true
+```
+
+The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
+
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
 export STEP_CA_PROVISIONER_PASSWORD=...
@@ -445,7 +463,7 @@ ai-desktops create \
   --step-ca-provisioner admin
 ```
 
-Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, and `pki.step_ca_fingerprint`. CLI flags override config values for a single desktop. When `--tailscale` is passed and `pki.step_ca_server` is configured, step-ca is enabled from config as part of the private-network setup.
+Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, `pki.step_ca_fingerprint`, and `pki.step_ca_clients`. CLI flags override config values for a single desktop, and repeated `--step-ca-client` values append to the configured client list. When `--tailscale` is passed and `pki.step_ca_server` is configured, step-ca is enabled from config as part of the private-network setup.
 
 `doctor` adds Tailscale and step-ca checks only for desktops created with those integrations enabled.
 

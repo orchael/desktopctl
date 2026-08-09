@@ -174,6 +174,23 @@ type PKIConfig struct {
 	// bootstrap. It is required when step-ca is enabled and may also be supplied
 	// via STEP_CA_FINGERPRINT.
 	StepCAFingerprint string `yaml:"step_ca_fingerprint,omitempty"`
+	// StepCAClients declares remote bridgectl clients whose JWT public keys
+	// should be installed on the desktop and loaded by the bridge at startup.
+	StepCAClients []StepCAClientConfig `yaml:"step_ca_clients,omitempty"`
+}
+
+type StepCAClientConfig struct {
+	// Issuer is the JWT issuer and normally matches the client's Step CA
+	// certificate common name.
+	Issuer string `yaml:"issuer"`
+	// PublicKeyPath is a local operator-machine path to the client's Ed25519 JWT
+	// public key. It is read during `create` and copied into cloud-init.
+	PublicKeyPath string `yaml:"public_key_path,omitempty"`
+	// PublicKey is the inline Ed25519 JWT public key. Prefer PublicKeyPath for
+	// normal use so config files do not grow large.
+	PublicKey string `yaml:"public_key,omitempty"`
+	// Required makes bridgectl server startup fail if the key cannot be loaded.
+	Required bool `yaml:"required,omitempty"`
 }
 
 // SupportsNestedVirt reports whether instanceType belongs to a family that

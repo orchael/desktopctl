@@ -216,6 +216,9 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		StepCAFingerprint:   "abcdef",
 		StepCAProvisioner:   "ai-desktops",
 		StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCAClients: []StepCAClient{
+			{Issuer: "mark-macbook", PublicKey: "ssh-ed25519 AAAA mark", Required: true},
+		},
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -232,6 +235,7 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"step ca bootstrap --ca-url \"https://${STEP_CA}\" --fingerprint \"$STEP_CA_FINGERPRINT\" --install --force",
 		"/etc/ssl/certs/ISRG_Root_X1.pem",
 		"/etc/ssl/certs/ISRG_Root_X2.pem",
+		"python3-yaml",
 		"STEP_CA_PROVISIONER_PASSWORD",
 		"STEP_CA_PASSWORD_FILE=$(mktemp)",
 		"STEP_CA_TOKEN_FILE=$(mktemp)",
@@ -250,6 +254,11 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
 		"server.listen",
 		"\"$TAILSCALE_IP:9445\"",
+		"/home/ubuntu/.ai-agent-bridge/certs/jwt-clients",
+		"mark-macbook.pub",
+		"STEP_CA_CLIENTS_JSON_B64",
+		"step_ca_config[\"clients\"]",
+		"step-ca-root.crt",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {

@@ -12,7 +12,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.8.0"
+	AIAgentBridgeVersion  = "v0.8.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -37,6 +37,7 @@ type BootstrapConfig struct {
 	StepCAFingerprint    string   // optional step-ca root fingerprint for non-interactive bootstrap
 	StepCAProvisioner    string   // step-ca provisioner used for bridge host certs
 	StepCASecretPath     string   // AWS Secrets Manager path containing {"STEP_CA_PROVISIONER_PASSWORD":"..."}
+	StepCAClients        []StepCAClient
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
@@ -50,6 +51,12 @@ type BootstrapConfig struct {
 	// Requires the Android SDK to be pre-installed in the AMI (ANDROID_HOME=/opt/android-sdk).
 	// Empty means no AVDs are created.
 	AVDs []config.AVDConfig
+}
+
+type StepCAClient struct {
+	Issuer    string
+	PublicKey string
+	Required  bool
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -202,6 +209,10 @@ runcmd:
       apt-get update
       apt-get install -y --no-install-recommends openssl
     fi
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      apt-get update
+      apt-get install -y --no-install-recommends python3-yaml
+    fi
 
     if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_ROOT" >/dev/null 2>&1; then
       if [ -n "$STEP_CA_FINGERPRINT" ]; then
@@ -290,6 +301,40 @@ runcmd:
     chown ubuntu:ubuntu "$CERT_DIR/server.crt" "$CERT_DIR/server.key"
     chmod 600 "$CERT_DIR/server.key"
     chmod 644 "$CERT_DIR/server.crt"
+    install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_API_ROOT" "$CERT_DIR/step-ca-root.crt"
+
+{{- if .StepCAClients}}
+    JWT_CLIENT_DIR="/home/ubuntu/.ai-agent-bridge/certs/jwt-clients"
+    install -d -o ubuntu -g ubuntu -m 700 "$JWT_CLIENT_DIR"
+{{- range .StepCAClients}}
+    printf '%s' '{{ b64 .PublicKey }}' | base64 -d > "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+    chown ubuntu:ubuntu "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+    chmod 644 "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+{{- end}}
+{{- end}}
+
+    STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$STEP_PROVISIONER" "$STEP_CA_CLIENTS_JSON_B64" <<'PY'
+    import base64
+    import json
+    import sys
+    import yaml
+
+    config_path, step_ca, root_path, provisioner, clients_b64 = sys.argv[1:6]
+    with open(config_path, encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file) or {}
+    step_ca_config = config.setdefault("step_ca", {})
+    step_ca_config["url"] = f"https://{step_ca}"
+    step_ca_config["root"] = root_path
+    if provisioner:
+        step_ca_config["provisioner"] = provisioner
+    if clients_b64:
+        step_ca_config["clients"] = json.loads(base64.b64decode(clients_b64).decode("utf-8"))
+    with open(config_path, "w", encoding="utf-8") as config_file:
+        yaml.safe_dump(config, config_file, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
 
     {
       printf 'STEP_CA_URL="%s"\n' "https://${STEP_CA}"
@@ -761,20 +806,46 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		}
 		avdsJSONB64 = base64.StdEncoding.EncodeToString(b)
 	}
+	var stepCAClientsJSONB64 string
+	if len(cfg.StepCAClients) > 0 {
+		type clientVar struct {
+			Issuer   string `json:"issuer"`
+			KeyPath  string `json:"key_path"`
+			Required bool   `json:"required,omitempty"`
+		}
+		clients := make([]clientVar, 0, len(cfg.StepCAClients))
+		for _, c := range cfg.StepCAClients {
+			clients = append(clients, clientVar{
+				Issuer:   c.Issuer,
+				KeyPath:  "/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/" + c.Issuer + ".pub",
+				Required: c.Required,
+			})
+		}
+		b, err := json.Marshal(clients)
+		if err != nil {
+			return "", err
+		}
+		stepCAClientsJSONB64 = base64.StdEncoding.EncodeToString(b)
+	}
 
 	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
-		BridgeVersion string
-		AVDsJSONB64   string
+		BridgeVersion        string
+		AVDsJSONB64          string
+		StepCAClientsJSONB64 string
 	}
 	data := templateData{
-		BootstrapConfig: cfg,
-		BridgeVersion:   AIAgentBridgeVersion,
-		AVDsJSONB64:     avdsJSONB64,
+		BootstrapConfig:      cfg,
+		BridgeVersion:        AIAgentBridgeVersion,
+		AVDsJSONB64:          avdsJSONB64,
+		StepCAClientsJSONB64: stepCAClientsJSONB64,
 	}
 
 	funcMap := template.FuncMap{
+		"b64": func(text string) string {
+			return base64.StdEncoding.EncodeToString([]byte(text))
+		},
 		"indent": func(spaces int, text string) string {
 			lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 			indent := strings.Repeat(" ", spaces)

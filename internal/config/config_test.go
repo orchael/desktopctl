@@ -105,6 +105,10 @@ pki:
   step_ca_server: ca.acme-tailnet.ts.net
   step_ca_provisioner: ops
   step_ca_fingerprint: abcdef
+  step_ca_clients:
+    - issuer: mark-macbook
+      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      required: true
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -143,6 +147,18 @@ pki:
 	if c.PKI.StepCAFingerprint != "abcdef" {
 		t.Errorf("step-ca fingerprint: got %q", c.PKI.StepCAFingerprint)
 	}
+	if len(c.PKI.StepCAClients) != 1 {
+		t.Fatalf("step-ca clients: got %d", len(c.PKI.StepCAClients))
+	}
+	if c.PKI.StepCAClients[0].Issuer != "mark-macbook" {
+		t.Errorf("step-ca client issuer: got %q", c.PKI.StepCAClients[0].Issuer)
+	}
+	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub" {
+		t.Errorf("step-ca client public key path: got %q", c.PKI.StepCAClients[0].PublicKeyPath)
+	}
+	if !c.PKI.StepCAClients[0].Required {
+		t.Error("step-ca client required should be true")
+	}
 }
 
 func TestSave_roundTrip(t *testing.T) {
@@ -163,6 +179,13 @@ func TestSave_roundTrip(t *testing.T) {
 			StepCAServer:      "ca.acme-tailnet.ts.net",
 			StepCAProvisioner: "admin",
 			StepCAFingerprint: "abcdef",
+			StepCAClients: []StepCAClientConfig{
+				{
+					Issuer:        "mark-macbook",
+					PublicKeyPath: "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub",
+					Required:      true,
+				},
+			},
 		},
 	}
 
@@ -210,6 +233,9 @@ func TestSave_roundTrip(t *testing.T) {
 	}
 	if loaded.PKI.StepCAFingerprint != "abcdef" {
 		t.Errorf("step-ca fingerprint round-trip: got %q", loaded.PKI.StepCAFingerprint)
+	}
+	if len(loaded.PKI.StepCAClients) != 1 || loaded.PKI.StepCAClients[0].Issuer != "mark-macbook" {
+		t.Errorf("step-ca clients round-trip: got %+v", loaded.PKI.StepCAClients)
 	}
 }
 

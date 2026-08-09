@@ -129,3 +129,13 @@ pki:
   # Required when step-ca is enabled.
   # Can also be supplied by STEP_CA_FINGERPRINT or --step-ca-fingerprint.
   # step_ca_fingerprint: abcdef0123456789
+
+  # Remote bridgectl clients trusted by the desktop's bridge server at startup.
+  # The issuer normally matches the client's Step CA certificate common name.
+  # public_key_path is read from this machine during `ai-desktops create`; only
+  # the public key is copied to the desktop. You can also pass one-off clients
+  # with --step-ca-client issuer=<name>,public-key-path=<path>,required=true.
+  # step_ca_clients:
+  #   - issuer: mark-macbook
+  #     public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+  #     required: true

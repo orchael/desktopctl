@@ -8,8 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/orchael/ai-desktops/internal/config"
 )
 
 func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
@@ -161,6 +165,48 @@ func TestResolveCreateIntegrations(t *testing.T) {
 				t.Errorf("stepCAFingerprint = %q, want %q", got.stepCAFingerprint, tt.wantFP)
 			}
 		})
+	}
+}
+
+func TestResolveStepCAClients_ConfigAndFlags(t *testing.T) {
+	dir := t.TempDir()
+	pubPath := filepath.Join(dir, "mark.pub")
+	if err := os.WriteFile(pubPath, []byte("ssh-ed25519 AAAA mark\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	clients, err := resolveStepCAClients(
+		[]config.StepCAClientConfig{
+			{Issuer: "config-client", PublicKey: "ssh-ed25519 BBBB config"},
+		},
+		[]string{"issuer=mark-macbook,public-key-path=" + pubPath + ",required=true"},
+	)
+	if err != nil {
+		t.Fatalf("resolveStepCAClients: %v", err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("clients = %d, want 2", len(clients))
+	}
+	if clients[0].Issuer != "config-client" || clients[0].PublicKey != "ssh-ed25519 BBBB config" {
+		t.Fatalf("config client not preserved: %+v", clients[0])
+	}
+	if clients[1].Issuer != "mark-macbook" {
+		t.Fatalf("flag client issuer = %q", clients[1].Issuer)
+	}
+	if clients[1].PublicKey != "ssh-ed25519 AAAA mark" {
+		t.Fatalf("flag client public key = %q", clients[1].PublicKey)
+	}
+	if !clients[1].Required {
+		t.Fatal("flag client required should be true")
+	}
+}
+
+func TestResolveStepCAClients_InvalidIssuer(t *testing.T) {
+	_, err := resolveStepCAClients([]config.StepCAClientConfig{
+		{Issuer: "../bad", PublicKey: "ssh-ed25519 AAAA bad"},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "issuer") {
+		t.Fatalf("error = %v, want issuer validation error", err)
 	}
 }
 
