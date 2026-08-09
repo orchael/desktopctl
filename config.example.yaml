@@ -45,6 +45,14 @@ github:
   git_user_name: Your Name
   git_user_email: you@example.com
 
+operator:
+  # AWS Secrets Manager path for operator-only credentials used by the
+  # ai-desktops CLI, not injected into desktop environments.
+  # Created/updated automatically when an operator env var such as
+  # TAILSCALE_API_KEY is present during relevant commands.
+  # Default: /ai-desktops/<github.owner>
+  secret: /ai-desktops/myorg
+
 desktop:
   # EC2 instance type for each desktop.
   # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.
@@ -82,7 +90,9 @@ desktop:
   operator_cidr: 0.0.0.0/0
 
 agent:
-  # Port where ai-agent-bridge listens on the desktop (localhost-only).
+  # Port where bridgectl listens on the desktop. Defaults to localhost-only.
+  # When both Tailscale and step-ca are enabled, cloud-init binds this port to
+  # the desktop's Tailscale IPv4 address for direct tailnet access.
   # Default: 9445. Change only if there is a port conflict on the desktop.
   bridge_port: 9445
 

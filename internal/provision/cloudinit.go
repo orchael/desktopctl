@@ -529,6 +529,31 @@ runcmd:
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/step-ca.conf
 {{- end}}
 
+{{- if and .TailscaleNetwork .StepCAServerDNS}}
+    # Expose bridgectl only on the Tailscale address when TLS certs are issued.
+    TAILSCALE_IP=$(tailscale ip -4 | head -n 1)
+    if [ -z "$TAILSCALE_IP" ]; then
+      echo "ERROR: Tailscale IPv4 address not available for bridgectl listener" >&2
+      exit 1
+    fi
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$TAILSCALE_IP:{{ .BridgePort }}" <<'PY'
+    import re
+    import sys
+
+    path, listen = sys.argv[1:3]
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    replacement = f'  listen: "{listen}"'
+    content, count = re.subn(r'(?m)^  listen:\s*".*"$', replacement, content, count=1)
+    if count != 1:
+        raise SystemExit("could not update bridgectl server.listen")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
+{{- end}}
+
     # Ensure linger is enabled (may not persist to cloud-init phase from AMI)
     loginctl enable-linger ubuntu 2>/dev/null || true
 

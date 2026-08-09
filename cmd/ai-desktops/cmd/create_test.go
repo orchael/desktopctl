@@ -175,6 +175,7 @@ func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) 
 		"dev",
 		"invalid-region-for-preview-test",
 		"invalid-profile-for-preview-test",
+		"/ai-desktops/acme",
 		"acme-tailnet",
 		"ca.acme-tailnet.ts.net",
 	)

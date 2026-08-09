@@ -81,9 +81,16 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 
 	if d.TailscaleNet != "" {
 		fmt.Fprintf(os.Stderr, "Removing Tailscale machine %s from %s ...\n", id, d.TailscaleNet)
-		if err := removeTailscaleDesktopDevice(ctx, d.TailscaleNet, id); err != nil {
-			_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
-			return fmt.Errorf("remove tailscale machine: %w", err)
+		tailscaleAPIKey, err := resolveTailscaleAPIKey(ctx, d.GitHubOwner)
+		if err == nil {
+			err = removeTailscaleDesktopDevice(ctx, d.TailscaleNet, id, tailscaleAPIKey)
+		}
+		if err != nil {
+			if errors.Is(err, errTailscaleAPIKeyMissing) {
+				fmt.Fprintf(os.Stderr, "WARNING: TAILSCALE_API_KEY is not set and was not found in the operator secret; skipping Tailscale machine cleanup for %s.\n", id)
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: could not remove Tailscale machine %s: %v\n", id, err)
+			}
 		}
 	}
 

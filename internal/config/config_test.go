@@ -99,6 +99,8 @@ fleet:
   environment: prod
 network:
   tailscale_network: acme-tailnet
+operator:
+  secret: /ai-desktops/acme-ops
 pki:
   step_ca_server: ca.acme-tailnet.ts.net
   step_ca_provisioner: ops
@@ -129,6 +131,9 @@ pki:
 	if c.Network.TailscaleNetwork != "acme-tailnet" {
 		t.Errorf("tailscale network: got %q", c.Network.TailscaleNetwork)
 	}
+	if c.Operator.Secret != "/ai-desktops/acme-ops" {
+		t.Errorf("operator secret: got %q", c.Operator.Secret)
+	}
 	if c.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
 		t.Errorf("step-ca server: got %q", c.PKI.StepCAServer)
 	}
@@ -152,7 +157,8 @@ func TestSave_roundTrip(t *testing.T) {
 				"us-west-2": "ami-0def456",
 			},
 		},
-		Network: NetworkConfig{TailscaleNetwork: "acme-tailnet"},
+		Network:  NetworkConfig{TailscaleNetwork: "acme-tailnet"},
+		Operator: OperatorConfig{Secret: "/ai-desktops/acme"},
 		PKI: PKIConfig{
 			StepCAServer:      "ca.acme-tailnet.ts.net",
 			StepCAProvisioner: "admin",
@@ -193,6 +199,9 @@ func TestSave_roundTrip(t *testing.T) {
 	if loaded.Network.TailscaleNetwork != "acme-tailnet" {
 		t.Errorf("tailscale network round-trip: got %q", loaded.Network.TailscaleNetwork)
 	}
+	if loaded.Operator.Secret != "/ai-desktops/acme" {
+		t.Errorf("operator secret round-trip: got %q", loaded.Operator.Secret)
+	}
 	if loaded.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
 		t.Errorf("step-ca server round-trip: got %q", loaded.PKI.StepCAServer)
 	}
@@ -226,6 +235,9 @@ func TestDefaults_GitHubSecret(t *testing.T) {
 	c.Defaults()
 	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
 		t.Errorf("owner default: got %q", c.GitHub.GitHubSecret)
+	}
+	if c.Operator.Secret != "/ai-desktops/myorg" {
+		t.Errorf("operator secret default: got %q", c.Operator.Secret)
 	}
 
 	// Legacy pat_secret migrates to github_secret

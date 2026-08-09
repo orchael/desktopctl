@@ -194,7 +194,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	stepCASecretPath := ""
 	if integrations.tailscaleEnabled || integrations.stepCAEnabled {
 		var err error
-		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, tailscaleNetwork, stepCAServer)
+		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, cfg.Operator.Secret, tailscaleNetwork, stepCAServer)
 		if err != nil {
 			return err
 		}
@@ -623,7 +623,7 @@ func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreat
 	}, nil
 }
 
-func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, tailscaleNetwork, stepCAServer string) (string, string, error) {
+func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, operatorSecretPath, tailscaleNetwork, stepCAServer string) (string, string, error) {
 	tailscaleSecretPath := ""
 	if tailscaleNetwork != "" {
 		tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
@@ -658,6 +658,16 @@ func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, re
 			fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
 			if err := storeIntegrationSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env, "Tailscale"); err != nil {
 				return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
+			}
+		}
+		tailscaleAPIKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY"))
+		if tailscaleAPIKey != "" {
+			if operatorSecretPath == "" {
+				operatorSecretPath = defaultOperatorSecretPath(owner)
+			}
+			fmt.Fprintf(os.Stderr, "Storing Tailscale API key at %s ...\n", operatorSecretPath)
+			if err := storeOperatorSecretValue(ctx, awsCfg, operatorSecretPath, "TAILSCALE_API_KEY", tailscaleAPIKey, owner, env); err != nil {
+				return "", "", fmt.Errorf("store Tailscale API key operator secret: %w", err)
 			}
 		}
 	}

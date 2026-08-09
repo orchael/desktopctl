@@ -234,6 +234,15 @@ func run(ctx *pulumi.Context) error {
       "ssm:GetParameters"
     ],
     "Resource": "*"
+  }, {
+    "Effect": "Deny",
+    "Action": "secretsmanager:GetSecretValue",
+    "Resource": "*",
+    "Condition": {
+      "StringEquals": {
+        "secretsmanager:ResourceTag/ai-desktops-scope": "operator"
+      }
+    }
   }]
 }`
 	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-secrets-policy", &iam.RolePolicyArgs{

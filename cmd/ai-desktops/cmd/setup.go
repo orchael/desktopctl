@@ -630,6 +630,10 @@ func buildSecretJSON(token, privKey, pubKey string) (string, error) {
 }
 
 func fetchAgentSecret(ctx context.Context, awsCfg aws.Config, secretID string) (map[string]string, error) {
+	return fetchSecretMap(ctx, awsCfg, secretID)
+}
+
+func fetchSecretMap(ctx context.Context, awsCfg aws.Config, secretID string) (map[string]string, error) {
 	svc := secretsmanager.NewFromConfig(awsCfg)
 	out, err := svc.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId: aws.String(secretID),
@@ -648,6 +652,19 @@ func fetchAgentSecret(ctx context.Context, awsCfg aws.Config, secretID string) (
 		}
 	}
 	return m, nil
+}
+
+func storeOperatorSecretValue(ctx context.Context, awsCfg aws.Config, secretID, key, value, owner, environment string) error {
+	values, err := fetchSecretMap(ctx, awsCfg, secretID)
+	if err != nil {
+		return err
+	}
+	values[key] = value
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	return storeOperatorSecret(ctx, awsCfg, secretID, string(payload), owner, environment)
 }
 
 func mergeAgentKeys(existing map[string]string, anthropicKey, openaiKey, geminiKey string) map[string]string {
@@ -691,6 +708,49 @@ func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, o
 
 func storeIntegrationSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, integration string) error {
 	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, integration+" integration secret for ai-desktops owner: "+owner)
+}
+
+func storeOperatorSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
+	svc := secretsmanager.NewFromConfig(awsCfg)
+
+	_, err := svc.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{
+		SecretId: aws.String(secretID),
+	})
+	if err == nil {
+		if _, err := svc.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
+			SecretId:     aws.String(secretID),
+			SecretString: aws.String(value),
+		}); err != nil {
+			return err
+		}
+		_, err = svc.TagResource(ctx, &secretsmanager.TagResourceInput{
+			SecretId: aws.String(secretID),
+			Tags:     operatorSecretTags(owner, environment),
+		})
+		return err
+	}
+
+	var notFound *types.ResourceNotFoundException
+	if !errors.As(err, &notFound) {
+		return fmt.Errorf("describe secret: %w", err)
+	}
+
+	_, err = svc.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         aws.String(secretID),
+		SecretString: aws.String(value),
+		Description:  aws.String("Operator-only secrets for ai-desktops owner: " + owner),
+		Tags:         operatorSecretTags(owner, environment),
+	})
+	return err
+}
+
+func operatorSecretTags(owner, environment string) []types.Tag {
+	return []types.Tag{
+		{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+		{Key: aws.String("github-owner"), Value: aws.String(owner)},
+		{Key: aws.String("environment"), Value: aws.String(environment)},
+		{Key: aws.String("ai-desktops-scope"), Value: aws.String("operator")},
+	}
 }
 
 func storeDescribedSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, description string) error {

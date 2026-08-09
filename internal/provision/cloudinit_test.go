@@ -247,6 +247,9 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"server.crt",
 		"bridgectl.service.d/step-ca.conf",
 		"EnvironmentFile=-%%h/.config/bridgectl/step-ca.env",
+		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
+		"server.listen",
+		"\"$TAILSCALE_IP:9445\"",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {

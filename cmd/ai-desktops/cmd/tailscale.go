@@ -10,6 +10,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/orchael/ai-desktops/internal/awsx"
 )
 
 const defaultTailscaleAPIBaseURL = "https://api.tailscale.com"
@@ -26,14 +29,14 @@ type tailscaleDevicesResponse struct {
 	Devices []tailscaleDevice `json:"devices"`
 }
 
-func removeTailscaleDesktopDevice(ctx context.Context, tailnet, desktopID string) error {
+func removeTailscaleDesktopDevice(ctx context.Context, tailnet, desktopID, apiKey string) error {
 	tailnet = strings.TrimSpace(tailnet)
 	desktopID = strings.TrimSpace(desktopID)
 	if tailnet == "" || desktopID == "" {
 		return nil
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY"))
+	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		return errTailscaleAPIKeyMissing
 	}
@@ -49,6 +52,46 @@ func removeTailscaleDesktopDevice(ctx context.Context, tailnet, desktopID string
 		client:  &http.Client{Timeout: 30 * time.Second},
 	}
 	return client.removeDeviceByDesktopID(ctx, tailnet, desktopID)
+}
+
+func resolveTailscaleAPIKey(ctx context.Context, owner string) (string, error) {
+	if apiKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY")); apiKey != "" {
+		return apiKey, nil
+	}
+
+	secretID := strings.TrimSpace(cfg.Operator.Secret)
+	if secretID == "" {
+		secretID = defaultOperatorSecretPath(owner)
+	}
+	if secretID == "" {
+		return "", errTailscaleAPIKeyMissing
+	}
+
+	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	if err != nil {
+		return "", fmt.Errorf("load AWS config for operator secret %q: %w", secretID, err)
+	}
+	return tailscaleAPIKeyFromOperatorSecret(ctx, awsCfg, secretID)
+}
+
+func tailscaleAPIKeyFromOperatorSecret(ctx context.Context, awsCfg aws.Config, secretID string) (string, error) {
+	values, err := fetchSecretMap(ctx, awsCfg, secretID)
+	if err != nil {
+		return "", fmt.Errorf("read operator secret %q: %w", secretID, err)
+	}
+	apiKey := strings.TrimSpace(values["TAILSCALE_API_KEY"])
+	if apiKey == "" {
+		return "", errTailscaleAPIKeyMissing
+	}
+	return apiKey, nil
+}
+
+func defaultOperatorSecretPath(owner string) string {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return ""
+	}
+	return "/ai-desktops/" + owner
 }
 
 type tailscaleAPIClient struct {

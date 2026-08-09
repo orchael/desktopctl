@@ -53,14 +53,15 @@ var NestedVirtInstanceFamilies = []string{
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
-	AWS     AWSConfig     `yaml:"aws"`
-	Pulumi  PulumiConfig  `yaml:"pulumi"`
-	Fleet   FleetConfig   `yaml:"fleet"`
-	GitHub  GitHubConfig  `yaml:"github"`
-	Desktop DesktopConfig `yaml:"desktop"`
-	Agent   AgentConfig   `yaml:"agent"`
-	Network NetworkConfig `yaml:"network,omitempty"`
-	PKI     PKIConfig     `yaml:"pki,omitempty"`
+	AWS      AWSConfig      `yaml:"aws"`
+	Pulumi   PulumiConfig   `yaml:"pulumi"`
+	Fleet    FleetConfig    `yaml:"fleet"`
+	GitHub   GitHubConfig   `yaml:"github"`
+	Operator OperatorConfig `yaml:"operator,omitempty"`
+	Desktop  DesktopConfig  `yaml:"desktop"`
+	Agent    AgentConfig    `yaml:"agent"`
+	Network  NetworkConfig  `yaml:"network,omitempty"`
+	PKI      PKIConfig      `yaml:"pki,omitempty"`
 }
 
 // Env returns the configured environment, falling back to dev.
@@ -106,6 +107,13 @@ type GitHubConfig struct {
 	GitUserName string `yaml:"git_user_name,omitempty"`
 	// GitUserEmail is the git commit author email written to the desktop's global git config.
 	GitUserEmail string `yaml:"git_user_email,omitempty"`
+}
+
+type OperatorConfig struct {
+	// Secret is the AWS Secrets Manager path for operator-only credentials used
+	// by the ai-desktops CLI, not by provisioned desktops.
+	// Default: /ai-desktops/<owner>.
+	Secret string `yaml:"secret,omitempty"`
 }
 
 // AVDConfig describes a single Android Virtual Device to create at desktop boot.
@@ -238,6 +246,9 @@ func (c *Config) Defaults() {
 	}
 	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
 		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"
+	}
+	if c.Operator.Secret == "" && c.GitHub.Owner != "" {
+		c.Operator.Secret = "/ai-desktops/" + c.GitHub.Owner
 	}
 	if c.GitHub.GitHubSecret == "" {
 		if c.GitHub.PATSecret != "" {

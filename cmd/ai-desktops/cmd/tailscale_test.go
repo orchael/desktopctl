@@ -49,10 +49,9 @@ func TestRemoveTailscaleDesktopDeviceDeletesMatchingDevice(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("TAILSCALE_API_KEY", "ts-api-key")
 	t.Setenv("TAILSCALE_API_BASE_URL", srv.URL)
 
-	if err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd"); err != nil {
+	if err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd", "ts-api-key"); err != nil {
 		t.Fatalf("removeTailscaleDesktopDevice: %v", err)
 	}
 	if strings.Join(deleted, ",") != "node-1" {
@@ -70,20 +69,37 @@ func TestRemoveTailscaleDesktopDeviceNoMatchIsNoop(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("TAILSCALE_API_KEY", "ts-api-key")
 	t.Setenv("TAILSCALE_API_BASE_URL", srv.URL)
 
-	if err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd"); err != nil {
+	if err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd", "ts-api-key"); err != nil {
 		t.Fatalf("removeTailscaleDesktopDevice: %v", err)
 	}
 }
 
 func TestRemoveTailscaleDesktopDeviceRequiresAPIKey(t *testing.T) {
-	t.Setenv("TAILSCALE_API_KEY", "")
 	t.Setenv("TAILSCALE_API_BASE_URL", "http://127.0.0.1")
 
-	err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd")
+	err := removeTailscaleDesktopDevice(context.Background(), "acme-tailnet", "d-1234abcd", "")
 	if err != errTailscaleAPIKeyMissing {
 		t.Fatalf("error = %v, want %v", err, errTailscaleAPIKeyMissing)
+	}
+}
+
+func TestTailscaleAPIKeyFromOperatorSecret(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if target := r.Header.Get("X-Amz-Target"); !strings.HasSuffix(target, "GetSecretValue") {
+			t.Fatalf("unexpected target %q", target)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"SecretString":"{\"TAILSCALE_API_KEY\":\"tskey-api-test\",\"OTHER\":\"kept\"}"}`))
+	}))
+	defer srv.Close()
+
+	got, err := tailscaleAPIKeyFromOperatorSecret(context.Background(), makeSecretsManagerConfig(srv.URL), "/ai-desktops/acme")
+	if err != nil {
+		t.Fatalf("tailscaleAPIKeyFromOperatorSecret: %v", err)
+	}
+	if got != "tskey-api-test" {
+		t.Fatalf("api key = %q", got)
 	}
 }

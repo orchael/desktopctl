@@ -38,7 +38,8 @@ The operator profile needs the following permissions:
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
-- `TAILSCALE_API_KEY` in the local environment is required by `terminate` when the desktop record has `tailscale_network` set, so the CLI can remove the matching Tailscale machine before destroying the stack.
+- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/ai-desktops/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
+- `TAILSCALE_API_KEY` in the local environment, or in the `/ai-desktops/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
 
 **Tunnel access (`agent` command):**
 - `ssm:StartSession` with document `AWS-StartPortForwardingSession`
@@ -131,6 +132,10 @@ fleet:
 github:
   owner: myorg
   github_secret: /ai-desktops/myorg/github
+
+operator:
+  # Operator-only CLI secret; not needed by desktop cloud-init.
+  secret: /ai-desktops/myorg
 
 desktop:
   instance_type: t3.xlarge
@@ -390,6 +395,10 @@ The CLI connects directly to the desktop via SSH. The bridge is accessed over `l
 
 Attach a desktop to Tailscale by passing `--tailscale` and providing an auth key through the local environment or an existing integration secret. When `TAILSCALE_AUTHKEY` is set, the CLI stores it in AWS Secrets Manager and cloud-init retrieves it at boot. If `TAILSCALE_AUTHKEY` is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/tailscale/<tailnet>` when it contains `TS_AUTHKEY`.
 
+When `TAILSCALE_API_KEY` is set during create, the CLI stores it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`. This key is not used by desktop startup; it is used later by `terminate` to remove the desktop's Tailscale machine record.
+
+Operator secrets are tagged with `ai-desktops-scope=operator`; the foundation instance role denies desktop instances from reading secrets with that tag.
+
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
 
@@ -420,6 +429,8 @@ Desktops join Tailscale with Tailscale SSH enabled. The tailnet policy must stil
 ```
 
 Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
+
+When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port. Tailscale-only desktops keep the safer localhost-only listener.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -497,7 +508,7 @@ ai-desktops terminate d-a1b2c3d4
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 
-For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also removes the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access before terminating Tailscale-attached desktops.
+For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also tries to remove the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access, or store it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`, to enable this cleanup. If the key is not set or cleanup fails, the CLI warns and continues with infrastructure termination; remove the stale Tailscale machine manually from the admin console or API.
 
 ## Updating existing desktops
 

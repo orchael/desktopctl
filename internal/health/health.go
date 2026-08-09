@@ -525,9 +525,12 @@ func SecretsCheckers(hostname string, sshPort int, user, keyPath string, secretP
 
 // TailscaleCheckers returns checks for desktops attached to a Tailscale network.
 // Returns nil when no network was configured so doctor omits the group.
-func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, network string) []Checker {
+func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, network string, bridgePort int) []Checker {
 	if network == "" {
 		return nil
+	}
+	if bridgePort == 0 {
+		bridgePort = 9445
 	}
 	t := 20 * time.Second
 	return []Checker{
@@ -539,6 +542,10 @@ func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, netwo
 			`tailscale status --json | python3 -c "import json,sys; exit(0 if json.load(sys.stdin).get('BackendState') == 'Running' else 1)"`, t),
 		NewSSHChecker("tailscale-network-metadata", hostname, sshPort, user, keyPath,
 			fmt.Sprintf("grep -qxF %s /opt/ai-desktops/tailscale.env", shellQuote(`TAILSCALE_NETWORK="`+network+`"`)), t),
+		NewSSHOptionalChecker("bridgectl-tailscale-listener", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", "step-ca not configured",
+			fmt.Sprintf(`TAILSCALE_IP=$(tailscale ip -4 | head -n 1) && test -n "$TAILSCALE_IP" && grep -qxF "  listen: \"${TAILSCALE_IP}:%[1]d\"" /home/ubuntu/.config/bridgectl/config.yaml && (ss -tln | awk '{print $4}' | grep -qx "${TAILSCALE_IP}:%[1]d" || ss -tln | awk '{print $4}' | grep -qx "[::ffff:${TAILSCALE_IP}]:%[1]d")`, bridgePort),
+			t),
 	}
 }
 

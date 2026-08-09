@@ -340,19 +340,19 @@ func TestBridgectlCheckers_allSkippedWithNoKey(t *testing.T) {
 }
 
 func TestTailscaleCheckers_emptyNetwork(t *testing.T) {
-	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "", 9445)
 	if len(checkers) != 0 {
 		t.Errorf("expected 0 checkers for empty Tailscale network, got %d", len(checkers))
 	}
 }
 
 func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
-	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "acme-tailnet")
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "acme-tailnet", 9445)
 	names := make(map[string]bool)
 	for _, c := range checkers {
 		names[c.Name()] = true
 	}
-	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata"} {
+	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener"} {
 		if !names[n] {
 			t.Errorf("TailscaleCheckers missing expected checker %q", n)
 		}

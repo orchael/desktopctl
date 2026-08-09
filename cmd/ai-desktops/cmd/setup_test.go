@@ -503,6 +503,108 @@ func TestStoreIntegrationSecret_CreateDescription(t *testing.T) {
 	}
 }
 
+func TestStoreOperatorSecretValue_MergesExistingSecret(t *testing.T) {
+	var gotSecretString string
+	var gotDescription string
+	var gotScopeTag string
+	gotTags := map[string]string{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		switch {
+		case strings.HasSuffix(target, "GetSecretValue"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"SecretString":"{\"OTHER\":\"kept\"}"}`))
+		case strings.HasSuffix(target, "DescribeSecret"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		case strings.HasSuffix(target, "PutSecretValue"):
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read PutSecretValue request: %v", err)
+			}
+			var req struct {
+				SecretString string
+			}
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode PutSecretValue request: %v", err)
+			}
+			gotSecretString = req.SecretString
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		case strings.HasSuffix(target, "TagResource"):
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read TagResource request: %v", err)
+			}
+			var req struct {
+				Tags []struct {
+					Key   string
+					Value string
+				}
+			}
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode TagResource request: %v", err)
+			}
+			for _, tag := range req.Tags {
+				gotTags[tag.Key] = tag.Value
+				if tag.Key == "ai-desktops-scope" {
+					gotScopeTag = tag.Value
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		case strings.HasSuffix(target, "CreateSecret"):
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read CreateSecret request: %v", err)
+			}
+			var req struct {
+				Description string
+			}
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode CreateSecret request: %v", err)
+			}
+			gotDescription = req.Description
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`))
+		default:
+			t.Fatalf("unexpected target %q", target)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := makeSecretsManagerConfig(srv.URL)
+	if err := storeOperatorSecretValue(context.Background(), cfg, "/ai-desktops/testowner", "TAILSCALE_API_KEY", "tskey-api", "testowner", "dev"); err != nil {
+		t.Fatalf("storeOperatorSecretValue: %v", err)
+	}
+
+	var values map[string]string
+	if err := json.Unmarshal([]byte(gotSecretString), &values); err != nil {
+		t.Fatalf("operator secret JSON invalid: %v", err)
+	}
+	if values["OTHER"] != "kept" {
+		t.Fatalf("existing key not preserved: %v", values)
+	}
+	if values["TAILSCALE_API_KEY"] != "tskey-api" {
+		t.Fatalf("TAILSCALE_API_KEY not written: %v", values)
+	}
+	if gotScopeTag != "operator" {
+		t.Fatalf("operator scope tag = %q", gotScopeTag)
+	}
+	if gotTags["ai-desktops"] != "true" || gotTags["github-owner"] != "testowner" || gotTags["environment"] != "dev" {
+		t.Fatalf("operator tags = %v", gotTags)
+	}
+	if gotDescription != "" {
+		t.Fatalf("unexpected create description on update path: %q", gotDescription)
+	}
+}
+
 func TestStoreAgentSecret_Update(t *testing.T) {
 	var putCalled bool
 
