@@ -45,6 +45,7 @@ func run(ctx *pulumi.Context) error {
 	// --- VPC ---
 	var vpcIDOutput pulumi.StringOutput
 	var subnetID pulumi.StringOutput
+	var subnetIDs pulumi.StringArray
 
 	if vpcID != "" {
 		// Use the provided VPC.
@@ -62,8 +63,13 @@ func run(ctx *pulumi.Context) error {
 			return fmt.Errorf("no subnets found in vpc %s", vpcID)
 		}
 		subnetID = pulumi.String(subnets.Ids[0]).ToStringOutput()
+		for _, id := range subnets.Ids {
+			subnetIDs = append(subnetIDs, pulumi.String(id))
+		}
 	} else {
-		// Create a VPC with a public subnet.
+		// Create a VPC with public subnets across available AZs. Keeping the
+		// original first subnet resource name avoids replacing existing stacks,
+		// while new subnets give Spot launches another AZ when one pool is empty.
 		vpc, err := ec2.NewVpc(ctx, "ai-desktops-vpc", &ec2.VpcArgs{
 			CidrBlock:          pulumi.String("10.10.0.0/16"),
 			EnableDnsHostnames: pulumi.Bool(true),
@@ -86,8 +92,6 @@ func run(ctx *pulumi.Context) error {
 			return err
 		}
 
-		// Pin to the first available AZ (alphabetically) to avoid AZs that
-		// don't support common instance types (e.g. us-east-1d for t3.large).
 		azs, err := aws.GetAvailabilityZones(ctx, &aws.GetAvailabilityZonesArgs{
 			State: pulumi.StringRef("available"),
 		})
@@ -96,22 +100,6 @@ func run(ctx *pulumi.Context) error {
 		}
 		if len(azs.Names) == 0 {
 			return fmt.Errorf("no available AZs found in region")
-		}
-		subnetAZ := azs.Names[0]
-
-		subnet, err := ec2.NewSubnet(ctx, "ai-desktops-subnet", &ec2.SubnetArgs{
-			VpcId:               vpc.ID(),
-			CidrBlock:           pulumi.String("10.10.1.0/24"),
-			AvailabilityZone:    pulumi.String(subnetAZ),
-			MapPublicIpOnLaunch: pulumi.Bool(true),
-			Tags: pulumi.StringMap{
-				"Name":        pulumi.String("ai-desktops-subnet"),
-				"managed-by":  pulumi.String("ai-desktops"),
-				"environment": pulumi.String(environment),
-			},
-		})
-		if err != nil {
-			return err
 		}
 
 		rt, err := ec2.NewRouteTable(ctx, "ai-desktops-rt", &ec2.RouteTableArgs{
@@ -127,15 +115,47 @@ func run(ctx *pulumi.Context) error {
 			return err
 		}
 
-		if _, err := ec2.NewRouteTableAssociation(ctx, "ai-desktops-rta", &ec2.RouteTableAssociationArgs{
-			SubnetId:     subnet.ID(),
-			RouteTableId: rt.ID(),
-		}); err != nil {
-			return err
+		subnetCount := len(azs.Names)
+		if subnetCount > 3 {
+			subnetCount = 3
+		}
+		for i := 0; i < subnetCount; i++ {
+			name := "ai-desktops-subnet"
+			if i > 0 {
+				name = fmt.Sprintf("ai-desktops-subnet-%d", i+1)
+			}
+			subnet, err := ec2.NewSubnet(ctx, name, &ec2.SubnetArgs{
+				VpcId:               vpc.ID(),
+				CidrBlock:           pulumi.String(fmt.Sprintf("10.10.%d.0/24", i+1)),
+				AvailabilityZone:    pulumi.String(azs.Names[i]),
+				MapPublicIpOnLaunch: pulumi.Bool(true),
+				Tags: pulumi.StringMap{
+					"Name":        pulumi.String(name),
+					"managed-by":  pulumi.String("ai-desktops"),
+					"environment": pulumi.String(environment),
+				},
+			})
+			if err != nil {
+				return err
+			}
+			if i == 0 {
+				subnetID = subnet.ID().ToStringOutput()
+			}
+			subnetIDs = append(subnetIDs, subnet.ID().ToStringOutput())
+
+			assocName := "ai-desktops-rta"
+			if i > 0 {
+				assocName = fmt.Sprintf("ai-desktops-rta-%d", i+1)
+			}
+			if _, err := ec2.NewRouteTableAssociation(ctx, assocName, &ec2.RouteTableAssociationArgs{
+				SubnetId:     subnet.ID(),
+				RouteTableId: rt.ID(),
+			}); err != nil {
+				return err
+			}
 		}
 
 		vpcIDOutput = vpc.ID().ToStringOutput()
-		subnetID = subnet.ID().ToStringOutput()
 	}
 
 	// --- Security group ---
@@ -354,6 +374,7 @@ func run(ctx *pulumi.Context) error {
 	// --- Outputs ---
 	ctx.Export("vpcId", vpcIDOutput)
 	ctx.Export("subnetId", subnetID)
+	ctx.Export("subnetIds", subnetIDs.ToStringArrayOutput())
 	ctx.Export("securityGroupId", sg.ID())
 	ctx.Export("instanceProfile", instanceProfile.Name)
 	ctx.Export("zoneId", pulumi.String(zoneData.ZoneId))

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ var (
 	createInstanceType  string
 	createSpot          bool
 	createSpotMaxPrice  string
+	createTimeout       time.Duration
 	createTailscale     bool
 	createTailscaleNet  string
 	createStepCA        string
@@ -84,6 +86,7 @@ func init() {
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	createCmd.Flags().BoolVar(&createSpot, "spot", false, "launch the desktop as a persistent Spot instance that stops on interruption")
 	createCmd.Flags().StringVar(&createSpotMaxPrice, "spot-max-price", "", "maximum hourly Spot price in USD (requires --spot; default is AWS on-demand ceiling)")
+	createCmd.Flags().DurationVar(&createTimeout, "create-timeout", 5*time.Minute, "maximum time to wait for each infrastructure create attempt before cleaning up")
 	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
 	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY or an existing integration secret")
 	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret, and a fingerprint via --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT")
@@ -132,6 +135,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if err := validateSpotMaxPrice(createSpotMaxPrice); err != nil {
 		return err
+	}
+	if createTimeout <= 0 {
+		return fmt.Errorf("--create-timeout must be positive")
 	}
 	marketType := store.MarketOnDemand
 	if createSpot {
@@ -420,10 +426,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("compress cloud-init user-data: %w", err)
 	}
+	subnets, err := selectCreateSubnets(ctx, cfg.AWS.Region, cfg.AWS.Profile, cfg.Desktop.InstanceType, marketType, foundationOutputs)
+	if err != nil {
+		return err
+	}
+	subnetID := subnets[0].subnetID
+	if marketType == store.MarketSpot && subnetID != foundationOutputs[pulumi.OutputSubnetID] {
+		fmt.Fprintf(os.Stderr, "  Spot subnet           : %s\n", subnetID)
+	}
 
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
-		foundationOutputs[pulumi.OutputSubnetID],
+		subnetID,
 		foundationOutputs[pulumi.OutputSGID],
 		foundationOutputs[pulumi.OutputInstanceProfile],
 		cfg.Desktop.SSHKeyName,
@@ -447,11 +461,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// InstanceCpuOptionsArgs. As of pulumi-aws v6.83.3 the field is not present;
 	// watch https://github.com/pulumi/pulumi-aws/releases for a version that adds
 	// NestedVirtualization to InstanceCpuOptionsArgs and update go.mod accordingly.
+	prelaunchedInstanceID := ""
 	if nestedVirt && !createPreview {
 		lp := &instanceLaunchParams{
 			amiID:           amiID,
 			instanceType:    cfg.Desktop.InstanceType,
-			subnetID:        foundationOutputs[pulumi.OutputSubnetID],
+			subnetID:        subnetID,
 			sgID:            foundationOutputs[pulumi.OutputSGID],
 			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
 			sshKeyName:      cfg.Desktop.SSHKeyName,
@@ -464,10 +479,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			marketType:      marketType,
 			spotMaxPrice:    createSpotMaxPrice,
 		}
-		importID, err := launchNestedVirtInstance(ctx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+		launchCtx, cancel := context.WithTimeout(ctx, createTimeout)
+		importID, err := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+		cancel()
 		if err != nil {
 			return fmt.Errorf("launch nested-virt instance: %w", err)
 		}
+		prelaunchedInstanceID = importID
 		stackCfg["importInstanceId"] = importID
 	}
 
@@ -509,12 +527,41 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create fleet record: %w", err)
 	}
 
-	// Run pulumi up and update the record with outputs.
+	// Run pulumi up and update the record with outputs. Spot creates can fail
+	// because one AZ has no capacity, so try each candidate subnet and clean up
+	// failed stack attempts before moving on.
 	ref := desktopRef
-	outputs, err := runner.Up(ctx, ref, stackCfg, os.Stderr)
-	if err != nil {
-		_ = mgr.RecordFailure(ctx, desktopID, "create", err.Error())
-		return fmt.Errorf("pulumi up: %w", err)
+	var outputs map[string]string
+	var lastErr error
+	for i, candidate := range subnets {
+		if i > 0 {
+			fmt.Fprintf(os.Stderr, "Retrying Spot create in subnet %s", candidate.subnetID)
+			if candidate.az != "" {
+				fmt.Fprintf(os.Stderr, " (%s)", candidate.az)
+			}
+			fmt.Fprintln(os.Stderr, " ...")
+		}
+		stackCfg["subnetId"] = candidate.subnetID
+		attemptCtx, cancel := context.WithTimeout(ctx, createTimeout)
+		outputs, err = runner.Up(attemptCtx, ref, stackCfg, os.Stderr)
+		timedOut := attemptCtx.Err() == context.DeadlineExceeded
+		cancel()
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
+		if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(err)) || i == len(subnets)-1 {
+			break
+		}
+		fmt.Fprintf(os.Stderr, "Spot create failed in subnet %s; cleaned up failed attempt before trying the next subnet.\n", candidate.subnetID)
+	}
+	if lastErr != nil {
+		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
+		terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID)
+		_ = s.Delete(ctx, desktopID)
+		return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
 	}
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
@@ -597,6 +644,202 @@ func validateSpotMaxPrice(value string) error {
 		return fmt.Errorf("--spot-max-price must be a positive number")
 	}
 	return nil
+}
+
+type spotPlacementClient interface {
+	DescribeSubnets(context.Context, *ec2sdk.DescribeSubnetsInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSubnetsOutput, error)
+	DescribeSpotPriceHistory(context.Context, *ec2sdk.DescribeSpotPriceHistoryInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSpotPriceHistoryOutput, error)
+}
+
+type spotSubnetSelection struct {
+	subnetID string
+	az       string
+	price    float64
+}
+
+func selectCreateSubnets(ctx context.Context, region, profile, instanceType, marketType string, outputs map[string]string) ([]spotSubnetSelection, error) {
+	candidates := foundationSubnetIDs(outputs)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("foundation stack output %q is missing or empty", pulumi.OutputSubnetID)
+	}
+	if marketType != store.MarketSpot {
+		return subnetSelectionsFromIDs(candidates[:1]), nil
+	}
+	if len(candidates) == 1 {
+		return subnetSelectionsFromIDs(candidates), nil
+	}
+
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not load AWS config for Spot subnet selection; falling back to alternate subnet order: %v\n", err)
+		return subnetSelectionsFallback(candidates), nil
+	}
+	selections, err := selectSpotSubnetsByPrice(ctx, ec2sdk.NewFromConfig(awsCfg), instanceType, candidates)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not compare Spot subnets; falling back to alternate subnet order: %v\n", err)
+		return subnetSelectionsFallback(candidates), nil
+	}
+	if len(selections) > 0 && selections[0].az != "" {
+		fmt.Fprintf(os.Stderr, "  Spot AZ               : %s ($%.4f/hr)\n", selections[0].az, selections[0].price)
+	}
+	return selections, nil
+}
+
+func foundationSubnetIDs(outputs map[string]string) []string {
+	var ids []string
+	add := func(value string) {
+		for _, part := range strings.Split(value, ",") {
+			id := strings.TrimSpace(part)
+			if id == "" || containsString(ids, id) {
+				continue
+			}
+			ids = append(ids, id)
+		}
+	}
+	add(outputs[pulumi.OutputSubnetIDs])
+	add(outputs[pulumi.OutputSubnetID])
+	return ids
+}
+
+func subnetSelectionsFromIDs(subnetIDs []string) []spotSubnetSelection {
+	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+	for _, id := range subnetIDs {
+		selections = append(selections, spotSubnetSelection{subnetID: id})
+	}
+	return selections
+}
+
+func subnetSelectionsFallback(subnetIDs []string) []spotSubnetSelection {
+	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+	for i := len(subnetIDs) - 1; i >= 0; i-- {
+		selections = append(selections, spotSubnetSelection{subnetID: subnetIDs[i]})
+	}
+	return selections
+}
+
+func selectSpotSubnetsByPrice(ctx context.Context, client spotPlacementClient, instanceType string, subnetIDs []string) ([]spotSubnetSelection, error) {
+	if len(subnetIDs) == 0 {
+		return nil, fmt.Errorf("no subnet candidates")
+	}
+	subnets, err := client.DescribeSubnets(ctx, &ec2sdk.DescribeSubnetsInput{
+		SubnetIds: subnetIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe subnets: %w", err)
+	}
+	subnetAZs := make(map[string]string, len(subnets.Subnets))
+	subnetByAZ := make(map[string]string, len(subnets.Subnets))
+	for _, subnet := range subnets.Subnets {
+		id := aws.ToString(subnet.SubnetId)
+		az := aws.ToString(subnet.AvailabilityZone)
+		if id == "" || az == "" || !containsString(subnetIDs, id) {
+			continue
+		}
+		subnetAZs[id] = az
+		if subnetByAZ[az] == "" {
+			subnetByAZ[az] = id
+		}
+	}
+	if len(subnetAZs) == 0 {
+		return nil, fmt.Errorf("none of the candidate subnets were described")
+	}
+
+	start := time.Now().Add(-1 * time.Hour)
+	prices, err := client.DescribeSpotPriceHistory(ctx, &ec2sdk.DescribeSpotPriceHistoryInput{
+		InstanceTypes:       []ec2types.InstanceType{ec2types.InstanceType(instanceType)},
+		ProductDescriptions: []string{"Linux/UNIX"},
+		StartTime:           aws.Time(start),
+		MaxResults:          aws.Int32(1000),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe spot price history: %w", err)
+	}
+
+	bySubnet := make(map[string]spotSubnetSelection, len(subnetIDs))
+	for _, price := range prices.SpotPriceHistory {
+		az := aws.ToString(price.AvailabilityZone)
+		subnetID := subnetByAZ[az]
+		if subnetID == "" {
+			continue
+		}
+		value, err := strconv.ParseFloat(aws.ToString(price.SpotPrice), 64)
+		if err != nil {
+			continue
+		}
+		existing, ok := bySubnet[subnetID]
+		if !ok || value < existing.price {
+			bySubnet[subnetID] = spotSubnetSelection{subnetID: subnetID, az: az, price: value}
+		}
+	}
+	if len(bySubnet) == 0 {
+		return nil, fmt.Errorf("no Linux/UNIX Spot prices found for %s in candidate subnet AZs", instanceType)
+	}
+	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+	for _, subnetID := range subnetIDs {
+		if selection, ok := bySubnet[subnetID]; ok {
+			selections = append(selections, selection)
+		}
+	}
+	sort.SliceStable(selections, func(i, j int) bool {
+		return selections[i].price < selections[j].price
+	})
+	for _, subnetID := range subnetIDs {
+		if _, ok := bySubnet[subnetID]; ok {
+			continue
+		}
+		selections = append(selections, spotSubnetSelection{subnetID: subnetID, az: subnetAZs[subnetID]})
+	}
+	return selections, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanupCreateAttempt(ctx context.Context, runner *pulumi.Runner, ref *pulumi.StackRef, desktopID string, cause error) {
+	cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	fmt.Fprintf(os.Stderr, "Create attempt for %s failed; cleaning up stack %s ...\n", desktopID, ref.StackName)
+	if err := runner.Destroy(cleanupCtx, ref, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cleanup for %s failed after create error %v: %v\n", desktopID, cause, err)
+	}
+}
+
+func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) {
+	if instanceID == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	awsCfg, err := awsx.LoadConfig(cleanupCtx, region, profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not load AWS config to terminate pre-launched instance %s: %v\n", instanceID, err)
+		return
+	}
+	ec2Client := ec2sdk.NewFromConfig(awsCfg)
+	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
+		InstanceIds: []string{instanceID},
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
+	}
+}
+
+func isCreateCapacityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "insufficientinstancecapacity") ||
+		strings.Contains(msg, "insufficientspotinstancecapacity") ||
+		strings.Contains(msg, "insufficient capacity") ||
+		strings.Contains(msg, "capacity-not-available") ||
+		strings.Contains(msg, "there is no spot capacity available") ||
+		strings.Contains(msg, "currently do not have sufficient")
 }
 
 type resolveCreateIntegrationsInput struct {

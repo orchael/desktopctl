@@ -110,6 +110,7 @@ func TestParseOutputs(t *testing.T) {
 	raw := map[string]any{
 		"instanceId": "i-abc123",
 		"hostname":   "d-001.desktops.orchael.dev",
+		"subnetIds":  []any{"subnet-1", "subnet-2"},
 		"count":      42,
 		"nested":     map[string]any{"k": "v"},
 	}
@@ -119,6 +120,9 @@ func TestParseOutputs(t *testing.T) {
 	}
 	if _, ok := out["count"]; ok {
 		t.Error("non-string value should be excluded")
+	}
+	if out["subnetIds"] != "subnet-1,subnet-2" {
+		t.Errorf("subnetIds: got %q", out["subnetIds"])
 	}
 }
 

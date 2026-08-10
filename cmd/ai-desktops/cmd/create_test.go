@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/ai-desktops/internal/pulumi"
+	"github.com/orchael/ai-desktops/internal/store"
 )
 
 func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
@@ -32,6 +38,9 @@ func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
 	}
 	if flag := createCmd.Flags().Lookup("spot-max-price"); flag == nil {
 		t.Fatal("spot-max-price flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("create-timeout"); flag == nil {
+		t.Fatal("create-timeout flag not registered")
 	}
 }
 
@@ -59,6 +68,76 @@ func TestValidateSpotMaxPrice(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestFoundationSubnetIDs(t *testing.T) {
+	got := foundationSubnetIDs(map[string]string{
+		pulumi.OutputSubnetIDs: " subnet-2,subnet-3,subnet-2 ",
+		pulumi.OutputSubnetID:  "subnet-1",
+	})
+	want := []string{"subnet-2", "subnet-3", "subnet-1"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("foundationSubnetIDs = %v, want %v", got, want)
+	}
+}
+
+func TestSelectCreateSubnetsOnDemandUsesFirstSubnetOnly(t *testing.T) {
+	got, err := selectCreateSubnets(context.Background(), "us-east-1", "", "t3.large", store.MarketOnDemand, map[string]string{
+		pulumi.OutputSubnetIDs: "subnet-1,subnet-2",
+		pulumi.OutputSubnetID:  "subnet-legacy",
+	})
+	if err != nil {
+		t.Fatalf("selectCreateSubnets: %v", err)
+	}
+	if len(got) != 1 || got[0].subnetID != "subnet-1" {
+		t.Fatalf("selectCreateSubnets = %+v, want only subnet-1", got)
+	}
+}
+
+type fakeSpotPlacementClient struct {
+	subnets []ec2types.Subnet
+	prices  []ec2types.SpotPrice
+}
+
+func (f fakeSpotPlacementClient) DescribeSubnets(context.Context, *ec2sdk.DescribeSubnetsInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSubnetsOutput, error) {
+	return &ec2sdk.DescribeSubnetsOutput{Subnets: f.subnets}, nil
+}
+
+func (f fakeSpotPlacementClient) DescribeSpotPriceHistory(context.Context, *ec2sdk.DescribeSpotPriceHistoryInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSpotPriceHistoryOutput, error) {
+	return &ec2sdk.DescribeSpotPriceHistoryOutput{SpotPriceHistory: f.prices}, nil
+}
+
+func TestSelectSpotSubnetsByPrice(t *testing.T) {
+	client := fakeSpotPlacementClient{
+		subnets: []ec2types.Subnet{
+			{SubnetId: aws.String("subnet-a"), AvailabilityZone: aws.String("us-east-2a")},
+			{SubnetId: aws.String("subnet-b"), AvailabilityZone: aws.String("us-east-2b")},
+			{SubnetId: aws.String("subnet-c"), AvailabilityZone: aws.String("us-east-2c")},
+		},
+		prices: []ec2types.SpotPrice{
+			{AvailabilityZone: aws.String("us-east-2a"), SpotPrice: aws.String("0.1293")},
+			{AvailabilityZone: aws.String("us-east-2b"), SpotPrice: aws.String("0.1282")},
+			{AvailabilityZone: aws.String("us-east-2c"), SpotPrice: aws.String("0.1269")},
+		},
+	}
+	got, err := selectSpotSubnetsByPrice(context.Background(), client, "m7i.2xlarge", []string{"subnet-a", "subnet-b", "subnet-c"})
+	if err != nil {
+		t.Fatalf("selectSpotSubnetsByPrice: %v", err)
+	}
+	order := []string{got[0].subnetID, got[1].subnetID, got[2].subnetID}
+	want := []string{"subnet-c", "subnet-b", "subnet-a"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("spot subnet order = %v, want %v", order, want)
+	}
+}
+
+func TestIsCreateCapacityError(t *testing.T) {
+	if !isCreateCapacityError(errors.New("Server.InsufficientInstanceCapacity: currently do not have sufficient m7i.2xlarge capacity")) {
+		t.Fatal("expected insufficient capacity error to match")
+	}
+	if isCreateCapacityError(errors.New("access denied")) {
+		t.Fatal("did not expect non-capacity error to match")
 	}
 }
 
