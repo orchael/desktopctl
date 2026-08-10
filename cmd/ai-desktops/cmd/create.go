@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +129,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if createSpotMaxPrice != "" && !createSpot {
 		return fmt.Errorf("--spot-max-price requires --spot")
+	}
+	if err := validateSpotMaxPrice(createSpotMaxPrice); err != nil {
+		return err
 	}
 	marketType := store.MarketOnDemand
 	if createSpot {
@@ -582,6 +586,17 @@ func gzipBase64UserData(userData string) (string, error) {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+func validateSpotMaxPrice(value string) error {
+	if value == "" {
+		return nil
+	}
+	price, err := strconv.ParseFloat(value, 64)
+	if err != nil || price <= 0 {
+		return fmt.Errorf("--spot-max-price must be a positive number")
+	}
+	return nil
 }
 
 type resolveCreateIntegrationsInput struct {

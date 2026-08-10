@@ -35,6 +35,33 @@ func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
 	}
 }
 
+func TestValidateSpotMaxPrice(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "empty"},
+		{name: "positive decimal", value: "0.12"},
+		{name: "positive integer", value: "1"},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "negative", value: "-0.1", wantErr: true},
+		{name: "not a number", value: "cheap", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSpotMaxPrice(tt.value)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolveCreateIntegrations(t *testing.T) {
 	tests := []struct {
 		name          string

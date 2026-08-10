@@ -250,3 +250,43 @@ func TestPrintDesktopStatus_marketAndStopReason(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldReconcileSpotState(t *testing.T) {
+	tests := []struct {
+		state store.LifecycleState
+		want  bool
+	}{
+		{state: store.StateReady, want: true},
+		{state: store.StateUnhealthy, want: true},
+		{state: store.StateCreating, want: true},
+		{state: store.StateFailed, want: true},
+		{state: store.StateProvisioningFailed, want: true},
+		{state: store.StateStopped},
+		{state: store.StateTerminating},
+		{state: store.StateTerminated},
+	}
+
+	for _, tt := range tests {
+		if got := shouldReconcileSpotState(tt.state); got != tt.want {
+			t.Errorf("shouldReconcileSpotState(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestIsSpotInterruptionReason(t *testing.T) {
+	tests := []struct {
+		reason string
+		want   bool
+	}{
+		{reason: "Server.SpotInstanceTermination: instance stopped by AWS", want: true},
+		{reason: "spot instance interruption notice", want: true},
+		{reason: "User initiated (2026-08-10 18:00:00 GMT)"},
+		{reason: ""},
+	}
+
+	for _, tt := range tests {
+		if got := isSpotInterruptionReason(tt.reason); got != tt.want {
+			t.Errorf("isSpotInterruptionReason(%q) = %v, want %v", tt.reason, got, tt.want)
+		}
+	}
+}

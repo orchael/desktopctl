@@ -109,7 +109,7 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 }
 
 func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desktop) error {
-	if effectiveMarketType(d) != store.MarketSpot || d.InstanceID == "" {
+	if effectiveMarketType(d) != store.MarketSpot || d.InstanceID == "" || !shouldReconcileSpotState(d.State) {
 		return nil
 	}
 	region := d.Region
@@ -131,7 +131,7 @@ func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desk
 	reason := d.StopReason
 	if reason == "" {
 		reason = store.StopReasonAWSStopped
-		if status.InstanceLifecycle == store.MarketSpot || status.SpotInstanceRequestID != "" {
+		if isSpotInterruptionReason(status.StateTransitionReason) {
 			reason = store.StopReasonSpotInterruption
 		}
 	}
@@ -144,6 +144,22 @@ func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desk
 		return fmt.Errorf("update spot desktop state: %w", err)
 	}
 	return nil
+}
+
+func shouldReconcileSpotState(state store.LifecycleState) bool {
+	switch state {
+	case store.StateReady, store.StateUnhealthy, store.StateCreating, store.StateFailed, store.StateProvisioningFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSpotInterruptionReason(reason string) bool {
+	normalized := strings.ToLower(reason)
+	return strings.Contains(normalized, "spotinstancetermination") ||
+		strings.Contains(normalized, "spot instance") ||
+		strings.Contains(normalized, "spot-instance")
 }
 
 func effectiveMarketType(d *store.Desktop) string {
