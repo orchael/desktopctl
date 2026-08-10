@@ -248,15 +248,34 @@ runcmd:
     trap 'rm -f "$STEP_CA_PASSWORD_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_CSR_FILE" "$STEP_CA_SIGN_REQUEST" "$STEP_CA_SIGN_RESPONSE"' EXIT
     printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > "$STEP_CA_PASSWORD_FILE"
     chmod 600 "$STEP_CA_PASSWORD_FILE"
-    step ca token \
-      "$CERT_NAME" \
-      --ca-url "https://${STEP_CA}" \
-      --root "$STEP_CA_API_ROOT" \
-      --provisioner "$STEP_PROVISIONER" \
-      --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
-      --san "{{ .Hostname }}" \
-      --san "$CERT_NAME" \
-      > "$STEP_CA_TOKEN_FILE"
+    TAILSCALE_DNS_NAME=""
+    if command -v tailscale >/dev/null 2>&1; then
+      TAILSCALE_DNS_NAME=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Self") or {}).get("DNSName","").rstrip("."))' 2>/dev/null || true)
+    fi
+    CSR_SANS="DNS:{{ .Hostname }},DNS:${CERT_NAME}"
+    if [ -n "$TAILSCALE_DNS_NAME" ]; then
+      CSR_SANS="${CSR_SANS},DNS:${TAILSCALE_DNS_NAME}"
+      step ca token \
+        "$CERT_NAME" \
+        --ca-url "https://${STEP_CA}" \
+        --root "$STEP_CA_API_ROOT" \
+        --provisioner "$STEP_PROVISIONER" \
+        --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
+        --san "{{ .Hostname }}" \
+        --san "$CERT_NAME" \
+        --san "$TAILSCALE_DNS_NAME" \
+        > "$STEP_CA_TOKEN_FILE"
+    else
+      step ca token \
+        "$CERT_NAME" \
+        --ca-url "https://${STEP_CA}" \
+        --root "$STEP_CA_API_ROOT" \
+        --provisioner "$STEP_PROVISIONER" \
+        --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
+        --san "{{ .Hostname }}" \
+        --san "$CERT_NAME" \
+        > "$STEP_CA_TOKEN_FILE"
+    fi
     openssl req -new \
       -newkey ec \
       -pkeyopt ec_paramgen_curve:P-256 \
@@ -264,7 +283,7 @@ runcmd:
       -keyout "$CERT_DIR/server.key" \
       -out "$STEP_CA_CSR_FILE" \
       -subj "/CN=${CERT_NAME}" \
-      -addext "subjectAltName=DNS:{{ .Hostname }},DNS:${CERT_NAME}"
+      -addext "subjectAltName=${CSR_SANS}"
     python3 - "$STEP_CA_CSR_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_SIGN_REQUEST" <<'PY'
     import json
     import sys
@@ -301,7 +320,11 @@ runcmd:
     chown ubuntu:ubuntu "$CERT_DIR/server.crt" "$CERT_DIR/server.key"
     chmod 600 "$CERT_DIR/server.key"
     chmod 644 "$CERT_DIR/server.crt"
-    install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_API_ROOT" "$CERT_DIR/step-ca-root.crt"
+    # Keep API trust separate from bridge client trust. STEP_CA_API_ROOT may
+    # fall back to a public WebPKI root when the Step CA endpoint uses a public
+    # serving cert, but bridgectl's mTLS client CA must be the actual Step CA
+    # root that issued client certs.
+    install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_ROOT" "$CERT_DIR/step-ca-root.crt"
 
 {{- if .StepCAClients}}
     JWT_CLIENT_DIR="/home/ubuntu/.ai-agent-bridge/certs/jwt-clients"
@@ -314,20 +337,25 @@ runcmd:
 {{- end}}
 
     STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
-    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$STEP_PROVISIONER" "$STEP_CA_CLIENTS_JSON_B64" <<'PY'
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" <<'PY'
     import base64
     import json
     import sys
     import yaml
 
-    config_path, step_ca, root_path, provisioner, clients_b64 = sys.argv[1:6]
+    config_path, step_ca, root_path, cert_path, key_path, clients_b64 = sys.argv[1:7]
     with open(config_path, encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file) or {}
     step_ca_config = config.setdefault("step_ca", {})
     step_ca_config["url"] = f"https://{step_ca}"
     step_ca_config["root"] = root_path
-    if provisioner:
-        step_ca_config["provisioner"] = provisioner
+    step_ca_config.pop("provisioner", None)
+    step_ca_config.pop("provisioner_password_file", None)
+    config["tls"] = {
+        "ca_bundle": root_path,
+        "cert": cert_path,
+        "key": key_path,
+    }
     if clients_b64:
         step_ca_config["clients"] = json.loads(base64.b64decode(clients_b64).decode("utf-8"))
     with open(config_path, "w", encoding="utf-8") as config_file:
@@ -582,18 +610,16 @@ runcmd:
       exit 1
     fi
     python3 - /home/ubuntu/.config/bridgectl/config.yaml "$TAILSCALE_IP:{{ .BridgePort }}" <<'PY'
-    import re
     import sys
+    import yaml
 
     path, listen = sys.argv[1:3]
     with open(path, encoding="utf-8") as f:
-        content = f.read()
-    replacement = f'  listen: "{listen}"'
-    content, count = re.subn(r'(?m)^  listen:\s*".*"$', replacement, content, count=1)
-    if count != 1:
-        raise SystemExit("could not update bridgectl server.listen")
+        config = yaml.safe_load(f) or {}
+    server = config.setdefault("server", {})
+    server["listen"] = listen
     with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
     PY
     chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
     chmod 600 /home/ubuntu/.config/bridgectl/config.yaml

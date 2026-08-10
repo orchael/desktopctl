@@ -242,23 +242,30 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"STEP_CA_CSR_FILE=$(mktemp)",
 		"STEP_CA_SIGN_REQUEST=$(mktemp)",
 		"STEP_CA_SIGN_RESPONSE=$(mktemp)",
+		"TAILSCALE_DNS_NAME=$(tailscale status --json",
+		"DNS:${TAILSCALE_DNS_NAME}",
+		"--san \"$TAILSCALE_DNS_NAME\"",
 		"step ca token",
 		"--root \"$STEP_CA_API_ROOT\"",
 		"openssl req -new",
+		"-addext \"subjectAltName=${CSR_SANS}\"",
 		"json.dump({\"csr\": csr, \"ott\": token}, output_file)",
 		"\"https://${STEP_CA}/1.0/sign\"",
 		"cert_file.write(response[\"crt\"])",
 		"server.crt",
+		"install -o ubuntu -g ubuntu -m 0644 \"$STEP_CA_ROOT\" \"$CERT_DIR/step-ca-root.crt\"",
 		"bridgectl.service.d/step-ca.conf",
 		"EnvironmentFile=-%%h/.config/bridgectl/step-ca.env",
 		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
-		"server.listen",
+		"server[\"listen\"]",
 		"\"$TAILSCALE_IP:9445\"",
 		"/home/ubuntu/.ai-agent-bridge/certs/jwt-clients",
 		"mark-macbook.pub",
 		"STEP_CA_CLIENTS_JSON_B64",
 		"step_ca_config[\"clients\"]",
 		"step-ca-root.crt",
+		"config[\"tls\"]",
+		"server.key",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -270,6 +277,9 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 	}
 	if strings.Contains(out, "step ca certificate") {
 		t.Error("step-ca certificate issuance should use the sign API, not step ca certificate")
+	}
+	if strings.Contains(out, "install -o ubuntu -g ubuntu -m 0644 \"$STEP_CA_API_ROOT\" \"$CERT_DIR/step-ca-root.crt\"") {
+		t.Error("bridgectl client CA bundle must use the Step CA root, not the API fallback root")
 	}
 
 	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {
