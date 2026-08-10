@@ -80,7 +80,7 @@ func init() {
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
-	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: 2× instance memory; 0 = auto; -1 = disable)")
+	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: min(2× instance memory, 32); 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
@@ -1311,7 +1311,7 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 // flag values:
 //
 //	-1 — swap disabled (returns 0, no error)
-//	 0 — auto: 2× instance memory (falls back to 4 GiB for unknown types)
+//	 0 — auto: 2× instance memory, capped at 32 GiB (falls back to 4 GiB for unknown types)
 //	>0 — explicit size in GiB
 //
 // An error is returned when the swap would leave fewer than 20 GiB on the root
@@ -1325,12 +1325,16 @@ func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int
 	}
 	swapSizeGiB := flagValue
 	if swapSizeGiB == 0 {
+		const maxAutoSwapSizeGiB = 32
 		memGiB := provision.InstanceMemoryGiB(instanceType)
 		if memGiB == 0 {
 			// Unknown instance type: default to 4 GiB so swap is still created.
 			memGiB = 4
 		}
 		swapSizeGiB = 2 * memGiB
+		if swapSizeGiB > maxAutoSwapSizeGiB {
+			swapSizeGiB = maxAutoSwapSizeGiB
+		}
 	}
 	const minOSReservedGiB = 20
 	if swapSizeGiB+minOSReservedGiB > volumeSizeGiB {

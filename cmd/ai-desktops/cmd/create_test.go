@@ -752,10 +752,17 @@ func TestResolveSwapSize(t *testing.T) {
 			errContains:  "exceeds root volume size",
 		},
 		{
-			name:         "auto swap too large for small volume",
+			name:         "auto swap is capped at 32 GiB",
 			flagValue:    0,
 			instanceType: "r5.2xlarge", // 64 GiB RAM → 128 GiB swap
 			volumeGiB:    100,
+			wantSwap:     32,
+		},
+		{
+			name:         "capped auto swap can still exceed small volume",
+			flagValue:    0,
+			instanceType: "r5.2xlarge",
+			volumeGiB:    40,
 			wantErr:      true,
 			errContains:  "exceeds root volume size",
 		},
