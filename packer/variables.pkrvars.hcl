@@ -1,4 +1,4 @@
-ai_agent_bridge_version        = "v0.8.1"
+ai_agent_bridge_version        = "v0.8.2"
 tailscale_version              = "1.98.9"
 go_version                     = "1.24.0"
 uv_version                     = "0.4.0"
