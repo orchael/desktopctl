@@ -226,3 +226,27 @@ func TestPrintDesktopStatus_failureFields(t *testing.T) {
 		t.Errorf("Failure msg missing\nfull output:\n%s", out)
 	}
 }
+
+func TestPrintDesktopStatus_marketAndStopReason(t *testing.T) {
+	d := &store.Desktop{
+		DesktopID:  "d-spot",
+		State:      store.StateStopped,
+		MarketType: store.MarketSpot,
+		StopReason: store.StopReasonSpotInterruption,
+		StoppedAt:  "2026-08-10T18:00:00Z",
+	}
+
+	var buf bytes.Buffer
+	printDesktopStatus(&buf, d, "us-east-1", "")
+	out := buf.String()
+
+	for _, want := range []string{
+		"Market type  : spot",
+		"Stop reason  : spot-interruption",
+		"Stopped at   : 2026-08-10T18:00:00Z",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q\nfull output:\n%s", want, out)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -39,6 +40,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("desktop %q not found", id)
 		}
+		return err
+	}
+
+	if err := reconcileSpotDesktopState(ctx, s, d); err != nil {
 		return err
 	}
 
@@ -71,6 +76,13 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 	if d.InstanceType != "" {
 		fmt.Fprintf(w, "Instance type: %s\n", d.InstanceType)
 	}
+	fmt.Fprintf(w, "Market type  : %s\n", effectiveMarketType(d))
+	if d.StopReason != "" {
+		fmt.Fprintf(w, "Stop reason  : %s\n", d.StopReason)
+	}
+	if d.StoppedAt != "" {
+		fmt.Fprintf(w, "Stopped at   : %s\n", d.StoppedAt)
+	}
 	if d.AMIID != "" {
 		fmt.Fprintf(w, "AMI ID       : %s\n", d.AMIID)
 	}
@@ -94,6 +106,51 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 		fmt.Fprintf(w, "Failure phase: %s\n", d.FailurePhase)
 		fmt.Fprintf(w, "Failure msg  : %s\n", d.FailureMsg)
 	}
+}
+
+func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desktop) error {
+	if effectiveMarketType(d) != store.MarketSpot || d.InstanceID == "" {
+		return nil
+	}
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("AWS config for spot status reconciliation: %w", err)
+	}
+	status, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("reconcile spot instance state: %w", err)
+	}
+	if status.State != "stopped" {
+		return nil
+	}
+
+	reason := d.StopReason
+	if reason == "" {
+		reason = store.StopReasonAWSStopped
+		if status.InstanceLifecycle == store.MarketSpot || status.SpotInstanceRequestID != "" {
+			reason = store.StopReasonSpotInterruption
+		}
+	}
+	d.State = store.StateStopped
+	d.StopReason = reason
+	if d.StoppedAt == "" {
+		d.StoppedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("update spot desktop state: %w", err)
+	}
+	return nil
+}
+
+func effectiveMarketType(d *store.Desktop) string {
+	if d.MarketType == store.MarketSpot {
+		return store.MarketSpot
+	}
+	return store.MarketOnDemand
 }
 
 // parseNoVNCOutput extracts the URL from the output of novnc-desktop-url.

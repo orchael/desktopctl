@@ -26,6 +26,15 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 }
 
+func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
+	if flag := createCmd.Flags().Lookup("spot"); flag == nil {
+		t.Fatal("spot flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("spot-max-price"); flag == nil {
+		t.Fatal("spot-max-price flag not registered")
+	}
+}
+
 func TestResolveCreateIntegrations(t *testing.T) {
 	tests := []struct {
 		name          string

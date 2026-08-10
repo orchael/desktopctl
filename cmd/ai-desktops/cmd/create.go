@@ -25,6 +25,7 @@ import (
 	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/repo"
+	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,8 @@ var (
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
 	createInstanceType  string
+	createSpot          bool
+	createSpotMaxPrice  string
 	createTailscale     bool
 	createTailscaleNet  string
 	createStepCA        string
@@ -78,6 +81,8 @@ func init() {
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
+	createCmd.Flags().BoolVar(&createSpot, "spot", false, "launch the desktop as a persistent Spot instance that stops on interruption")
+	createCmd.Flags().StringVar(&createSpotMaxPrice, "spot-max-price", "", "maximum hourly Spot price in USD (requires --spot; default is AWS on-demand ceiling)")
 	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
 	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY or an existing integration secret")
 	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret, and a fingerprint via --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT")
@@ -120,6 +125,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
 		return fmt.Errorf("nested virtualization requires a supported Intel Nitro instance type (c8i, m8i, r8i, c7i, m7i, r7i, i7i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
+	}
+	if createSpotMaxPrice != "" && !createSpot {
+		return fmt.Errorf("--spot-max-price requires --spot")
+	}
+	marketType := store.MarketOnDemand
+	if createSpot {
+		marketType = store.MarketSpot
 	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.
@@ -251,6 +263,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		StepCAServer:  stepCAServer,
 		InstanceType:  cfg.Desktop.InstanceType,
 		NestedVirt:    nestedVirt,
+		MarketType:    marketType,
 		Zone:          zone,
 		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
@@ -270,9 +283,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("generate desktop ID: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
+	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s, market=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType, marketType)
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
+	}
+	if marketType == store.MarketSpot {
+		fmt.Fprintln(os.Stderr, "  Spot market           : enabled (persistent, stop on interruption)")
+		if createSpotMaxPrice != "" {
+			fmt.Fprintf(os.Stderr, "  Spot max price        : %s\n", createSpotMaxPrice)
+		}
 	}
 	if integrations.tailscaleEnabled {
 		fmt.Fprintf(os.Stderr, "  Tailscale network     : %s\n", tailscaleNetwork)
@@ -411,6 +430,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		userDataBase64,
 		env,
 		nestedVirt,
+		marketType,
+		createSpotMaxPrice,
 	)
 
 	// When nested virtualization is requested, launch the EC2 instance directly via
@@ -436,6 +457,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			desktopID:       desktopID,
 			githubOwner:     owner,
 			environment:     env,
+			marketType:      marketType,
+			spotMaxPrice:    createSpotMaxPrice,
 		}
 		importID, err := launchNestedVirtInstance(ctx, cfg.AWS.Region, cfg.AWS.Profile, lp)
 		if err != nil {
@@ -449,6 +472,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Zone          : %s\n", zone)
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
+		fmt.Printf("Market type   : %s\n", marketType)
+		if createSpotMaxPrice != "" {
+			fmt.Printf("Spot max price: %s\n", createSpotMaxPrice)
+		}
 		fmt.Printf("Nested virt   : %v\n", nestedVirt)
 		if integrations.tailscaleEnabled {
 			fmt.Printf("Tailscale     : %s\n", tailscaleNetwork)
@@ -507,6 +534,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"ami_id":                amiID,
 		"region":                cfg.AWS.Region,
 		"instance_type":         cfg.Desktop.InstanceType,
+		"market_type":           marketType,
+		"spot_max_price":        createSpotMaxPrice,
 		"nested_virtualization": nestedVirtStr,
 		"avd_names":             strings.Join(req.AVDNames, ", "),
 		"tailscale_network":     tailscaleNetwork,
@@ -522,6 +551,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Desktop URL   : %s\n", result["novnc_url"])
 	fmt.Printf("SSH target    : %s\n", result["ssh_target"])
 	fmt.Printf("Instance type : %s\n", result["instance_type"])
+	fmt.Printf("Market type   : %s\n", result["market_type"])
+	if result["spot_max_price"] != "" {
+		fmt.Printf("Spot max price: %s\n", result["spot_max_price"])
+	}
 	fmt.Printf("Nested virt   : %s\n", result["nested_virtualization"])
 	if result["avd_names"] != "" {
 		fmt.Printf("AVDs          : %s\n", result["avd_names"])
@@ -901,6 +934,8 @@ type instanceLaunchParams struct {
 	desktopID       string
 	githubOwner     string
 	environment     string
+	marketType      string
+	spotMaxPrice    string
 }
 
 // launchNestedVirtInstance launches an EC2 instance directly via RunInstances with
@@ -975,6 +1010,19 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	}
 	if p.sshKeyName != "" {
 		input.KeyName = aws.String(p.sshKeyName)
+	}
+	if p.marketType == store.MarketSpot {
+		spotOptions := &ec2types.SpotMarketOptions{
+			InstanceInterruptionBehavior: ec2types.InstanceInterruptionBehaviorStop,
+			SpotInstanceType:             ec2types.SpotInstanceTypePersistent,
+		}
+		if p.spotMaxPrice != "" {
+			spotOptions.MaxPrice = aws.String(p.spotMaxPrice)
+		}
+		input.InstanceMarketOptions = &ec2types.InstanceMarketOptionsRequest{
+			MarketType:  ec2types.MarketTypeSpot,
+			SpotOptions: spotOptions,
+		}
 	}
 
 	result, err := ec2Client.RunInstances(ctx, input)

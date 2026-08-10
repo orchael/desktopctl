@@ -345,21 +345,46 @@ func StartInstance(ctx context.Context, cfg aws.Config, instanceID string) error
 
 // InstanceState returns the current state of the EC2 instance.
 func InstanceState(ctx context.Context, cfg aws.Config, instanceID string) (string, error) {
+	status, err := InstanceStatus(ctx, cfg, instanceID)
+	if err != nil {
+		return "", err
+	}
+	return status.State, nil
+}
+
+// EC2InstanceStatus contains the EC2 state details needed by lifecycle
+// reconciliation without leaking AWS SDK types to command packages.
+type EC2InstanceStatus struct {
+	State                 string
+	StateTransitionReason string
+	InstanceLifecycle     string
+	SpotInstanceRequestID string
+}
+
+// InstanceStatus returns the current EC2 instance state and lifecycle metadata.
+func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC2InstanceStatus, error) {
 	c := ec2.NewFromConfig(cfg)
 	out, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
-		return "", fmt.Errorf("describe instance %s: %w", instanceID, err)
+		return nil, fmt.Errorf("describe instance %s: %w", instanceID, err)
 	}
 	if len(out.Reservations) == 0 || len(out.Reservations[0].Instances) == 0 {
-		return "", fmt.Errorf("instance %s not found", instanceID)
+		return nil, fmt.Errorf("instance %s not found", instanceID)
 	}
-	state := out.Reservations[0].Instances[0].State
+	inst := out.Reservations[0].Instances[0]
+	status := &EC2InstanceStatus{
+		StateTransitionReason: aws.ToString(inst.StateTransitionReason),
+		InstanceLifecycle:     string(inst.InstanceLifecycle),
+		SpotInstanceRequestID: aws.ToString(inst.SpotInstanceRequestId),
+	}
+	state := inst.State
 	if state == nil {
-		return "", nil
+		return status, nil
 	}
-	return string(state.Name), nil
+	status.State = string(state.Name)
+	return status, nil
 }
 
 // InstanceRunning reports whether the EC2 instance is in the running state.

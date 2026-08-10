@@ -76,6 +76,7 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // amiID is the pre-baked AMI ID.
 // userDataBase64 is gzip-compressed, base64-encoded cloud-init user-data.
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
+// marketType is "on-demand" or "spot"; spotMaxPrice is optional.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
@@ -83,6 +84,7 @@ func DesktopConfig(
 	bridgePort, volumeSize int,
 	amiID, userDataBase64, environment string,
 	nestedVirtualization bool,
+	marketType, spotMaxPrice string,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -114,6 +116,12 @@ func DesktopConfig(
 	if nestedVirtualization {
 		cfg["nestedVirtualization"] = "true"
 	}
+	if marketType != "" {
+		cfg["marketType"] = marketType
+	}
+	if spotMaxPrice != "" {
+		cfg["spotMaxPrice"] = spotMaxPrice
+	}
 	return cfg
 }
 
@@ -130,6 +138,7 @@ const (
 	OutputInstanceProfile = "instanceProfile"
 	OutputZoneID          = "zoneId"
 	OutputFleetTable      = "fleetTable"
+	OutputMarketType      = "marketType"
 )
 
 // Runner drives Pulumi stacks by invoking the `pulumi` CLI as a subprocess.

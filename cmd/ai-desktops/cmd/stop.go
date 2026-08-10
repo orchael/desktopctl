@@ -54,7 +54,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		if err := awsx.HaltInstance(ctx, awsCfg, d.InstanceID); err != nil {
 			return err
 		}
-		if err := mgr.MarkStopped(ctx, id); err != nil {
+		if err := mgr.MarkStoppedWithReason(ctx, id, store.StopReasonUserRequest); err != nil {
 			return err
 		}
 		fmt.Printf("Desktop %s stopped.\n", id)
@@ -63,7 +63,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		if err := awsx.StopInstance(ctx, awsCfg, d.InstanceID); err != nil {
 			return err
 		}
-		if err := mgr.MarkStopped(ctx, id); err != nil {
+		if err := mgr.MarkStoppedWithReason(ctx, id, store.StopReasonUserRequest); err != nil {
 			return err
 		}
 		fmt.Printf("Desktop %s hibernated.\n", id)

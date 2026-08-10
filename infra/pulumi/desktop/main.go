@@ -58,6 +58,11 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	nestedVirtualization := cfg.Get("nestedVirtualization") == "true"
+	marketType := cfg.Get("marketType")
+	if marketType == "" {
+		marketType = "on-demand"
+	}
+	spotMaxPrice := cfg.Get("spotMaxPrice")
 
 	// importInstanceId is set by the CLI when the instance was pre-launched via
 	// RunInstances with CpuOptions.NestedVirtualization=enabled. Pulumi imports
@@ -80,9 +85,9 @@ func run(ctx *pulumi.Context) error {
 		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
 	}
 
-	// NestedVirtualization=enabled is incompatible with hibernation;
-	// AWS does not allow an instance to be hibernated when NestedVirtualization is enabled.
-	hibernation := !nestedVirtualization
+	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
+	// are also configured to stop on interruption, so keep hibernation disabled.
+	hibernation := !nestedVirtualization && marketType != "spot"
 
 	instanceArgs := &ec2.InstanceArgs{
 		Ami:                      pulumi.String(amiID),
@@ -115,6 +120,19 @@ func run(ctx *pulumi.Context) error {
 	// it cannot set itself.
 	if sshKeyName != "" {
 		instanceArgs.KeyName = pulumi.String(sshKeyName)
+	}
+	if marketType == "spot" {
+		spotOptions := &ec2.InstanceInstanceMarketOptionsSpotOptionsArgs{
+			InstanceInterruptionBehavior: pulumi.String("stop"),
+			SpotInstanceType:             pulumi.String("persistent"),
+		}
+		if spotMaxPrice != "" {
+			spotOptions.MaxPrice = pulumi.String(spotMaxPrice)
+		}
+		instanceArgs.InstanceMarketOptions = &ec2.InstanceInstanceMarketOptionsArgs{
+			MarketType:  pulumi.String("spot"),
+			SpotOptions: spotOptions,
+		}
 	}
 	if userDataBase64 != "" {
 		instanceArgs.UserDataBase64 = pulumi.String(userDataBase64)
@@ -169,6 +187,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("githubOwner", pulumi.String(githubOwner))
 	ctx.Export("amiId", pulumi.String(amiID))
 	ctx.Export("region", pulumi.String(region))
+	ctx.Export("marketType", pulumi.String(marketType))
 
 	return nil
 }
