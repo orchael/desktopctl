@@ -8,13 +8,17 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
+
+var statusRefreshDNS bool
 
 var statusCmd = &cobra.Command{
 	Use:   "status <desktop-id>",
@@ -24,6 +28,7 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
+	statusCmd.Flags().BoolVar(&statusRefreshDNS, "refresh-dns", false, "refresh Pulumi state and update the Route53 DNS record before showing status")
 	rootCmd.AddCommand(statusCmd)
 }
 
@@ -46,6 +51,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err := reconcileSpotDesktopState(ctx, s, d); err != nil {
 		return err
 	}
+	if statusRefreshDNS {
+		if err := refreshStatusDNS(ctx, s, id, d); err != nil {
+			return err
+		}
+	}
 
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(d)
@@ -58,6 +68,45 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	printDesktopStatus(os.Stdout, d, region, fetchNoVNCDesktopURL(d))
 	return nil
+}
+
+func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.Desktop) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
+	if d.InstanceID == "" {
+		return fmt.Errorf("desktop %q has no instance ID", id)
+	}
+	if err := requireBackend(ctx); err != nil {
+		return err
+	}
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+
+	fmt.Fprintln(os.Stderr, "Refreshing DNS record from current instance public IP ...")
+	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("pulumi refresh+up: %w", err)
+	}
+	updateDesktopFromPulumiOutputs(d, outputs)
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("update store record: %w", err)
+	}
+	return nil
+}
+
+func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string) {
+	if v := outputs[pulumi.OutputHostname]; v != "" {
+		d.Hostname = v
+	}
+	if v := outputs[pulumi.OutputNoVNCURL]; v != "" {
+		d.NoVNCURL = v
+	}
+	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
+		d.SSHTarget = v
+	}
 }
 
 // printDesktopStatus writes the human-readable status block to w.

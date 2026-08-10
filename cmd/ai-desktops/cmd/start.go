@@ -81,15 +81,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Persist updated outputs (new public IP reflected in hostname/SSH/noVNC)
 	// back to the store so subsequent commands see current values.
-	if v := outputs[pulumi.OutputHostname]; v != "" {
-		d.Hostname = v
-	}
-	if v := outputs[pulumi.OutputNoVNCURL]; v != "" {
-		d.NoVNCURL = v
-	}
-	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
-		d.SSHTarget = v
-	}
+	updateDesktopFromPulumiOutputs(d, outputs)
 	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("update store record: %w", err)
 	}

@@ -8,6 +8,16 @@ import (
 	"github.com/orchael/ai-desktops/internal/store"
 )
 
+func TestStatusCmd_refreshDNSFlagRegistered(t *testing.T) {
+	flag := statusCmd.Flags().Lookup("refresh-dns")
+	if flag == nil {
+		t.Fatal("refresh-dns flag not registered")
+	}
+	if flag.DefValue != "false" {
+		t.Fatalf("refresh-dns default = %q, want false", flag.DefValue)
+	}
+}
+
 func TestParseNoVNCOutput(t *testing.T) {
 	realOutput := `Desktop URL : https://example.com:8443/access?token=abc123
   Expires     : 2026-07-12T11:44:54Z
@@ -59,6 +69,52 @@ func TestParseNoVNCOutput(t *testing.T) {
 				t.Errorf("parseNoVNCOutput() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUpdateDesktopFromPulumiOutputs(t *testing.T) {
+	d := &store.Desktop{
+		Hostname:  "old.example.com",
+		NoVNCURL:  "https://old.example.com:8443/novnc/vnc.html",
+		SSHTarget: "ubuntu@old.example.com",
+	}
+
+	updateDesktopFromPulumiOutputs(d, map[string]string{
+		"hostname":  "new.example.com",
+		"novncUrl":  "https://new.example.com:8443/novnc/vnc.html",
+		"sshTarget": "ubuntu@new.example.com",
+	})
+
+	if d.Hostname != "new.example.com" {
+		t.Errorf("hostname = %q", d.Hostname)
+	}
+	if d.NoVNCURL != "https://new.example.com:8443/novnc/vnc.html" {
+		t.Errorf("novnc url = %q", d.NoVNCURL)
+	}
+	if d.SSHTarget != "ubuntu@new.example.com" {
+		t.Errorf("ssh target = %q", d.SSHTarget)
+	}
+}
+
+func TestUpdateDesktopFromPulumiOutputsSkipsEmptyValues(t *testing.T) {
+	d := &store.Desktop{
+		Hostname:  "old.example.com",
+		NoVNCURL:  "https://old.example.com:8443/novnc/vnc.html",
+		SSHTarget: "ubuntu@old.example.com",
+	}
+
+	updateDesktopFromPulumiOutputs(d, map[string]string{
+		"hostname": "",
+	})
+
+	if d.Hostname != "old.example.com" {
+		t.Errorf("hostname = %q", d.Hostname)
+	}
+	if d.NoVNCURL != "https://old.example.com:8443/novnc/vnc.html" {
+		t.Errorf("novnc url = %q", d.NoVNCURL)
+	}
+	if d.SSHTarget != "ubuntu@old.example.com" {
+		t.Errorf("ssh target = %q", d.SSHTarget)
 	}
 }
 
