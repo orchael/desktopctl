@@ -113,6 +113,31 @@ func TestManager_MarkReady(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateFromOutputsUpdatesInstanceType(t *testing.T) {
+	s := store.NewInMemoryStore()
+	m := NewManager(s)
+	ctx := context.Background()
+
+	_ = s.Create(ctx, &store.Desktop{
+		DesktopID:    "d-u1",
+		State:        store.StateCreating,
+		InstanceType: "m7i.xlarge",
+	})
+	if err := m.UpdateFromOutputs(ctx, "d-u1", map[string]string{
+		"instanceId":   "i-123",
+		"instanceType": "m6i.xlarge",
+	}); err != nil {
+		t.Fatalf("UpdateFromOutputs: %v", err)
+	}
+	d, _ := s.Get(ctx, "d-u1")
+	if d.InstanceID != "i-123" {
+		t.Errorf("instance ID: got %q", d.InstanceID)
+	}
+	if d.InstanceType != "m6i.xlarge" {
+		t.Errorf("instance type: got %q", d.InstanceType)
+	}
+}
+
 func TestManager_MarkStopped(t *testing.T) {
 	s := store.NewInMemoryStore()
 	m := NewManager(s)

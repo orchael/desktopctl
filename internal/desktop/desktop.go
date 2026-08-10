@@ -137,6 +137,9 @@ func (m *Manager) UpdateFromOutputs(ctx context.Context, id string, outputs map[
 	if v, ok := outputs["marketType"]; ok {
 		d.MarketType = normalizeMarketType(v)
 	}
+	if v, ok := outputs["instanceType"]; ok {
+		d.InstanceType = v
+	}
 	return m.Store.Update(ctx, d)
 }
 

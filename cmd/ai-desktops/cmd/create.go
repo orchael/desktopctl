@@ -46,6 +46,7 @@ var (
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
 	createInstanceType  string
+	createInstanceTypes []string
 	createSpot          bool
 	createSpotMaxPrice  string
 	createTimeout       time.Duration
@@ -85,6 +86,7 @@ func init() {
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
+	createCmd.Flags().StringSliceVar(&createInstanceTypes, "instance-types", nil, "EC2 Spot instance types to consider (comma-separated; repeatable; default: "+strings.Join(config.DefaultSpotInstanceTypes, ",")+")")
 	createCmd.Flags().BoolVar(&createSpot, "spot", false, "launch the desktop as a persistent Spot instance that stops on interruption")
 	createCmd.Flags().StringVar(&createSpotMaxPrice, "spot-max-price", "", "maximum hourly Spot price in USD (requires --spot; default is AWS on-demand ceiling)")
 	createCmd.Flags().DurationVar(&createTimeout, "create-timeout", 5*time.Minute, "maximum time to wait for each infrastructure create attempt before cleaning up")
@@ -128,9 +130,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		nestedVirt = createNestedVirt
 	}
 
-	if nestedVirt && !config.SupportsNestedVirt(cfg.Desktop.InstanceType) {
-		return fmt.Errorf("nested virtualization requires a supported Intel Nitro instance type (c8i, m8i, r8i, c7i, m7i, r7i, i7i); got %q — set instance_type in config or use --mobile which defaults to %s", cfg.Desktop.InstanceType, config.DefaultMobileInstanceType)
-	}
 	if createSpotMaxPrice != "" && !createSpot {
 		return fmt.Errorf("--spot-max-price requires --spot")
 	}
@@ -143,6 +142,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	marketType := store.MarketOnDemand
 	if createSpot {
 		marketType = store.MarketSpot
+	}
+	instanceTypes, err := resolveCreateInstanceTypes(resolveCreateInstanceTypesInput{
+		marketType:             marketType,
+		configInstanceType:     cfg.Desktop.InstanceType,
+		configInstanceTypes:    cfg.Desktop.InstanceTypes,
+		flagInstanceTypeSet:    cmd.Flags().Changed("instance-type"),
+		flagInstanceTypes:      createInstanceTypes,
+		flagInstanceTypesSet:   cmd.Flags().Changed("instance-types"),
+		nestedVirtualization:   nestedVirt,
+		mobileDefaultInstance:  config.DefaultMobileInstanceType,
+		defaultInstanceType:    config.DefaultInstanceType,
+		defaultSpotInstanceSet: config.DefaultSpotInstanceTypes,
+	})
+	if err != nil {
+		return err
 	}
 
 	// Fall back to config file owner when --github-owner not explicitly set.
@@ -272,7 +286,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Secrets:       createSecrets,
 		TailscaleNet:  tailscaleNetwork,
 		StepCAServer:  stepCAServer,
-		InstanceType:  cfg.Desktop.InstanceType,
+		InstanceType:  instanceTypes[0],
 		NestedVirt:    nestedVirt,
 		MarketType:    marketType,
 		Zone:          zone,
@@ -294,7 +308,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("generate desktop ID: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s, market=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType, marketType)
+	if marketType == store.MarketSpot {
+		fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instances=%s, market=%s) ...\n", desktopID, env, owner, strings.Join(instanceTypes, ","), marketType)
+	} else {
+		fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s, market=%s) ...\n", desktopID, env, owner, instanceTypes[0], marketType)
+	}
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
 	}
@@ -336,7 +354,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("volume size must be a positive integer (got %d); set --volume-size or desktop.volume_size in config", volumeSize)
 	}
 
-	swapSizeGB, err := resolveSwapSize(createSwapSize, cfg.Desktop.InstanceType, volumeSize)
+	subnets, err := selectCreateSubnets(ctx, cfg.AWS.Region, cfg.AWS.Profile, instanceTypes, marketType, foundationOutputs)
+	if err != nil {
+		return err
+	}
+	selectedInstanceType := subnets[0].instanceType
+	req.InstanceType = selectedInstanceType
+	subnetID := subnets[0].subnetID
+	if marketType == store.MarketSpot {
+		fmt.Fprintf(os.Stderr, "  Spot selected type    : %s\n", selectedInstanceType)
+		if subnetID != foundationOutputs[pulumi.OutputSubnetID] {
+			fmt.Fprintf(os.Stderr, "  Spot subnet           : %s\n", subnetID)
+		}
+	}
+
+	swapSizeGB, err := resolveSwapSize(createSwapSize, selectedInstanceType, volumeSize)
 	if err != nil {
 		return err
 	}
@@ -427,17 +459,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("compress cloud-init user-data: %w", err)
 	}
-	subnets, err := selectCreateSubnets(ctx, cfg.AWS.Region, cfg.AWS.Profile, cfg.Desktop.InstanceType, marketType, foundationOutputs)
-	if err != nil {
-		return err
-	}
-	subnetID := subnets[0].subnetID
-	if marketType == store.MarketSpot && subnetID != foundationOutputs[pulumi.OutputSubnetID] {
-		fmt.Fprintf(os.Stderr, "  Spot subnet           : %s\n", subnetID)
-	}
-
 	stackCfg := pulumi.DesktopConfig(
-		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
+		cfg.AWS.Region, desktopID, owner, zone, selectedInstanceType,
 		subnetID,
 		foundationOutputs[pulumi.OutputSGID],
 		foundationOutputs[pulumi.OutputInstanceProfile],
@@ -457,8 +480,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
 		fmt.Printf("Zone          : %s\n", zone)
 		fmt.Printf("Hostname      : %s\n", hostname)
-		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
+		fmt.Printf("Instance type : %s\n", selectedInstanceType)
 		fmt.Printf("Market type   : %s\n", marketType)
+		if marketType == store.MarketSpot {
+			fmt.Printf("Instance types: %s\n", strings.Join(instanceTypes, ","))
+		}
 		if createSpotMaxPrice != "" {
 			fmt.Printf("Spot max price: %s\n", createSpotMaxPrice)
 		}
@@ -500,18 +526,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	for i, candidate := range subnets {
 		prelaunchedInstanceID := ""
 		if i > 0 {
-			fmt.Fprintf(os.Stderr, "Retrying Spot create in subnet %s", candidate.subnetID)
+			fmt.Fprintf(os.Stderr, "Retrying Spot create with %s in subnet %s", candidate.instanceType, candidate.subnetID)
 			if candidate.az != "" {
 				fmt.Fprintf(os.Stderr, " (%s)", candidate.az)
 			}
 			fmt.Fprintln(os.Stderr, " ...")
 		}
 		stackCfg["subnetId"] = candidate.subnetID
+		stackCfg["instanceType"] = candidate.instanceType
 		delete(stackCfg, "importInstanceId")
 		if nestedVirt {
 			lp := &instanceLaunchParams{
 				amiID:           amiID,
-				instanceType:    cfg.Desktop.InstanceType,
+				instanceType:    candidate.instanceType,
 				subnetID:        candidate.subnetID,
 				sgID:            foundationOutputs[pulumi.OutputSGID],
 				instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
@@ -534,7 +561,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(launchErr)) || i == len(subnets)-1 {
 					break
 				}
-				fmt.Fprintf(os.Stderr, "Spot nested-virt launch failed in subnet %s; trying the next subnet.\n", candidate.subnetID)
+				fmt.Fprintf(os.Stderr, "Spot nested-virt launch failed for %s in subnet %s; trying the next candidate.\n", candidate.instanceType, candidate.subnetID)
 				continue
 			}
 			prelaunchedInstanceID = importID
@@ -545,6 +572,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		timedOut := attemptCtx.Err() == context.DeadlineExceeded
 		cancel()
 		if err == nil {
+			outputs["instanceType"] = candidate.instanceType
+			req.InstanceType = candidate.instanceType
 			lastErr = nil
 			break
 		}
@@ -554,7 +583,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(err)) || i == len(subnets)-1 {
 			break
 		}
-		fmt.Fprintf(os.Stderr, "Spot create failed in subnet %s; cleaned up failed attempt before trying the next subnet.\n", candidate.subnetID)
+		fmt.Fprintf(os.Stderr, "Spot create failed for %s in subnet %s; cleaned up failed attempt before trying the next candidate.\n", candidate.instanceType, candidate.subnetID)
 	}
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
@@ -582,7 +611,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"stack":                 desktop.StackName(desktopID),
 		"ami_id":                amiID,
 		"region":                cfg.AWS.Region,
-		"instance_type":         cfg.Desktop.InstanceType,
+		"instance_type":         req.InstanceType,
+		"instance_types":        strings.Join(instanceTypes, ","),
 		"market_type":           marketType,
 		"spot_max_price":        createSpotMaxPrice,
 		"nested_virtualization": nestedVirtStr,
@@ -644,38 +674,123 @@ func validateSpotMaxPrice(value string) error {
 	return nil
 }
 
+type resolveCreateInstanceTypesInput struct {
+	marketType             string
+	configInstanceType     string
+	configInstanceTypes    []string
+	flagInstanceTypeSet    bool
+	flagInstanceTypes      []string
+	flagInstanceTypesSet   bool
+	nestedVirtualization   bool
+	mobileDefaultInstance  string
+	defaultInstanceType    string
+	defaultSpotInstanceSet []string
+}
+
+func resolveCreateInstanceTypes(in resolveCreateInstanceTypesInput) ([]string, error) {
+	instanceType := strings.TrimSpace(in.configInstanceType)
+	if instanceType == "" {
+		instanceType = in.defaultInstanceType
+	}
+
+	if in.marketType != store.MarketSpot {
+		if in.flagInstanceTypesSet {
+			return nil, fmt.Errorf("--instance-types requires --spot")
+		}
+		if in.nestedVirtualization && !config.SupportsNestedVirt(instanceType) {
+			return nil, fmt.Errorf("nested virtualization requires a supported Intel Nitro instance type (c8i, m8i, r8i, c7i, m7i, r7i, i7i); got %q - set instance_type in config or use --mobile which defaults to %s", instanceType, in.mobileDefaultInstance)
+		}
+		return []string{instanceType}, nil
+	}
+
+	if in.flagInstanceTypeSet && in.flagInstanceTypesSet {
+		return nil, fmt.Errorf("--instance-type and --instance-types cannot be used together for Spot creates")
+	}
+
+	var candidates []string
+	switch {
+	case in.flagInstanceTypesSet:
+		candidates = normalizeInstanceTypes(in.flagInstanceTypes)
+	case in.flagInstanceTypeSet:
+		candidates = normalizeInstanceTypes([]string{instanceType})
+	default:
+		candidates = normalizeInstanceTypes(in.configInstanceTypes)
+		if len(candidates) == 0 {
+			candidates = normalizeInstanceTypes(in.defaultSpotInstanceSet)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("--instance-types must include at least one instance type")
+	}
+
+	if !in.nestedVirtualization {
+		return candidates, nil
+	}
+	supported := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if config.SupportsNestedVirt(candidate) {
+			supported = append(supported, candidate)
+		}
+	}
+	if len(supported) == 0 {
+		return nil, fmt.Errorf("nested virtualization requires at least one supported Intel Nitro instance type in --instance-types (c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
+	}
+	if len(supported) != len(candidates) {
+		fmt.Fprintf(os.Stderr, "WARNING: removed unsupported nested virtualization Spot instance types; using %s\n", strings.Join(supported, ","))
+	}
+	return supported, nil
+}
+
+func normalizeInstanceTypes(values []string) []string {
+	var out []string
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			instanceType := strings.TrimSpace(part)
+			if instanceType == "" || containsString(out, instanceType) {
+				continue
+			}
+			out = append(out, instanceType)
+		}
+	}
+	return out
+}
+
 type spotPlacementClient interface {
 	DescribeSubnets(context.Context, *ec2sdk.DescribeSubnetsInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSubnetsOutput, error)
 	DescribeSpotPriceHistory(context.Context, *ec2sdk.DescribeSpotPriceHistoryInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSpotPriceHistoryOutput, error)
 }
 
 type spotSubnetSelection struct {
-	subnetID string
-	az       string
-	price    float64
+	subnetID     string
+	az           string
+	instanceType string
+	price        float64
 }
 
-func selectCreateSubnets(ctx context.Context, region, profile, instanceType, marketType string, outputs map[string]string) ([]spotSubnetSelection, error) {
+func selectCreateSubnets(ctx context.Context, region, profile string, instanceTypes []string, marketType string, outputs map[string]string) ([]spotSubnetSelection, error) {
 	candidates := foundationSubnetIDs(outputs)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("foundation stack outputs %q and %q are missing or empty", pulumi.OutputSubnetIDs, pulumi.OutputSubnetID)
 	}
+	if len(instanceTypes) == 0 {
+		return nil, fmt.Errorf("no instance type candidates")
+	}
 	if marketType != store.MarketSpot {
-		return subnetSelectionsFromIDs(candidates[:1]), nil
+		return subnetSelectionsFromIDs(instanceTypes[:1], candidates[:1]), nil
 	}
 	if len(candidates) == 1 {
-		return subnetSelectionsFromIDs(candidates), nil
+		return subnetSelectionsFromIDs(instanceTypes, candidates), nil
 	}
 
 	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not load AWS config for Spot subnet selection; falling back to alternate subnet order: %v\n", err)
-		return subnetSelectionsFallback(candidates), nil
+		return subnetSelectionsFallback(instanceTypes, candidates), nil
 	}
-	selections, err := selectSpotSubnetsByPrice(ctx, ec2sdk.NewFromConfig(awsCfg), instanceType, candidates)
+	selections, err := selectSpotSubnetsByPrice(ctx, ec2sdk.NewFromConfig(awsCfg), instanceTypes, candidates)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not compare Spot subnets; falling back to alternate subnet order: %v\n", err)
-		return subnetSelectionsFallback(candidates), nil
+		return subnetSelectionsFallback(instanceTypes, candidates), nil
 	}
 	if len(selections) > 0 && selections[0].az != "" {
 		fmt.Fprintf(os.Stderr, "  Spot AZ               : %s ($%.4f/hr)\n", selections[0].az, selections[0].price)
@@ -699,25 +814,32 @@ func foundationSubnetIDs(outputs map[string]string) []string {
 	return ids
 }
 
-func subnetSelectionsFromIDs(subnetIDs []string) []spotSubnetSelection {
-	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+func subnetSelectionsFromIDs(instanceTypes, subnetIDs []string) []spotSubnetSelection {
+	selections := make([]spotSubnetSelection, 0, len(instanceTypes)*len(subnetIDs))
 	for _, id := range subnetIDs {
-		selections = append(selections, spotSubnetSelection{subnetID: id})
+		for _, instanceType := range instanceTypes {
+			selections = append(selections, spotSubnetSelection{subnetID: id, instanceType: instanceType})
+		}
 	}
 	return selections
 }
 
-func subnetSelectionsFallback(subnetIDs []string) []spotSubnetSelection {
-	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+func subnetSelectionsFallback(instanceTypes, subnetIDs []string) []spotSubnetSelection {
+	selections := make([]spotSubnetSelection, 0, len(instanceTypes)*len(subnetIDs))
 	for i := len(subnetIDs) - 1; i >= 0; i-- {
-		selections = append(selections, spotSubnetSelection{subnetID: subnetIDs[i]})
+		for _, instanceType := range instanceTypes {
+			selections = append(selections, spotSubnetSelection{subnetID: subnetIDs[i], instanceType: instanceType})
+		}
 	}
 	return selections
 }
 
-func selectSpotSubnetsByPrice(ctx context.Context, client spotPlacementClient, instanceType string, subnetIDs []string) ([]spotSubnetSelection, error) {
+func selectSpotSubnetsByPrice(ctx context.Context, client spotPlacementClient, instanceTypes []string, subnetIDs []string) ([]spotSubnetSelection, error) {
 	if len(subnetIDs) == 0 {
 		return nil, fmt.Errorf("no subnet candidates")
+	}
+	if len(instanceTypes) == 0 {
+		return nil, fmt.Errorf("no instance type candidates")
 	}
 	subnets, err := client.DescribeSubnets(ctx, &ec2sdk.DescribeSubnetsInput{
 		SubnetIds: subnetIDs,
@@ -743,8 +865,12 @@ func selectSpotSubnetsByPrice(ctx context.Context, client spotPlacementClient, i
 	}
 
 	start := time.Now().Add(-1 * time.Hour)
+	awsInstanceTypes := make([]ec2types.InstanceType, 0, len(instanceTypes))
+	for _, instanceType := range instanceTypes {
+		awsInstanceTypes = append(awsInstanceTypes, ec2types.InstanceType(instanceType))
+	}
 	prices, err := client.DescribeSpotPriceHistory(ctx, &ec2sdk.DescribeSpotPriceHistoryInput{
-		InstanceTypes:       []ec2types.InstanceType{ec2types.InstanceType(instanceType)},
+		InstanceTypes:       awsInstanceTypes,
 		ProductDescriptions: []string{"Linux/UNIX"},
 		StartTime:           aws.Time(start),
 		MaxResults:          aws.Int32(1000),
@@ -753,39 +879,50 @@ func selectSpotSubnetsByPrice(ctx context.Context, client spotPlacementClient, i
 		return nil, fmt.Errorf("describe spot price history: %w", err)
 	}
 
-	bySubnet := make(map[string]spotSubnetSelection, len(subnetIDs))
+	byPlacement := make(map[string]spotSubnetSelection, len(subnetIDs)*len(instanceTypes))
 	for _, price := range prices.SpotPriceHistory {
 		az := aws.ToString(price.AvailabilityZone)
 		subnetID := subnetByAZ[az]
 		if subnetID == "" {
 			continue
 		}
+		instanceType := string(price.InstanceType)
+		if !containsString(instanceTypes, instanceType) {
+			continue
+		}
 		value, err := strconv.ParseFloat(aws.ToString(price.SpotPrice), 64)
 		if err != nil {
 			continue
 		}
-		existing, ok := bySubnet[subnetID]
+		key := subnetID + "\x00" + instanceType
+		existing, ok := byPlacement[key]
 		if !ok || value < existing.price {
-			bySubnet[subnetID] = spotSubnetSelection{subnetID: subnetID, az: az, price: value}
+			byPlacement[key] = spotSubnetSelection{subnetID: subnetID, az: az, instanceType: instanceType, price: value}
 		}
 	}
-	if len(bySubnet) == 0 {
-		return nil, fmt.Errorf("no Linux/UNIX Spot prices found for %s in candidate subnet AZs", instanceType)
+	if len(byPlacement) == 0 {
+		return nil, fmt.Errorf("no Linux/UNIX Spot prices found for %s in candidate subnet AZs", strings.Join(instanceTypes, ","))
 	}
-	selections := make([]spotSubnetSelection, 0, len(subnetIDs))
+	selections := make([]spotSubnetSelection, 0, len(subnetIDs)*len(instanceTypes))
 	for _, subnetID := range subnetIDs {
-		if selection, ok := bySubnet[subnetID]; ok {
-			selections = append(selections, selection)
+		for _, instanceType := range instanceTypes {
+			key := subnetID + "\x00" + instanceType
+			if selection, ok := byPlacement[key]; ok {
+				selections = append(selections, selection)
+			}
 		}
 	}
 	sort.SliceStable(selections, func(i, j int) bool {
 		return selections[i].price < selections[j].price
 	})
 	for _, subnetID := range subnetIDs {
-		if _, ok := bySubnet[subnetID]; ok {
-			continue
+		for _, instanceType := range instanceTypes {
+			key := subnetID + "\x00" + instanceType
+			if _, ok := byPlacement[key]; ok {
+				continue
+			}
+			selections = append(selections, spotSubnetSelection{subnetID: subnetID, az: subnetAZs[subnetID], instanceType: instanceType})
 		}
-		selections = append(selections, spotSubnetSelection{subnetID: subnetID, az: subnetAZs[subnetID]})
 	}
 	return selections, nil
 }
