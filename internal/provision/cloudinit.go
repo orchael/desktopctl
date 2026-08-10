@@ -111,6 +111,47 @@ runcmd:
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
 
+  # --- ensure ai-agent-bridge/bridgectl package version matches the CLI ---
+  - |
+    (
+    set -e
+    EXPECTED_BRIDGE_VERSION="{{ .BridgePackageVersion }}"
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge 2>/dev/null || true)
+    if [ "$INSTALLED_BRIDGE_VERSION" = "$EXPECTED_BRIDGE_VERSION" ]; then
+      echo "ai-agent-bridge version $EXPECTED_BRIDGE_VERSION already installed"
+      exit 0
+    fi
+
+    echo "Installing ai-agent-bridge $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
+    apt-get update
+    apt-get install -y --no-install-recommends curl gpg ca-certificates
+    install -d -m 0755 /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/ai-agent-bridge.gpg ]; then
+      BRIDGE_KEY_ASC=$(mktemp)
+      trap 'rm -f "$BRIDGE_KEY_ASC"' EXIT
+      curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
+      gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg "$BRIDGE_KEY_ASC"
+      rm -f "$BRIDGE_KEY_ASC"
+      trap - EXIT
+      chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+    fi
+    ARCH=$(dpkg --print-architecture)
+    . /etc/os-release
+    UBUNTU_CODENAME="${VERSION_CODENAME:-noble}"
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt %s main\n' \
+      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/ai-agent-bridge.list
+    apt-get update
+    apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
+    if [ -x /usr/lib/ai-agent-bridge/install-provider-runtime ]; then
+      /usr/lib/ai-agent-bridge/install-provider-runtime || echo "WARNING: install-provider-runtime failed after ai-agent-bridge version correction"
+    fi
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge)
+    if [ "$INSTALLED_BRIDGE_VERSION" != "$EXPECTED_BRIDGE_VERSION" ]; then
+      echo "ERROR: ai-agent-bridge version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
+      exit 1
+    fi
+    )
+
 {{- if .TailscaleNetwork}}
   # --- Tailscale network attachment ---
   - |
@@ -858,12 +899,14 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	type templateData struct {
 		*BootstrapConfig
 		BridgeVersion        string
+		BridgePackageVersion string
 		AVDsJSONB64          string
 		StepCAClientsJSONB64 string
 	}
 	data := templateData{
 		BootstrapConfig:      cfg,
 		BridgeVersion:        AIAgentBridgeVersion,
+		BridgePackageVersion: strings.TrimPrefix(AIAgentBridgeVersion, "v"),
 		AVDsJSONB64:          avdsJSONB64,
 		StepCAClientsJSONB64: stepCAClientsJSONB64,
 	}

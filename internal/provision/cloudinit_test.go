@@ -340,8 +340,19 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 	if strings.Contains(out, "/main/install.sh") {
 		t.Error("install scripts must not reference the 'main' branch; pin to a release tag")
 	}
-	// The ai-agent-bridge version is installed via the AMI packer playbook, not
-	// cloud-init; cloud-init no longer pulls or starts the bridge daemon.
+	// Cloud-init verifies the AMI's baked package and corrects drift to the
+	// exact version expected by the CLI.
+	wantVersion := strings.TrimPrefix(AIAgentBridgeVersion, "v")
+	if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="`+wantVersion+`"`) {
+		t.Errorf("cloud-init should include expected bridge package version %s", wantVersion)
+	}
+	if !strings.Contains(out, `"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"`) {
+		t.Error("cloud-init should install the exact ai-agent-bridge package version when the AMI drifts")
+	}
+	if !strings.Contains(out, "install-provider-runtime") {
+		t.Error("cloud-init should refresh provider runtime after ai-agent-bridge version correction")
+	}
+	// cloud-init must not pull or start the old system bridge daemon.
 	if strings.Contains(out, "systemctl enable ai-agent-bridge") {
 		t.Error("cloud-init must not enable the ai-agent-bridge system daemon")
 	}
