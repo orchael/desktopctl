@@ -82,6 +82,12 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 	if len(d.Secrets) > 0 {
 		fmt.Fprintf(w, "Secrets      : %s\n", strings.Join(d.Secrets, ", "))
 	}
+	if d.TailscaleNet != "" {
+		fmt.Fprintf(w, "Tailscale    : %s\n", d.TailscaleNet)
+	}
+	if d.StepCAServer != "" {
+		fmt.Fprintf(w, "step-ca      : %s\n", d.StepCAServer)
+	}
 	fmt.Fprintf(w, "Created      : %s\n", d.CreatedAt)
 	fmt.Fprintf(w, "Updated      : %s\n", d.UpdatedAt)
 	if d.FailurePhase != "" {

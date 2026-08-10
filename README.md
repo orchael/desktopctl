@@ -37,6 +37,9 @@ The operator profile needs the following permissions:
 - `ec2:CreateTags`
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`
+- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
+- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/ai-desktops/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
+- `TAILSCALE_API_KEY` in the local environment, or in the `/ai-desktops/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
 
 **Tunnel access (`agent` command):**
 - `ssm:StartSession` with document `AWS-StartPortForwardingSession`
@@ -130,6 +133,10 @@ github:
   owner: myorg
   github_secret: /ai-desktops/myorg/github
 
+operator:
+  # Operator-only CLI secret; not needed by desktop cloud-init.
+  secret: /ai-desktops/myorg
+
 desktop:
   instance_type: t3.xlarge
   operator_cidr: 203.0.113.42/32   # your public IP
@@ -218,8 +225,9 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.1.0"
-go_version              = "1.23.0"
+ai_agent_bridge_version = "v0.8.2"
+tailscale_version       = "1.98.9"
+go_version              = "1.24.0"
 uv_version              = "0.4.0"
 ```
 
@@ -268,6 +276,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - neovim (via snap)
 - Homebrew
 - `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
+- Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
 - Android Studio (via snap)
 - Android SDK with platforms `android-34` (including Google Play Store system image `x86_64`), build-tools 35.0.1 and 37.0.0, and NDK 27.0.12077973
@@ -382,7 +391,83 @@ ai-desktops agent d-a1b2c3d4 stop <session-id>
 
 The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
 
-### 11. Run diagnostics
+### 11. Optional private network and step-ca registration
+
+Attach a desktop to Tailscale by passing `--tailscale` and providing an auth key through the local environment or an existing integration secret. When `TAILSCALE_AUTHKEY` is set, the CLI stores it in AWS Secrets Manager and cloud-init retrieves it at boot. If `TAILSCALE_AUTHKEY` is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/tailscale/<tailnet>` when it contains `TS_AUTHKEY`.
+
+When `TAILSCALE_API_KEY` is set during create, the CLI stores it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`. This key is not used by desktop startup; it is used later by `terminate` to remove the desktop's Tailscale machine record.
+
+Operator secrets are tagged with `ai-desktops-scope=operator`; the foundation instance role denies desktop instances from reading secrets with that tag.
+
+```bash
+export TAILSCALE_AUTHKEY=tskey-auth-...
+
+ai-desktops create \
+  --github-owner myorg \
+  --tailscale \
+  --tailscale-network my-tailnet
+```
+
+You can also set `network.tailscale_network` in `config.yaml` and use `--tailscale` without `--tailscale-network`. Setting the config value alone does not attach every new desktop to Tailscale.
+
+Desktops join Tailscale with Tailscale SSH enabled. The tailnet policy must still allow SSH to the auth-key tag used for desktops, for example:
+
+```json
+{
+  "tagOwners": {
+    "tag:ai-desktop": ["autogroup:admin"]
+  },
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["autogroup:admin"],
+      "dst": ["tag:ai-desktop"],
+      "users": ["ubuntu"]
+    }
+  ]
+}
+```
+
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
+
+When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port. Tailscale-only desktops keep the safer localhost-only listener.
+
+Remote `bridgectl` clients also need JWT trust in addition to Step CA client certificates. Add known clients in config under `pki.step_ca_clients`, or pass them at create time:
+
+```yaml
+pki:
+  step_ca_clients:
+    - issuer: mark-macbook
+      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      required: true
+```
+
+```bash
+ai-desktops create \
+  --step-ca ca.my-tailnet.ts.net \
+  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub,required=true
+```
+
+The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
+
+```bash
+export TAILSCALE_AUTHKEY=tskey-auth-...
+export STEP_CA_PROVISIONER_PASSWORD=...
+export STEP_CA_FINGERPRINT=...
+
+ai-desktops create \
+  --github-owner myorg \
+  --tailscale \
+  --tailscale-network my-tailnet \
+  --step-ca ca.my-tailnet.ts.net \
+  --step-ca-provisioner admin
+```
+
+Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`, `pki.step_ca_fingerprint`, and `pki.step_ca_clients`. CLI flags override config values for a single desktop, and repeated `--step-ca-client` values append to the configured client list. When `--tailscale` is passed and `pki.step_ca_server` is configured, step-ca is enabled from config as part of the private-network setup.
+
+`doctor` adds Tailscale and step-ca checks only for desktops created with those integrations enabled.
+
+### 12. Run diagnostics
 
 ```bash
 ai-desktops doctor d-a1b2c3d4
@@ -391,7 +476,7 @@ ai-desktops doctor d-a1b2c3d4 --json
 
 Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
 
-### 12. Debug with SSM (if diagnostics fail)
+### 13. Debug with SSM (if diagnostics fail)
 
 If `doctor` reports issues, use AWS Systems Manager Session Manager to open an interactive shell on the instance for debugging:
 
@@ -412,11 +497,11 @@ tail -100 /var/log/cloud-init-output.log
 # Check novnc-desktop service status
 systemctl --user status novnc-desktop
 
-# Check ai-agent-bridge service status
-systemctl status ai-agent-bridge
+# Check bridgectl user service status
+sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user status bridgectl
 
 # View bridge logs
-journalctl -u ai-agent-bridge -n 50
+sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) journalctl --user -u bridgectl -n 50
 
 # Restart Pantheon session if noVNC shows black screen
 systemctl --user restart pantheon-session
@@ -424,7 +509,7 @@ systemctl --user restart pantheon-session
 
 Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use SSH directly; this SSM session is for interactive troubleshooting when SSH fails.
 
-### 13. Stop and start
+### 14. Stop and start
 
 ```bash
 ai-desktops stop d-a1b2c3d4    # hibernates: RAM + disk preserved
@@ -440,6 +525,8 @@ ai-desktops terminate d-a1b2c3d4
 ```
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
+
+For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also tries to remove the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access, or store it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`, to enable this cleanup. If the key is not set or cleanup fails, the CLI warns and continues with infrastructure termination; remove the stale Tailscale machine manually from the admin console or API.
 
 ## Updating existing desktops
 

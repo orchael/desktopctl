@@ -1,9 +1,350 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/orchael/ai-desktops/internal/config"
 )
+
+func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
+	flag := createCmd.Flags().Lookup("step-ca-provisioner")
+	if flag == nil {
+		t.Fatal("step-ca-provisioner flag not registered")
+	}
+	if flag.DefValue != "admin" {
+		t.Fatalf("step-ca-provisioner default = %q, want admin", flag.DefValue)
+	}
+}
+
+func TestResolveCreateIntegrations(t *testing.T) {
+	tests := []struct {
+		name          string
+		in            resolveCreateIntegrationsInput
+		wantTailnet   string
+		wantTailscale bool
+		wantStepCA    string
+		wantStepCAOn  bool
+		wantProv      string
+		wantFP        string
+		wantErr       string
+	}{
+		{
+			name: "config alone does not enable tailscale or step-ca",
+			in: resolveCreateIntegrationsInput{
+				configTailscaleNetwork:  "config-tailnet",
+				configStepCA:            "ca.config.ts.net",
+				configStepCAProvisioner: "admin",
+				configStepCAFingerprint: "config-fp",
+			},
+		},
+		{
+			name: "tailscale flag enables tailscale and configured step-ca",
+			in: resolveCreateIntegrationsInput{
+				tailscale:               true,
+				configTailscaleNetwork:  "config-tailnet",
+				configStepCA:            "ca.config.ts.net",
+				configStepCAProvisioner: "ai-desktops",
+				configStepCAFingerprint: "config-fp",
+			},
+			wantTailnet:   "config-tailnet",
+			wantTailscale: true,
+			wantStepCA:    "ca.config.ts.net",
+			wantStepCAOn:  true,
+			wantProv:      "ai-desktops",
+			wantFP:        "config-fp",
+		},
+		{
+			name: "tailscale flag requires tailnet",
+			in: resolveCreateIntegrationsInput{
+				tailscale: true,
+			},
+			wantErr: "Tailscale requires --tailscale-network",
+		},
+		{
+			name: "tailscale network flag enables tailscale and overrides config",
+			in: resolveCreateIntegrationsInput{
+				tailscaleNetwork:       "flag-tailnet",
+				tailscaleNetworkSet:    true,
+				configTailscaleNetwork: "config-tailnet",
+				configStepCA:           "ca.config.ts.net",
+			},
+			wantTailnet:   "flag-tailnet",
+			wantTailscale: true,
+		},
+		{
+			name: "step-ca requires fingerprint",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                  "ca.flag.ts.net",
+				stepCASet:               true,
+				configStepCAProvisioner: "admin",
+			},
+			wantErr: "step-ca fingerprint must be set",
+		},
+		{
+			name: "step-ca flag enables step-ca without tailscale",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                 "ca.flag.ts.net",
+				stepCASet:              true,
+				stepCAProvisioner:      "ops",
+				stepCAProvisionerSet:   true,
+				stepCAFingerprint:      "flag-fp",
+				stepCAFingerprintSet:   true,
+				configTailscaleNetwork: "config-tailnet",
+			},
+			wantStepCA:   "ca.flag.ts.net",
+			wantStepCAOn: true,
+			wantProv:     "ops",
+			wantFP:       "flag-fp",
+		},
+		{
+			name: "step-ca fingerprint falls back to environment",
+			in: resolveCreateIntegrationsInput{
+				stepCA:                  "ca.flag.ts.net",
+				stepCASet:               true,
+				configStepCAProvisioner: "admin",
+				envStepCAFingerprint:    "env-fp",
+			},
+			wantStepCA:   "ca.flag.ts.net",
+			wantStepCAOn: true,
+			wantProv:     "admin",
+			wantFP:       "env-fp",
+		},
+		{
+			name: "empty step-ca provisioner fails when step-ca enabled",
+			in: resolveCreateIntegrationsInput{
+				stepCA:               "ca.flag.ts.net",
+				stepCASet:            true,
+				stepCAProvisioner:    "",
+				stepCAProvisionerSet: true,
+			},
+			wantErr: "step-ca provisioner must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveCreateIntegrations(tt.in)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.tailscaleEnabled != tt.wantTailscale {
+				t.Errorf("tailscaleEnabled = %v, want %v", got.tailscaleEnabled, tt.wantTailscale)
+			}
+			if got.tailscaleNetwork != tt.wantTailnet {
+				t.Errorf("tailscaleNetwork = %q, want %q", got.tailscaleNetwork, tt.wantTailnet)
+			}
+			if got.stepCAEnabled != tt.wantStepCAOn {
+				t.Errorf("stepCAEnabled = %v, want %v", got.stepCAEnabled, tt.wantStepCAOn)
+			}
+			if got.stepCA != tt.wantStepCA {
+				t.Errorf("stepCA = %q, want %q", got.stepCA, tt.wantStepCA)
+			}
+			if got.stepCAProvisioner != tt.wantProv {
+				t.Errorf("stepCAProvisioner = %q, want %q", got.stepCAProvisioner, tt.wantProv)
+			}
+			if got.stepCAFingerprint != tt.wantFP {
+				t.Errorf("stepCAFingerprint = %q, want %q", got.stepCAFingerprint, tt.wantFP)
+			}
+		})
+	}
+}
+
+func TestResolveStepCAClients_ConfigAndFlags(t *testing.T) {
+	dir := t.TempDir()
+	pubPath := filepath.Join(dir, "mark.pub")
+	if err := os.WriteFile(pubPath, []byte("ssh-ed25519 AAAA mark\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	clients, err := resolveStepCAClients(
+		[]config.StepCAClientConfig{
+			{Issuer: "config-client", PublicKey: "ssh-ed25519 BBBB config"},
+		},
+		[]string{"issuer=mark-macbook,public-key-path=" + pubPath + ",required=true"},
+	)
+	if err != nil {
+		t.Fatalf("resolveStepCAClients: %v", err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("clients = %d, want 2", len(clients))
+	}
+	if clients[0].Issuer != "config-client" || clients[0].PublicKey != "ssh-ed25519 BBBB config" {
+		t.Fatalf("config client not preserved: %+v", clients[0])
+	}
+	if clients[1].Issuer != "mark-macbook" {
+		t.Fatalf("flag client issuer = %q", clients[1].Issuer)
+	}
+	if clients[1].PublicKey != "ssh-ed25519 AAAA mark" {
+		t.Fatalf("flag client public key = %q", clients[1].PublicKey)
+	}
+	if !clients[1].Required {
+		t.Fatal("flag client required should be true")
+	}
+}
+
+func TestResolveStepCAClients_InvalidIssuer(t *testing.T) {
+	_, err := resolveStepCAClients([]config.StepCAClientConfig{
+		{Issuer: "../bad", PublicKey: "ssh-ed25519 AAAA bad"},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "issuer") {
+		t.Fatalf("error = %v, want issuer validation error", err)
+	}
+}
+
+func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) {
+	t.Setenv("TAILSCALE_AUTHKEY", "")
+	t.Setenv("STEP_CA_PROVISIONER_PASSWORD", "")
+
+	tailscalePath, stepCAPath, err := prepareIntegrationSecrets(
+		context.Background(),
+		true,
+		"acme",
+		"dev",
+		"invalid-region-for-preview-test",
+		"invalid-profile-for-preview-test",
+		"/ai-desktops/acme",
+		"acme-tailnet",
+		"ca.acme-tailnet.ts.net",
+	)
+	if err != nil {
+		t.Fatalf("prepareIntegrationSecrets preview returned error: %v", err)
+	}
+	if tailscalePath != "/ai-desktops/acme/tailscale/acme-tailnet" {
+		t.Fatalf("tailscale path = %q", tailscalePath)
+	}
+	if stepCAPath != "/ai-desktops/acme/step-ca/ca.acme-tailnet.ts.net" {
+		t.Fatalf("step-ca path = %q", stepCAPath)
+	}
+}
+
+func TestIntegrationSecretHasKey(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		want        bool
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:   "secret contains key",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"TS_AUTHKEY\":\"tskey-auth-test\"}"}`,
+			want:   true,
+		},
+		{
+			name:   "secret missing key",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"OTHER\":\"value\"}"}`,
+		},
+		{
+			name:   "secret key blank",
+			status: http.StatusOK,
+			body:   `{"SecretString":"{\"TS_AUTHKEY\":\"  \"}"}`,
+		},
+		{
+			name:   "secret not found",
+			status: http.StatusBadRequest,
+			body:   `{"__type":"ResourceNotFoundException","Message":"not found"}`,
+		},
+		{
+			name:        "invalid json secret",
+			status:      http.StatusOK,
+			body:        `{"SecretString":"not-json"}`,
+			wantErr:     true,
+			errContains: "parse integration secret",
+		},
+		{
+			name:        "permission error",
+			status:      http.StatusBadRequest,
+			body:        `{"__type":"AccessDeniedException","Message":"denied"}`,
+			wantErr:     true,
+			errContains: "read integration secret",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if target := r.Header.Get("X-Amz-Target"); !strings.HasSuffix(target, "GetSecretValue") {
+					t.Fatalf("unexpected AWS target %q", target)
+				}
+				w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			got, err := integrationSecretHasKey(context.Background(), makeSecretsManagerConfig(srv.URL), "/ai-desktops/acme/tailscale/acme", "TS_AUTHKEY")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGzipBase64UserData(t *testing.T) {
+	const userData = "#cloud-config\nruncmd:\n  - echo hello\n"
+
+	encoded, err := gzipBase64UserData(userData)
+	if err != nil {
+		t.Fatalf("gzipBase64UserData returned error: %v", err)
+	}
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatalf("open gzip: %v", err)
+	}
+	defer zr.Close()
+	decoded, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read gzip: %v", err)
+	}
+	if string(decoded) != userData {
+		t.Fatalf("decoded user-data = %q, want %q", string(decoded), userData)
+	}
+}
+
+func TestSecretPathSlugDisallowsSlash(t *testing.T) {
+	got := secretPathSlug("/team/tailnet/name/")
+	if got != "team-tailnet-name" {
+		t.Fatalf("secretPathSlug with slashes = %q, want team-tailnet-name", got)
+	}
+}
 
 func TestParseAndValidateRepos(t *testing.T) {
 	tests := []struct {

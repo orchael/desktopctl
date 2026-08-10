@@ -187,6 +187,26 @@ func TestPrintDesktopStatus_reposAndSecretsAbsentWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPrintDesktopStatus_networkIntegrations(t *testing.T) {
+	d := &store.Desktop{
+		DesktopID:    "d-1",
+		State:        store.StateReady,
+		TailscaleNet: "acme-tailnet",
+		StepCAServer: "ca.tailnet.ts.net",
+	}
+
+	var buf bytes.Buffer
+	printDesktopStatus(&buf, d, "us-east-1", "")
+	out := buf.String()
+
+	if !strings.Contains(out, "Tailscale    : acme-tailnet") {
+		t.Errorf("Tailscale line missing\nfull output:\n%s", out)
+	}
+	if !strings.Contains(out, "step-ca      : ca.tailnet.ts.net") {
+		t.Errorf("step-ca line missing\nfull output:\n%s", out)
+	}
+}
+
 func TestPrintDesktopStatus_failureFields(t *testing.T) {
 	d := &store.Desktop{
 		DesktopID:    "d-1",

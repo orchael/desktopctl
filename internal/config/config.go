@@ -53,12 +53,15 @@ var NestedVirtInstanceFamilies = []string{
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
-	AWS     AWSConfig     `yaml:"aws"`
-	Pulumi  PulumiConfig  `yaml:"pulumi"`
-	Fleet   FleetConfig   `yaml:"fleet"`
-	GitHub  GitHubConfig  `yaml:"github"`
-	Desktop DesktopConfig `yaml:"desktop"`
-	Agent   AgentConfig   `yaml:"agent"`
+	AWS      AWSConfig      `yaml:"aws"`
+	Pulumi   PulumiConfig   `yaml:"pulumi"`
+	Fleet    FleetConfig    `yaml:"fleet"`
+	GitHub   GitHubConfig   `yaml:"github"`
+	Operator OperatorConfig `yaml:"operator,omitempty"`
+	Desktop  DesktopConfig  `yaml:"desktop"`
+	Agent    AgentConfig    `yaml:"agent"`
+	Network  NetworkConfig  `yaml:"network,omitempty"`
+	PKI      PKIConfig      `yaml:"pki,omitempty"`
 }
 
 // Env returns the configured environment, falling back to dev.
@@ -106,6 +109,13 @@ type GitHubConfig struct {
 	GitUserEmail string `yaml:"git_user_email,omitempty"`
 }
 
+type OperatorConfig struct {
+	// Secret is the AWS Secrets Manager path for operator-only credentials used
+	// by the ai-desktops CLI, not by provisioned desktops.
+	// Default: /ai-desktops/<owner>.
+	Secret string `yaml:"secret,omitempty"`
+}
+
 // AVDConfig describes a single Android Virtual Device to create at desktop boot.
 type AVDConfig struct {
 	// Name is the AVD identifier passed to avdmanager -n (e.g. "flutter_dev").
@@ -143,6 +153,44 @@ type AgentConfig struct {
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.
 	TrustHost bool `yaml:"trust_host"`
+}
+
+type NetworkConfig struct {
+	// TailscaleNetwork is the default tailnet/network used when create is run
+	// with --tailscale. The auth key is read from TAILSCALE_AUTHKEY at create
+	// time, or reused from the existing integration secret, for cloud-init.
+	TailscaleNetwork string `yaml:"tailscale_network,omitempty"`
+}
+
+type PKIConfig struct {
+	// StepCAServer is the default CA DNS name used when create is run with
+	// --step-ca, or with --tailscale when this value is set. If the CA lives on
+	// Tailscale, combine this with network.tailscale_network.
+	StepCAServer string `yaml:"step_ca_server,omitempty"`
+	// StepCAProvisioner is the provisioner used for bridge host certificates.
+	// Defaults to "admin".
+	StepCAProvisioner string `yaml:"step_ca_provisioner,omitempty"`
+	// StepCAFingerprint pins the step-ca root certificate for non-interactive
+	// bootstrap. It is required when step-ca is enabled and may also be supplied
+	// via STEP_CA_FINGERPRINT.
+	StepCAFingerprint string `yaml:"step_ca_fingerprint,omitempty"`
+	// StepCAClients declares remote bridgectl clients whose JWT public keys
+	// should be installed on the desktop and loaded by the bridge at startup.
+	StepCAClients []StepCAClientConfig `yaml:"step_ca_clients,omitempty"`
+}
+
+type StepCAClientConfig struct {
+	// Issuer is the JWT issuer and normally matches the client's Step CA
+	// certificate common name.
+	Issuer string `yaml:"issuer"`
+	// PublicKeyPath is a local operator-machine path to the client's Ed25519 JWT
+	// public key. It is read during `create` and copied into cloud-init.
+	PublicKeyPath string `yaml:"public_key_path,omitempty"`
+	// PublicKey is the inline Ed25519 JWT public key. Prefer PublicKeyPath for
+	// normal use so config files do not grow large.
+	PublicKey string `yaml:"public_key,omitempty"`
+	// Required makes bridgectl server startup fail if the key cannot be loaded.
+	Required bool `yaml:"required,omitempty"`
 }
 
 // SupportsNestedVirt reports whether instanceType belongs to a family that
@@ -210,8 +258,14 @@ func (c *Config) Defaults() {
 	if c.Agent.BridgePort == 0 {
 		c.Agent.BridgePort = DefaultBridgePort
 	}
+	if c.PKI.StepCAProvisioner == "" {
+		c.PKI.StepCAProvisioner = "admin"
+	}
 	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
 		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"
+	}
+	if c.Operator.Secret == "" && c.GitHub.Owner != "" {
+		c.Operator.Secret = "/ai-desktops/" + c.GitHub.Owner
 	}
 	if c.GitHub.GitHubSecret == "" {
 		if c.GitHub.PATSecret != "" {

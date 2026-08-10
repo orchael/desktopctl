@@ -79,6 +79,21 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
+	if d.TailscaleNet != "" {
+		fmt.Fprintf(os.Stderr, "Removing Tailscale machine %s from %s ...\n", id, d.TailscaleNet)
+		tailscaleAPIKey, err := resolveTailscaleAPIKey(ctx, d.GitHubOwner)
+		if err == nil {
+			err = removeTailscaleDesktopDevice(ctx, d.TailscaleNet, id, tailscaleAPIKey)
+		}
+		if err != nil {
+			if errors.Is(err, errTailscaleAPIKeyMissing) {
+				fmt.Fprintf(os.Stderr, "WARNING: TAILSCALE_API_KEY is not set and was not found in the operator secret; skipping Tailscale machine cleanup for %s.\n", id)
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: could not remove Tailscale machine %s: %v\n", id, err)
+			}
+		}
+	}
+
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
 		return fmt.Errorf("pulumi destroy: %w (desktop left running for diagnosis; record marked failed)", err)

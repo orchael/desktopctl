@@ -74,14 +74,14 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
 // volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
 // amiID is the pre-baked AMI ID.
-// userData is the pre-rendered cloud-init user-data.
+// userDataBase64 is gzip-compressed, base64-encoded cloud-init user-data.
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
 	repos []string,
 	bridgePort, volumeSize int,
-	amiID, userData, environment string,
+	amiID, userDataBase64, environment string,
 	nestedVirtualization bool,
 ) StackConfig {
 	cfg := StackConfig{
@@ -108,8 +108,8 @@ func DesktopConfig(
 	if amiID != "" {
 		cfg["amiId"] = amiID
 	}
-	if userData != "" {
-		cfg["userData"] = userData
+	if userDataBase64 != "" {
+		cfg["userDataBase64"] = userDataBase64
 	}
 	if nestedVirtualization {
 		cfg["nestedVirtualization"] = "true"

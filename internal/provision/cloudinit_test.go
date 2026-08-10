@@ -46,6 +46,8 @@ func TestRenderCloudInit(t *testing.T) {
 		"d-001.desktops.orchael.dev",
 		"npm.pkg.github.com",
 		"/home/ubuntu/.npmrc",
+		"/home/ubuntu/.config/gh/hosts.yml",
+		"gh auth setup-git --hostname github.com",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -127,6 +129,23 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				AgentSecretPath:  "/ai-desktops/acme/agents",
 			},
 		},
+		{
+			name: "with tailscale and step-ca",
+			cfg: &BootstrapConfig{
+				DesktopID:           "d-yaml",
+				Hostname:            "d-yaml.desktops.orchael.dev",
+				GitHubOwner:         "acme",
+				WorkspacePath:       "/workspace",
+				AWSRegion:           "us-east-1",
+				Environment:         "dev",
+				GitHubSecretPath:    "/ai-desktops/acme/github",
+				TailscaleNetwork:    "acme-tailnet",
+				TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+				StepCAServerDNS:     "ca.tailnet.ts.net",
+				StepCAProvisioner:   "ai-desktops",
+				StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -141,6 +160,130 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				t.Errorf("rendered cloud-init is not valid YAML: %v", err)
 			}
 		})
+	}
+}
+
+func TestRenderCloudInit_tailscale(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:           "d-ts",
+		Hostname:            "d-ts.desktops.orchael.dev",
+		GitHubOwner:         "acme",
+		GitHubSecretPath:    "/ai-desktops/acme/github",
+		AWSRegion:           "us-east-1",
+		TailscaleNetwork:    "acme-tailnet",
+		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"tailscale.com/install.sh",
+		"TAILSCALE_INSTALL=$(mktemp)",
+		"systemctl enable tailscaled",
+		"/ai-desktops/acme/tailscale/acme-tailnet",
+		"TS_AUTHKEY",
+		"tailscale up",
+		"--hostname \"$TAILSCALE_HOSTNAME\"",
+		"--ssh=true",
+		"TAILSCALE_NETWORK",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("Tailscale block missing %q", want)
+		}
+	}
+	if strings.Contains(out, "curl -fsSL https://tailscale.com/install.sh | sh") {
+		t.Error("Tailscale install should not pipe curl directly into sh")
+	}
+	if strings.Contains(out, "--ssh=false") {
+		t.Error("Tailscale SSH should be enabled so tailscale ssh can verify desktops")
+	}
+}
+
+func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:           "d-ca",
+		Hostname:            "d-ca.desktops.orchael.dev",
+		GitHubOwner:         "acme",
+		GitHubSecretPath:    "/ai-desktops/acme/github",
+		AWSRegion:           "us-east-1",
+		TailscaleNetwork:    "acme-tailnet",
+		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+		StepCAServerDNS:     "ca.tailnet.ts.net",
+		StepCAFingerprint:   "abcdef",
+		StepCAProvisioner:   "ai-desktops",
+		StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCAClients: []StepCAClient{
+			{Issuer: "mark-macbook", PublicKey: "ssh-ed25519 AAAA mark", Required: true},
+		},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"getent hosts \"$STEP_CA\"",
+		"packages.smallstep.com/stable/debian",
+		"STEP_CA_ROOT=\"/root/.step/certs/root_ca.crt\"",
+		"STEP_CA_API_ROOT=\"$STEP_CA_ROOT\"",
+		"step ca health --ca-url \"https://${STEP_CA}\" --root \"$STEP_CA_ROOT\"",
+		"step ca bootstrap --ca-url \"https://${STEP_CA}\" --fingerprint \"$STEP_CA_FINGERPRINT\" --install --force",
+		"/etc/ssl/certs/ISRG_Root_X1.pem",
+		"/etc/ssl/certs/ISRG_Root_X2.pem",
+		"python3-yaml",
+		"STEP_CA_PROVISIONER_PASSWORD",
+		"STEP_CA_PASSWORD_FILE=$(mktemp)",
+		"STEP_CA_TOKEN_FILE=$(mktemp)",
+		"STEP_CA_CSR_FILE=$(mktemp)",
+		"STEP_CA_SIGN_REQUEST=$(mktemp)",
+		"STEP_CA_SIGN_RESPONSE=$(mktemp)",
+		"TAILSCALE_DNS_NAME=$(tailscale status --json",
+		"DNS:${TAILSCALE_DNS_NAME}",
+		"--san \"$TAILSCALE_DNS_NAME\"",
+		"step ca token",
+		"--root \"$STEP_CA_API_ROOT\"",
+		"openssl req -new",
+		"-addext \"subjectAltName=${CSR_SANS}\"",
+		"json.dump({\"csr\": csr, \"ott\": token}, output_file)",
+		"\"https://${STEP_CA}/1.0/sign\"",
+		"cert_file.write(response[\"crt\"])",
+		"server.crt",
+		"install -o ubuntu -g ubuntu -m 0644 \"$STEP_CA_ROOT\" \"$CERT_DIR/step-ca-root.crt\"",
+		"bridgectl.service.d/step-ca.conf",
+		"EnvironmentFile=-%%h/.config/bridgectl/step-ca.env",
+		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
+		"server[\"listen\"]",
+		"\"$TAILSCALE_IP:9445\"",
+		"/home/ubuntu/.ai-agent-bridge/certs/jwt-clients",
+		"mark-macbook.pub",
+		"STEP_CA_CLIENTS_JSON_B64",
+		"step_ca_config[\"clients\"]",
+		"step-ca-root.crt",
+		"config[\"tls\"]",
+		"server.key",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("step-ca block missing %q", want)
+		}
+	}
+	if strings.Contains(out, "/tmp/step-ca-password") {
+		t.Error("step-ca password file should use mktemp, not a fixed /tmp path")
+	}
+	if strings.Contains(out, "step ca certificate") {
+		t.Error("step-ca certificate issuance should use the sign API, not step ca certificate")
+	}
+	if strings.Contains(out, "install -o ubuntu -g ubuntu -m 0644 \"$STEP_CA_API_ROOT\" \"$CERT_DIR/step-ca-root.crt\"") {
+		t.Error("bridgectl client CA bundle must use the Step CA root, not the API fallback root")
+	}
+
+	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {
+		t.Error("step-ca block should render after Tailscale so private CA DNS can become available first")
 	}
 }
 
@@ -197,8 +340,19 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 	if strings.Contains(out, "/main/install.sh") {
 		t.Error("install scripts must not reference the 'main' branch; pin to a release tag")
 	}
-	// The ai-agent-bridge version is installed via the AMI packer playbook, not
-	// cloud-init; cloud-init no longer pulls or starts the bridge daemon.
+	// Cloud-init verifies the AMI's baked package and corrects drift to the
+	// exact version expected by the CLI.
+	wantVersion := strings.TrimPrefix(AIAgentBridgeVersion, "v")
+	if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="`+wantVersion+`"`) {
+		t.Errorf("cloud-init should include expected bridge package version %s", wantVersion)
+	}
+	if !strings.Contains(out, `"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"`) {
+		t.Error("cloud-init should install the exact ai-agent-bridge package version when the AMI drifts")
+	}
+	if !strings.Contains(out, "install-provider-runtime") {
+		t.Error("cloud-init should refresh provider runtime after ai-agent-bridge version correction")
+	}
+	// cloud-init must not pull or start the old system bridge daemon.
 	if strings.Contains(out, "systemctl enable ai-agent-bridge") {
 		t.Error("cloud-init must not enable the ai-agent-bridge system daemon")
 	}

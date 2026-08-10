@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -37,6 +42,12 @@ var (
 	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
 	createMobile        bool
 	createInstanceType  string
+	createTailscale     bool
+	createTailscaleNet  string
+	createStepCA        string
+	createStepCAProv    string
+	createStepCAFP      string
+	createStepCAClients []string
 )
 
 var createCmd = &cobra.Command{
@@ -67,6 +78,12 @@ func init() {
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
+	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
+	createCmd.Flags().StringVar(&createTailscaleNet, "tailscale-network", "", "Tailscale tailnet/network name; also enables Tailscale and requires TAILSCALE_AUTHKEY or an existing integration secret")
+	createCmd.Flags().StringVar(&createStepCA, "step-ca", "", "bootstrap bridgectl trust and host certificate from this step-ca DNS name; requires STEP_CA_PROVISIONER_PASSWORD or an existing integration secret, and a fingerprint via --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT")
+	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
+	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint; required when --step-ca is set (may also be supplied via pki.step_ca_fingerprint or STEP_CA_FINGERPRINT)")
+	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -120,6 +137,45 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
+	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
+		tailscale:               createTailscale,
+		tailscaleNetwork:        createTailscaleNet,
+		tailscaleNetworkSet:     cmd.Flags().Changed("tailscale-network"),
+		stepCA:                  createStepCA,
+		stepCASet:               cmd.Flags().Changed("step-ca"),
+		stepCAProvisioner:       createStepCAProv,
+		stepCAProvisionerSet:    cmd.Flags().Changed("step-ca-provisioner"),
+		stepCAFingerprint:       createStepCAFP,
+		stepCAFingerprintSet:    cmd.Flags().Changed("step-ca-fingerprint"),
+		configTailscaleNetwork:  cfg.Network.TailscaleNetwork,
+		configStepCA:            cfg.PKI.StepCAServer,
+		configStepCAProvisioner: cfg.PKI.StepCAProvisioner,
+		configStepCAFingerprint: cfg.PKI.StepCAFingerprint,
+		envStepCAFingerprint:    strings.TrimSpace(os.Getenv("STEP_CA_FINGERPRINT")),
+	})
+	if err != nil {
+		return err
+	}
+	tailscaleNetwork := integrations.tailscaleNetwork
+	stepCAServer := integrations.stepCA
+	stepCAProvisioner := integrations.stepCAProvisioner
+	stepCAFingerprint := integrations.stepCAFingerprint
+	var stepCAClients []provision.StepCAClient
+	if stepCAServer != "" || len(createStepCAClients) > 0 {
+		var err error
+		stepCAClients, err = resolveStepCAClients(cfg.PKI.StepCAClients, createStepCAClients)
+		if err != nil {
+			return err
+		}
+		if len(stepCAClients) > 0 && stepCAServer == "" {
+			return fmt.Errorf("step-ca clients require --step-ca or pki.step_ca_server")
+		}
+	}
+
+	env := createEnv
+	if env == "" {
+		env = cfg.Fleet.Environment
+	}
 
 	// Verify every repo is reachable before touching any infrastructure.
 	for _, r := range repos {
@@ -147,9 +203,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	env := createEnv
-	if env == "" {
-		env = cfg.Fleet.Environment
+	tailscaleSecretPath := ""
+	stepCASecretPath := ""
+	if integrations.tailscaleEnabled || integrations.stepCAEnabled {
+		var err error
+		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, cfg.Operator.Secret, tailscaleNetwork, stepCAServer)
+		if err != nil {
+			return err
+		}
 	}
 
 	zone, err := cfg.DNSZone()
@@ -186,6 +247,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitHubOwner:   owner,
 		Repos:         repoStrings(repos),
 		Secrets:       createSecrets,
+		TailscaleNet:  tailscaleNetwork,
+		StepCAServer:  stepCAServer,
 		InstanceType:  cfg.Desktop.InstanceType,
 		NestedVirt:    nestedVirt,
 		Zone:          zone,
@@ -210,6 +273,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Creating desktop %s (env=%s, owner=%s, instance=%s) ...\n", desktopID, env, owner, cfg.Desktop.InstanceType)
 	if nestedVirt {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
+	}
+	if integrations.tailscaleEnabled {
+		fmt.Fprintf(os.Stderr, "  Tailscale network     : %s\n", tailscaleNetwork)
+	}
+	if integrations.stepCAEnabled {
+		fmt.Fprintf(os.Stderr, "  step-ca server        : %s (provisioner=%s)\n", stepCAServer, stepCAProvisioner)
 	}
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
@@ -303,6 +372,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitHubSecretPath:     gitHubSecret,
 		AgentSecretPath:      cfg.GitHub.AgentSecret,
 		DesktopSecretPaths:   createSecrets,
+		TailscaleNetwork:     tailscaleNetwork,
+		TailscaleSecretPath:  tailscaleSecretPath,
+		StepCAServerDNS:      stepCAServer,
+		StepCAFingerprint:    stepCAFingerprint,
+		StepCAProvisioner:    stepCAProvisioner,
+		StepCASecretPath:     stepCASecretPath,
+		StepCAClients:        stepCAClients,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
 		PackagesPreInstalled: amiID != "",
@@ -317,6 +393,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if renderErr != nil {
 		return fmt.Errorf("render cloud-init: %w", renderErr)
 	}
+	userDataBase64, err := gzipBase64UserData(userData)
+	if err != nil {
+		return fmt.Errorf("compress cloud-init user-data: %w", err)
+	}
 
 	stackCfg := pulumi.DesktopConfig(
 		cfg.AWS.Region, desktopID, owner, zone, cfg.Desktop.InstanceType,
@@ -328,7 +408,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		cfg.Agent.BridgePort,
 		volumeSize,
 		amiID,
-		userData,
+		userDataBase64,
 		env,
 		nestedVirt,
 	)
@@ -350,7 +430,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			sgID:            foundationOutputs[pulumi.OutputSGID],
 			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
 			sshKeyName:      cfg.Desktop.SSHKeyName,
-			userData:        userData,
+			userDataBase64:  userDataBase64,
 			volumeSize:      volumeSize,
 			hostname:        hostname,
 			desktopID:       desktopID,
@@ -370,6 +450,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", cfg.Desktop.InstanceType)
 		fmt.Printf("Nested virt   : %v\n", nestedVirt)
+		if integrations.tailscaleEnabled {
+			fmt.Printf("Tailscale     : %s\n", tailscaleNetwork)
+		}
+		if integrations.stepCAEnabled {
+			fmt.Printf("step-ca       : %s\n", stepCAServer)
+		}
 		fmt.Printf("Repos         : %v\n", createRepos)
 		if len(req.AVDNames) > 0 {
 			fmt.Printf("AVDs          : %s\n", strings.Join(req.AVDNames, ", "))
@@ -423,6 +509,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"instance_type":         cfg.Desktop.InstanceType,
 		"nested_virtualization": nestedVirtStr,
 		"avd_names":             strings.Join(req.AVDNames, ", "),
+		"tailscale_network":     tailscaleNetwork,
+		"step_ca_server":        stepCAServer,
 	}
 
 	if jsonOut {
@@ -438,9 +526,219 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if result["avd_names"] != "" {
 		fmt.Printf("AVDs          : %s\n", result["avd_names"])
 	}
+	if result["tailscale_network"] != "" {
+		fmt.Printf("Tailscale     : %s\n", result["tailscale_network"])
+	}
+	if result["step_ca_server"] != "" {
+		fmt.Printf("step-ca       : %s\n", result["step_ca_server"])
+	}
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9_+=.@-]+`)
+
+func gzipBase64UserData(userData string) (string, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(userData)); err != nil {
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+type resolveCreateIntegrationsInput struct {
+	tailscale bool
+
+	tailscaleNetwork    string
+	tailscaleNetworkSet bool
+
+	stepCA    string
+	stepCASet bool
+
+	stepCAProvisioner    string
+	stepCAProvisionerSet bool
+
+	stepCAFingerprint    string
+	stepCAFingerprintSet bool
+
+	configTailscaleNetwork  string
+	configStepCA            string
+	configStepCAProvisioner string
+	configStepCAFingerprint string
+	envStepCAFingerprint    string
+}
+
+type resolvedCreateIntegrations struct {
+	tailscaleEnabled  bool
+	tailscaleNetwork  string
+	stepCAEnabled     bool
+	stepCA            string
+	stepCAProvisioner string
+	stepCAFingerprint string
+}
+
+func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreateIntegrations, error) {
+	tailscaleNetwork := strings.TrimSpace(in.configTailscaleNetwork)
+	if in.tailscaleNetworkSet {
+		tailscaleNetwork = strings.TrimSpace(in.tailscaleNetwork)
+	}
+	tailscaleEnabled := in.tailscale || in.tailscaleNetworkSet
+	if tailscaleEnabled && tailscaleNetwork == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("Tailscale requires --tailscale-network or network.tailscale_network in config")
+	}
+	if !tailscaleEnabled {
+		tailscaleNetwork = ""
+	}
+
+	stepCA := strings.TrimSpace(in.configStepCA)
+	if in.stepCASet {
+		stepCA = strings.TrimSpace(in.stepCA)
+	}
+	stepCAEnabled := in.stepCASet || (in.tailscale && stepCA != "")
+	if !stepCAEnabled {
+		stepCA = ""
+	}
+
+	stepCAProvisioner := strings.TrimSpace(in.configStepCAProvisioner)
+	if in.stepCAProvisionerSet {
+		stepCAProvisioner = strings.TrimSpace(in.stepCAProvisioner)
+	}
+	if stepCAEnabled && stepCAProvisioner == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("step-ca provisioner must not be empty when step-ca is configured")
+	}
+
+	stepCAFingerprint := strings.TrimSpace(in.configStepCAFingerprint)
+	if in.stepCAFingerprintSet {
+		stepCAFingerprint = strings.TrimSpace(in.stepCAFingerprint)
+	}
+	if stepCAEnabled && stepCAFingerprint == "" {
+		stepCAFingerprint = strings.TrimSpace(in.envStepCAFingerprint)
+	}
+	if stepCAEnabled && stepCAFingerprint == "" {
+		return resolvedCreateIntegrations{}, fmt.Errorf("step-ca fingerprint must be set with --step-ca-fingerprint, pki.step_ca_fingerprint, or STEP_CA_FINGERPRINT when step-ca is configured")
+	}
+	if !stepCAEnabled {
+		stepCAProvisioner = ""
+		stepCAFingerprint = ""
+	}
+
+	return resolvedCreateIntegrations{
+		tailscaleEnabled:  tailscaleEnabled,
+		tailscaleNetwork:  tailscaleNetwork,
+		stepCAEnabled:     stepCAEnabled,
+		stepCA:            stepCA,
+		stepCAProvisioner: stepCAProvisioner,
+		stepCAFingerprint: stepCAFingerprint,
+	}, nil
+}
+
+func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, operatorSecretPath, tailscaleNetwork, stepCAServer string) (string, string, error) {
+	tailscaleSecretPath := ""
+	if tailscaleNetwork != "" {
+		tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
+	}
+	stepCASecretPath := ""
+	if stepCAServer != "" {
+		stepCASecretPath = fmt.Sprintf("/ai-desktops/%s/step-ca/%s", owner, secretPathSlug(stepCAServer))
+	}
+	if preview {
+		return tailscaleSecretPath, stepCASecretPath, nil
+	}
+
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return "", "", fmt.Errorf("load AWS config to store integration secrets: %w", err)
+	}
+	if tailscaleNetwork != "" {
+		authKey := strings.TrimSpace(os.Getenv("TAILSCALE_AUTHKEY"))
+		if authKey == "" {
+			ok, err := integrationSecretHasKey(ctx, awsCfg, tailscaleSecretPath, "TS_AUTHKEY")
+			if err != nil {
+				return "", "", err
+			}
+			if !ok {
+				return "", "", fmt.Errorf("TAILSCALE_AUTHKEY must be set or existing secret %q must contain TS_AUTHKEY when Tailscale is configured", tailscaleSecretPath)
+			}
+		} else {
+			payload, err := json.Marshal(map[string]string{"TS_AUTHKEY": authKey})
+			if err != nil {
+				return "", "", fmt.Errorf("marshal Tailscale secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing Tailscale auth key at %s ...\n", tailscaleSecretPath)
+			if err := storeIntegrationSecret(ctx, awsCfg, tailscaleSecretPath, string(payload), owner, env, "Tailscale"); err != nil {
+				return "", "", fmt.Errorf("store Tailscale auth key secret: %w", err)
+			}
+		}
+		tailscaleAPIKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY"))
+		if tailscaleAPIKey != "" {
+			if operatorSecretPath == "" {
+				operatorSecretPath = defaultOperatorSecretPath(owner)
+			}
+			fmt.Fprintf(os.Stderr, "Storing Tailscale API key at %s ...\n", operatorSecretPath)
+			if err := storeOperatorSecretValue(ctx, awsCfg, operatorSecretPath, "TAILSCALE_API_KEY", tailscaleAPIKey, owner, env); err != nil {
+				return "", "", fmt.Errorf("store Tailscale API key operator secret: %w", err)
+			}
+		}
+	}
+	if stepCAServer != "" {
+		password := strings.TrimSpace(os.Getenv("STEP_CA_PROVISIONER_PASSWORD"))
+		if password == "" {
+			ok, err := integrationSecretHasKey(ctx, awsCfg, stepCASecretPath, "STEP_CA_PROVISIONER_PASSWORD")
+			if err != nil {
+				return "", "", err
+			}
+			if !ok {
+				return "", "", fmt.Errorf("STEP_CA_PROVISIONER_PASSWORD must be set or existing secret %q must contain STEP_CA_PROVISIONER_PASSWORD when step-ca is configured", stepCASecretPath)
+			}
+		} else {
+			payload, err := json.Marshal(map[string]string{"STEP_CA_PROVISIONER_PASSWORD": password})
+			if err != nil {
+				return "", "", fmt.Errorf("marshal step-ca secret: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Storing step-ca provisioner secret at %s ...\n", stepCASecretPath)
+			if err := storeIntegrationSecret(ctx, awsCfg, stepCASecretPath, string(payload), owner, env, "step-ca"); err != nil {
+				return "", "", fmt.Errorf("store step-ca provisioner secret: %w", err)
+			}
+		}
+	}
+	return tailscaleSecretPath, stepCASecretPath, nil
+}
+
+func integrationSecretHasKey(ctx context.Context, awsCfg aws.Config, secretID, key string) (bool, error) {
+	svc := secretsmanager.NewFromConfig(awsCfg)
+	out, err := svc.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(secretID),
+	})
+	if err != nil {
+		var notFound *secretsmanagertypes.ResourceNotFoundException
+		if errors.As(err, &notFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read integration secret %q: %w", secretID, err)
+	}
+	if out.SecretString == nil {
+		return false, nil
+	}
+	values := map[string]string{}
+	if err := json.Unmarshal([]byte(*out.SecretString), &values); err != nil {
+		return false, fmt.Errorf("parse integration secret %q: %w", secretID, err)
+	}
+	return strings.TrimSpace(values[key]) != "", nil
+}
+
+func secretPathSlug(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, "/")
+	s = secretPathSlugRe.ReplaceAllString(s, "-")
+	if s == "" {
+		return "default"
+	}
+	return s
 }
 
 func parseAndValidateRepos(owner string, rawRepos []string) ([]*repo.Repo, string, error) {
@@ -506,6 +804,90 @@ func parseAVDs(specs []string) ([]config.AVDConfig, error) {
 	return avds, nil
 }
 
+func resolveStepCAClients(configClients []config.StepCAClientConfig, flagSpecs []string) ([]provision.StepCAClient, error) {
+	clients := make([]config.StepCAClientConfig, 0, len(configClients)+len(flagSpecs))
+	clients = append(clients, configClients...)
+	for _, spec := range flagSpecs {
+		client, err := parseStepCAClientSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, client)
+	}
+
+	resolved := make([]provision.StepCAClient, 0, len(clients))
+	for i, client := range clients {
+		issuer := strings.TrimSpace(client.Issuer)
+		if !validStepCAClientIssuer(issuer) {
+			return nil, fmt.Errorf("step-ca client %d issuer %q must start with an alphanumeric character and contain only alphanumerics, hyphens, underscores, or dots", i, client.Issuer)
+		}
+		publicKey := strings.TrimSpace(client.PublicKey)
+		if publicKey == "" && strings.TrimSpace(client.PublicKeyPath) != "" {
+			b, err := os.ReadFile(strings.TrimSpace(client.PublicKeyPath))
+			if err != nil {
+				return nil, fmt.Errorf("read step-ca client %q public key %q: %w", issuer, client.PublicKeyPath, err)
+			}
+			publicKey = strings.TrimSpace(string(b))
+		}
+		if publicKey == "" {
+			return nil, fmt.Errorf("step-ca client %q requires public_key or public_key_path", issuer)
+		}
+		resolved = append(resolved, provision.StepCAClient{
+			Issuer:    issuer,
+			PublicKey: publicKey,
+			Required:  client.Required,
+		})
+	}
+	return resolved, nil
+}
+
+func parseStepCAClientSpec(spec string) (config.StepCAClientConfig, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return config.StepCAClientConfig{}, fmt.Errorf("--step-ca-client must not be empty")
+	}
+
+	var client config.StepCAClientConfig
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			return config.StepCAClientConfig{}, fmt.Errorf("invalid --step-ca-client part %q; expected key=value", part)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		switch key {
+		case "issuer":
+			client.Issuer = value
+		case "public-key-path", "public_key_path", "key-path", "key_path":
+			client.PublicKeyPath = value
+		case "public-key", "public_key":
+			client.PublicKey = value
+		case "required":
+			switch strings.ToLower(value) {
+			case "true", "1", "yes":
+				client.Required = true
+			case "false", "0", "no", "":
+				client.Required = false
+			default:
+				return config.StepCAClientConfig{}, fmt.Errorf("invalid required value %q in --step-ca-client %q", value, spec)
+			}
+		default:
+			return config.StepCAClientConfig{}, fmt.Errorf("unknown --step-ca-client key %q", key)
+		}
+	}
+	return client, nil
+}
+
+var stepCAClientIssuerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+func validStepCAClientIssuer(issuer string) bool {
+	return stepCAClientIssuerPattern.MatchString(issuer)
+}
+
 type instanceLaunchParams struct {
 	amiID           string
 	instanceType    string
@@ -513,7 +895,7 @@ type instanceLaunchParams struct {
 	sgID            string
 	instanceProfile string
 	sshKeyName      string
-	userData        string
+	userDataBase64  string
 	volumeSize      int
 	hostname        string
 	desktopID       string
@@ -553,9 +935,10 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 		IamInstanceProfile: &ec2types.IamInstanceProfileSpecification{
 			Name: aws.String(p.instanceProfile),
 		},
-		// UserData must be base64-encoded in RunInstances; Pulumi encodes it automatically
-		// but we're bypassing Pulumi for this call.
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(p.userData))),
+		// UserData is already gzip-compressed and base64-encoded. Cloud-init
+		// detects gzip user data, and compression keeps the EC2 API payload under
+		// the 16 KiB raw user-data limit.
+		UserData: aws.String(p.userDataBase64),
 		// AssociatePublicIpAddress must be set via NetworkInterfaces in a VPC subnet;
 		// it is not available as a top-level parameter when SubnetId is also specified.
 		NetworkInterfaces: []ec2types.InstanceNetworkInterfaceSpecification{

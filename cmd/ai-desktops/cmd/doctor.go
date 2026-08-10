@@ -86,6 +86,19 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - desktop-secrets-env-file  — /home/ubuntu/.config/environment.d/desktop-secrets.conf exists and is non-empty
     - desktop-secrets-bash-file — /home/ubuntu/.desktop-secrets exists and is non-empty
 
+  Tailscale (only when --tailscale or --tailscale-network was specified at create time):
+    - tailscale-installed         — tailscale CLI is on PATH
+    - tailscaled-active           — tailscaled systemd service is active
+    - tailscale-running           — Tailscale backend state is Running
+    - tailscale-network-metadata  — requested network name was recorded on the desktop
+
+  step-ca (only when --step-ca was specified at create time, or --tailscale used pki.step_ca_server):
+    - step-cli-installed     — Smallstep CLI is on PATH
+    - step-ca-resolves       — configured step-ca DNS name resolves
+    - step-ca-health         — step ca health succeeds
+    - bridgectl-step-ca-env  — bridgectl step-ca environment file exists
+    - bridgectl-step-ca-cert — bridge TLS certificate and key were issued
+
   Nested Virtualization (only when --nested-virtualization or --mobile was used at create time):
     - kvm-device      — /dev/kvm character device exists
     - kvm-ok          — sudo kvm-ok reports KVM acceleration can be used
@@ -134,6 +147,8 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Secrets", Checkers: health.SecretsCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Secrets)},
+		{Label: "Tailscale", Checkers: health.TailscaleCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.TailscaleNet, cfg.Agent.BridgePort)},
+		{Label: "step-ca", Checkers: health.StepCACheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.StepCAServer)},
 		{Label: "Nested Virtualization", Checkers: health.NestedVirtCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.NestedVirt)},
 		{Label: "Android Virtual Devices", Checkers: health.AVDCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.AVDNames)},
 		{Label: "Repositories", Checkers: health.RepoCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)},

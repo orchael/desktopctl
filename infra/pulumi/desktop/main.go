@@ -71,13 +71,15 @@ func run(ctx *pulumi.Context) error {
 	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
 
 	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
+	// Prefer gzip-compressed base64 user data so large cloud-init payloads stay
+	// under EC2's 16 KiB raw user-data limit. Keep raw userData as a fallback
+	// for older CLI-created stack configs.
+	userDataBase64 := cfg.Get("userDataBase64")
 	userData := cfg.Get("userData")
-	if userData == "" {
+	if userDataBase64 == "" && userData == "" {
 		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
 	}
 
-	// The Pulumi AWS provider base64-encodes UserData automatically;
-	// pass the raw string to avoid double-encoding.
 	// NestedVirtualization=enabled is incompatible with hibernation;
 	// AWS does not allow an instance to be hibernated when NestedVirtualization is enabled.
 	hibernation := !nestedVirtualization
@@ -88,7 +90,6 @@ func run(ctx *pulumi.Context) error {
 		SubnetId:                 pulumi.String(subnetID),
 		VpcSecurityGroupIds:      pulumi.StringArray{pulumi.String(sgID)},
 		IamInstanceProfile:       pulumi.String(instanceProfile),
-		UserData:                 pulumi.String(userData),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
 		Hibernation:              pulumi.Bool(hibernation),
@@ -114,6 +115,13 @@ func run(ctx *pulumi.Context) error {
 	// it cannot set itself.
 	if sshKeyName != "" {
 		instanceArgs.KeyName = pulumi.String(sshKeyName)
+	}
+	if userDataBase64 != "" {
+		instanceArgs.UserDataBase64 = pulumi.String(userDataBase64)
+	} else {
+		// The Pulumi AWS provider base64-encodes UserData automatically; pass
+		// the raw string to avoid double-encoding.
+		instanceArgs.UserData = pulumi.String(userData)
 	}
 
 	instanceResourceOpts := []pulumi.ResourceOption{}

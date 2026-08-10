@@ -45,6 +45,14 @@ github:
   git_user_name: Your Name
   git_user_email: you@example.com
 
+operator:
+  # AWS Secrets Manager path for operator-only credentials used by the
+  # ai-desktops CLI, not injected into desktop environments.
+  # Created/updated automatically when an operator env var such as
+  # TAILSCALE_API_KEY is present during relevant commands.
+  # Default: /ai-desktops/<github.owner>
+  secret: /ai-desktops/myorg
+
 desktop:
   # EC2 instance type for each desktop.
   # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.
@@ -82,7 +90,9 @@ desktop:
   operator_cidr: 0.0.0.0/0
 
 agent:
-  # Port where ai-agent-bridge listens on the desktop (localhost-only).
+  # Port where bridgectl listens on the desktop. Defaults to localhost-only.
+  # When both Tailscale and step-ca are enabled, cloud-init binds this port to
+  # the desktop's Tailscale IPv4 address for direct tailnet access.
   # Default: 9445. Change only if there is a port conflict on the desktop.
   bridge_port: 9445
 
@@ -92,3 +102,40 @@ agent:
   # whose host key is not yet in known_hosts; can also use --trust-host flag
   # on the agent command for one-shot overrides.
   # trust_host: false
+
+network:
+  # Optional Tailscale tailnet/network default used when running create with
+  # --tailscale. Requires TAILSCALE_AUTHKEY in the local environment or an
+  # existing /ai-desktops/<owner>/tailscale/<tailnet> secret with TS_AUTHKEY.
+  # Can be overridden per desktop with --tailscale-network, which also enables
+  # Tailscale for that desktop.
+  # tailscale_network: my-tailnet
+
+pki:
+  # Optional step-ca DNS name used to bootstrap trust and issue bridgectl host
+  # certificates. Used when running create with --step-ca, or with --tailscale
+  # when this config value is set. If the CA is reachable only over Tailscale,
+  # also configure network.tailscale_network.
+  # Requires STEP_CA_PROVISIONER_PASSWORD in the local environment or an existing
+  # /ai-desktops/<owner>/step-ca/<server> secret with STEP_CA_PROVISIONER_PASSWORD.
+  # Can be overridden per desktop with --step-ca.
+  # step_ca_server: ca.my-tailnet.ts.net
+
+  # step-ca provisioner for bridge host certificates. Default: admin.
+  # Can be overridden with --step-ca-provisioner.
+  # step_ca_provisioner: admin
+
+  # Root certificate fingerprint for non-interactive private CA bootstrap.
+  # Required when step-ca is enabled.
+  # Can also be supplied by STEP_CA_FINGERPRINT or --step-ca-fingerprint.
+  # step_ca_fingerprint: abcdef0123456789
+
+  # Remote bridgectl clients trusted by the desktop's bridge server at startup.
+  # The issuer normally matches the client's Step CA certificate common name.
+  # public_key_path is read from this machine during `ai-desktops create`; only
+  # the public key is copied to the desktop. You can also pass one-off clients
+  # with --step-ca-client issuer=<name>,public-key-path=<path>,required=true.
+  # step_ca_clients:
+  #   - issuer: mark-macbook
+  #     public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+  #     required: true

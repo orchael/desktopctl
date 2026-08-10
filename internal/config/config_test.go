@@ -47,6 +47,9 @@ func TestDefaults(t *testing.T) {
 	if c.Agent.BridgePort != DefaultBridgePort {
 		t.Errorf("default bridge port: got %d", c.Agent.BridgePort)
 	}
+	if c.PKI.StepCAProvisioner != "admin" {
+		t.Errorf("default step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -94,6 +97,18 @@ pulumi:
 fleet:
   table_name: my-fleet
   environment: prod
+network:
+  tailscale_network: acme-tailnet
+operator:
+  secret: /ai-desktops/acme-ops
+pki:
+  step_ca_server: ca.acme-tailnet.ts.net
+  step_ca_provisioner: ops
+  step_ca_fingerprint: abcdef
+  step_ca_clients:
+    - issuer: mark-macbook
+      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      required: true
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -117,6 +132,33 @@ fleet:
 	if c.Fleet.TableName != "my-fleet" {
 		t.Errorf("table: got %q", c.Fleet.TableName)
 	}
+	if c.Network.TailscaleNetwork != "acme-tailnet" {
+		t.Errorf("tailscale network: got %q", c.Network.TailscaleNetwork)
+	}
+	if c.Operator.Secret != "/ai-desktops/acme-ops" {
+		t.Errorf("operator secret: got %q", c.Operator.Secret)
+	}
+	if c.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
+		t.Errorf("step-ca server: got %q", c.PKI.StepCAServer)
+	}
+	if c.PKI.StepCAProvisioner != "ops" {
+		t.Errorf("step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
+	}
+	if c.PKI.StepCAFingerprint != "abcdef" {
+		t.Errorf("step-ca fingerprint: got %q", c.PKI.StepCAFingerprint)
+	}
+	if len(c.PKI.StepCAClients) != 1 {
+		t.Fatalf("step-ca clients: got %d", len(c.PKI.StepCAClients))
+	}
+	if c.PKI.StepCAClients[0].Issuer != "mark-macbook" {
+		t.Errorf("step-ca client issuer: got %q", c.PKI.StepCAClients[0].Issuer)
+	}
+	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub" {
+		t.Errorf("step-ca client public key path: got %q", c.PKI.StepCAClients[0].PublicKeyPath)
+	}
+	if !c.PKI.StepCAClients[0].Required {
+		t.Error("step-ca client required should be true")
+	}
 }
 
 func TestSave_roundTrip(t *testing.T) {
@@ -129,6 +171,20 @@ func TestSave_roundTrip(t *testing.T) {
 			ActiveAMI: map[string]string{
 				"us-east-1": "ami-0abc123",
 				"us-west-2": "ami-0def456",
+			},
+		},
+		Network:  NetworkConfig{TailscaleNetwork: "acme-tailnet"},
+		Operator: OperatorConfig{Secret: "/ai-desktops/acme"},
+		PKI: PKIConfig{
+			StepCAServer:      "ca.acme-tailnet.ts.net",
+			StepCAProvisioner: "admin",
+			StepCAFingerprint: "abcdef",
+			StepCAClients: []StepCAClientConfig{
+				{
+					Issuer:        "mark-macbook",
+					PublicKeyPath: "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub",
+					Required:      true,
+				},
 			},
 		},
 	}
@@ -163,6 +219,24 @@ func TestSave_roundTrip(t *testing.T) {
 			t.Errorf("us-east-1 AMI round-trip: got %q", amiID)
 		}
 	}
+	if loaded.Network.TailscaleNetwork != "acme-tailnet" {
+		t.Errorf("tailscale network round-trip: got %q", loaded.Network.TailscaleNetwork)
+	}
+	if loaded.Operator.Secret != "/ai-desktops/acme" {
+		t.Errorf("operator secret round-trip: got %q", loaded.Operator.Secret)
+	}
+	if loaded.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
+		t.Errorf("step-ca server round-trip: got %q", loaded.PKI.StepCAServer)
+	}
+	if loaded.PKI.StepCAProvisioner != "admin" {
+		t.Errorf("step-ca provisioner round-trip: got %q", loaded.PKI.StepCAProvisioner)
+	}
+	if loaded.PKI.StepCAFingerprint != "abcdef" {
+		t.Errorf("step-ca fingerprint round-trip: got %q", loaded.PKI.StepCAFingerprint)
+	}
+	if len(loaded.PKI.StepCAClients) != 1 || loaded.PKI.StepCAClients[0].Issuer != "mark-macbook" {
+		t.Errorf("step-ca clients round-trip: got %+v", loaded.PKI.StepCAClients)
+	}
 }
 
 func TestDefaults_AMIs(t *testing.T) {
@@ -187,6 +261,9 @@ func TestDefaults_GitHubSecret(t *testing.T) {
 	c.Defaults()
 	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
 		t.Errorf("owner default: got %q", c.GitHub.GitHubSecret)
+	}
+	if c.Operator.Secret != "/ai-desktops/myorg" {
+		t.Errorf("operator secret default: got %q", c.Operator.Secret)
 	}
 
 	// Legacy pat_secret migrates to github_secret

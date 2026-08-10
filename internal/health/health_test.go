@@ -339,6 +339,61 @@ func TestBridgectlCheckers_allSkippedWithNoKey(t *testing.T) {
 	}
 }
 
+func TestTailscaleCheckers_emptyNetwork(t *testing.T) {
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "", 9445)
+	if len(checkers) != 0 {
+		t.Errorf("expected 0 checkers for empty Tailscale network, got %d", len(checkers))
+	}
+}
+
+func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := TailscaleCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "acme-tailnet", 9445)
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener"} {
+		if !names[n] {
+			t.Errorf("TailscaleCheckers missing expected checker %q", n)
+		}
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: \"${TAILSCALE_IP}:9445\"`) {
+		t.Error("bridgectl-tailscale-listener should accept quoted YAML listener values")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: ${TAILSCALE_IP}:9445`) {
+		t.Error("bridgectl-tailscale-listener should accept unquoted YAML listener values")
+	}
+}
+
+func TestStepCACheckers_emptyServer(t *testing.T) {
+	checkers := StepCACheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
+	if len(checkers) != 0 {
+		t.Errorf("expected 0 checkers for empty step-ca server, got %d", len(checkers))
+	}
+}
+
+func TestStepCACheckers_returnsExpectedChecks(t *testing.T) {
+	checkers := StepCACheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "ca.tailnet.ts.net")
+	names := make(map[string]bool)
+	for _, c := range checkers {
+		names[c.Name()] = true
+	}
+	for _, n := range []string{"step-cli-installed", "step-ca-resolves", "step-ca-health", "bridgectl-step-ca-env", "bridgectl-step-ca-cert"} {
+		if !names[n] {
+			t.Errorf("StepCACheckers missing expected checker %q", n)
+		}
+	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /root/.step/certs/root_ca.crt") {
+		t.Error("step-ca-health should pass the bootstrapped root certificate explicitly")
+	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /etc/ssl/certs/ISRG_Root_X1.pem") {
+		t.Error("step-ca-health should fall back to ISRG Root X1")
+	}
+	if !checkerCommandContains(checkers, "step-ca-health", "--root /etc/ssl/certs/ISRG_Root_X2.pem") {
+		t.Error("step-ca-health should fall back to ISRG Root X2")
+	}
+}
+
 func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
 	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
 	if checkers != nil {
@@ -390,4 +445,21 @@ func TestRepoBaseName(t *testing.T) {
 			t.Errorf("repoBaseName(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
+}
+
+func checkerCommandContains(checkers []Checker, name, want string) bool {
+	for _, checker := range checkers {
+		if checker.Name() != name {
+			continue
+		}
+		switch c := checker.(type) {
+		case *SSHChecker:
+			return strings.Contains(c.command, want)
+		case *SSHOptionalChecker:
+			return strings.Contains(c.command, want)
+		default:
+			return false
+		}
+	}
+	return false
 }

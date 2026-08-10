@@ -12,7 +12,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.7.4"
+	AIAgentBridgeVersion  = "v0.8.2"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -31,6 +31,13 @@ type BootstrapConfig struct {
 	GitHubSecretPath     string   // AWS Secrets Manager path: /ai-desktops/<owner>/github
 	AgentSecretPath      string   // AWS Secrets Manager path: /ai-desktops/<owner>/agents
 	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
+	TailscaleNetwork     string   // optional Tailscale tailnet/network name
+	TailscaleSecretPath  string   // AWS Secrets Manager path containing {"TS_AUTHKEY":"..."}
+	StepCAServerDNS      string   // optional step-ca DNS name
+	StepCAFingerprint    string   // optional step-ca root fingerprint for non-interactive bootstrap
+	StepCAProvisioner    string   // step-ca provisioner used for bridge host certs
+	StepCASecretPath     string   // AWS Secrets Manager path containing {"STEP_CA_PROVISIONER_PASSWORD":"..."}
+	StepCAClients        []StepCAClient
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
@@ -44,6 +51,12 @@ type BootstrapConfig struct {
 	// Requires the Android SDK to be pre-installed in the AMI (ANDROID_HOME=/opt/android-sdk).
 	// Empty means no AVDs are created.
 	AVDs []config.AVDConfig
+}
+
+type StepCAClient struct {
+	Issuer    string
+	PublicKey string
+	Required  bool
 }
 
 const cloudInitTemplate = `#cloud-config
@@ -97,6 +110,311 @@ runcmd:
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
+
+  # --- ensure ai-agent-bridge/bridgectl package version matches the CLI ---
+  - |
+    (
+    set -e
+    EXPECTED_BRIDGE_VERSION="{{ .BridgePackageVersion }}"
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge 2>/dev/null || true)
+    if [ "$INSTALLED_BRIDGE_VERSION" = "$EXPECTED_BRIDGE_VERSION" ]; then
+      echo "ai-agent-bridge version $EXPECTED_BRIDGE_VERSION already installed"
+      exit 0
+    fi
+
+    echo "Installing ai-agent-bridge $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
+    apt-get update
+    apt-get install -y --no-install-recommends curl gpg ca-certificates
+    install -d -m 0755 /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/ai-agent-bridge.gpg ]; then
+      BRIDGE_KEY_ASC=$(mktemp)
+      trap 'rm -f "$BRIDGE_KEY_ASC"' EXIT
+      curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
+      gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg "$BRIDGE_KEY_ASC"
+      rm -f "$BRIDGE_KEY_ASC"
+      trap - EXIT
+      chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+    fi
+    ARCH=$(dpkg --print-architecture)
+    . /etc/os-release
+    UBUNTU_CODENAME="${VERSION_CODENAME:-noble}"
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt %s main\n' \
+      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/ai-agent-bridge.list
+    apt-get update
+    apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
+    if [ -x /usr/lib/ai-agent-bridge/install-provider-runtime ]; then
+      /usr/lib/ai-agent-bridge/install-provider-runtime || echo "WARNING: install-provider-runtime failed after ai-agent-bridge version correction"
+    fi
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge)
+    if [ "$INSTALLED_BRIDGE_VERSION" != "$EXPECTED_BRIDGE_VERSION" ]; then
+      echo "ERROR: ai-agent-bridge version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
+      exit 1
+    fi
+    )
+
+{{- if .TailscaleNetwork}}
+  # --- Tailscale network attachment ---
+  - |
+    (
+    set -e
+    REGION="{{ .AWSRegion }}"
+    TAILSCALE_NETWORK="{{ .TailscaleNetwork }}"
+    TAILSCALE_SECRET="{{ .TailscaleSecretPath }}"
+    TAILSCALE_HOSTNAME="{{ .DesktopID }}"
+
+    if ! command -v tailscale >/dev/null 2>&1; then
+      TAILSCALE_INSTALL=$(mktemp)
+      trap 'rm -f "$TAILSCALE_INSTALL"' EXIT
+      curl -fsSL https://tailscale.com/install.sh -o "$TAILSCALE_INSTALL"
+      sh "$TAILSCALE_INSTALL"
+      rm -f "$TAILSCALE_INSTALL"
+      trap - EXIT
+    fi
+
+    systemctl enable tailscaled
+    systemctl start tailscaled
+
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "$TAILSCALE_SECRET" \
+      --query SecretString \
+      --output text)
+    TS_AUTHKEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['TS_AUTHKEY'])")
+    unset SECRET_JSON
+
+    tailscale up \
+      --auth-key "$TS_AUTHKEY" \
+      --hostname "$TAILSCALE_HOSTNAME" \
+      --accept-dns=true \
+      --ssh=true
+    unset TS_AUTHKEY
+
+    for i in $(seq 1 60); do
+      if tailscale status --json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('BackendState',''))" | grep -qx Running; then
+        printf 'TAILSCALE_NETWORK="%s"\n' "$TAILSCALE_NETWORK" > /opt/ai-desktops/tailscale.env
+        chmod 640 /opt/ai-desktops/tailscale.env
+        chgrp ubuntu /opt/ai-desktops/tailscale.env
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "ERROR: Tailscale did not reach Running state" >&2
+    exit 1
+    )
+{{- end}}
+
+{{- if .StepCAServerDNS}}
+  # --- step-ca trust/bootstrap for bridgectl agent server ---
+  - |
+    (
+    set -e
+    REGION="{{ .AWSRegion }}"
+    STEP_CA="{{ .StepCAServerDNS }}"
+    STEP_CA_FINGERPRINT="{{ .StepCAFingerprint }}"
+    STEP_PROVISIONER="{{ .StepCAProvisioner }}"
+    STEP_SECRET="{{ .StepCASecretPath }}"
+    CERT_DIR="/home/ubuntu/.config/bridgectl/tls"
+    CERT_NAME="{{ .DesktopID }}"
+    STEP_CA_ROOT="/root/.step/certs/root_ca.crt"
+    STEP_CA_API_ROOT="$STEP_CA_ROOT"
+
+    # The CA often lives on Tailscale, so wait for DNS after optional Tailscale attachment.
+    for i in $(seq 1 90); do
+      if getent hosts "$STEP_CA" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 2
+      if [ "$i" = "90" ]; then
+        echo "ERROR: step-ca host $STEP_CA did not resolve" >&2
+        exit 1
+      fi
+    done
+
+    if ! command -v step >/dev/null 2>&1; then
+      apt-get update
+      apt-get install -y --no-install-recommends curl gpg ca-certificates openssl
+      install -d -m 0755 /etc/apt/keyrings
+      curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
+        -o /etc/apt/keyrings/smallstep.asc
+      printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://packages.smallstep.com/stable/debian' \
+        'Suites: debs' \
+        'Components: main' \
+        'Signed-By: /etc/apt/keyrings/smallstep.asc' \
+        > /etc/apt/sources.list.d/smallstep.sources
+      apt-get update
+      apt-get install -y step-cli
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      apt-get update
+      apt-get install -y --no-install-recommends openssl
+    fi
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      apt-get update
+      apt-get install -y --no-install-recommends python3-yaml
+    fi
+
+    if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_ROOT" >/dev/null 2>&1; then
+      if [ -n "$STEP_CA_FINGERPRINT" ]; then
+        step ca bootstrap --ca-url "https://${STEP_CA}" --fingerprint "$STEP_CA_FINGERPRINT" --install --force
+      else
+        step ca bootstrap --ca-url "https://${STEP_CA}" --install --force
+      fi
+    fi
+    if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_API_ROOT" >/dev/null 2>&1; then
+      for ROOT_CANDIDATE in /etc/ssl/certs/ISRG_Root_X1.pem /etc/ssl/certs/ISRG_Root_X2.pem; do
+        if [ -f "$ROOT_CANDIDATE" ] && step ca health --ca-url "https://${STEP_CA}" --root "$ROOT_CANDIDATE" >/dev/null 2>&1; then
+          STEP_CA_API_ROOT="$ROOT_CANDIDATE"
+          break
+        fi
+      done
+    fi
+    step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_API_ROOT" >/dev/null
+
+    install -d -o ubuntu -g ubuntu -m 700 "$CERT_DIR"
+    SECRET_JSON=$(aws secretsmanager get-secret-value \
+      --region "$REGION" \
+      --secret-id "$STEP_SECRET" \
+      --query SecretString \
+      --output text)
+    STEP_CA_PROVISIONER_PASSWORD=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['STEP_CA_PROVISIONER_PASSWORD'])")
+    unset SECRET_JSON
+
+    STEP_CA_PASSWORD_FILE=$(mktemp)
+    STEP_CA_TOKEN_FILE=$(mktemp)
+    STEP_CA_CSR_FILE=$(mktemp)
+    STEP_CA_SIGN_REQUEST=$(mktemp)
+    STEP_CA_SIGN_RESPONSE=$(mktemp)
+    trap 'rm -f "$STEP_CA_PASSWORD_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_CSR_FILE" "$STEP_CA_SIGN_REQUEST" "$STEP_CA_SIGN_RESPONSE"' EXIT
+    printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > "$STEP_CA_PASSWORD_FILE"
+    chmod 600 "$STEP_CA_PASSWORD_FILE"
+    TAILSCALE_DNS_NAME=""
+    if command -v tailscale >/dev/null 2>&1; then
+      TAILSCALE_DNS_NAME=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print((json.load(sys.stdin).get("Self") or {}).get("DNSName","").rstrip("."))' 2>/dev/null || true)
+    fi
+    CSR_SANS="DNS:{{ .Hostname }},DNS:${CERT_NAME}"
+    if [ -n "$TAILSCALE_DNS_NAME" ]; then
+      CSR_SANS="${CSR_SANS},DNS:${TAILSCALE_DNS_NAME}"
+      step ca token \
+        "$CERT_NAME" \
+        --ca-url "https://${STEP_CA}" \
+        --root "$STEP_CA_API_ROOT" \
+        --provisioner "$STEP_PROVISIONER" \
+        --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
+        --san "{{ .Hostname }}" \
+        --san "$CERT_NAME" \
+        --san "$TAILSCALE_DNS_NAME" \
+        > "$STEP_CA_TOKEN_FILE"
+    else
+      step ca token \
+        "$CERT_NAME" \
+        --ca-url "https://${STEP_CA}" \
+        --root "$STEP_CA_API_ROOT" \
+        --provisioner "$STEP_PROVISIONER" \
+        --provisioner-password-file "$STEP_CA_PASSWORD_FILE" \
+        --san "{{ .Hostname }}" \
+        --san "$CERT_NAME" \
+        > "$STEP_CA_TOKEN_FILE"
+    fi
+    openssl req -new \
+      -newkey ec \
+      -pkeyopt ec_paramgen_curve:P-256 \
+      -nodes \
+      -keyout "$CERT_DIR/server.key" \
+      -out "$STEP_CA_CSR_FILE" \
+      -subj "/CN=${CERT_NAME}" \
+      -addext "subjectAltName=${CSR_SANS}"
+    python3 - "$STEP_CA_CSR_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_SIGN_REQUEST" <<'PY'
+    import json
+    import sys
+
+    csr_path, token_path, output_path = sys.argv[1:4]
+    with open(csr_path, encoding="utf-8") as csr_file:
+        csr = csr_file.read()
+    with open(token_path, encoding="utf-8") as token_file:
+        token = token_file.read().strip()
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        json.dump({"csr": csr, "ott": token}, output_file)
+    PY
+    curl -fsSL \
+      --cacert "$STEP_CA_API_ROOT" \
+      -H 'Content-Type: application/json' \
+      --data @"$STEP_CA_SIGN_REQUEST" \
+      "https://${STEP_CA}/1.0/sign" \
+      > "$STEP_CA_SIGN_RESPONSE"
+    python3 - "$STEP_CA_SIGN_RESPONSE" "$CERT_DIR/server.crt" <<'PY'
+    import json
+    import sys
+
+    response_path, cert_path = sys.argv[1:3]
+    with open(response_path, encoding="utf-8") as response_file:
+        response = json.load(response_file)
+    with open(cert_path, "w", encoding="utf-8") as cert_file:
+        cert_file.write(response["crt"])
+        if response.get("ca"):
+            cert_file.write(response["ca"])
+    PY
+    rm -f "$STEP_CA_PASSWORD_FILE" "$STEP_CA_TOKEN_FILE" "$STEP_CA_CSR_FILE" "$STEP_CA_SIGN_REQUEST" "$STEP_CA_SIGN_RESPONSE"
+    trap - EXIT
+    unset STEP_CA_PROVISIONER_PASSWORD
+    chown ubuntu:ubuntu "$CERT_DIR/server.crt" "$CERT_DIR/server.key"
+    chmod 600 "$CERT_DIR/server.key"
+    chmod 644 "$CERT_DIR/server.crt"
+    # Keep API trust separate from bridge client trust. STEP_CA_API_ROOT may
+    # fall back to a public WebPKI root when the Step CA endpoint uses a public
+    # serving cert, but bridgectl's mTLS client CA must be the actual Step CA
+    # root that issued client certs.
+    install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_ROOT" "$CERT_DIR/step-ca-root.crt"
+
+{{- if .StepCAClients}}
+    JWT_CLIENT_DIR="/home/ubuntu/.ai-agent-bridge/certs/jwt-clients"
+    install -d -o ubuntu -g ubuntu -m 700 "$JWT_CLIENT_DIR"
+{{- range .StepCAClients}}
+    printf '%s' '{{ b64 .PublicKey }}' | base64 -d > "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+    chown ubuntu:ubuntu "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+    chmod 644 "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
+{{- end}}
+{{- end}}
+
+    STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" <<'PY'
+    import base64
+    import json
+    import sys
+    import yaml
+
+    config_path, step_ca, root_path, cert_path, key_path, clients_b64 = sys.argv[1:7]
+    with open(config_path, encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file) or {}
+    step_ca_config = config.setdefault("step_ca", {})
+    step_ca_config["url"] = f"https://{step_ca}"
+    step_ca_config["root"] = root_path
+    step_ca_config.pop("provisioner", None)
+    step_ca_config.pop("provisioner_password_file", None)
+    config["tls"] = {
+        "ca_bundle": root_path,
+        "cert": cert_path,
+        "key": key_path,
+    }
+    if clients_b64:
+        step_ca_config["clients"] = json.loads(base64.b64decode(clients_b64).decode("utf-8"))
+    with open(config_path, "w", encoding="utf-8") as config_file:
+        yaml.safe_dump(config, config_file, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
+
+    {
+      printf 'STEP_CA_URL="%s"\n' "https://${STEP_CA}"
+      printf 'STEP_CA_PROVISIONER="%s"\n' "$STEP_PROVISIONER"
+      printf 'BRIDGECTL_TLS_CERT="%s"\n' "$CERT_DIR/server.crt"
+      printf 'BRIDGECTL_TLS_KEY="%s"\n' "$CERT_DIR/server.key"
+    } > /home/ubuntu/.config/bridgectl/step-ca.env
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/step-ca.env
+    chmod 600 /home/ubuntu/.config/bridgectl/step-ca.env
+    )
+{{- end}}
 
 {{- if .PackagesPreInstalled}}
   # --- update ballast to latest version ---
@@ -165,8 +483,17 @@ runcmd:
     chmod 600 /home/ubuntu/.ssh/config
     chown ubuntu:ubuntu /home/ubuntu/.ssh/config
 
-    # Authenticate gh CLI as ubuntu user (non-fatal: token may lack read:org scope)
-    printf '%s\n' "$GITHUB_TOKEN" | sudo -u ubuntu gh auth login --with-token || echo "WARNING: gh auth login failed - gh CLI may not be fully authenticated"
+    # Authenticate gh CLI as ubuntu user without invoking the interactive login flow.
+    install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/gh
+    {
+      printf 'github.com:\n'
+      printf '    oauth_token: %s\n' "$GITHUB_TOKEN"
+      printf '    git_protocol: ssh\n'
+      printf '    user: %s\n' "$OWNER"
+    } > /home/ubuntu/.config/gh/hosts.yml
+    chmod 600 /home/ubuntu/.config/gh/hosts.yml
+    chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
+    sudo -u ubuntu gh auth setup-git --hostname github.com || echo "WARNING: gh auth setup-git failed - gh CLI may not be fully configured"
 
     # Configure git commit identity (ubuntu)
     sudo -u ubuntu git config --global user.name  "{{ if .GitUserName }}{{ .GitUserName }}{{ else }}AI Desktop ({{ .DesktopID }}){{ end }}"
@@ -307,6 +634,37 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+{{- if .StepCAServerDNS}}
+    # Make step-ca metadata and issued certificate paths available to bridgectl.
+    printf '[Service]\nEnvironmentFile=-%%h/.config/bridgectl/step-ca.env\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/step-ca.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/step-ca.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/step-ca.conf
+{{- end}}
+
+{{- if and .TailscaleNetwork .StepCAServerDNS}}
+    # Expose bridgectl only on the Tailscale address when TLS certs are issued.
+    TAILSCALE_IP=$(tailscale ip -4 | head -n 1)
+    if [ -z "$TAILSCALE_IP" ]; then
+      echo "ERROR: Tailscale IPv4 address not available for bridgectl listener" >&2
+      exit 1
+    fi
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$TAILSCALE_IP:{{ .BridgePort }}" <<'PY'
+    import sys
+    import yaml
+
+    path, listen = sys.argv[1:3]
+    with open(path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    server = config.setdefault("server", {})
+    server["listen"] = listen
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
+{{- end}}
 
     # Ensure linger is enabled (may not persist to cloud-init phase from AMI)
     loginctl enable-linger ubuntu 2>/dev/null || true
@@ -462,6 +820,13 @@ runcmd:
       printf 'WORKSPACE="%s"\n' "{{ .WorkspacePath }}"
       printf 'ENVIRONMENT="%s"\n' "{{ .Environment }}"
       printf 'BRIDGE_PORT="%s"\n' "{{ .BridgePort }}"
+{{- if .TailscaleNetwork}}
+      printf 'TAILSCALE_NETWORK="%s"\n' "{{ .TailscaleNetwork }}"
+{{- end}}
+{{- if .StepCAServerDNS}}
+      printf 'STEP_CA_URL="%s"\n' "https://{{ .StepCAServerDNS }}"
+      printf 'STEP_CA_PROVISIONER="%s"\n' "{{ .StepCAProvisioner }}"
+{{- end}}
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
@@ -508,20 +873,48 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		}
 		avdsJSONB64 = base64.StdEncoding.EncodeToString(b)
 	}
+	var stepCAClientsJSONB64 string
+	if len(cfg.StepCAClients) > 0 {
+		type clientVar struct {
+			Issuer   string `json:"issuer"`
+			KeyPath  string `json:"key_path"`
+			Required bool   `json:"required,omitempty"`
+		}
+		clients := make([]clientVar, 0, len(cfg.StepCAClients))
+		for _, c := range cfg.StepCAClients {
+			clients = append(clients, clientVar{
+				Issuer:   c.Issuer,
+				KeyPath:  "/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/" + c.Issuer + ".pub",
+				Required: c.Required,
+			})
+		}
+		b, err := json.Marshal(clients)
+		if err != nil {
+			return "", err
+		}
+		stepCAClientsJSONB64 = base64.StdEncoding.EncodeToString(b)
+	}
 
 	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
-		BridgeVersion string
-		AVDsJSONB64   string
+		BridgeVersion        string
+		BridgePackageVersion string
+		AVDsJSONB64          string
+		StepCAClientsJSONB64 string
 	}
 	data := templateData{
-		BootstrapConfig: cfg,
-		BridgeVersion:   AIAgentBridgeVersion,
-		AVDsJSONB64:     avdsJSONB64,
+		BootstrapConfig:      cfg,
+		BridgeVersion:        AIAgentBridgeVersion,
+		BridgePackageVersion: strings.TrimPrefix(AIAgentBridgeVersion, "v"),
+		AVDsJSONB64:          avdsJSONB64,
+		StepCAClientsJSONB64: stepCAClientsJSONB64,
 	}
 
 	funcMap := template.FuncMap{
+		"b64": func(text string) string {
+			return base64.StdEncoding.EncodeToString([]byte(text))
+		},
 		"indent": func(spaces int, text string) string {
 			lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 			indent := strings.Repeat(" ", spaces)
