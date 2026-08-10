@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/orchael/ai-desktops/internal/store"
 )
@@ -67,6 +68,7 @@ type CreateRequest struct {
 	StepCAServer  string   // optional step-ca DNS name used for bridgectl trust/certs
 	AVDNames      []string // Android Virtual Device names created at boot
 	NestedVirt    bool     // true when the instance was launched with AmdSevSnp=disabled (--mobile / --nested-virtualization)
+	MarketType    string   // on-demand or spot
 	BackendBucket string
 	Region        string
 	Profile       string
@@ -109,6 +111,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		TailscaleNet:  req.TailscaleNet,
 		StepCAServer:  req.StepCAServer,
 		AVDNames:      req.AVDNames,
+		MarketType:    normalizeMarketType(req.MarketType),
 	}
 	return m.Store.Create(ctx, d)
 }
@@ -131,6 +134,12 @@ func (m *Manager) UpdateFromOutputs(ctx context.Context, id string, outputs map[
 	if v, ok := outputs["sshTarget"]; ok {
 		d.SSHTarget = v
 	}
+	if v, ok := outputs["marketType"]; ok {
+		d.MarketType = normalizeMarketType(v)
+	}
+	if v, ok := outputs["instanceType"]; ok {
+		d.InstanceType = v
+	}
 	return m.Store.Update(ctx, d)
 }
 
@@ -147,11 +156,20 @@ func (m *Manager) MarkReady(ctx context.Context, id, readinessSummary string) er
 
 // MarkStopped marks the desktop as stopped.
 func (m *Manager) MarkStopped(ctx context.Context, id string) error {
+	return m.MarkStoppedWithReason(ctx, id, "")
+}
+
+// MarkStoppedWithReason marks the desktop as stopped and records why, when known.
+func (m *Manager) MarkStoppedWithReason(ctx context.Context, id, reason string) error {
 	d, err := m.Store.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 	d.State = store.StateStopped
+	d.StopReason = reason
+	if reason != "" {
+		d.StoppedAt = storeTimestamp()
+	}
 	return m.Store.Update(ctx, d)
 }
 
@@ -163,6 +181,8 @@ func (m *Manager) MarkRunning(ctx context.Context, id, readinessSummary string) 
 	}
 	d.State = store.StateReady
 	d.Readiness = readinessSummary
+	d.StopReason = ""
+	d.StoppedAt = ""
 	return m.Store.Update(ctx, d)
 }
 
@@ -211,4 +231,15 @@ func RepoNames(d *store.Desktop) []string {
 		}
 	}
 	return names
+}
+
+func normalizeMarketType(marketType string) string {
+	if marketType == store.MarketSpot {
+		return store.MarketSpot
+	}
+	return store.MarketOnDemand
+}
+
+func storeTimestamp() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }

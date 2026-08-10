@@ -31,6 +31,14 @@ const (
 	DefaultMobileAVDDevice = "pixel_6"
 )
 
+var DefaultSpotInstanceTypes = []string{
+	"m6i.xlarge",
+	"m5.xlarge",
+	"m7i.xlarge",
+	"m6a.xlarge",
+	"m5a.xlarge",
+}
+
 // NestedVirtInstanceFamilies lists the EC2 instance families that support the
 // CpuOptions NestedVirtualization=enabled parameter (Nitro x86_64).
 // AWS added first-class nested virtualization support in February 2026.
@@ -128,12 +136,13 @@ type AVDConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string `yaml:"default_profile"`
-	InstanceType   string `yaml:"instance_type"`
-	VolumeSize     int    `yaml:"volume_size,omitempty"`
-	OperatorCIDR   string `yaml:"operator_cidr"`
-	SSHKeyPath     string `yaml:"ssh_key_path"`
-	SSHKeyName     string `yaml:"ssh_key_name"`
+	DefaultProfile string   `yaml:"default_profile"`
+	InstanceType   string   `yaml:"instance_type"`
+	InstanceTypes  []string `yaml:"instance_types,omitempty"`
+	VolumeSize     int      `yaml:"volume_size,omitempty"`
+	OperatorCIDR   string   `yaml:"operator_cidr"`
+	SSHKeyPath     string   `yaml:"ssh_key_path"`
+	SSHKeyName     string   `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
 	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
 	// AVDs lists Android Virtual Devices to create at desktop boot.
@@ -233,6 +242,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
+	}
+	if len(c.Desktop.InstanceTypes) == 0 {
+		c.Desktop.InstanceTypes = append([]string(nil), DefaultSpotInstanceTypes...)
 	}
 	if c.Desktop.VolumeSize <= 0 {
 		c.Desktop.VolumeSize = DefaultVolumeSize

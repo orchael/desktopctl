@@ -32,7 +32,7 @@ func TestDesktopConfig(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
 		[]string{"github.com/acme/app"}, 9445, 100,
-		"", "", "dev", false)
+		"", "", "dev", false, "on-demand", "")
 
 	if cfg["desktopId"] != "d-001" {
 		t.Errorf("desktopId: got %q", cfg["desktopId"])
@@ -58,7 +58,7 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-ami", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 0,
-		"ami-0abc123", "my-user-data", "dev", false)
+		"ami-0abc123", "my-user-data", "dev", false, "on-demand", "")
 
 	if cfg["amiId"] != "ami-0abc123" {
 		t.Errorf("amiId: got %q", cfg["amiId"])
@@ -78,10 +78,24 @@ func TestDesktopConfig_nestedVirt(t *testing.T) {
 	cfg := DesktopConfig("us-east-1", "d-nv", "acme", "desktops.orchael.dev",
 		"c7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 100,
-		"ami-0abc123", "", "dev", true)
+		"ami-0abc123", "", "dev", true, "on-demand", "")
 
 	if cfg["nestedVirtualization"] != "true" {
 		t.Errorf("nestedVirtualization: got %q, want \"true\"", cfg["nestedVirtualization"])
+	}
+}
+
+func TestDesktopConfig_spotMarket(t *testing.T) {
+	cfg := DesktopConfig("us-east-1", "d-spot", "acme", "desktops.orchael.dev",
+		"m7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
+		[]string{}, 9445, 100,
+		"ami-0abc123", "", "dev", false, "spot", "0.12")
+
+	if cfg["marketType"] != "spot" {
+		t.Errorf("marketType: got %q, want \"spot\"", cfg["marketType"])
+	}
+	if cfg["spotMaxPrice"] != "0.12" {
+		t.Errorf("spotMaxPrice: got %q, want \"0.12\"", cfg["spotMaxPrice"])
 	}
 }
 
@@ -96,6 +110,7 @@ func TestParseOutputs(t *testing.T) {
 	raw := map[string]any{
 		"instanceId": "i-abc123",
 		"hostname":   "d-001.desktops.orchael.dev",
+		"subnetIds":  []any{"subnet-1", "subnet-2"},
 		"count":      42,
 		"nested":     map[string]any{"k": "v"},
 	}
@@ -105,6 +120,9 @@ func TestParseOutputs(t *testing.T) {
 	}
 	if _, ok := out["count"]; ok {
 		t.Error("non-string value should be excluded")
+	}
+	if out["subnetIds"] != "subnet-1,subnet-2" {
+		t.Errorf("subnetIds: got %q", out["subnetIds"])
 	}
 }
 

@@ -47,6 +47,14 @@ func TestDefaults(t *testing.T) {
 	if c.Agent.BridgePort != DefaultBridgePort {
 		t.Errorf("default bridge port: got %d", c.Agent.BridgePort)
 	}
+	if len(c.Desktop.InstanceTypes) != len(DefaultSpotInstanceTypes) {
+		t.Fatalf("default spot instance types: got %v", c.Desktop.InstanceTypes)
+	}
+	for i, want := range DefaultSpotInstanceTypes {
+		if c.Desktop.InstanceTypes[i] != want {
+			t.Fatalf("default spot instance types: got %v, want %v", c.Desktop.InstanceTypes, DefaultSpotInstanceTypes)
+		}
+	}
 	if c.PKI.StepCAProvisioner != "admin" {
 		t.Errorf("default step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
 	}
@@ -166,8 +174,9 @@ func TestSave_roundTrip(t *testing.T) {
 		AWS:    AWSConfig{Region: "us-west-2", Profile: "prod"},
 		Pulumi: PulumiConfig{BackendBucket: "my-bucket"},
 		Desktop: DesktopConfig{
-			InstanceType: "t3.large",
-			OperatorCIDR: "203.0.113.1/32",
+			InstanceType:  "t3.large",
+			InstanceTypes: []string{"m6i.xlarge", "m5.xlarge"},
+			OperatorCIDR:  "203.0.113.1/32",
 			ActiveAMI: map[string]string{
 				"us-east-1": "ami-0abc123",
 				"us-west-2": "ami-0def456",
@@ -209,6 +218,9 @@ func TestSave_roundTrip(t *testing.T) {
 	}
 	if loaded.Desktop.InstanceType != "t3.large" {
 		t.Errorf("instance type round-trip: got %q", loaded.Desktop.InstanceType)
+	}
+	if len(loaded.Desktop.InstanceTypes) != 2 || loaded.Desktop.InstanceTypes[0] != "m6i.xlarge" || loaded.Desktop.InstanceTypes[1] != "m5.xlarge" {
+		t.Errorf("instance types round-trip: got %v", loaded.Desktop.InstanceTypes)
 	}
 	if loaded.Desktop.ActiveAMI == nil {
 		t.Error("ActiveAMI should not be nil after round-trip")

@@ -8,12 +8,17 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
+
+var statusRefreshDNS bool
 
 var statusCmd = &cobra.Command{
 	Use:   "status <desktop-id>",
@@ -23,6 +28,7 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
+	statusCmd.Flags().BoolVar(&statusRefreshDNS, "refresh-dns", false, "refresh Pulumi state and update the Route53 DNS record before showing status")
 	rootCmd.AddCommand(statusCmd)
 }
 
@@ -42,6 +48,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if err := reconcileSpotDesktopState(ctx, s, d); err != nil {
+		return err
+	}
+	if statusRefreshDNS {
+		if err := refreshStatusDNS(ctx, s, id, d); err != nil {
+			return err
+		}
+	}
+
 	if jsonOut {
 		return json.NewEncoder(os.Stdout).Encode(d)
 	}
@@ -53,6 +68,64 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	printDesktopStatus(os.Stdout, d, region, fetchNoVNCDesktopURL(d))
 	return nil
+}
+
+func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.Desktop) error {
+	if err := requireTools("pulumi"); err != nil {
+		return err
+	}
+	if d.InstanceID == "" {
+		return fmt.Errorf("desktop %q has no instance ID", id)
+	}
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("AWS config for DNS refresh: %w", err)
+	}
+	status, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("check instance state before DNS refresh: %w", err)
+	}
+	if !canRefreshDNSForInstanceState(status.State) {
+		return fmt.Errorf("cannot refresh DNS for desktop %q while instance %s is %q; start the desktop first", id, d.InstanceID, status.State)
+	}
+	if err := requireBackend(ctx); err != nil {
+		return err
+	}
+	backendURL := "s3://" + cfg.Pulumi.BackendBucket
+	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+
+	fmt.Fprintln(os.Stderr, "Refreshing DNS record from current instance public IP ...")
+	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("pulumi refresh+up: %w", err)
+	}
+	updateDesktopFromPulumiOutputs(d, outputs)
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("update store record: %w", err)
+	}
+	return nil
+}
+
+func canRefreshDNSForInstanceState(state string) bool {
+	return state == "running"
+}
+
+func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string) {
+	if v := outputs[pulumi.OutputHostname]; v != "" {
+		d.Hostname = v
+	}
+	if v := outputs[pulumi.OutputNoVNCURL]; v != "" {
+		d.NoVNCURL = v
+	}
+	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
+		d.SSHTarget = v
+	}
 }
 
 // printDesktopStatus writes the human-readable status block to w.
@@ -70,6 +143,13 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 	fmt.Fprintf(w, "Instance ID  : %s\n", d.InstanceID)
 	if d.InstanceType != "" {
 		fmt.Fprintf(w, "Instance type: %s\n", d.InstanceType)
+	}
+	fmt.Fprintf(w, "Market type  : %s\n", effectiveMarketType(d))
+	if d.StopReason != "" {
+		fmt.Fprintf(w, "Stop reason  : %s\n", d.StopReason)
+	}
+	if d.StoppedAt != "" {
+		fmt.Fprintf(w, "Stopped at   : %s\n", d.StoppedAt)
 	}
 	if d.AMIID != "" {
 		fmt.Fprintf(w, "AMI ID       : %s\n", d.AMIID)
@@ -94,6 +174,72 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 		fmt.Fprintf(w, "Failure phase: %s\n", d.FailurePhase)
 		fmt.Fprintf(w, "Failure msg  : %s\n", d.FailureMsg)
 	}
+}
+
+func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desktop) error {
+	if effectiveMarketType(d) != store.MarketSpot || d.InstanceID == "" || !shouldReconcileSpotState(d.State) {
+		return nil
+	}
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("AWS config for spot status reconciliation: %w", err)
+	}
+	status, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("reconcile spot instance state: %w", err)
+	}
+	if !isStoppedOrStopping(status.State) {
+		return nil
+	}
+
+	reason := d.StopReason
+	if reason == "" {
+		reason = store.StopReasonAWSStopped
+		if isSpotInterruptionReason(status.StateTransitionReason) {
+			reason = store.StopReasonSpotInterruption
+		}
+	}
+	d.State = store.StateStopped
+	d.StopReason = reason
+	if d.StoppedAt == "" {
+		d.StoppedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("update spot desktop state: %w", err)
+	}
+	return nil
+}
+
+func isStoppedOrStopping(state string) bool {
+	return state == "stopped" || state == "stopping"
+}
+
+func shouldReconcileSpotState(state store.LifecycleState) bool {
+	switch state {
+	case store.StateReady, store.StateUnhealthy, store.StateCreating, store.StateFailed, store.StateProvisioningFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSpotInterruptionReason(reason string) bool {
+	normalized := strings.ToLower(reason)
+	return strings.Contains(normalized, "spotinstancetermination") ||
+		strings.Contains(normalized, "spot instance") ||
+		strings.Contains(normalized, "spot-instance") ||
+		strings.Contains(normalized, "service initiated")
+}
+
+func effectiveMarketType(d *store.Desktop) string {
+	if d.MarketType == store.MarketSpot {
+		return store.MarketSpot
+	}
+	return store.MarketOnDemand
 }
 
 // parseNoVNCOutput extracts the URL from the output of novnc-desktop-url.

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/ai-desktops/internal/pulumi"
+	"github.com/orchael/ai-desktops/internal/store"
 )
 
 func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
@@ -23,6 +29,248 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 	if flag.DefValue != "admin" {
 		t.Fatalf("step-ca-provisioner default = %q, want admin", flag.DefValue)
+	}
+}
+
+func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
+	if flag := createCmd.Flags().Lookup("spot"); flag == nil {
+		t.Fatal("spot flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("spot-max-price"); flag == nil {
+		t.Fatal("spot-max-price flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("instance-types"); flag == nil {
+		t.Fatal("instance-types flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("create-timeout"); flag == nil {
+		t.Fatal("create-timeout flag not registered")
+	}
+}
+
+func TestValidateSpotMaxPrice(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "empty"},
+		{name: "positive decimal", value: "0.12"},
+		{name: "positive integer", value: "1"},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "negative", value: "-0.1", wantErr: true},
+		{name: "nan", value: "NaN", wantErr: true},
+		{name: "infinity", value: "+Inf", wantErr: true},
+		{name: "not a number", value: "cheap", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSpotMaxPrice(tt.value)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestFoundationSubnetIDs(t *testing.T) {
+	got := foundationSubnetIDs(map[string]string{
+		pulumi.OutputSubnetIDs: " subnet-2,subnet-3,subnet-2 ",
+		pulumi.OutputSubnetID:  "subnet-1",
+	})
+	want := []string{"subnet-2", "subnet-3", "subnet-1"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("foundationSubnetIDs = %v, want %v", got, want)
+	}
+}
+
+func TestSelectCreateSubnetsOnDemandUsesFirstSubnetOnly(t *testing.T) {
+	got, err := selectCreateSubnets(context.Background(), "us-east-1", "", []string{"t3.large"}, store.MarketOnDemand, map[string]string{
+		pulumi.OutputSubnetIDs: "subnet-1,subnet-2",
+		pulumi.OutputSubnetID:  "subnet-legacy",
+	})
+	if err != nil {
+		t.Fatalf("selectCreateSubnets: %v", err)
+	}
+	if len(got) != 1 || got[0].subnetID != "subnet-1" {
+		t.Fatalf("selectCreateSubnets = %+v, want only subnet-1", got)
+	}
+	if got[0].instanceType != "t3.large" {
+		t.Fatalf("instance type = %q, want t3.large", got[0].instanceType)
+	}
+}
+
+func TestResolveCreateInstanceTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      resolveCreateInstanceTypesInput
+		want    []string
+		wantErr string
+	}{
+		{
+			name: "on demand uses single instance type",
+			in: resolveCreateInstanceTypesInput{
+				marketType:          store.MarketOnDemand,
+				configInstanceType:  "m7i.xlarge",
+				defaultInstanceType: config.DefaultInstanceType,
+			},
+			want: []string{"m7i.xlarge"},
+		},
+		{
+			name: "instance types require spot",
+			in: resolveCreateInstanceTypesInput{
+				marketType:           store.MarketOnDemand,
+				configInstanceType:   "m7i.xlarge",
+				flagInstanceTypes:    []string{"m6i.xlarge"},
+				flagInstanceTypesSet: true,
+				defaultInstanceType:  config.DefaultInstanceType,
+			},
+			wantErr: "--instance-types requires --spot",
+		},
+		{
+			name: "spot uses config pool",
+			in: resolveCreateInstanceTypesInput{
+				marketType:          store.MarketSpot,
+				configInstanceType:  "t3.large",
+				configInstanceTypes: []string{"m6i.xlarge", "m5.xlarge"},
+				defaultInstanceType: config.DefaultInstanceType,
+			},
+			want: []string{"m6i.xlarge", "m5.xlarge"},
+		},
+		{
+			name: "spot flag pool trims splits and dedupes",
+			in: resolveCreateInstanceTypesInput{
+				marketType:           store.MarketSpot,
+				configInstanceType:   "t3.large",
+				flagInstanceTypes:    []string{" m6i.xlarge,m5.xlarge ", "m6i.xlarge"},
+				flagInstanceTypesSet: true,
+				defaultInstanceType:  config.DefaultInstanceType,
+			},
+			want: []string{"m6i.xlarge", "m5.xlarge"},
+		},
+		{
+			name: "spot single instance type override remains supported",
+			in: resolveCreateInstanceTypesInput{
+				marketType:          store.MarketSpot,
+				configInstanceType:  "m7i.xlarge",
+				flagInstanceTypeSet: true,
+				defaultInstanceType: config.DefaultInstanceType,
+			},
+			want: []string{"m7i.xlarge"},
+		},
+		{
+			name: "spot rejects ambiguous flags",
+			in: resolveCreateInstanceTypesInput{
+				marketType:           store.MarketSpot,
+				configInstanceType:   "m7i.xlarge",
+				flagInstanceTypeSet:  true,
+				flagInstanceTypes:    []string{"m6i.xlarge"},
+				flagInstanceTypesSet: true,
+				defaultInstanceType:  config.DefaultInstanceType,
+			},
+			wantErr: "--instance-type and --instance-types cannot be used together",
+		},
+		{
+			name: "nested spot filters unsupported candidates",
+			in: resolveCreateInstanceTypesInput{
+				marketType:             store.MarketSpot,
+				configInstanceType:     "t3.large",
+				configInstanceTypes:    []string{"m6i.xlarge", "m7i.xlarge", "m5.xlarge"},
+				nestedVirtualization:   true,
+				mobileDefaultInstance:  config.DefaultMobileInstanceType,
+				defaultInstanceType:    config.DefaultInstanceType,
+				defaultSpotInstanceSet: config.DefaultSpotInstanceTypes,
+			},
+			want: []string{"m7i.xlarge"},
+		},
+		{
+			name: "nested on demand rejects unsupported type",
+			in: resolveCreateInstanceTypesInput{
+				marketType:            store.MarketOnDemand,
+				configInstanceType:    "m6i.xlarge",
+				nestedVirtualization:  true,
+				mobileDefaultInstance: config.DefaultMobileInstanceType,
+				defaultInstanceType:   config.DefaultInstanceType,
+			},
+			wantErr: "nested virtualization requires",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveCreateInstanceTypes(tt.in)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("instance types = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type fakeSpotPlacementClient struct {
+	subnets []ec2types.Subnet
+	prices  []ec2types.SpotPrice
+}
+
+func (f fakeSpotPlacementClient) DescribeSubnets(context.Context, *ec2sdk.DescribeSubnetsInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSubnetsOutput, error) {
+	return &ec2sdk.DescribeSubnetsOutput{Subnets: f.subnets}, nil
+}
+
+func (f fakeSpotPlacementClient) DescribeSpotPriceHistory(context.Context, *ec2sdk.DescribeSpotPriceHistoryInput, ...func(*ec2sdk.Options)) (*ec2sdk.DescribeSpotPriceHistoryOutput, error) {
+	return &ec2sdk.DescribeSpotPriceHistoryOutput{SpotPriceHistory: f.prices}, nil
+}
+
+func TestSelectSpotSubnetsByPrice(t *testing.T) {
+	client := fakeSpotPlacementClient{
+		subnets: []ec2types.Subnet{
+			{SubnetId: aws.String("subnet-a"), AvailabilityZone: aws.String("us-east-2a")},
+			{SubnetId: aws.String("subnet-b"), AvailabilityZone: aws.String("us-east-2b")},
+			{SubnetId: aws.String("subnet-c"), AvailabilityZone: aws.String("us-east-2c")},
+		},
+		prices: []ec2types.SpotPrice{
+			{AvailabilityZone: aws.String("us-east-2a"), InstanceType: ec2types.InstanceTypeM7iXlarge, SpotPrice: aws.String("0.0779")},
+			{AvailabilityZone: aws.String("us-east-2b"), InstanceType: ec2types.InstanceTypeM7iXlarge, SpotPrice: aws.String("0.0639")},
+			{AvailabilityZone: aws.String("us-east-2c"), InstanceType: ec2types.InstanceTypeM7iXlarge, SpotPrice: aws.String("0.0701")},
+			{AvailabilityZone: aws.String("us-east-2a"), InstanceType: ec2types.InstanceTypeM6iXlarge, SpotPrice: aws.String("0.0546")},
+			{AvailabilityZone: aws.String("us-east-2b"), InstanceType: ec2types.InstanceTypeM6iXlarge, SpotPrice: aws.String("0.0543")},
+			{AvailabilityZone: aws.String("us-east-2c"), InstanceType: ec2types.InstanceTypeM6iXlarge, SpotPrice: aws.String("0.0519")},
+		},
+	}
+	got, err := selectSpotSubnetsByPrice(context.Background(), client, []string{"m7i.xlarge", "m6i.xlarge"}, []string{"subnet-a", "subnet-b", "subnet-c"})
+	if err != nil {
+		t.Fatalf("selectSpotSubnetsByPrice: %v", err)
+	}
+	order := []string{
+		got[0].subnetID + "/" + got[0].instanceType,
+		got[1].subnetID + "/" + got[1].instanceType,
+		got[2].subnetID + "/" + got[2].instanceType,
+	}
+	want := []string{"subnet-c/m6i.xlarge", "subnet-b/m6i.xlarge", "subnet-a/m6i.xlarge"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("spot placement order = %v, want %v", order, want)
+	}
+}
+
+func TestIsCreateCapacityError(t *testing.T) {
+	if !isCreateCapacityError(errors.New("Server.InsufficientInstanceCapacity: currently do not have sufficient m7i.2xlarge capacity")) {
+		t.Fatal("expected insufficient capacity error to match")
+	}
+	if isCreateCapacityError(errors.New("access denied")) {
+		t.Fatal("did not expect non-capacity error to match")
 	}
 }
 
@@ -635,10 +883,17 @@ func TestResolveSwapSize(t *testing.T) {
 			errContains:  "exceeds root volume size",
 		},
 		{
-			name:         "auto swap too large for small volume",
+			name:         "auto swap is capped at 32 GiB",
 			flagValue:    0,
 			instanceType: "r5.2xlarge", // 64 GiB RAM → 128 GiB swap
 			volumeGiB:    100,
+			wantSwap:     32,
+		},
+		{
+			name:         "capped auto swap can still exceed small volume",
+			flagValue:    0,
+			instanceType: "r5.2xlarge",
+			volumeGiB:    40,
 			wantErr:      true,
 			errContains:  "exceeds root volume size",
 		},

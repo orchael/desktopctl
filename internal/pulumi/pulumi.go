@@ -76,6 +76,7 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // amiID is the pre-baked AMI ID.
 // userDataBase64 is gzip-compressed, base64-encoded cloud-init user-data.
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
+// marketType is "on-demand" or "spot"; spotMaxPrice is optional.
 func DesktopConfig(
 	region, desktopID, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
@@ -83,6 +84,7 @@ func DesktopConfig(
 	bridgePort, volumeSize int,
 	amiID, userDataBase64, environment string,
 	nestedVirtualization bool,
+	marketType, spotMaxPrice string,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -114,6 +116,12 @@ func DesktopConfig(
 	if nestedVirtualization {
 		cfg["nestedVirtualization"] = "true"
 	}
+	if marketType != "" {
+		cfg["marketType"] = marketType
+	}
+	if spotMaxPrice != "" {
+		cfg["spotMaxPrice"] = spotMaxPrice
+	}
 	return cfg
 }
 
@@ -126,10 +134,12 @@ const (
 	OutputWorkspacePath   = "workspacePath"
 	OutputGitHubOwner     = "githubOwner"
 	OutputSubnetID        = "subnetId"
+	OutputSubnetIDs       = "subnetIds"
 	OutputSGID            = "securityGroupId"
 	OutputInstanceProfile = "instanceProfile"
 	OutputZoneID          = "zoneId"
 	OutputFleetTable      = "fleetTable"
+	OutputMarketType      = "marketType"
 )
 
 // Runner drives Pulumi stacks by invoking the `pulumi` CLI as a subprocess.
@@ -169,8 +179,9 @@ func (r *Runner) RefreshAndUp(ctx context.Context, ref *StackRef, progress io.Wr
 		return nil, err
 	}
 	env := r.env(ref.BackendURL)
-	if err := r.run(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never"); err != nil {
-		return nil, fmt.Errorf("pulumi up: %w", err)
+	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never")
+	if err != nil {
+		return nil, fmt.Errorf("pulumi up: %s: %w", tailOutput(out, 4000), err)
 	}
 	return r.outputs(ctx, ref.WorkDir, env)
 }
@@ -187,8 +198,9 @@ func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progres
 			return nil, fmt.Errorf("config set %s: %w", k, err)
 		}
 	}
-	if err := r.run(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never"); err != nil {
-		return nil, fmt.Errorf("pulumi up: %w", err)
+	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never")
+	if err != nil {
+		return nil, fmt.Errorf("pulumi up: %s: %w", tailOutput(out, 4000), err)
 	}
 	return r.outputs(ctx, ref.WorkDir, env)
 }
@@ -320,13 +332,46 @@ func (r *Runner) outputs(ctx context.Context, workDir string, env []string) (map
 	return ParseOutputs(raw), nil
 }
 
+func tailOutput(out string, maxLen int) string {
+	out = strings.TrimSpace(out)
+	if len(out) <= maxLen {
+		return out
+	}
+	return "..." + out[len(out)-maxLen:]
+}
+
 // ParseOutputs extracts string values from a raw output map.
-// Non-string or missing values are silently skipped.
+// String arrays are flattened to comma-separated strings so callers can keep
+// using StackConfig's string map while consuming multi-value Pulumi outputs.
+// Other non-string or missing values are silently skipped.
 func ParseOutputs(raw map[string]any) map[string]string {
 	out := make(map[string]string, len(raw))
 	for k, v := range raw {
-		if s, ok := v.(string); ok {
-			out[k] = s
+		switch value := v.(type) {
+		case string:
+			out[k] = value
+		case []any:
+			var parts []string
+			for _, item := range value {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					parts = append(parts, strings.TrimSpace(s))
+				}
+			}
+			if len(parts) > 0 {
+				out[k] = strings.Join(parts, ",")
+			}
+		case []string:
+			var parts []string
+			for _, item := range value {
+				if s := strings.TrimSpace(item); s != "" {
+					parts = append(parts, s)
+				}
+			}
+			if len(parts) > 0 {
+				out[k] = strings.Join(parts, ",")
+			}
+		default:
+			continue
 		}
 	}
 	return out

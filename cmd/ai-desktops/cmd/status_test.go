@@ -8,6 +8,16 @@ import (
 	"github.com/orchael/ai-desktops/internal/store"
 )
 
+func TestStatusCmd_refreshDNSFlagRegistered(t *testing.T) {
+	flag := statusCmd.Flags().Lookup("refresh-dns")
+	if flag == nil {
+		t.Fatal("refresh-dns flag not registered")
+	}
+	if flag.DefValue != "false" {
+		t.Fatalf("refresh-dns default = %q, want false", flag.DefValue)
+	}
+}
+
 func TestParseNoVNCOutput(t *testing.T) {
 	realOutput := `Desktop URL : https://example.com:8443/access?token=abc123
   Expires     : 2026-07-12T11:44:54Z
@@ -59,6 +69,71 @@ func TestParseNoVNCOutput(t *testing.T) {
 				t.Errorf("parseNoVNCOutput() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUpdateDesktopFromPulumiOutputs(t *testing.T) {
+	d := &store.Desktop{
+		Hostname:  "old.example.com",
+		NoVNCURL:  "https://old.example.com:8443/novnc/vnc.html",
+		SSHTarget: "ubuntu@old.example.com",
+	}
+
+	updateDesktopFromPulumiOutputs(d, map[string]string{
+		"hostname":  "new.example.com",
+		"novncUrl":  "https://new.example.com:8443/novnc/vnc.html",
+		"sshTarget": "ubuntu@new.example.com",
+	})
+
+	if d.Hostname != "new.example.com" {
+		t.Errorf("hostname = %q", d.Hostname)
+	}
+	if d.NoVNCURL != "https://new.example.com:8443/novnc/vnc.html" {
+		t.Errorf("novnc url = %q", d.NoVNCURL)
+	}
+	if d.SSHTarget != "ubuntu@new.example.com" {
+		t.Errorf("ssh target = %q", d.SSHTarget)
+	}
+}
+
+func TestUpdateDesktopFromPulumiOutputsSkipsEmptyValues(t *testing.T) {
+	d := &store.Desktop{
+		Hostname:  "old.example.com",
+		NoVNCURL:  "https://old.example.com:8443/novnc/vnc.html",
+		SSHTarget: "ubuntu@old.example.com",
+	}
+
+	updateDesktopFromPulumiOutputs(d, map[string]string{
+		"hostname": "",
+	})
+
+	if d.Hostname != "old.example.com" {
+		t.Errorf("hostname = %q", d.Hostname)
+	}
+	if d.NoVNCURL != "https://old.example.com:8443/novnc/vnc.html" {
+		t.Errorf("novnc url = %q", d.NoVNCURL)
+	}
+	if d.SSHTarget != "ubuntu@old.example.com" {
+		t.Errorf("ssh target = %q", d.SSHTarget)
+	}
+}
+
+func TestCanRefreshDNSForInstanceState(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{state: "running", want: true},
+		{state: "stopped"},
+		{state: "stopping"},
+		{state: "pending"},
+		{state: ""},
+	}
+
+	for _, tt := range tests {
+		if got := canRefreshDNSForInstanceState(tt.state); got != tt.want {
+			t.Errorf("canRefreshDNSForInstanceState(%q) = %v, want %v", tt.state, got, tt.want)
+		}
 	}
 }
 
@@ -224,5 +299,89 @@ func TestPrintDesktopStatus_failureFields(t *testing.T) {
 	}
 	if !strings.Contains(out, "Failure msg  : timeout waiting for cloud-init") {
 		t.Errorf("Failure msg missing\nfull output:\n%s", out)
+	}
+}
+
+func TestPrintDesktopStatus_marketAndStopReason(t *testing.T) {
+	d := &store.Desktop{
+		DesktopID:  "d-spot",
+		State:      store.StateStopped,
+		MarketType: store.MarketSpot,
+		StopReason: store.StopReasonSpotInterruption,
+		StoppedAt:  "2026-08-10T18:00:00Z",
+	}
+
+	var buf bytes.Buffer
+	printDesktopStatus(&buf, d, "us-east-1", "")
+	out := buf.String()
+
+	for _, want := range []string{
+		"Market type  : spot",
+		"Stop reason  : spot-interruption",
+		"Stopped at   : 2026-08-10T18:00:00Z",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q\nfull output:\n%s", want, out)
+		}
+	}
+}
+
+func TestShouldReconcileSpotState(t *testing.T) {
+	tests := []struct {
+		state store.LifecycleState
+		want  bool
+	}{
+		{state: store.StateReady, want: true},
+		{state: store.StateUnhealthy, want: true},
+		{state: store.StateCreating, want: true},
+		{state: store.StateFailed, want: true},
+		{state: store.StateProvisioningFailed, want: true},
+		{state: store.StateStopped},
+		{state: store.StateTerminating},
+		{state: store.StateTerminated},
+	}
+
+	for _, tt := range tests {
+		if got := shouldReconcileSpotState(tt.state); got != tt.want {
+			t.Errorf("shouldReconcileSpotState(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestIsStoppedOrStopping(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{state: "stopped", want: true},
+		{state: "stopping", want: true},
+		{state: "running"},
+		{state: "pending"},
+		{state: ""},
+	}
+
+	for _, tt := range tests {
+		if got := isStoppedOrStopping(tt.state); got != tt.want {
+			t.Errorf("isStoppedOrStopping(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
+func TestIsSpotInterruptionReason(t *testing.T) {
+	tests := []struct {
+		reason string
+		want   bool
+	}{
+		{reason: "Server.SpotInstanceTermination: instance stopped by AWS", want: true},
+		{reason: "spot instance interruption notice", want: true},
+		{reason: "Service initiated (2026-08-10 20:37:24 GMT)", want: true},
+		{reason: "User initiated (2026-08-10 18:00:00 GMT)"},
+		{reason: ""},
+	}
+
+	for _, tt := range tests {
+		if got := isSpotInterruptionReason(tt.reason); got != tt.want {
+			t.Errorf("isSpotInterruptionReason(%q) = %v, want %v", tt.reason, got, tt.want)
+		}
 	}
 }

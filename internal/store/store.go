@@ -32,6 +32,15 @@ const (
 	StateTerminated         LifecycleState = "terminated"
 )
 
+const (
+	MarketOnDemand = "on-demand"
+	MarketSpot     = "spot"
+
+	StopReasonUserRequest      = "user-request"
+	StopReasonSpotInterruption = "spot-interruption"
+	StopReasonAWSStopped       = "aws-stopped"
+)
+
 // Desktop is the fleet metadata record for one managed desktop.
 type Desktop struct {
 	DesktopID     string         `dynamodbav:"desktop_id"       json:"desktop_id"`
@@ -54,6 +63,9 @@ type Desktop struct {
 	AVDNames      []string       `dynamodbav:"avd_names,omitempty"       json:"avd_names,omitempty"`
 	InstanceType  string         `dynamodbav:"instance_type,omitempty"   json:"instance_type,omitempty"`
 	NestedVirt    bool           `dynamodbav:"nested_virt,omitempty"     json:"nested_virt,omitempty"`
+	MarketType    string         `dynamodbav:"market_type,omitempty"     json:"market_type,omitempty"`
+	StopReason    string         `dynamodbav:"stop_reason,omitempty"     json:"stop_reason,omitempty"`
+	StoppedAt     string         `dynamodbav:"stopped_at,omitempty"      json:"stopped_at,omitempty"`
 	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
 	CreatedAt     string         `dynamodbav:"created_at"       json:"created_at"`
 	UpdatedAt     string         `dynamodbav:"updated_at"       json:"updated_at"`

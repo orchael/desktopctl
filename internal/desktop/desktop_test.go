@@ -72,6 +72,8 @@ func TestManager_CreateRecord(t *testing.T) {
 		Zone:          "desktops.orchael.dev",
 		BackendBucket: "my-bucket",
 		Repos:         []string{"github.com/acme/app"},
+		InstanceType:  "m7i.xlarge",
+		MarketType:    store.MarketSpot,
 	}
 
 	if err := m.CreateRecord(ctx, "d-test1", req); err != nil {
@@ -87,6 +89,12 @@ func TestManager_CreateRecord(t *testing.T) {
 	}
 	if d.GitHubOwner != "acme" {
 		t.Errorf("owner: got %q", d.GitHubOwner)
+	}
+	if d.InstanceType != "m7i.xlarge" {
+		t.Errorf("instance type: got %q", d.InstanceType)
+	}
+	if d.MarketType != store.MarketSpot {
+		t.Errorf("market type: got %q", d.MarketType)
 	}
 }
 
@@ -105,6 +113,31 @@ func TestManager_MarkReady(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateFromOutputsUpdatesInstanceType(t *testing.T) {
+	s := store.NewInMemoryStore()
+	m := NewManager(s)
+	ctx := context.Background()
+
+	_ = s.Create(ctx, &store.Desktop{
+		DesktopID:    "d-u1",
+		State:        store.StateCreating,
+		InstanceType: "m7i.xlarge",
+	})
+	if err := m.UpdateFromOutputs(ctx, "d-u1", map[string]string{
+		"instanceId":   "i-123",
+		"instanceType": "m6i.xlarge",
+	}); err != nil {
+		t.Fatalf("UpdateFromOutputs: %v", err)
+	}
+	d, _ := s.Get(ctx, "d-u1")
+	if d.InstanceID != "i-123" {
+		t.Errorf("instance ID: got %q", d.InstanceID)
+	}
+	if d.InstanceType != "m6i.xlarge" {
+		t.Errorf("instance type: got %q", d.InstanceType)
+	}
+}
+
 func TestManager_MarkStopped(t *testing.T) {
 	s := store.NewInMemoryStore()
 	m := NewManager(s)
@@ -117,6 +150,27 @@ func TestManager_MarkStopped(t *testing.T) {
 	d, _ := s.Get(ctx, "d-s1")
 	if d.State != store.StateStopped {
 		t.Errorf("state: got %q", d.State)
+	}
+}
+
+func TestManager_MarkStoppedWithReason(t *testing.T) {
+	s := store.NewInMemoryStore()
+	m := NewManager(s)
+	ctx := context.Background()
+
+	_ = s.Create(ctx, &store.Desktop{DesktopID: "d-s2", State: store.StateReady})
+	if err := m.MarkStoppedWithReason(ctx, "d-s2", store.StopReasonSpotInterruption); err != nil {
+		t.Fatalf("MarkStoppedWithReason: %v", err)
+	}
+	d, _ := s.Get(ctx, "d-s2")
+	if d.State != store.StateStopped {
+		t.Errorf("state: got %q", d.State)
+	}
+	if d.StopReason != store.StopReasonSpotInterruption {
+		t.Errorf("stop reason: got %q", d.StopReason)
+	}
+	if d.StoppedAt == "" {
+		t.Error("StoppedAt should be set when a stop reason is recorded")
 	}
 }
 
