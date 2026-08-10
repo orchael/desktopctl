@@ -12,7 +12,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.8.2"
+	AIAgentBridgeVersion  = "v0.8.3"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -110,6 +110,33 @@ runcmd:
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
   - chown ubuntu:ubuntu /opt/ai-desktops
+  - |
+    cat >/opt/ai-desktops/apt-with-lock <<'SH'
+    #!/bin/sh
+    set -e
+    timeout="${APT_LOCK_TIMEOUT:-600}"
+    deadline=$(( $(date +%s) + timeout ))
+    locks="/var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock /var/lib/apt/lists/lock"
+    if ! command -v fuser >/dev/null 2>&1; then
+      echo "ERROR: fuser is required to wait for apt/dpkg locks" >&2
+      exit 1
+    fi
+    while fuser $locks >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "ERROR: timed out waiting for apt/dpkg locks" >&2
+        fuser -v $locks >&2 || true
+        exit 1
+      fi
+      echo "Waiting for apt/dpkg lock..."
+      sleep 5
+    done
+    if [ "$1" = "apt-get" ]; then
+      shift
+      exec apt-get -o DPkg::Lock::Timeout="$timeout" "$@"
+    fi
+    exec "$@"
+    SH
+    chmod 0755 /opt/ai-desktops/apt-with-lock
 
   # --- ensure ai-agent-bridge/bridgectl package version matches the CLI ---
   - |
@@ -123,8 +150,8 @@ runcmd:
     fi
 
     echo "Installing ai-agent-bridge $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
-    apt-get update
-    apt-get install -y --no-install-recommends curl gpg ca-certificates
+    /opt/ai-desktops/apt-with-lock apt-get update
+    /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates
     install -d -m 0755 /etc/apt/keyrings
     if [ ! -f /etc/apt/keyrings/ai-agent-bridge.gpg ]; then
       BRIDGE_KEY_ASC=$(mktemp)
@@ -140,8 +167,8 @@ runcmd:
     UBUNTU_CODENAME="${VERSION_CODENAME:-noble}"
     printf 'deb [arch=%s signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt %s main\n' \
       "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/ai-agent-bridge.list
-    apt-get update
-    apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
+    /opt/ai-desktops/apt-with-lock apt-get update
+    /opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
     if [ -x /usr/lib/ai-agent-bridge/install-provider-runtime ]; then
       /usr/lib/ai-agent-bridge/install-provider-runtime || echo "WARNING: install-provider-runtime failed after ai-agent-bridge version correction"
     fi
@@ -231,8 +258,8 @@ runcmd:
     done
 
     if ! command -v step >/dev/null 2>&1; then
-      apt-get update
-      apt-get install -y --no-install-recommends curl gpg ca-certificates openssl
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates openssl
       install -d -m 0755 /etc/apt/keyrings
       curl -fsSL https://packages.smallstep.com/keys/apt/repo-signing-key.gpg \
         -o /etc/apt/keyrings/smallstep.asc
@@ -243,16 +270,16 @@ runcmd:
         'Components: main' \
         'Signed-By: /etc/apt/keyrings/smallstep.asc' \
         > /etc/apt/sources.list.d/smallstep.sources
-      apt-get update
-      apt-get install -y step-cli
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y step-cli
     fi
     if ! command -v openssl >/dev/null 2>&1; then
-      apt-get update
-      apt-get install -y --no-install-recommends openssl
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends openssl
     fi
     if ! python3 -c 'import yaml' >/dev/null 2>&1; then
-      apt-get update
-      apt-get install -y --no-install-recommends python3-yaml
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
     fi
 
     if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_ROOT" >/dev/null 2>&1; then
@@ -724,7 +751,7 @@ runcmd:
       wget -q --timeout=60 --tries=3 \
         "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/${CW_ARCH}/latest/amazon-cloudwatch-agent.deb" \
         -O /tmp/amazon-cloudwatch-agent.deb \
-        && dpkg -i /tmp/amazon-cloudwatch-agent.deb \
+        && /opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb \
         && rm -f /tmp/amazon-cloudwatch-agent.deb \
         || echo "WARNING: CloudWatch agent download/install failed; metrics will not be collected"
     fi

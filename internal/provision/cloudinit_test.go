@@ -228,6 +228,8 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 
 	checks := []string{
 		"getent hosts \"$STEP_CA\"",
+		"/opt/ai-desktops/apt-with-lock apt-get update",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
 		"packages.smallstep.com/stable/debian",
 		"STEP_CA_ROOT=\"/root/.step/certs/root_ca.crt\"",
 		"STEP_CA_API_ROOT=\"$STEP_CA_ROOT\"",
@@ -281,9 +283,44 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 	if strings.Contains(out, "install -o ubuntu -g ubuntu -m 0644 \"$STEP_CA_API_ROOT\" \"$CERT_DIR/step-ca-root.crt\"") {
 		t.Error("bridgectl client CA bundle must use the Step CA root, not the API fallback root")
 	}
+	if strings.Contains(out, "\n      apt-get install -y step-cli") {
+		t.Error("step-ca package install should wait for apt/dpkg locks")
+	}
 
 	if strings.Index(out, "Tailscale network attachment") > strings.Index(out, "step-ca trust/bootstrap") {
 		t.Error("step-ca block should render after Tailscale so private CA DNS can become available first")
+	}
+}
+
+func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-apt",
+		Hostname:         "d-apt.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+		StepCAServerDNS:  "ca.tailnet.ts.net",
+		StepCASecretPath: "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"cat >/opt/ai-desktops/apt-with-lock <<'SH'",
+		"/var/lib/dpkg/lock-frontend",
+		"ERROR: fuser is required to wait for apt/dpkg locks",
+		"DPkg::Lock::Timeout",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}\"",
+		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("cloud-init should include apt lock handling %q", want)
+		}
 	}
 }
 
