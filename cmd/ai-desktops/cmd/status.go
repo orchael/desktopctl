@@ -77,6 +77,21 @@ func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.De
 	if d.InstanceID == "" {
 		return fmt.Errorf("desktop %q has no instance ID", id)
 	}
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("AWS config for DNS refresh: %w", err)
+	}
+	status, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("check instance state before DNS refresh: %w", err)
+	}
+	if !canRefreshDNSForInstanceState(status.State) {
+		return fmt.Errorf("cannot refresh DNS for desktop %q while instance %s is %q; start the desktop first", id, d.InstanceID, status.State)
+	}
 	if err := requireBackend(ctx); err != nil {
 		return err
 	}
@@ -95,6 +110,10 @@ func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.De
 		return fmt.Errorf("update store record: %w", err)
 	}
 	return nil
+}
+
+func canRefreshDNSForInstanceState(state string) bool {
+	return state == "running"
 }
 
 func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string) {

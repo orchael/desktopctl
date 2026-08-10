@@ -118,6 +118,25 @@ func TestUpdateDesktopFromPulumiOutputsSkipsEmptyValues(t *testing.T) {
 	}
 }
 
+func TestCanRefreshDNSForInstanceState(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{state: "running", want: true},
+		{state: "stopped"},
+		{state: "stopping"},
+		{state: "pending"},
+		{state: ""},
+	}
+
+	for _, tt := range tests {
+		if got := canRefreshDNSForInstanceState(tt.state); got != tt.want {
+			t.Errorf("canRefreshDNSForInstanceState(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
 func TestPrintDesktopStatus_basicFields(t *testing.T) {
 	d := &store.Desktop{
 		DesktopID:   "d-abc123",
