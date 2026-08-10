@@ -1297,7 +1297,9 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 		InstanceIds: []string{instanceID},
 	}, 5*time.Minute); err != nil {
 		// Best-effort terminate to avoid leaving a billable instance behind.
-		_, _ = ec2Client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		_, _ = ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 			InstanceIds: []string{instanceID},
 		})
 		return "", fmt.Errorf("wait for instance running: %w", err)
