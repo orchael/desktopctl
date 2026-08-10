@@ -311,6 +311,7 @@ func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
 	checks := []string{
 		"cat >/opt/ai-desktops/apt-with-lock <<'SH'",
 		"/var/lib/dpkg/lock-frontend",
+		"ERROR: fuser is required to wait for apt/dpkg locks",
 		"DPkg::Lock::Timeout",
 		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
 		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}\"",

@@ -117,17 +117,19 @@ runcmd:
     timeout="${APT_LOCK_TIMEOUT:-600}"
     deadline=$(( $(date +%s) + timeout ))
     locks="/var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/cache/apt/archives/lock /var/lib/apt/lists/lock"
-    if command -v fuser >/dev/null 2>&1; then
-      while fuser $locks >/dev/null 2>&1; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-          echo "ERROR: timed out waiting for apt/dpkg locks" >&2
-          fuser -v $locks >&2 || true
-          exit 1
-        fi
-        echo "Waiting for apt/dpkg lock..."
-        sleep 5
-      done
+    if ! command -v fuser >/dev/null 2>&1; then
+      echo "ERROR: fuser is required to wait for apt/dpkg locks" >&2
+      exit 1
     fi
+    while fuser $locks >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "ERROR: timed out waiting for apt/dpkg locks" >&2
+        fuser -v $locks >&2 || true
+        exit 1
+      fi
+      echo "Waiting for apt/dpkg lock..."
+      sleep 5
+    done
     if [ "$1" = "apt-get" ]; then
       shift
       exec apt-get -o DPkg::Lock::Timeout="$timeout" "$@"
