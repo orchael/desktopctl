@@ -357,6 +357,12 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 			t.Errorf("TailscaleCheckers missing expected checker %q", n)
 		}
 	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: \"${TAILSCALE_IP}:9445\"`) {
+		t.Error("bridgectl-tailscale-listener should accept quoted YAML listener values")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: ${TAILSCALE_IP}:9445`) {
+		t.Error("bridgectl-tailscale-listener should accept unquoted YAML listener values")
+	}
 }
 
 func TestStepCACheckers_emptyServer(t *testing.T) {
@@ -446,8 +452,14 @@ func checkerCommandContains(checkers []Checker, name, want string) bool {
 		if checker.Name() != name {
 			continue
 		}
-		sshChecker, ok := checker.(*SSHChecker)
-		return ok && strings.Contains(sshChecker.command, want)
+		switch c := checker.(type) {
+		case *SSHChecker:
+			return strings.Contains(c.command, want)
+		case *SSHOptionalChecker:
+			return strings.Contains(c.command, want)
+		default:
+			return false
+		}
 	}
 	return false
 }

@@ -544,7 +544,7 @@ func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, netwo
 			fmt.Sprintf("grep -qxF %s /opt/ai-desktops/tailscale.env", shellQuote(`TAILSCALE_NETWORK="`+network+`"`)), t),
 		NewSSHOptionalChecker("bridgectl-tailscale-listener", hostname, sshPort, user, keyPath,
 			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", "step-ca not configured",
-			fmt.Sprintf(`TAILSCALE_IP=$(tailscale ip -4 | head -n 1) && test -n "$TAILSCALE_IP" && grep -qxF "  listen: \"${TAILSCALE_IP}:%[1]d\"" /home/ubuntu/.config/bridgectl/config.yaml && (ss -tln | awk '{print $4}' | grep -qx "${TAILSCALE_IP}:%[1]d" || ss -tln | awk '{print $4}' | grep -qx "[::ffff:${TAILSCALE_IP}]:%[1]d")`, bridgePort),
+			fmt.Sprintf(`TAILSCALE_IP=$(tailscale ip -4 | head -n 1) && test -n "$TAILSCALE_IP" && (grep -qxF "  listen: \"${TAILSCALE_IP}:%[1]d\"" /home/ubuntu/.config/bridgectl/config.yaml || grep -qxF "  listen: ${TAILSCALE_IP}:%[1]d" /home/ubuntu/.config/bridgectl/config.yaml) && (ss -tln | awk '{print $4}' | grep -qx "${TAILSCALE_IP}:%[1]d" || ss -tln | awk '{print $4}' | grep -qx "[::ffff:${TAILSCALE_IP}]:%[1]d")`, bridgePort),
 			t),
 	}
 }
