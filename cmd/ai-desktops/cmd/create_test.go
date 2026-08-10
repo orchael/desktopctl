@@ -55,6 +55,8 @@ func TestValidateSpotMaxPrice(t *testing.T) {
 		{name: "positive integer", value: "1"},
 		{name: "zero", value: "0", wantErr: true},
 		{name: "negative", value: "-0.1", wantErr: true},
+		{name: "nan", value: "NaN", wantErr: true},
+		{name: "infinity", value: "+Inf", wantErr: true},
 		{name: "not a number", value: "cheap", wantErr: true},
 	}
 

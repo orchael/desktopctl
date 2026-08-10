@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -452,43 +453,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		createSpotMaxPrice,
 	)
 
-	// When nested virtualization is requested, launch the EC2 instance directly via
-	// RunInstances with CpuOptions.NestedVirtualization=enabled before calling Pulumi.
-	// Pulumi then imports the existing instance instead of creating a new one, avoiding
-	// the stop/modify/start cycle that would change the public IP and break Route53.
-	//
-	// TODO: remove this workaround once pulumi-aws exposes NestedVirtualization on
-	// InstanceCpuOptionsArgs. As of pulumi-aws v6.83.3 the field is not present;
-	// watch https://github.com/pulumi/pulumi-aws/releases for a version that adds
-	// NestedVirtualization to InstanceCpuOptionsArgs and update go.mod accordingly.
-	prelaunchedInstanceID := ""
-	if nestedVirt && !createPreview {
-		lp := &instanceLaunchParams{
-			amiID:           amiID,
-			instanceType:    cfg.Desktop.InstanceType,
-			subnetID:        subnetID,
-			sgID:            foundationOutputs[pulumi.OutputSGID],
-			instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
-			sshKeyName:      cfg.Desktop.SSHKeyName,
-			userDataBase64:  userDataBase64,
-			volumeSize:      volumeSize,
-			hostname:        hostname,
-			desktopID:       desktopID,
-			githubOwner:     owner,
-			environment:     env,
-			marketType:      marketType,
-			spotMaxPrice:    createSpotMaxPrice,
-		}
-		launchCtx, cancel := context.WithTimeout(ctx, createTimeout)
-		importID, err := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
-		cancel()
-		if err != nil {
-			return fmt.Errorf("launch nested-virt instance: %w", err)
-		}
-		prelaunchedInstanceID = importID
-		stackCfg["importInstanceId"] = importID
-	}
-
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
 		fmt.Printf("Zone          : %s\n", zone)
@@ -534,6 +498,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	var outputs map[string]string
 	var lastErr error
 	for i, candidate := range subnets {
+		prelaunchedInstanceID := ""
 		if i > 0 {
 			fmt.Fprintf(os.Stderr, "Retrying Spot create in subnet %s", candidate.subnetID)
 			if candidate.az != "" {
@@ -542,6 +507,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			fmt.Fprintln(os.Stderr, " ...")
 		}
 		stackCfg["subnetId"] = candidate.subnetID
+		delete(stackCfg, "importInstanceId")
+		if nestedVirt {
+			lp := &instanceLaunchParams{
+				amiID:           amiID,
+				instanceType:    cfg.Desktop.InstanceType,
+				subnetID:        candidate.subnetID,
+				sgID:            foundationOutputs[pulumi.OutputSGID],
+				instanceProfile: foundationOutputs[pulumi.OutputInstanceProfile],
+				sshKeyName:      cfg.Desktop.SSHKeyName,
+				userDataBase64:  userDataBase64,
+				volumeSize:      volumeSize,
+				hostname:        hostname,
+				desktopID:       desktopID,
+				githubOwner:     owner,
+				environment:     env,
+				marketType:      marketType,
+				spotMaxPrice:    createSpotMaxPrice,
+			}
+			launchCtx, cancel := context.WithTimeout(ctx, createTimeout)
+			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+			timedOut := launchCtx.Err() == context.DeadlineExceeded
+			cancel()
+			if launchErr != nil {
+				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
+				if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(launchErr)) || i == len(subnets)-1 {
+					break
+				}
+				fmt.Fprintf(os.Stderr, "Spot nested-virt launch failed in subnet %s; trying the next subnet.\n", candidate.subnetID)
+				continue
+			}
+			prelaunchedInstanceID = importID
+			stackCfg["importInstanceId"] = importID
+		}
 		attemptCtx, cancel := context.WithTimeout(ctx, createTimeout)
 		outputs, err = runner.Up(attemptCtx, ref, stackCfg, os.Stderr)
 		timedOut := attemptCtx.Err() == context.DeadlineExceeded
@@ -552,6 +550,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 		lastErr = err
 		cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
+		terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID)
 		if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(err)) || i == len(subnets)-1 {
 			break
 		}
@@ -559,7 +558,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
-		terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID)
 		_ = s.Delete(ctx, desktopID)
 		return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
 	}
@@ -640,8 +638,8 @@ func validateSpotMaxPrice(value string) error {
 		return nil
 	}
 	price, err := strconv.ParseFloat(value, 64)
-	if err != nil || price <= 0 {
-		return fmt.Errorf("--spot-max-price must be a positive number")
+	if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return fmt.Errorf("--spot-max-price must be a finite positive number")
 	}
 	return nil
 }
@@ -660,7 +658,7 @@ type spotSubnetSelection struct {
 func selectCreateSubnets(ctx context.Context, region, profile, instanceType, marketType string, outputs map[string]string) ([]spotSubnetSelection, error) {
 	candidates := foundationSubnetIDs(outputs)
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("foundation stack output %q is missing or empty", pulumi.OutputSubnetID)
+		return nil, fmt.Errorf("foundation stack outputs %q and %q are missing or empty", pulumi.OutputSubnetIDs, pulumi.OutputSubnetID)
 	}
 	if marketType != store.MarketSpot {
 		return subnetSelectionsFromIDs(candidates[:1]), nil
