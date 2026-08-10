@@ -273,6 +273,25 @@ func TestShouldReconcileSpotState(t *testing.T) {
 	}
 }
 
+func TestIsStoppedOrStopping(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{state: "stopped", want: true},
+		{state: "stopping", want: true},
+		{state: "running"},
+		{state: "pending"},
+		{state: ""},
+	}
+
+	for _, tt := range tests {
+		if got := isStoppedOrStopping(tt.state); got != tt.want {
+			t.Errorf("isStoppedOrStopping(%q) = %v, want %v", tt.state, got, tt.want)
+		}
+	}
+}
+
 func TestIsSpotInterruptionReason(t *testing.T) {
 	tests := []struct {
 		reason string
@@ -280,6 +299,7 @@ func TestIsSpotInterruptionReason(t *testing.T) {
 	}{
 		{reason: "Server.SpotInstanceTermination: instance stopped by AWS", want: true},
 		{reason: "spot instance interruption notice", want: true},
+		{reason: "Service initiated (2026-08-10 20:37:24 GMT)", want: true},
 		{reason: "User initiated (2026-08-10 18:00:00 GMT)"},
 		{reason: ""},
 	}

@@ -124,7 +124,7 @@ func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desk
 	if err != nil {
 		return fmt.Errorf("reconcile spot instance state: %w", err)
 	}
-	if status.State != "stopped" {
+	if !isStoppedOrStopping(status.State) {
 		return nil
 	}
 
@@ -146,6 +146,10 @@ func reconcileSpotDesktopState(ctx context.Context, s store.Store, d *store.Desk
 	return nil
 }
 
+func isStoppedOrStopping(state string) bool {
+	return state == "stopped" || state == "stopping"
+}
+
 func shouldReconcileSpotState(state store.LifecycleState) bool {
 	switch state {
 	case store.StateReady, store.StateUnhealthy, store.StateCreating, store.StateFailed, store.StateProvisioningFailed:
@@ -159,7 +163,8 @@ func isSpotInterruptionReason(reason string) bool {
 	normalized := strings.ToLower(reason)
 	return strings.Contains(normalized, "spotinstancetermination") ||
 		strings.Contains(normalized, "spot instance") ||
-		strings.Contains(normalized, "spot-instance")
+		strings.Contains(normalized, "spot-instance") ||
+		strings.Contains(normalized, "service initiated")
 }
 
 func effectiveMarketType(d *store.Desktop) string {
