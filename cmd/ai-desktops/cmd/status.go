@@ -78,19 +78,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func desktopStatusJSON(d *store.Desktop, costLabel string) map[string]any {
-	raw, err := json.Marshal(d)
-	if err != nil {
-		return map[string]any{"estimated_hourly_cost": costLabel}
+type desktopStatusOutput struct {
+	*store.Desktop
+	EstimatedHourlyCost string `json:"estimated_hourly_cost,omitempty"`
+}
+
+func desktopStatusJSON(d *store.Desktop, costLabel string) desktopStatusOutput {
+	return desktopStatusOutput{
+		Desktop:             d,
+		EstimatedHourlyCost: costLabel,
 	}
-	out := make(map[string]any)
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return map[string]any{"estimated_hourly_cost": costLabel}
-	}
-	if costLabel != "" {
-		out["estimated_hourly_cost"] = costLabel
-	}
-	return out
 }
 
 func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.Desktop) error {

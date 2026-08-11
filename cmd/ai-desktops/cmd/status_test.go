@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -349,7 +350,14 @@ func TestDesktopStatusJSON_includesHourlyCost(t *testing.T) {
 		InstanceType: "m7i.xlarge",
 	}
 
-	got := desktopStatusJSON(d, "$0.0960/hr on-demand (AWS Price List)")
+	raw, err := json.Marshal(desktopStatusJSON(d, "$0.0960/hr on-demand (AWS Price List)"))
+	if err != nil {
+		t.Fatalf("marshal desktop status JSON: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal desktop status JSON: %v", err)
+	}
 	if got["desktop_id"] != "d-cost" {
 		t.Fatalf("desktop_id = %v, want d-cost", got["desktop_id"])
 	}

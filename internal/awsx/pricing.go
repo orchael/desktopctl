@@ -30,7 +30,9 @@ func EstimateInstanceHourlyCost(ctx context.Context, cfg aws.Config, region, ins
 		return nil, fmt.Errorf("instance type is empty")
 	}
 	if marketType == "spot" {
-		price, err := SpotLinuxHourlyPrice(ctx, cfg, instanceType)
+		ec2Cfg := cfg.Copy()
+		ec2Cfg.Region = region
+		price, err := SpotLinuxHourlyPrice(ctx, ec2Cfg, instanceType)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +77,15 @@ func OnDemandLinuxHourlyPrice(ctx context.Context, cfg aws.Config, region, insta
 	pricingCfg := cfg.Copy()
 	pricingCfg.Region = "us-east-1"
 	client := pricing.NewFromConfig(pricingCfg)
-	out, err := client.GetProducts(ctx, &pricing.GetProductsInput{
+	return onDemandLinuxHourlyPrice(ctx, client, region, instanceType)
+}
+
+type pricingGetProductsAPI interface {
+	GetProducts(ctx context.Context, params *pricing.GetProductsInput, optFns ...func(*pricing.Options)) (*pricing.GetProductsOutput, error)
+}
+
+func onDemandLinuxHourlyPrice(ctx context.Context, client pricingGetProductsAPI, region, instanceType string) (float64, error) {
+	input := &pricing.GetProductsInput{
 		ServiceCode: aws.String("AmazonEC2"),
 		Filters: []pricingtypes.Filter{
 			{Type: pricingtypes.FilterTypeTermMatch, Field: aws.String("instanceType"), Value: aws.String(instanceType)},
@@ -86,16 +96,25 @@ func OnDemandLinuxHourlyPrice(ctx context.Context, cfg aws.Config, region, insta
 			{Type: pricingtypes.FilterTypeTermMatch, Field: aws.String("capacitystatus"), Value: aws.String("Used")},
 		},
 		MaxResults: aws.Int32(100),
-	})
-	if err != nil {
-		return 0, fmt.Errorf("get on-demand price: %w", err)
 	}
-	for _, raw := range out.PriceList {
-		price, ok := onDemandUSDPerHour(raw)
-		if ok {
-			return price, nil
+
+	for {
+		out, err := client.GetProducts(ctx, input)
+		if err != nil {
+			return 0, fmt.Errorf("get on-demand price: %w", err)
 		}
+		for _, raw := range out.PriceList {
+			price, ok := onDemandUSDPerHour(raw)
+			if ok {
+				return price, nil
+			}
+		}
+		if out.NextToken == nil || aws.ToString(out.NextToken) == "" {
+			break
+		}
+		input.NextToken = out.NextToken
 	}
+
 	return 0, fmt.Errorf("no Linux on-demand price found for %s in %s", instanceType, region)
 }
 
