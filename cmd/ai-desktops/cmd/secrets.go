@@ -202,16 +202,31 @@ import json, re, sys
 d = json.load(sys.stdin)
 valid_key = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 sq = lambda v: chr(39) + str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39)) + chr(39)
+def normalize(v):
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, separators=(',', ':'))
+    sv = str(v)
+    if '\0' in sv:
+        return None
+    stripped = sv.strip()
+    if '\n' in sv and stripped[:1] in ('{', '['):
+        try:
+            return json.dumps(json.loads(sv), separators=(',', ':'))
+        except json.JSONDecodeError:
+            return None
+    if '\n' in sv:
+        return None
+    return sv
 for k, v in d.items():
     if not valid_key.match(k):
         print(f'WARNING: skipping secret key {k!r} (not a valid env var name)', file=sys.stderr)
         continue
-    sv = str(v)
-    if '\n' in sv or '\0' in sv:
-        print(f'WARNING: skipping secret key {k!r} (value contains newline or NUL)', file=sys.stderr)
+    sv = normalize(v)
+    if sv is None:
+        print(f'WARNING: skipping secret key {k!r} (value contains newline/NUL or invalid JSON)', file=sys.stderr)
         continue
-    if v:
-        print(f'{k}={sq(v)}')
+    if sv:
+        print(f'{k}={sq(sv)}')
 " >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret %s" >&2
 fi
 unset SECRET_JSON

@@ -477,6 +477,35 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_agentSecretValuesAreSystemdSafe(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-agent",
+		Hostname:         "d-agent.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+		Environment:      "dev",
+		AgentSecretPath:  "/ai-desktops/acme/agents",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"json.dumps(v, separators=(',', ':'))",
+		"json.loads(sv)",
+		"value contains newline/NUL or invalid JSON",
+		"print(f'{k}={sq(sv)}')",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered agent secret script missing %q", want)
+		}
+	}
+}
+
 func TestRenderCloudInit_desktopSecretPaths(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:          "d-sec",
@@ -500,6 +529,8 @@ func TestRenderCloudInit_desktopSecretPaths(t *testing.T) {
 		"desktop-secrets.conf",
 		".desktop-secrets",
 		".bashrc",
+		"json.dumps(v, separators=(',', ':'))",
+		"json.loads(sv)",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {

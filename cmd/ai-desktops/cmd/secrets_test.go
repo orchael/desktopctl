@@ -70,10 +70,17 @@ func TestBuildSecretsReloadScript_ValidatesKeyNames(t *testing.T) {
 	}
 }
 
-func TestBuildSecretsReloadScript_SkipsNewlineValues(t *testing.T) {
+func TestBuildSecretsReloadScript_NormalizesJSONValues(t *testing.T) {
 	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	if !strings.Contains(script, "newline or NUL") {
-		t.Errorf("script should skip values containing newlines, got:\n%s", script)
+	checks := []string{
+		"json.dumps(v, separators=(',', ':'))",
+		"json.loads(sv)",
+		"value contains newline/NUL or invalid JSON",
+	}
+	for _, want := range checks {
+		if !strings.Contains(script, want) {
+			t.Errorf("script should normalize JSON env values; missing %q in:\n%s", want, script)
+		}
 	}
 }
 
