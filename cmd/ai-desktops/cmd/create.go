@@ -361,11 +361,32 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	selectedInstanceType := subnets[0].instanceType
 	req.InstanceType = selectedInstanceType
 	subnetID := subnets[0].subnetID
+	costLabel := ""
 	if marketType == store.MarketSpot {
 		fmt.Fprintf(os.Stderr, "  Spot selected type    : %s\n", selectedInstanceType)
 		if subnetID != foundationOutputs[pulumi.OutputSubnetID] {
 			fmt.Fprintf(os.Stderr, "  Spot subnet           : %s\n", subnetID)
 		}
+		if subnets[0].price > 0 {
+			costLabel = formatHourlyCost(&awsx.InstanceCostEstimate{
+				MarketType:   store.MarketSpot,
+				InstanceType: selectedInstanceType,
+				Region:       cfg.AWS.Region,
+				USDPerHour:   subnets[0].price,
+				Source:       "EC2 Spot price history",
+			})
+		}
+	}
+	if costLabel == "" {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			costLabel = "unavailable (" + err.Error() + ")"
+		} else {
+			costLabel = estimateHourlyCostLabel(ctx, awsCfg, cfg.AWS.Region, selectedInstanceType, marketType)
+		}
+	}
+	if costLabel != "" {
+		fmt.Fprintf(os.Stderr, "  Estimated cost        : %s\n", costLabel)
 	}
 
 	swapSizeGB, err := resolveSwapSize(createSwapSize, selectedInstanceType, volumeSize)
@@ -482,6 +503,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", selectedInstanceType)
 		fmt.Printf("Market type   : %s\n", marketType)
+		if costLabel != "" {
+			fmt.Printf("Estimated cost: %s\n", costLabel)
+		}
 		if marketType == store.MarketSpot {
 			fmt.Printf("Instance types: %s\n", strings.Join(instanceTypes, ","))
 		}
@@ -614,6 +638,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"instance_type":         req.InstanceType,
 		"instance_types":        strings.Join(instanceTypes, ","),
 		"market_type":           marketType,
+		"estimated_cost":        costLabel,
 		"spot_max_price":        createSpotMaxPrice,
 		"nested_virtualization": nestedVirtStr,
 		"avd_names":             strings.Join(req.AVDNames, ", "),
@@ -631,6 +656,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("SSH target    : %s\n", result["ssh_target"])
 	fmt.Printf("Instance type : %s\n", result["instance_type"])
 	fmt.Printf("Market type   : %s\n", result["market_type"])
+	if result["estimated_cost"] != "" {
+		fmt.Printf("Estimated cost: %s\n", result["estimated_cost"])
+	}
 	if result["spot_max_price"] != "" {
 		fmt.Printf("Spot max price: %s\n", result["spot_max_price"])
 	}

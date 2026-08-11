@@ -343,6 +343,23 @@ func StartInstance(ctx context.Context, cfg aws.Config, instanceID string) error
 	return nil
 }
 
+// ModifyInstanceType changes the EC2 instance type for a stopped instance.
+// AWS requires the instance to be stopped; callers are responsible for stopping
+// and restarting around this operation.
+func ModifyInstanceType(ctx context.Context, cfg aws.Config, instanceID, instanceType string) error {
+	c := ec2.NewFromConfig(cfg)
+	_, err := c.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
+		InstanceId: aws.String(instanceID),
+		InstanceType: &ec2types.AttributeValue{
+			Value: aws.String(instanceType),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("modify instance %s type to %s: %w", instanceID, instanceType, err)
+	}
+	return nil
+}
+
 // InstanceState returns the current state of the EC2 instance.
 func InstanceState(ctx context.Context, cfg aws.Config, instanceID string) (string, error) {
 	status, err := InstanceStatus(ctx, cfg, instanceID)
