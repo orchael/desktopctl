@@ -192,6 +192,15 @@ func TestRunnerUp_Failure(t *testing.T) {
 	}
 }
 
+func TestRunnerSetConfig_Success(t *testing.T) {
+	fakePulumiDir(t, 0, "")
+	workDir := t.TempDir()
+	ref := DesktopStackRef("s3://bucket", "d-test", workDir)
+	if err := NewRunner().SetConfig(context.Background(), ref, "instanceType", "m7i.xlarge", nil); err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+}
+
 func TestRunnerPreview_Success(t *testing.T) {
 	fakePulumiDir(t, 0, "")
 	workDir := t.TempDir()

@@ -186,6 +186,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("workspacePath", pulumi.String("/workspace"))
 	ctx.Export("githubOwner", pulumi.String(githubOwner))
 	ctx.Export("amiId", pulumi.String(amiID))
+	ctx.Export("instanceType", pulumi.String(instanceType))
 	ctx.Export("region", pulumi.String(region))
 	ctx.Export("marketType", pulumi.String(marketType))
 

@@ -57,17 +57,37 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if jsonOut {
-		return json.NewEncoder(os.Stdout).Encode(d)
-	}
-
 	region := d.Region
 	if region == "" {
 		region = cfg.AWS.Region
 	}
+	costLabel := ""
+	if d.InstanceType != "" {
+		if awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile); err != nil {
+			costLabel = "unavailable (" + err.Error() + ")"
+		} else {
+			costLabel = estimateHourlyCostLabel(ctx, awsCfg, region, d.InstanceType, effectiveMarketType(d))
+		}
+	}
 
-	printDesktopStatus(os.Stdout, d, region, fetchNoVNCDesktopURL(d))
+	if jsonOut {
+		return json.NewEncoder(os.Stdout).Encode(desktopStatusJSON(d, costLabel))
+	}
+
+	printDesktopStatus(os.Stdout, d, region, fetchNoVNCDesktopURL(d), costLabel)
 	return nil
+}
+
+type desktopStatusOutput struct {
+	*store.Desktop
+	EstimatedHourlyCost string `json:"estimated_hourly_cost,omitempty"`
+}
+
+func desktopStatusJSON(d *store.Desktop, costLabel string) desktopStatusOutput {
+	return desktopStatusOutput{
+		Desktop:             d,
+		EstimatedHourlyCost: costLabel,
+	}
 }
 
 func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.Desktop) error {
@@ -129,7 +149,7 @@ func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string)
 }
 
 // printDesktopStatus writes the human-readable status block to w.
-func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
+func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL, costLabel string) {
 	fmt.Fprintf(w, "Desktop ID   : %s\n", d.DesktopID)
 	fmt.Fprintf(w, "State        : %s\n", d.State)
 	fmt.Fprintf(w, "Owner        : %s\n", d.GitHubOwner)
@@ -145,6 +165,9 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL string) {
 		fmt.Fprintf(w, "Instance type: %s\n", d.InstanceType)
 	}
 	fmt.Fprintf(w, "Market type  : %s\n", effectiveMarketType(d))
+	if costLabel != "" {
+		fmt.Fprintf(w, "Hourly cost  : %s\n", costLabel)
+	}
 	if d.StopReason != "" {
 		fmt.Fprintf(w, "Stop reason  : %s\n", d.StopReason)
 	}

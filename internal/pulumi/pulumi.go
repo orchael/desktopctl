@@ -186,6 +186,18 @@ func (r *Runner) RefreshAndUp(ctx context.Context, ref *StackRef, progress io.Wr
 	return r.outputs(ctx, ref.WorkDir, env)
 }
 
+// SetConfig selects an existing stack and writes one plaintext config value.
+func (r *Runner) SetConfig(ctx context.Context, ref *StackRef, key, value string, progress io.Writer) error {
+	env := r.env(ref.BackendURL)
+	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", ref.StackName); err != nil {
+		return fmt.Errorf("stack select %s: %w", ref.StackName, err)
+	}
+	if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", key, value); err != nil {
+		return fmt.Errorf("config set %s: %w", key, err)
+	}
+	return nil
+}
+
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.
 func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progress io.Writer) (map[string]string, error) {

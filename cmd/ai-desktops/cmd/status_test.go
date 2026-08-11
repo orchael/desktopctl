@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -153,7 +154,7 @@ func TestPrintDesktopStatus_basicFields(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-2", "")
+	printDesktopStatus(&buf, d, "us-east-2", "", "")
 	out := buf.String()
 
 	checks := []struct{ label, want string }{
@@ -186,7 +187,7 @@ func TestPrintDesktopStatus_noVNCURL(t *testing.T) {
 
 	var buf bytes.Buffer
 	liveURL := "https://d-abc123.desktops.example.com:8443/access?token=tok123"
-	printDesktopStatus(&buf, d, "us-east-1", liveURL)
+	printDesktopStatus(&buf, d, "us-east-1", liveURL, "")
 	out := buf.String()
 
 	if !strings.Contains(out, "NoVNC URL    : "+liveURL) {
@@ -202,7 +203,7 @@ func TestPrintDesktopStatus_noVNCURLAbsentWhenEmpty(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	if strings.Contains(out, "NoVNC URL") {
@@ -214,14 +215,14 @@ func TestPrintDesktopStatus_amiIDConditional(t *testing.T) {
 	d := &store.Desktop{DesktopID: "d-1", State: store.StateReady}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	if strings.Contains(buf.String(), "AMI ID") {
 		t.Error("AMI ID line should be absent when AMIID is empty")
 	}
 
 	d.AMIID = "ami-0abc"
 	buf.Reset()
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	if !strings.Contains(buf.String(), "AMI ID       : ami-0abc") {
 		t.Errorf("AMI ID line missing\nfull output:\n%s", buf.String())
 	}
@@ -236,7 +237,7 @@ func TestPrintDesktopStatus_reposAndSecrets(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	if !strings.Contains(out, "Repos        : github.com/acme/app, github.com/acme/lib") {
@@ -251,7 +252,7 @@ func TestPrintDesktopStatus_reposAndSecretsAbsentWhenEmpty(t *testing.T) {
 	d := &store.Desktop{DesktopID: "d-1", State: store.StateReady}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	if strings.Contains(out, "Repos") {
@@ -271,7 +272,7 @@ func TestPrintDesktopStatus_networkIntegrations(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	if !strings.Contains(out, "Tailscale    : acme-tailnet") {
@@ -291,7 +292,7 @@ func TestPrintDesktopStatus_failureFields(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	if !strings.Contains(out, "Failure phase: provision") {
@@ -312,7 +313,7 @@ func TestPrintDesktopStatus_marketAndStopReason(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "")
+	printDesktopStatus(&buf, d, "us-east-1", "", "")
 	out := buf.String()
 
 	for _, want := range []string{
@@ -323,6 +324,45 @@ func TestPrintDesktopStatus_marketAndStopReason(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q\nfull output:\n%s", want, out)
 		}
+	}
+}
+
+func TestPrintDesktopStatus_hourlyCost(t *testing.T) {
+	d := &store.Desktop{
+		DesktopID:    "d-cost",
+		State:        store.StateReady,
+		InstanceType: "m7i.xlarge",
+	}
+
+	var buf bytes.Buffer
+	printDesktopStatus(&buf, d, "us-east-1", "", "$0.0960/hr on-demand (AWS Price List)")
+	out := buf.String()
+
+	if !strings.Contains(out, "Hourly cost  : $0.0960/hr on-demand (AWS Price List)") {
+		t.Errorf("Hourly cost line missing\nfull output:\n%s", out)
+	}
+}
+
+func TestDesktopStatusJSON_includesHourlyCost(t *testing.T) {
+	d := &store.Desktop{
+		DesktopID:    "d-cost",
+		State:        store.StateReady,
+		InstanceType: "m7i.xlarge",
+	}
+
+	raw, err := json.Marshal(desktopStatusJSON(d, "$0.0960/hr on-demand (AWS Price List)"))
+	if err != nil {
+		t.Fatalf("marshal desktop status JSON: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal desktop status JSON: %v", err)
+	}
+	if got["desktop_id"] != "d-cost" {
+		t.Fatalf("desktop_id = %v, want d-cost", got["desktop_id"])
+	}
+	if got["estimated_hourly_cost"] != "$0.0960/hr on-demand (AWS Price List)" {
+		t.Fatalf("estimated_hourly_cost = %v", got["estimated_hourly_cost"])
 	}
 }
 
