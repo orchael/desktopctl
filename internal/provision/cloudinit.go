@@ -560,7 +560,39 @@ runcmd:
 
     # Write env file to bridgectl config dir (read by systemd user service EnvironmentFile)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.config/bridgectl
-    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(f'{k}={v}' for k,v in d.items() if v))" > /home/ubuntu/.config/bridgectl/agents.env; then
+    ENV_RENDERER=$(cat <<'PY'
+    import json, re, sys
+    d = json.load(sys.stdin)
+    valid_key = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+    sq = lambda v: chr(39) + str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39)) + chr(39)
+    def normalize(v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, separators=(',', ':'))
+        sv = str(v)
+        if '\0' in sv:
+            return None
+        stripped = sv.strip()
+        if '\n' in sv and stripped[:1] in ('{', '['):
+            try:
+                return json.dumps(json.loads(sv), separators=(',', ':'))
+            except json.JSONDecodeError:
+                return None
+        if '\n' in sv:
+            return None
+        return sv
+    for k, v in d.items():
+        if not valid_key.match(k):
+            print(f'WARNING: skipping agent secret key {k!r} (not a valid env var name)', file=sys.stderr)
+            continue
+        sv = normalize(v)
+        if sv is None:
+            print(f'WARNING: skipping agent secret key {k!r} (value contains newline/NUL or invalid JSON)', file=sys.stderr)
+            continue
+        if sv:
+            print(f'{k}={sq(sv)}')
+    PY
+    )
+    if ! printf '%s\n' "$AGENT_JSON" | python3 -c "$ENV_RENDERER" > /home/ubuntu/.config/bridgectl/agents.env; then
       echo "WARNING: failed to parse agent secret JSON — bridgectl agents.env not written" >&2
       exit 0
     fi
@@ -586,7 +618,39 @@ runcmd:
     if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
       echo "WARNING: could not retrieve desktop secret {{ . }}" >&2
     else
-      printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); sq=lambda v: chr(39)+str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))+chr(39); print('\n'.join(f'{k}={sq(v)}' for k,v in d.items() if v))" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+      ENV_RENDERER=$(cat <<'PY'
+    import json, re, sys
+    d = json.load(sys.stdin)
+    valid_key = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+    sq = lambda v: chr(39)+str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))+chr(39)
+    def normalize(v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, separators=(',', ':'))
+        sv = str(v)
+        if '\0' in sv:
+            return None
+        stripped = sv.strip()
+        if '\n' in sv and stripped[:1] in ('{', '['):
+            try:
+                return json.dumps(json.loads(sv), separators=(',', ':'))
+            except json.JSONDecodeError:
+                return None
+        if '\n' in sv:
+            return None
+        return sv
+    for k, v in d.items():
+        if not valid_key.match(k):
+            print(f'WARNING: skipping secret key {k!r} (not a valid env var name)', file=sys.stderr)
+            continue
+        sv = normalize(v)
+        if sv is None:
+            print(f'WARNING: skipping secret key {k!r} (value contains newline/NUL or invalid JSON)', file=sys.stderr)
+            continue
+        if sv:
+            print(f'{k}={sq(sv)}')
+    PY
+      )
+      printf '%s\n' "$SECRET_JSON" | python3 -c "$ENV_RENDERER" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
     fi
     unset SECRET_JSON
 {{ end }}

@@ -174,12 +174,20 @@
 
     - name: Install uv (Python package manager) at pinned version
       ansible.builtin.shell: |
-        curl -LsSf "https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz" \
-          | tar -xzf - -C /tmp/
-        install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv
-        rm -rf /tmp/uv-x86_64-unknown-linux-gnu
+        curl -LsSf "https://astral.sh/uv/{{ uv_version }}/install.sh" | sh
       args:
-        creates: /usr/local/bin/uv
+        creates: /home/ubuntu/.local/bin/uv
+        executable: /bin/bash
+      become_user: ubuntu
+      environment:
+        HOME: /home/ubuntu
+
+    - name: Link uv into system PATH
+      ansible.builtin.file:
+        src: /home/ubuntu/.local/bin/uv
+        dest: /usr/local/bin/uv
+        state: link
+        force: true
 
     - name: Install Flutter dependencies
       ansible.builtin.apt:
@@ -914,7 +922,7 @@
       when: "'go' + go_version not in go_ver_out.stdout"
 
     - name: Verify uv is installed
-      ansible.builtin.command: /usr/local/bin/uv --version
+      ansible.builtin.command: /home/ubuntu/.local/bin/uv --version
       register: uv_ver_out
       changed_when: false
 

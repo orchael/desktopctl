@@ -228,7 +228,7 @@ aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us
 ai_agent_bridge_version = "v0.9.0"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
-uv_version              = "0.4.0"
+uv_version              = "0.12.3"
 ```
 
 The following variables are **injected automatically** by the CLI and must not be set in the vars file:
