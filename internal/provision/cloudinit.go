@@ -244,6 +244,7 @@ runcmd:
     CERT_NAME="{{ .DesktopID }}"
     STEP_CA_ROOT="/root/.step/certs/root_ca.crt"
     STEP_CA_API_ROOT="$STEP_CA_ROOT"
+    STEP_CA_PERSISTENT_PASSWORD_FILE="/home/ubuntu/.config/bridgectl/step-ca-provisioner-password"
 
     # The CA often lives on Tailscale, so wait for DNS after optional Tailscale attachment.
     for i in $(seq 1 90); do
@@ -307,6 +308,10 @@ runcmd:
       --output text)
     STEP_CA_PROVISIONER_PASSWORD=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['STEP_CA_PROVISIONER_PASSWORD'])")
     unset SECRET_JSON
+    install -o ubuntu -g ubuntu -m 600 /dev/null "$STEP_CA_PERSISTENT_PASSWORD_FILE"
+    printf '%s\n' "$STEP_CA_PROVISIONER_PASSWORD" > "$STEP_CA_PERSISTENT_PASSWORD_FILE"
+    chown ubuntu:ubuntu "$STEP_CA_PERSISTENT_PASSWORD_FILE"
+    chmod 600 "$STEP_CA_PERSISTENT_PASSWORD_FILE"
 
     STEP_CA_PASSWORD_FILE=$(mktemp)
     STEP_CA_TOKEN_FILE=$(mktemp)
@@ -405,20 +410,23 @@ runcmd:
 {{- end}}
 
     STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
-    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" <<'PY'
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" "$STEP_PROVISIONER" "$STEP_CA_PERSISTENT_PASSWORD_FILE" <<'PY'
     import base64
     import json
     import sys
     import yaml
 
-    config_path, step_ca, root_path, cert_path, key_path, clients_b64 = sys.argv[1:7]
+    config_path, step_ca, root_path, cert_path, key_path, clients_b64, provisioner, provisioner_password_file = sys.argv[1:9]
     with open(config_path, encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file) or {}
     step_ca_config = config.setdefault("step_ca", {})
     step_ca_config["url"] = f"https://{step_ca}"
     step_ca_config["root"] = root_path
-    step_ca_config.pop("provisioner", None)
-    step_ca_config.pop("provisioner_password_file", None)
+    if provisioner:
+        step_ca_config["provisioner"] = provisioner
+    else:
+        step_ca_config.pop("provisioner", None)
+    step_ca_config["provisioner_password_file"] = provisioner_password_file
     config["tls"] = {
         "ca_bundle": root_path,
         "cert": cert_path,
