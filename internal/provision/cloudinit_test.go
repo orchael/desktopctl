@@ -242,8 +242,6 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"STEP_CA_PROVISIONER_PASSWORD",
 		"install -o ubuntu -g ubuntu -m 600 /dev/null \"$STEP_CA_PERSISTENT_PASSWORD_FILE\"",
 		"printf '%s\\n' \"$STEP_CA_PROVISIONER_PASSWORD\" > \"$STEP_CA_PERSISTENT_PASSWORD_FILE\"",
-		"chown ubuntu:ubuntu \"$STEP_CA_PERSISTENT_PASSWORD_FILE\"",
-		"chmod 600 \"$STEP_CA_PERSISTENT_PASSWORD_FILE\"",
 		"STEP_CA_PASSWORD_FILE=$(mktemp)",
 		"STEP_CA_TOKEN_FILE=$(mktemp)",
 		"STEP_CA_CSR_FILE=$(mktemp)",
