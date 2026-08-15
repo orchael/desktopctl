@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/orchael/ai-desktops/internal/controlplane"
 	"github.com/orchael/ai-desktops/internal/store"
 )
@@ -25,22 +26,22 @@ func main() {
 	}
 
 	var fleetStore store.Store
+	var awsCfg aws.Config
 	var awsReady bool
-	var awsCfgErr error
-	awsCfg, err := controlplane.NewAWSLoader(cfg, runtime).Load(ctx)
-	if err != nil {
-		awsCfgErr = err
-		fleetStore = store.NewInMemoryStore()
+	if runtime.MockAWS {
+		awsReady = false
+		fleetStore = seedMockStore()
 	} else {
-		awsReady = !runtime.MockAWS
-		if runtime.MockAWS {
-			fleetStore = seedMockStore()
-		} else {
-			fleetStore = store.New(awsCfg, cfg.Fleet.TableName)
+		awsCfg, err = controlplane.NewAWSLoader(cfg, runtime).Load(ctx)
+		if err != nil {
+			logger.Error("load AWS config", "error", err)
+			os.Exit(1)
 		}
+		awsReady = true
+		fleetStore = store.New(awsCfg, cfg.Fleet.TableName)
 	}
-	if awsCfgErr != nil {
-		logger.Warn("AWS config unavailable; using in-memory store", "error", awsCfgErr)
+	if fleetStore == nil {
+		fleetStore = store.NewInMemoryStore()
 	}
 
 	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout)

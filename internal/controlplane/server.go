@@ -30,6 +30,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/desktops", s.listDesktops)
+	mux.HandleFunc("POST /api/desktops", s.createDesktop)
 	mux.HandleFunc("/api/desktops/", s.desktopAction)
 	if s.static != nil {
 		mux.HandleFunc("/", s.serveStatic)
@@ -60,6 +61,10 @@ func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, desktops)
 }
 
+func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
+}
+
 func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/desktops/")
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
@@ -83,7 +88,7 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 		s.startDesktop(w, r, id)
 	case "stop":
 		s.stopDesktop(w, r, id)
-	case "terminate", "create":
+	case "terminate":
 		writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
 	default:
 		writeError(w, http.StatusNotFound, errors.New("unknown action"))

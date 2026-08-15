@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -130,6 +131,8 @@ func assumeOnlyPolicy(roleArn string) map[string]any {
 func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, desktopRoleArn, secretPrefix string) (string, error) {
 	ddbFleetArn := fmt.Sprintf("arn:aws:dynamodb:*:*:table/%s", fleetTable)
 	ddbAMIArn := fmt.Sprintf("arn:aws:dynamodb:*:*:table/%s", amiTable)
+	secretArn := fmt.Sprintf("arn:aws:secretsmanager:*:*:secret:%s*", secretPrefix)
+	parameterArn := fmt.Sprintf("arn:aws:ssm:*:*:parameter/%s*", strings.TrimPrefix(secretPrefix, "/"))
 	policy := map[string]any{
 		"Version": "2012-10-17",
 		"Statement": []map[string]any{
@@ -178,7 +181,7 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 				"Resource": "*",
 			},
 			{
-				"Sid":    "Secrets",
+				"Sid":    "SecretsManagerNamespace",
 				"Effect": "Allow",
 				"Action": []string{
 					"secretsmanager:CreateSecret",
@@ -186,15 +189,17 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 					"secretsmanager:GetSecretValue",
 					"secretsmanager:PutSecretValue",
 					"secretsmanager:TagResource",
+				},
+				"Resource": secretArn,
+			},
+			{
+				"Sid":    "SSMParameterNamespace",
+				"Effect": "Allow",
+				"Action": []string{
 					"ssm:GetParameter",
 					"ssm:GetParameters",
 				},
-				"Resource": "*",
-				"Condition": map[string]any{
-					"StringLikeIfExists": map[string]string{
-						"secretsmanager:Name": secretPrefix + "*",
-					},
-				},
+				"Resource": parameterArn,
 			},
 			{
 				"Sid":    "Route53Zone",

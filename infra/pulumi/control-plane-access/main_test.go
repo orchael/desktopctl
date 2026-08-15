@@ -42,4 +42,17 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 			t.Fatalf("policy missing %q: %s", want, raw)
 		}
 	}
+	for _, forbidden := range []string{"StringLikeIfExists", "\"Sid\":\"Secrets\",\"Effect\":\"Allow\""} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("policy contains broad secret condition %q: %s", forbidden, raw)
+		}
+	}
+	for _, want := range []string{
+		"arn:aws:secretsmanager:*:*:secret:/ai-desktops/*",
+		"arn:aws:ssm:*:*:parameter/ai-desktops/*",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("policy missing scoped namespace ARN %q: %s", want, raw)
+		}
+	}
 }

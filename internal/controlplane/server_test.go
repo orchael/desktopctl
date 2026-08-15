@@ -56,6 +56,20 @@ func TestGetDesktopNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateDesktopDeferredReturnsNotImplemented(t *testing.T) {
+	t.Parallel()
+	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, false, time.Second)
+	server := NewServer(service, "", slog.Default()).Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	}
+}
+
 func TestRuntimeConfigRequiresRoleWhenNotMock(t *testing.T) {
 	t.Parallel()
 	cfg := RuntimeConfig{}

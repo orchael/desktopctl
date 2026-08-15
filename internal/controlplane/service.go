@@ -130,6 +130,15 @@ func (s *Service) RefreshDesktop(ctx context.Context, id string) (*DesktopSummar
 			return nil, err
 		}
 	}
+	if live == "terminated" {
+		if err := s.store.MarkTerminated(ctx, id); err != nil {
+			return nil, err
+		}
+		d, err = s.store.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if live == "running" && d.State == store.StateStopped {
 		d.State = store.StateReady
 		d.StopReason = ""
