@@ -34,6 +34,10 @@ apps/desktop-web/.vite/
 apps/desktop-web/coverage/
 apps/desktop-web/test-results/
 apps/desktop-web/playwright-report/
+apps/control-plane-web/dist/
+apps/control-plane-web/.vite/
+apps/control-plane-web/coverage/
+apps/control-plane-web/test-results/
 pnpm-debug.log*
 
 # macOS

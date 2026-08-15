@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-desktops-control-plane
+  namespace: ai-desktops
+  labels:
+    app.kubernetes.io/name: ai-desktops-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-desktops-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-desktops-control-plane
+    spec:
+      containers:
+        - name: control-plane
+          image: ghcr.io/markcallen/ai-desktops-control-plane:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ai-desktops-control-plane
+            - secretRef:
+                name: ai-desktops-aws
+          env:
+            - name: AI_DESKTOPS_CONFIG
+              value: /etc/ai-desktops/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ai-desktops
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: ai-desktops-control-plane
+            items:
+              - key: config.yaml
+                path: config.yaml

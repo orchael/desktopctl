@@ -1,0 +1,76 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+
+	"github.com/orchael/ai-desktops/internal/controlplane"
+	"github.com/orchael/ai-desktops/internal/store"
+)
+
+func main() {
+	ctx := context.Background()
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	runtime := controlplane.LoadRuntimeConfig()
+	if err := runtime.Validate(); err != nil {
+		logger.Error("invalid runtime config", "error", err)
+		os.Exit(1)
+	}
+	cfg, err := controlplane.LoadAppConfig(runtime)
+	if err != nil {
+		logger.Error("load app config", "error", err)
+		os.Exit(1)
+	}
+
+	var fleetStore store.Store
+	var awsReady bool
+	var awsCfgErr error
+	awsCfg, err := controlplane.NewAWSLoader(cfg, runtime).Load(ctx)
+	if err != nil {
+		awsCfgErr = err
+		fleetStore = store.NewInMemoryStore()
+	} else {
+		awsReady = !runtime.MockAWS
+		if runtime.MockAWS {
+			fleetStore = seedMockStore()
+		} else {
+			fleetStore = store.New(awsCfg, cfg.Fleet.TableName)
+		}
+	}
+	if awsCfgErr != nil {
+		logger.Warn("AWS config unavailable; using in-memory store", "error", awsCfgErr)
+	}
+
+	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout)
+	server := controlplane.NewServer(service, runtime.StaticDir, logger)
+
+	logger.Info("control plane listening", "addr", runtime.Addr)
+	if err := http.ListenAndServe(runtime.Addr, server.Handler()); err != nil {
+		logger.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func seedMockStore() store.Store {
+	s := store.NewInMemoryStore()
+	_ = s.Create(context.Background(), &store.Desktop{
+		DesktopID:    "d-demo001",
+		StackName:    "desktop-d-demo001",
+		GitHubOwner:  "orchael",
+		Region:       "us-east-2",
+		State:        store.StateReady,
+		InstanceID:   "i-00000000000000000",
+		Hostname:     "d-demo001.desktops.orchael.dev",
+		NoVNCURL:     "https://d-demo001.desktops.orchael.dev:8443/novnc/vnc.html",
+		SSHTarget:    "ubuntu@d-demo001.desktops.orchael.dev",
+		Readiness:    "mock ready",
+		Repos:        []string{"orchael/ai-desktops"},
+		InstanceType: "m7i.xlarge",
+		MarketType:   store.MarketSpot,
+		CreatedAt:    "2026-08-14T00:00:00Z",
+		UpdatedAt:    "2026-08-14T00:00:00Z",
+	})
+	return s
+}

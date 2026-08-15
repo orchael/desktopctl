@@ -23,6 +23,7 @@ Each task is intended to be handed to another coding agent as a self-contained w
 15. `15-wireguard-vpn.md`
 16. `16-desktop-web-root-welcome-page.md`
 17. `17-github-developer-tooling.md`
+18. `18-control-plane-webapp.md`
 
 ## Global Constraints
 
@@ -36,6 +37,7 @@ Each task is intended to be handed to another coding agent as a self-contained w
 - Use a fine-scoped GitHub PAT from AWS secret storage for the first smoke path.
 - Preserve desktop state through EC2 stop/start using the root EBS volume.
 - Leave failed desktop instances running by default for debugging.
+- Keep `apps/desktop-web` as the on-desktop status surface; build any fleet control plane as a separate Kubernetes-hosted app.
 
 ## Completion Standard
 

@@ -1,0 +1,14 @@
+.git
+.worktrees
+ai-desktops
+coverage.out
+apps/*/node_modules
+apps/*/dist
+apps/*/coverage
+apps/*/test-results
+infra/pulumi/**/Pulumi.*.yaml
+tests/integration/config.yaml
+tests/integration/id_ed25519*
+config.yaml
+.env
+.env.*

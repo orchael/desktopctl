@@ -1,0 +1,23 @@
+name: control-plane-access
+runtime: go
+description: ai-desktops DOKS control plane IAM user and assumable AWS role
+
+config:
+  aws:region:
+    value: us-east-1
+  environment:
+    default: dev
+  fleetTable:
+    default: ai-desktops-fleet-dev
+  amiTable:
+    default: ai-desktops-ami-dev
+  backendBucket:
+    default: ""
+  hostedZoneArn:
+    default: ""
+  desktopRoleArn:
+    default: ""
+  secretPrefix:
+    default: /ai-desktops/
+  externalId:
+    secret: true

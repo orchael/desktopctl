@@ -16,7 +16,7 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 - Go 1.22+
 - [Pulumi CLI](https://www.pulumi.com/docs/install/) — `curl -fsSL https://get.pulumi.com | sh`
 - AWS CLI v2 — configured with a profile that has the permissions listed below
-- `pnpm` — for the desktop webapp (`apps/desktop-web`)
+- `pnpm` — for the desktop webapp (`apps/desktop-web`) and Kubernetes control plane webapp (`apps/control-plane-web`)
 
 ### AWS permissions
 
@@ -596,6 +596,7 @@ infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)
   pulumi/desktop/         Per-desktop EC2/Route53 Pulumi program (separate Go module)
 apps/desktop-web/         On-desktop status dashboard (Vite + React + TypeScript)
+apps/control-plane-web/   Kubernetes-hosted fleet control plane UI (Vite + React + TypeScript)
 plans/                    Implementation plan files
 tasks/                    Branch-local TODO tracking
 ```

@@ -54,3 +54,33 @@ jobs:
 
       - name: Prettier check
         run: pnpm run prettier
+
+  lint-control-plane-web:
+    name: ESLint (control-plane-web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/control-plane-web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: apps/control-plane-web/.nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/control-plane-web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Prettier check
+        run: pnpm run prettier

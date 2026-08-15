@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-desktops-control-plane
+  namespace: ai-desktops
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: control-plane.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-desktops-control-plane
+                port:
+                  name: http

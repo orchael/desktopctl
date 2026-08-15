@@ -1,0 +1,28 @@
+FROM node:22.13.0-bookworm AS web
+WORKDIR /src/apps/control-plane-web
+COPY apps/control-plane-web/package.json apps/control-plane-web/pnpm-lock.yaml* ./
+RUN npm install -g pnpm@10.27.0 && pnpm install --frozen-lockfile
+COPY apps/control-plane-web/ ./
+RUN pnpm run build
+
+FROM golang:1.25-bookworm AS api
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN go build -o /out/control-plane ./cmd/control-plane
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=api /out/control-plane /app/control-plane
+COPY --from=web /src/apps/control-plane-web/dist /app/static
+COPY config.example.yaml /app/config.example.yaml
+ENV CONTROL_PLANE_ADDR=:8080
+ENV CONTROL_PLANE_STATIC_DIR=/app/static
+EXPOSE 8080
+USER 65532:65532
+ENTRYPOINT ["/app/control-plane"]
