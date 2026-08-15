@@ -45,7 +45,7 @@ func main() {
 	}
 
 	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout)
-	server := controlplane.NewServer(service, runtime.StaticDir, logger)
+	server := controlplane.NewServer(service, runtime.StaticDir, logger, runtime.APIToken)
 
 	logger.Info("control plane listening", "addr", runtime.Addr)
 	if err := http.ListenAndServe(runtime.Addr, server.Handler()); err != nil {

@@ -202,14 +202,19 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 				"Resource": parameterArn,
 			},
 			{
-				"Sid":    "Route53Zone",
+				"Sid":    "Route53ZoneRecords",
 				"Effect": "Allow",
 				"Action": []string{
-					"route53:GetChange",
 					"route53:ListResourceRecordSets",
 					"route53:ChangeResourceRecordSets",
 				},
 				"Resource": hostedZoneArn,
+			},
+			{
+				"Sid":      "Route53Changes",
+				"Effect":   "Allow",
+				"Action":   "route53:GetChange",
+				"Resource": "arn:aws:route53:::change/*",
 			},
 			{
 				"Sid":    "PulumiBackend",

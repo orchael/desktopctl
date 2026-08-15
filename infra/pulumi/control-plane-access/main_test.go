@@ -37,7 +37,12 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		t.Fatalf("policy is not JSON: %v", err)
 	}
-	for _, want := range []string{"ai-desktops-fleet-dev", "state-bucket", "arn:aws:route53:::hostedzone/Z123"} {
+	for _, want := range []string{
+		"ai-desktops-fleet-dev",
+		"state-bucket",
+		"arn:aws:route53:::hostedzone/Z123",
+		"arn:aws:route53:::change/*",
+	} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("policy missing %q: %s", want, raw)
 		}

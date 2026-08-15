@@ -22,6 +22,7 @@ type RuntimeConfig struct {
 	MockAWS        bool
 	AWSRoleARN     string
 	AWSExternalID  string
+	APIToken       string
 	RefreshTimeout time.Duration
 }
 
@@ -48,6 +49,7 @@ func LoadRuntimeConfig() RuntimeConfig {
 		MockAWS:        mockAWS,
 		AWSRoleARN:     os.Getenv("AWS_ROLE_ARN"),
 		AWSExternalID:  os.Getenv("AWS_EXTERNAL_ID"),
+		APIToken:       os.Getenv("CONTROL_PLANE_API_TOKEN"),
 		RefreshTimeout: timeout,
 	}
 }
@@ -80,6 +82,9 @@ func (c RuntimeConfig) Validate() error {
 	}
 	if c.AWSExternalID == "" {
 		return errors.New("AWS_EXTERNAL_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
+	}
+	if c.APIToken == "" {
+		return errors.New("CONTROL_PLANE_API_TOKEN is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
 	return nil
 }

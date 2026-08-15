@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,17 +13,18 @@ import (
 )
 
 type Server struct {
-	service *Service
-	logger  *slog.Logger
-	static  http.Handler
+	service  *Service
+	logger   *slog.Logger
+	static   http.Handler
+	apiToken string
 }
 
-func NewServer(service *Service, staticDir string, logger *slog.Logger) *Server {
+func NewServer(service *Service, staticDir string, logger *slog.Logger, apiToken string) *Server {
 	var static http.Handler
 	if staticDir != "" {
 		static = http.FileServer(http.Dir(staticDir))
 	}
-	return &Server{service: service, logger: logger, static: static}
+	return &Server{service: service, logger: logger, static: static, apiToken: apiToken}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -62,6 +64,9 @@ func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
 	writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
 }
 
@@ -89,6 +94,9 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 	case "stop":
 		s.stopDesktop(w, r, id)
 	case "terminate":
+		if !s.requireMutationAuth(w, r) {
+			return
+		}
 		writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
 	default:
 		writeError(w, http.StatusNotFound, errors.New("unknown action"))
@@ -105,6 +113,9 @@ func (s *Server) getDesktop(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) refreshDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
 	desktop, err := s.service.RefreshDesktop(r.Context(), id)
 	if err != nil {
 		writeStoreError(w, err)
@@ -114,6 +125,9 @@ func (s *Server) refreshDesktop(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) startDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
 	result, err := s.service.StartDesktop(r.Context(), id)
 	if err != nil {
 		writeStoreError(w, err)
@@ -123,6 +137,9 @@ func (s *Server) startDesktop(w http.ResponseWriter, r *http.Request, id string)
 }
 
 func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
 	result, err := s.service.StopDesktop(r.Context(), id)
 	if err != nil {
 		writeStoreError(w, err)
@@ -132,7 +149,7 @@ func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") {
+	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 		writeError(w, http.StatusNotFound, errors.New("unknown API endpoint"))
 		return
 	}
@@ -143,6 +160,24 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.static.ServeHTTP(w, r)
+}
+
+func (s *Server) requireMutationAuth(w http.ResponseWriter, r *http.Request) bool {
+	if s.apiToken == "" {
+		return true
+	}
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) {
+		writeError(w, http.StatusUnauthorized, errors.New("missing or invalid bearer token"))
+		return false
+	}
+	token := strings.TrimPrefix(header, prefix)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.apiToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, errors.New("missing or invalid bearer token"))
+		return false
+	}
+	return true
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {

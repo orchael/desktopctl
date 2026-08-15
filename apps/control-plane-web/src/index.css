@@ -71,6 +71,12 @@ a {
   margin-bottom: 22px;
 }
 
+.topbarTools {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--accent);
@@ -111,6 +117,33 @@ h2 {
 
 .readiness small {
   color: var(--muted);
+}
+
+.tokenField {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tokenField input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.52rem 0.7rem;
+  font: inherit;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.tokenField input:focus {
+  border-color: var(--accent);
+  outline: 2px solid #cfe8e2;
 }
 
 .error {
@@ -283,9 +316,18 @@ dd {
     display: block;
   }
 
+  .topbarTools {
+    align-items: start;
+    flex-direction: column;
+    margin-top: 12px;
+  }
+
+  .tokenField {
+    width: 100%;
+  }
+
   .readiness {
     justify-items: start;
-    margin-top: 12px;
   }
 
   .summary {

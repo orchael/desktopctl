@@ -91,7 +91,7 @@ kubectl create secret generic ai-desktops-aws \
   --from-literal=AWS_REGION="us-east-2" \
   --from-literal=AWS_ROLE_ARN="$(pulumi stack output roleArn)" \
   --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets externalId)" \
-  --from-literal=SESSION_SECRET="$(openssl rand -hex 32)"
+  --from-literal=CONTROL_PLANE_API_TOKEN="$(openssl rand -hex 32)"
 ```
 
 Do not commit a populated Secret manifest.
@@ -129,6 +129,7 @@ kubectl -n ai-desktops exec deploy/ai-desktops-control-plane -- wget -qO- http:/
 | `AWS_SECRET_ACCESS_KEY` | Secret | Bootstrap IAM user secret access key. |
 | `AWS_ROLE_ARN` | Secret | Control-plane role to assume. |
 | `AWS_EXTERNAL_ID` | Secret | External ID required by the role trust policy. |
+| `CONTROL_PLANE_API_TOKEN` | Secret | Bearer token required for mutating fleet API calls. |
 | `CONTROL_PLANE_ADDR` | ConfigMap | HTTP listen address. Defaults to `:8080`. |
 | `CONTROL_PLANE_STATIC_DIR` | ConfigMap | Static web asset directory. |
 
@@ -145,6 +146,8 @@ kubectl -n ai-desktops exec deploy/ai-desktops-control-plane -- wget -qO- http:/
 | `POST` | `/api/desktops/{id}/stop` | Implemented. |
 | `POST` | `/api/desktops` | Deferred until CLI create logic is extracted into a shared service. |
 | `POST` | `/api/desktops/{id}/terminate` | Deferred until Pulumi destroy is extracted into a shared service. |
+
+All `POST` endpoints require `Authorization: Bearer <CONTROL_PLANE_API_TOKEN>` unless the server is running with `CONTROL_PLANE_MOCK_AWS=true`.
 
 ## Rotation
 

@@ -11,12 +11,6 @@ config:
     default: ai-desktops-fleet-dev
   amiTable:
     default: ai-desktops-ami-dev
-  backendBucket:
-    default: ""
-  hostedZoneArn:
-    default: ""
-  desktopRoleArn:
-    default: ""
   secretPrefix:
     default: /ai-desktops/
   externalId:

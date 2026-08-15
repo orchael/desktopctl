@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getReadiness, listDesktops, refreshDesktop, startDesktop, stopDesktop } from './api';
 import type { Desktop, Readiness } from './types';
 
+const tokenStorageKey = 'ai-desktops-control-plane-token';
+
 export default function App() {
   const [desktops, setDesktops] = useState<Desktop[]>([]);
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [apiToken, setAPIToken] = useState(readStoredToken);
 
   const selected = useMemo(
     () => desktops.find((desktop) => desktop.desktop_id === selectedID) ?? desktops[0],
@@ -30,6 +33,11 @@ export default function App() {
     void load();
   }, [load]);
 
+  function updateAPIToken(value: string) {
+    setAPIToken(value);
+    writeStoredToken(value);
+  }
+
   async function runAction(action: 'refresh' | 'start' | 'stop', desktop: Desktop) {
     const confirmStop =
       action !== 'stop' || window.confirm(`Stop ${desktop.desktop_id}? Active sessions may pause.`);
@@ -38,11 +46,11 @@ export default function App() {
     setError(null);
     try {
       if (action === 'refresh') {
-        await refreshDesktop(desktop.desktop_id);
+        await refreshDesktop(desktop.desktop_id, apiToken);
       } else if (action === 'start') {
-        await startDesktop(desktop.desktop_id);
+        await startDesktop(desktop.desktop_id, apiToken);
       } else {
-        await stopDesktop(desktop.desktop_id);
+        await stopDesktop(desktop.desktop_id, apiToken);
       }
       await load();
     } catch (err) {
@@ -59,11 +67,22 @@ export default function App() {
           <p className="eyebrow">ai-desktops</p>
           <h1>Control Plane</h1>
         </div>
-        <div className="readiness" data-ok={readiness?.ok ?? false}>
-          <span>{readiness?.ok ? 'Ready' : 'Not ready'}</span>
-          <small>
-            {readiness?.environment ?? 'unknown'} / {readiness?.region ?? 'region'}
-          </small>
+        <div className="topbarTools">
+          <label className="tokenField">
+            <span>API token</span>
+            <input
+              type="password"
+              value={apiToken}
+              onChange={(event) => updateAPIToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <div className="readiness" data-ok={readiness?.ok ?? false}>
+            <span>{readiness?.ok ? 'Ready' : 'Not ready'}</span>
+            <small>
+              {readiness?.environment ?? 'unknown'} / {readiness?.region ?? 'region'}
+            </small>
+          </div>
         </div>
       </header>
 
@@ -185,6 +204,20 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+function readStoredToken() {
+  if (typeof globalThis.localStorage?.getItem !== 'function') return '';
+  return globalThis.localStorage.getItem(tokenStorageKey) ?? '';
+}
+
+function writeStoredToken(value: string) {
+  if (typeof globalThis.localStorage?.setItem !== 'function') return;
+  if (value) {
+    globalThis.localStorage.setItem(tokenStorageKey, value);
+  } else if (typeof globalThis.localStorage.removeItem === 'function') {
+    globalThis.localStorage.removeItem(tokenStorageKey);
+  }
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
