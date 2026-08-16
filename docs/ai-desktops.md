@@ -306,7 +306,7 @@ The script exits `0` if all checks pass and `1` if any `[FAIL]` item is found. `
 ai-desktops bridge doctor
 =========================
 
-[OK]   Package version: ai-agent-bridge 0.4.0
+[OK]   Package version: ai-agent-bridge 0.10.1
 [OK]   Service state: active
 [OK]   Port 9445: bound to 127.0.0.1
 [OK]   Node.js: v24.2.0
