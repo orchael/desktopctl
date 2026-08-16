@@ -111,7 +111,3 @@ For Linear:
 - Do not use `tasks/TODO.md` as a substitute for durable issue tracking. It is branch-scoped working memory only (see the `tasks/TODO.md` rule).
 - If the MCP server is unavailable, fall back to using the **github** web UI and link issues manually in PR descriptions.
 - Keep credentials out of committed files; use environment variables or platform secret stores.
-
-## Configured Task System
-
-This repository uses **github** as the system of record for all planned work, follow-up tasks, bugs, and feature requests. All durable work items must be created there, not left only in local notes or branch files.
