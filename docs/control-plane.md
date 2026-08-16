@@ -53,6 +53,8 @@ cd infra/pulumi/control-plane-access
 pulumi stack init control-plane-dev
 pulumi config set aws:region us-east-2
 pulumi config set environment dev
+pulumi config set bootstrapUserName ai-desktop-user-dev
+pulumi config set roleName ai-desktops-control-plane-dev
 pulumi config set backendBucket <pulumi-state-bucket>
 pulumi config set hostedZoneArn arn:aws:route53:::hostedzone/<zone-id>
 pulumi config set desktopRoleArn arn:aws:iam::<account-id>:role/<desktop-instance-role>
@@ -62,7 +64,7 @@ pulumi up
 
 The stack creates:
 
-- IAM user `ai-desktops-control-plane-<environment>`
+- IAM user `ai-desktop-user-<environment>` by default
 - IAM access key for that user
 - IAM role `ai-desktops-control-plane-<environment>`
 - user policy allowing only `sts:AssumeRole` into that role
@@ -72,10 +74,10 @@ The stack creates:
 Read the outputs:
 
 ```bash
-pulumi stack output roleArn
-pulumi stack output accessKeyId
-pulumi stack output --show-secrets secretAccessKey
-pulumi stack output --show-secrets externalId
+pulumi stack output ROLE_ARN
+pulumi stack output ACCESS_KEY
+pulumi stack output --show-secrets SECRET
+pulumi stack output --show-secrets EXTERNAL_ID
 ```
 
 ## DOKS Secret
@@ -86,11 +88,11 @@ Create the runtime secret:
 kubectl create namespace ai-desktops
 kubectl create secret generic ai-desktops-aws \
   --namespace ai-desktops \
-  --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output accessKeyId)" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets secretAccessKey)" \
+  --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output ACCESS_KEY)" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets SECRET)" \
   --from-literal=AWS_REGION="us-east-2" \
-  --from-literal=AWS_ROLE_ARN="$(pulumi stack output roleArn)" \
-  --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets externalId)" \
+  --from-literal=AWS_ROLE_ARN="$(pulumi stack output ROLE_ARN)" \
+  --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets EXTERNAL_ID)" \
   --from-literal=CONTROL_PLANE_API_TOKEN="$(openssl rand -hex 32)"
 ```
 

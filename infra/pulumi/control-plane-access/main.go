@@ -37,13 +37,21 @@ func run(ctx *pulumi.Context) error {
 	}
 	externalID := cfg.RequireSecret("externalId")
 
-	name := "ai-desktops-control-plane-" + environment
+	roleName := cfg.Get("roleName")
+	if roleName == "" {
+		roleName = defaultRoleName(environment)
+	}
+	userName := cfg.Get("bootstrapUserName")
+	if userName == "" {
+		userName = defaultBootstrapUserName(environment)
+	}
 
-	user, err := iam.NewUser(ctx, name, &iam.UserArgs{
-		Name: pulumi.String(name),
+	user, err := iam.NewUser(ctx, userName, &iam.UserArgs{
+		Name: pulumi.String(userName),
 		Tags: pulumi.StringMap{
 			"managed-by":  pulumi.String("ai-desktops"),
 			"environment": pulumi.String(environment),
+			"component":   pulumi.String("control-plane-access"),
 		},
 	})
 	if err != nil {
@@ -66,12 +74,13 @@ func run(ctx *pulumi.Context) error {
 		})
 	}).(pulumi.StringOutput)
 
-	role, err := iam.NewRole(ctx, name, &iam.RoleArgs{
-		Name:             pulumi.String(name),
+	role, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
+		Name:             pulumi.String(roleName),
 		AssumeRolePolicy: assumeRolePolicy,
 		Tags: pulumi.StringMap{
 			"managed-by":  pulumi.String("ai-desktops"),
 			"environment": pulumi.String(environment),
+			"component":   pulumi.String("control-plane-access"),
 		},
 	})
 	if err != nil {
@@ -81,7 +90,7 @@ func run(ctx *pulumi.Context) error {
 	userPolicy := role.Arn.ApplyT(func(roleArn string) (string, error) {
 		return policyJSON(assumeOnlyPolicy(roleArn))
 	}).(pulumi.StringOutput)
-	if _, err := iam.NewUserPolicy(ctx, name+"-assume-role", &iam.UserPolicyArgs{
+	if _, err := iam.NewUserPolicy(ctx, userName+"-assume-role", &iam.UserPolicyArgs{
 		User:   user.Name,
 		Policy: userPolicy,
 	}); err != nil {
@@ -92,20 +101,24 @@ func run(ctx *pulumi.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := iam.NewRolePolicy(ctx, name+"-fleet-access", &iam.RolePolicyArgs{
+	if _, err := iam.NewRolePolicy(ctx, roleName+"-fleet-access", &iam.RolePolicyArgs{
 		Role:   role.Name,
 		Policy: pulumi.String(rolePolicy),
 	}); err != nil {
 		return err
 	}
 
-	key, err := iam.NewAccessKey(ctx, name, &iam.AccessKeyArgs{
+	key, err := iam.NewAccessKey(ctx, userName, &iam.AccessKeyArgs{
 		User: user.Name,
 	})
 	if err != nil {
 		return err
 	}
 
+	ctx.Export("ROLE_ARN", role.Arn)
+	ctx.Export("EXTERNAL_ID", externalID)
+	ctx.Export("ACCESS_KEY", key.ID())
+	ctx.Export("SECRET", pulumi.ToSecret(key.Secret))
 	ctx.Export("roleArn", role.Arn)
 	ctx.Export("userName", user.Name)
 	ctx.Export("accessKeyId", key.ID())
@@ -126,6 +139,14 @@ func assumeOnlyPolicy(roleArn string) map[string]any {
 			"Resource": roleArn,
 		}},
 	}
+}
+
+func defaultRoleName(environment string) string {
+	return "ai-desktops-control-plane-" + environment
+}
+
+func defaultBootstrapUserName(environment string) string {
+	return "ai-desktop-user-" + environment
 }
 
 func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, desktopRoleArn, secretPrefix string) (string, error) {

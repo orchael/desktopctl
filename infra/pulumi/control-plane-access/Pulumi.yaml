@@ -11,6 +11,10 @@ config:
     default: ai-desktops-fleet-dev
   amiTable:
     default: ai-desktops-ami-dev
+  roleName:
+    default: ""
+  bootstrapUserName:
+    default: ""
   secretPrefix:
     default: /ai-desktops/
   externalId:

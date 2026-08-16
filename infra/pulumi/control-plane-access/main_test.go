@@ -20,6 +20,16 @@ func TestAssumeOnlyPolicyScopesToRole(t *testing.T) {
 	}
 }
 
+func TestDefaultNamesIncludeEnvironment(t *testing.T) {
+	t.Parallel()
+	if got, want := defaultBootstrapUserName("dev"), "ai-desktop-user-dev"; got != want {
+		t.Fatalf("defaultBootstrapUserName = %q, want %q", got, want)
+	}
+	if got, want := defaultRoleName("prod"), "ai-desktops-control-plane-prod"; got != want {
+		t.Fatalf("defaultRoleName = %q, want %q", got, want)
+	}
+}
+
 func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 	t.Parallel()
 	raw, err := controlPlaneRolePolicy(
