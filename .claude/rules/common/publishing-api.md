@@ -15,20 +15,29 @@ You are a publishing specialist for REST API services deployed as Docker contain
 - Include `livenessProbe` and `readinessProbe` in the Helm chart template referencing the health endpoint.
 - Distinguish private (GHCR) vs public (Docker Hub) image publishing based on the API's audience.
 
+## Activation
+
+No app deployment model is configured (`deploymentModel: none`). Deployment guidance is reference-only. Deployment is inactive: keep library, SDK, CLI, and optional container publishing guidance active, but do not create deploy-on-main workflows, deployment-state updates, Kubernetes, serverless, hosted-platform, or self-managed server deployment ownership until the repository sets an active `deploymentModel`.
+
 ## Release Model
 
 REST API apps use **continuous deployment** — every merge to `main` deploys. See the web app publishing rule for the full `deploy-web.yml` workflow template; the same workflow applies here. The only differences are the health endpoint requirements and Helm chart probe configuration.
 
-## CI Workflow
+## Docker Publish Workflow
 
-Use the same `deploy-web.yml` workflow template as the web app publishing rule:
+Use the same Kubernetes `deploy.yml` and `gitops-deploy.yml` templates as the web app publishing rule when this repository publishes an API Docker image:
 
-- Trigger on `push` to `main`.
-- `concurrency: cancel-in-progress: true`.
-- Build and push the Docker image tagged with `sha-<short-sha>` and `latest`.
-- Update the Helm chart repo with the new image digest.
+- Pull requests run quality checks only.
+- Pushes to `main` and `workflow_dispatch` runs create only `v`-prefixed Git tags such as `v1.8.0`; never create unprefixed tags.
+- Use `concurrency: cancel-in-progress: false` for release, image publish, and GitOps update workflows so an in-flight publish can complete.
+- Check out `refs/tags/v<version>` before building the image.
+- Build and push the Docker image tagged with `v<version>`, optional semver aliases, and the git SHA.
+- Add `latest` only when the team explicitly wants a mutable tag.
+- Update the GitOps repository only after the tagged image is pushed, and include the image digest when the chart supports digest pinning.
 
-Name the workflow file `deploy-api.yml` (or keep `deploy-web.yml` if there is only one service).
+Name the workflow file `deploy-api.yml` (or keep `deploy.yml` if there is only one service).
+
+If `deploymentModel` is `none`, do not add deployment-state update jobs unless the user explicitly asks to introduce API deployment ownership. Container publishing may still be valid for installable or local runtime images, but deployment-state updates are inactive.
 
 ## Health Endpoint Requirements
 
@@ -78,9 +87,9 @@ app.get('/readyz', async (_req, res) => {
 });
 ```
 
-## Helm Chart: Probes Configuration
+## Kubernetes Helm Chart: Probes Configuration
 
-Add `livenessProbe` and `readinessProbe` to the deployment template in your Helm chart:
+Apply this section only when `deploymentModel` is `kubernetes`. Add `livenessProbe` and `readinessProbe` to the deployment template in your Helm chart:
 
 ```yaml
 # charts/<your-chart>/templates/deployment.yaml
@@ -112,8 +121,8 @@ And in `values.yaml`:
 ```yaml
 image:
   repository: ghcr.io/OWNER/IMAGE
-  tag: latest
-  digest: ""          # filled in by the CD workflow
+  tag: v1.2.3
+  digest: ""          # filled in by the publish workflow
 
 service:
   port: 8080
@@ -156,3 +165,55 @@ Grant `packages: write` to the build job for GHCR. Remove it for Docker Hub.
 - When a REST API service is deployed to Kubernetes via a Helm chart.
 - When every merge to `main` should trigger a new deployment.
 - When the API needs health and readiness probes for safe Kubernetes lifecycle management.
+
+## CI Workflow
+
+Use the same `deploy-web.yml` workflow template as the web app publishing rule:
+
+- Trigger on `push` to `main`.
+- `concurrency: cancel-in-progress: true`.
+- Build and push the Docker image tagged with `sha-<short-sha>` and `latest`.
+- Update the Helm chart repo with the new image digest.
+
+Name the workflow file `deploy-api.yml` (or keep `deploy-web.yml` if there is only one service).
+
+## Helm Chart: Probes Configuration
+
+Add `livenessProbe` and `readinessProbe` to the deployment template in your Helm chart:
+
+```yaml
+# charts/<your-chart>/templates/deployment.yaml
+containers:
+  - name: {{ .Chart.Name }}
+    image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+    ports:
+      - name: http
+        containerPort: {{ .Values.service.port }}
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: http
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+      successThreshold: 1
+```
+
+And in `values.yaml`:
+
+```yaml
+image:
+  repository: ghcr.io/OWNER/IMAGE
+  tag: latest
+  digest: ""          # filled in by the CD workflow
+
+service:
+  port: 8080
+```

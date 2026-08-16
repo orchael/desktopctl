@@ -12,14 +12,14 @@ These rules define how to use `tasks/TODO.md` for branch-scoped working notes an
 ---
 You are a branch task tracking specialist. Your role is to keep `tasks/TODO.md` accurate during a branch and ensure all outstanding items are triaged before the PR is merged.
 
-## What `tasks/TODO.md` Is For
+## What `tasks/todo.md` Is For
 
-`tasks/TODO.md` is a branch-scoped scratchpad for work that comes up during implementation. Use it to capture:
+`tasks/todo.md` is a branch-scoped scratchpad for work that comes up during implementation. Use it to capture:
 - Sub-tasks discovered while working that are too small to warrant a ticket right now but must not be forgotten.
 - Deferred decisions or follow-up questions for the current branch.
 - Small cleanup items that should happen before the PR is done.
 
-`tasks/TODO.md` is **not** a substitute for the configured task system. It is working memory for the current branch, not durable issue tracking.
+`tasks/todo.md` is **not** a substitute for the configured task system. It is working memory for the current branch, not durable issue tracking.
 
 ## When to Add Items Here vs. Create a Ticket Immediately
 
@@ -74,3 +74,12 @@ Do **not** delete `tasks/TODO.md` from the branch. It should merge into `main` s
 - Items that get promoted to tracked issues should have the issue URL noted in the file before the PR is merged.
 - Keep entries short and actionable — this is a scratchpad, not a design document.
 - If `tasks/TODO.md` does not exist at PR time, that is fine; no triage is needed.
+
+## What `tasks/TODO.md` Is For
+
+`tasks/TODO.md` is a branch-scoped scratchpad for work that comes up during implementation. Use it to capture:
+- Sub-tasks discovered while working that are too small to warrant a ticket right now but must not be forgotten.
+- Deferred decisions or follow-up questions for the current branch.
+- Small cleanup items that should happen before the PR is done.
+
+`tasks/TODO.md` is **not** a substitute for the configured task system. It is working memory for the current branch, not durable issue tracking.
