@@ -44,7 +44,7 @@ func main() {
 		fleetStore = store.NewInMemoryStore()
 	}
 
-	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout)
+	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout, runtime.LifecycleTimeout)
 	server := controlplane.NewServer(service, runtime.StaticDir, logger, runtime.APIToken)
 
 	logger.Info("control plane listening", "addr", runtime.Addr)

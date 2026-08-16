@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getReadiness, listDesktops, refreshDesktop, startDesktop, stopDesktop } from './api';
 import type { Desktop, Readiness } from './types';
 
-const tokenStorageKey = 'ai-desktops-control-plane-token';
+const tokenStorageKey = 'ai-desktops-control-plane-session-token';
 
 export default function App() {
   const [desktops, setDesktops] = useState<Desktop[]>([]);
@@ -207,16 +207,16 @@ export default function App() {
 }
 
 function readStoredToken() {
-  if (typeof globalThis.localStorage?.getItem !== 'function') return '';
-  return globalThis.localStorage.getItem(tokenStorageKey) ?? '';
+  if (typeof globalThis.sessionStorage?.getItem !== 'function') return '';
+  return globalThis.sessionStorage.getItem(tokenStorageKey) ?? '';
 }
 
 function writeStoredToken(value: string) {
-  if (typeof globalThis.localStorage?.setItem !== 'function') return;
+  if (typeof globalThis.sessionStorage?.setItem !== 'function') return;
   if (value) {
-    globalThis.localStorage.setItem(tokenStorageKey, value);
-  } else if (typeof globalThis.localStorage.removeItem === 'function') {
-    globalThis.localStorage.removeItem(tokenStorageKey);
+    globalThis.sessionStorage.setItem(tokenStorageKey, value);
+  } else if (typeof globalThis.sessionStorage.removeItem === 'function') {
+    globalThis.sessionStorage.removeItem(tokenStorageKey);
   }
 }
 

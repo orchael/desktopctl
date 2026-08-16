@@ -16,16 +16,25 @@ import (
 
 // Service owns control-plane operations over the fleet.
 type Service struct {
-	cfg            *appconfig.Config
-	store          store.Store
-	awsCfg         aws.Config
-	awsReady       bool
-	mockAWS        bool
-	refreshTimeout time.Duration
+	cfg              *appconfig.Config
+	store            store.Store
+	awsCfg           aws.Config
+	awsReady         bool
+	mockAWS          bool
+	refreshTimeout   time.Duration
+	lifecycleTimeout time.Duration
 }
 
-func NewService(cfg *appconfig.Config, s store.Store, awsCfg aws.Config, awsReady bool, mockAWS bool, refreshTimeout time.Duration) *Service {
-	return &Service{cfg: cfg, store: s, awsCfg: awsCfg, awsReady: awsReady, mockAWS: mockAWS, refreshTimeout: refreshTimeout}
+func NewService(cfg *appconfig.Config, s store.Store, awsCfg aws.Config, awsReady bool, mockAWS bool, refreshTimeout time.Duration, lifecycleTimeout time.Duration) *Service {
+	return &Service{
+		cfg:              cfg,
+		store:            s,
+		awsCfg:           awsCfg,
+		awsReady:         awsReady,
+		mockAWS:          mockAWS,
+		refreshTimeout:   refreshTimeout,
+		lifecycleTimeout: lifecycleTimeout,
+	}
 }
 
 type Readiness struct {
@@ -164,7 +173,7 @@ func (s *Service) StopDesktop(ctx context.Context, id string) (*OperationResult,
 	if err := s.requireAWS(); err != nil {
 		return nil, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, s.refreshTimeout)
+	callCtx, cancel := context.WithTimeout(ctx, s.lifecycleTimeout)
 	defer cancel()
 	if d.NestedVirt {
 		err = awsx.HaltInstance(callCtx, s.awsCfg, d.InstanceID)
@@ -202,7 +211,7 @@ func (s *Service) StartDesktop(ctx context.Context, id string) (*OperationResult
 	if err := s.requireAWS(); err != nil {
 		return nil, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, s.refreshTimeout)
+	callCtx, cancel := context.WithTimeout(ctx, s.lifecycleTimeout)
 	defer cancel()
 	if err := awsx.StartInstance(callCtx, s.awsCfg, d.InstanceID); err != nil {
 		return nil, err

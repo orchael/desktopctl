@@ -8,6 +8,7 @@ data:
   AWS_REGION: us-east-2
   CONTROL_PLANE_ADDR: :8080
   CONTROL_PLANE_STATIC_DIR: /app/static
+  CONTROL_PLANE_LIFECYCLE_TIMEOUT: 12m
   config.yaml: |
     aws:
       region: us-east-2

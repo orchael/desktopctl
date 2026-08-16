@@ -24,7 +24,7 @@ func TestListDesktopsFiltersTerminated(t *testing.T) {
 	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-2", State: store.StateTerminated, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(testConfig(), s, aws.Config{}, false, false, time.Second)
+	service := newTestService(testConfig(), s)
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/desktops", nil)
@@ -45,7 +45,7 @@ func TestListDesktopsFiltersTerminated(t *testing.T) {
 
 func TestGetDesktopNotFound(t *testing.T) {
 	t.Parallel()
-	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, false, time.Second)
+	service := newTestService(testConfig(), store.NewInMemoryStore())
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/desktops/missing", nil)
@@ -59,7 +59,7 @@ func TestGetDesktopNotFound(t *testing.T) {
 
 func TestCreateDesktopDeferredReturnsNotImplemented(t *testing.T) {
 	t.Parallel()
-	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, false, time.Second)
+	service := newTestService(testConfig(), store.NewInMemoryStore())
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
@@ -73,7 +73,7 @@ func TestCreateDesktopDeferredReturnsNotImplemented(t *testing.T) {
 
 func TestCreateDesktopRequiresBearerTokenWhenConfigured(t *testing.T) {
 	t.Parallel()
-	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, false, time.Second)
+	service := newTestService(testConfig(), store.NewInMemoryStore())
 	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
@@ -100,7 +100,7 @@ func TestAPIPathWithoutTrailingSlashReturnsJSONNotStatic(t *testing.T) {
 	if err := os.WriteFile(staticDir+"/index.html", []byte("<html>app</html>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, false, time.Second)
+	service := newTestService(testConfig(), store.NewInMemoryStore())
 	server := NewServer(service, staticDir, slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api", nil)
@@ -137,6 +137,24 @@ func TestRuntimeConfigRequiresAPITokenWhenNotMock(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("config with API token should validate: %v", err)
 	}
+}
+
+func TestRuntimeConfigParsesLifecycleTimeout(t *testing.T) {
+	t.Setenv("CONTROL_PLANE_MOCK_AWS", "true")
+	t.Setenv("CONTROL_PLANE_REFRESH_TIMEOUT", "3s")
+	t.Setenv("CONTROL_PLANE_LIFECYCLE_TIMEOUT", "9m")
+
+	cfg := LoadRuntimeConfig()
+	if cfg.RefreshTimeout != 3*time.Second {
+		t.Fatalf("RefreshTimeout = %s, want 3s", cfg.RefreshTimeout)
+	}
+	if cfg.LifecycleTimeout != 9*time.Minute {
+		t.Fatalf("LifecycleTimeout = %s, want 9m", cfg.LifecycleTimeout)
+	}
+}
+
+func newTestService(cfg *appconfig.Config, s store.Store) *Service {
+	return NewService(cfg, s, aws.Config{}, false, false, time.Second, time.Minute)
 }
 
 func testConfig() *appconfig.Config {

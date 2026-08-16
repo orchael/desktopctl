@@ -10,20 +10,22 @@ import (
 )
 
 const (
-	defaultAddr           = ":8080"
-	defaultRefreshTimeout = 15 * time.Second
+	defaultAddr             = ":8080"
+	defaultRefreshTimeout   = 15 * time.Second
+	defaultLifecycleTimeout = 12 * time.Minute
 )
 
 // RuntimeConfig contains control-plane-only settings loaded from environment.
 type RuntimeConfig struct {
-	Addr           string
-	ConfigPath     string
-	StaticDir      string
-	MockAWS        bool
-	AWSRoleARN     string
-	AWSExternalID  string
-	APIToken       string
-	RefreshTimeout time.Duration
+	Addr             string
+	ConfigPath       string
+	StaticDir        string
+	MockAWS          bool
+	AWSRoleARN       string
+	AWSExternalID    string
+	APIToken         string
+	RefreshTimeout   time.Duration
+	LifecycleTimeout time.Duration
 }
 
 // LoadRuntimeConfig reads runtime settings from environment variables.
@@ -32,6 +34,12 @@ func LoadRuntimeConfig() RuntimeConfig {
 	if raw := os.Getenv("CONTROL_PLANE_REFRESH_TIMEOUT"); raw != "" {
 		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
 			timeout = parsed
+		}
+	}
+	lifecycleTimeout := defaultLifecycleTimeout
+	if raw := os.Getenv("CONTROL_PLANE_LIFECYCLE_TIMEOUT"); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			lifecycleTimeout = parsed
 		}
 	}
 	mockAWS := false
@@ -43,14 +51,15 @@ func LoadRuntimeConfig() RuntimeConfig {
 		addr = defaultAddr
 	}
 	return RuntimeConfig{
-		Addr:           addr,
-		ConfigPath:     firstNonEmpty(os.Getenv("AI_DESKTOPS_CONFIG"), os.Getenv("CONFIG_PATH")),
-		StaticDir:      os.Getenv("CONTROL_PLANE_STATIC_DIR"),
-		MockAWS:        mockAWS,
-		AWSRoleARN:     os.Getenv("AWS_ROLE_ARN"),
-		AWSExternalID:  os.Getenv("AWS_EXTERNAL_ID"),
-		APIToken:       os.Getenv("CONTROL_PLANE_API_TOKEN"),
-		RefreshTimeout: timeout,
+		Addr:             addr,
+		ConfigPath:       firstNonEmpty(os.Getenv("AI_DESKTOPS_CONFIG"), os.Getenv("CONFIG_PATH")),
+		StaticDir:        os.Getenv("CONTROL_PLANE_STATIC_DIR"),
+		MockAWS:          mockAWS,
+		AWSRoleARN:       os.Getenv("AWS_ROLE_ARN"),
+		AWSExternalID:    os.Getenv("AWS_EXTERNAL_ID"),
+		APIToken:         os.Getenv("CONTROL_PLANE_API_TOKEN"),
+		RefreshTimeout:   timeout,
+		LifecycleTimeout: lifecycleTimeout,
 	}
 }
 

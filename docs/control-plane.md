@@ -134,6 +134,8 @@ kubectl -n ai-desktops exec deploy/ai-desktops-control-plane -- wget -qO- http:/
 | `CONTROL_PLANE_API_TOKEN` | Secret | Bearer token required for mutating fleet API calls. |
 | `CONTROL_PLANE_ADDR` | ConfigMap | HTTP listen address. Defaults to `:8080`. |
 | `CONTROL_PLANE_STATIC_DIR` | ConfigMap | Static web asset directory. |
+| `CONTROL_PLANE_REFRESH_TIMEOUT` | ConfigMap | Timeout for short live-state refresh calls. Defaults to `15s`. |
+| `CONTROL_PLANE_LIFECYCLE_TIMEOUT` | ConfigMap | Timeout for start/stop AWS waiters. Defaults to `12m`. |
 
 ## Current API
 
