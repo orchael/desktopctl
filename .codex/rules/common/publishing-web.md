@@ -17,9 +17,52 @@ You are a publishing specialist for web applications deployed as Docker containe
 - Update a separate Helm chart repository with the new image digest after the image is pushed.
 - Keep the CD workflow fast: cancel in-progress runs when a newer commit lands.
 
+## Activation
+
+No app deployment model is configured (`deploymentModel: none`). Deployment guidance is reference-only. Deployment is inactive: keep library, SDK, CLI, and optional container publishing guidance active, but do not create deploy-on-main workflows, deployment-state updates, Kubernetes, serverless, hosted-platform, or self-managed server deployment ownership until the repository sets an active `deploymentModel`.
+
 ## Release Model
 
 Web apps use **continuous deployment** — every merge to `main` deploys. There is no manual version bump or `workflow_dispatch` trigger. If a named semver release is also needed (e.g. for a public API), create a separate `release.yml` workflow that responds to `v*` tags.
+
+## Artifact Rules
+
+- For Docker images, publish to the configured registry such as GHCR or Docker Hub.
+- Check out `refs/tags/v<version>` in the publish job.
+- Use `v<version>` as the primary deployment tag.
+- Add `sha-<short-sha>` for source traceability.
+- Add `<version>` or `<major>.<minor>` aliases only when they are useful for operators.
+- Use `latest` only when the team explicitly wants a mutable tag.
+- Capture and surface the published digest when Kubernetes, GitOps, or another deployment tool can consume it.
+
+## Deployment Handoff
+
+- For `deploymentModel: none`, keep deployment-state changes inactive unless the user explicitly asks to add deployment ownership.
+- For `deploymentModel: kubernetes`, prefer a GitOps handoff: publish the image, then update the environment repository or chart values watched by Argo CD or the repo’s existing GitOps controller.
+- For hosted platforms, use the platform’s native deploy action or CLI only after build artifacts are immutable and traceable to the release tag.
+- Keep deployment credentials scoped to the deploy job and avoid exposing them to pull request workflows.
+
+## Workflow Shape
+
+- Use separate jobs for quality checks, version/tag creation, artifact publishing, and deployment-state updates.
+- Set `permissions: contents: read` by default, then grant `contents: write`, `packages: write`, or deployment-specific permissions only on jobs that need them.
+- Use concurrency that cancels superseded pull request checks but does not cancel in-progress release or deployment runs.
+- Keep publish jobs separate per application when a repository ships multiple web apps.
+- Run language-specific build and test commands from the package root that owns the web artifact.
+
+## Verification
+
+- Confirm the release tag is `v`-prefixed semver and points at the intended commit.
+- Confirm the build used the release tag checkout.
+- Confirm pushed artifacts include traceable tags and, for images, a digest.
+- Confirm deployment-state updates reference the released artifact, not `latest` or a branch name.
+- Confirm pull request workflows cannot publish or deploy with production credentials.
+
+## When Completed
+
+1. Summarize the release trigger, artifact registry or platform, and deployment handoff.
+2. Identify the quality gate, publish job, and deployment-state update job.
+3. Show the tag and artifact naming scheme.
 
 ## Workflow Trigger and Concurrency
 

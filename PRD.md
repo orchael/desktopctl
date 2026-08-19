@@ -445,6 +445,8 @@ The PRD says external-user access must remain possible but does not define v1 au
 
 `ai-agent-bridge` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
 
+The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
+
 ### Repository authentication
 
 Repo cloning requires GitHub credentials. v1 uses a fine-scoped GitHub PAT stored in AWS secret storage and scoped to the configured owner. A GitHub App should replace the PAT after the first smoke path is working.

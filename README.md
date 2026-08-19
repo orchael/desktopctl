@@ -89,6 +89,31 @@ Run `ai-desktops setup` before running `create`. It is safe to re-run — it pro
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
+### Codex and Claude Code Agent Auth
+
+`ai-desktops setup` stores provider API keys in AWS Secrets Manager, but Codex ChatGPT auth and Claude Code long-lived OAuth tokens have their own local credential flows:
+
+- Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
+- Claude Code's `claude setup-token` command prints a long-lived `CLAUDE_CODE_OAUTH_TOKEN`; Anthropic's Claude Code docs state that command does not save the token, so copy it when it is printed.
+
+Use the helper script to merge these credentials into `/ai-desktops/<owner>/agents` without overwriting unrelated keys:
+
+```bash
+# Default owner is markcallen and default Codex auth path is ${CODEX_HOME:-$HOME/.codex}/auth.json.
+scripts/update-agent-auth.sh --region us-east-1
+
+# Equivalent explicit form for the markcallen agent secret:
+scripts/update-agent-auth.sh \
+  --owner markcallen \
+  --secret-id /ai-desktops/markcallen/agents \
+  --codex-auth-json ~/.codex/auth.json \
+  --region us-east-1
+```
+
+The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
+
+Existing desktops do not automatically re-fetch `/ai-desktops/<owner>/agents`; recreate the desktop or restart/reload the `bridgectl` user service after updating `/home/ubuntu/.config/bridgectl/agents.env` on the instance.
+
 ## Installation
 
 ```bash
@@ -225,7 +250,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.9.0"
+ai_agent_bridge_version = "v0.10.1"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
