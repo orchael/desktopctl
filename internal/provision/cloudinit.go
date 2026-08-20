@@ -502,7 +502,14 @@ runcmd:
     GITHUB_TOKEN=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
-    GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)
+    if ! GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login); then
+      echo "ERROR: could not resolve GitHub login from token" >&2
+      exit 1
+    fi
+    if [ -z "$GITHUB_LOGIN" ]; then
+      echo "ERROR: GitHub token resolved to an empty login" >&2
+      exit 1
+    fi
 
     # Install SSH private key for github.com (ubuntu)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh

@@ -112,7 +112,10 @@ func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
 	}
 
 	checks := []string{
-		`GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)`,
+		`if ! GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login); then`,
+		`ERROR: could not resolve GitHub login from token`,
+		`if [ -z "$GITHUB_LOGIN" ]; then`,
+		`ERROR: GitHub token resolved to an empty login`,
 		`printf '    user: %s\n' "$GITHUB_LOGIN"`,
 		`printf '    users:\n'`,
 		`printf '        %s:\n' "$GITHUB_LOGIN"`,
