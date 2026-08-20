@@ -486,7 +486,6 @@ runcmd:
     REGION="{{ .AWSRegion }}"
     SECRET="{{ .GitHubSecretPath }}"
     WORKSPACE="{{ .WorkspacePath }}"
-    OWNER="{{ .GitHubOwner }}"
 
     # Retrieve JSON secret from Secrets Manager
     SECRET_JSON=$(aws secretsmanager get-secret-value \
@@ -503,6 +502,7 @@ runcmd:
     GITHUB_TOKEN=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
+    GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)
 
     # Install SSH private key for github.com (ubuntu)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
@@ -522,7 +522,10 @@ runcmd:
       printf 'github.com:\n'
       printf '    oauth_token: %s\n' "$GITHUB_TOKEN"
       printf '    git_protocol: ssh\n'
-      printf '    user: %s\n' "$OWNER"
+      printf '    user: %s\n' "$GITHUB_LOGIN"
+      printf '    users:\n'
+      printf '        %s:\n' "$GITHUB_LOGIN"
+      printf '            oauth_token: %s\n' "$GITHUB_TOKEN"
     } > /home/ubuntu/.config/gh/hosts.yml
     chmod 600 /home/ubuntu/.config/gh/hosts.yml
     chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
@@ -540,6 +543,7 @@ runcmd:
       > /home/ubuntu/.npmrc
 
     unset SSH_KEY
+    unset GITHUB_LOGIN
     unset GITHUB_TOKEN
     )
 

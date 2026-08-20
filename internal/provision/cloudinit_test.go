@@ -97,6 +97,42 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-gh",
+		Hostname:         "d-gh.desktops.orchael.dev",
+		GitHubOwner:      "repo-org",
+		GitHubSecretPath: "/ai-desktops/repo-org/github",
+		AWSRegion:        "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)`,
+		`printf '    user: %s\n' "$GITHUB_LOGIN"`,
+		`printf '    users:\n'`,
+		`printf '        %s:\n' "$GITHUB_LOGIN"`,
+		`printf '            oauth_token: %s\n' "$GITHUB_TOKEN"`,
+		`unset GITHUB_LOGIN`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered GitHub auth block missing %q", want)
+		}
+	}
+
+	if strings.Contains(out, `printf '    user: %s\n' "$OWNER"`) {
+		t.Error("gh hosts.yml must use the token login, not the repository owner")
+	}
+	if strings.Contains(out, `OWNER="{{ .GitHubOwner }}"`) {
+		t.Error("rendered GitHub auth block should not assign GitHubOwner as gh account owner")
+	}
+}
+
 func TestRenderCloudInit_validYAML(t *testing.T) {
 	cases := []struct {
 		name string
