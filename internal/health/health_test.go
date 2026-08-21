@@ -369,6 +369,12 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `openssl x509`) {
 		t.Error("bridgectl-tailscale-san should verify the issued certificate SAN")
 	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `entries=[part.strip()`) {
+		t.Error("bridgectl-tailscale-san should parse certificate SAN entries")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `want in entries`) {
+		t.Error("bridgectl-tailscale-san should require an exact certificate SAN match")
+	}
 }
 
 func TestStepCACheckers_emptyServer(t *testing.T) {

@@ -418,8 +418,11 @@ runcmd:
     with open(config_path, encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file) or {}
     server_config = config.setdefault("server", {})
+    existing_sans = server_config.get("san") or []
+    if isinstance(existing_sans, str):
+        existing_sans = [existing_sans]
     sans = [name for name in [hostname, cert_name, tailscale_dns_name] if name]
-    server_config["san"] = list(dict.fromkeys(sans))
+    server_config["san"] = list(dict.fromkeys([*existing_sans, *sans]))
     step_ca_config = config.setdefault("step_ca", {})
     step_ca_config["url"] = f"https://{step_ca}"
     step_ca_config["root"] = root_path
