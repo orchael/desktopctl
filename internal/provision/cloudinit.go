@@ -408,15 +408,18 @@ runcmd:
 {{- end}}
 
     STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
-    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" "$STEP_PROVISIONER" "$STEP_CA_PERSISTENT_PASSWORD_FILE" <<'PY'
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" "$STEP_PROVISIONER" "$STEP_CA_PERSISTENT_PASSWORD_FILE" "{{ .Hostname }}" "$CERT_NAME" "$TAILSCALE_DNS_NAME" <<'PY'
     import base64
     import json
     import sys
     import yaml
 
-    config_path, step_ca, root_path, cert_path, key_path, clients_b64, provisioner, provisioner_password_file = sys.argv[1:9]
+    config_path, step_ca, root_path, cert_path, key_path, clients_b64, provisioner, provisioner_password_file, hostname, cert_name, tailscale_dns_name = sys.argv[1:12]
     with open(config_path, encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file) or {}
+    server_config = config.setdefault("server", {})
+    sans = [name for name in [hostname, cert_name, tailscale_dns_name] if name]
+    server_config["san"] = list(dict.fromkeys(sans))
     step_ca_config = config.setdefault("step_ca", {})
     step_ca_config["url"] = f"https://{step_ca}"
     step_ca_config["root"] = root_path

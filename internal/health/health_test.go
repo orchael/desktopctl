@@ -352,7 +352,7 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 	for _, c := range checkers {
 		names[c.Name()] = true
 	}
-	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener"} {
+	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener", "bridgectl-tailscale-san"} {
 		if !names[n] {
 			t.Errorf("TailscaleCheckers missing expected checker %q", n)
 		}
@@ -362,6 +362,12 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 	}
 	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: ${TAILSCALE_IP}:9445`) {
 		t.Error("bridgectl-tailscale-listener should accept unquoted YAML listener values")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `server') or {}).get('san')`) {
+		t.Error("bridgectl-tailscale-san should verify server.san in config")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `openssl x509`) {
+		t.Error("bridgectl-tailscale-san should verify the issued certificate SAN")
 	}
 }
 

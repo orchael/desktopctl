@@ -400,7 +400,7 @@ sudo journalctl -u ai-agent-bridge -f
 
 By default the bridge binds to `127.0.0.1:9445`. All connections originate from the same host. There is no encryption or authentication required for localhost-only use.
 
-For ai-desktops created with both Tailscale and step-ca enabled, cloud-init changes the bridgectl listener to the desktop's Tailscale IPv4 address on the configured bridge port. This enables direct `bridgectl` access over the tailnet while avoiding exposure on the public EC2 interface. Tailscale-only desktops remain localhost-only.
+For ai-desktops created with both Tailscale and step-ca enabled, cloud-init changes the bridgectl listener to the desktop's Tailscale IPv4 address on the configured bridge port and adds the desktop's Tailscale DNS name to `server.san`. This enables direct `bridgectl` access over the tailnet while avoiding exposure on the public EC2 interface. Tailscale-only desktops remain localhost-only.
 
 Known remote `bridgectl` clients can be preloaded at provisioning time. Configure `pki.step_ca_clients` or repeat `--step-ca-client issuer=<name>,public-key-path=<path>,required=true`; the CLI copies each JWT public key to `/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/<issuer>.pub` and renders matching `step_ca.clients` entries into `/home/ubuntu/.config/bridgectl/config.yaml`.
 
