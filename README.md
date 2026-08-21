@@ -250,7 +250,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.10.1"
+ai_agent_bridge_version = "v0.10.2"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
