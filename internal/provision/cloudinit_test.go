@@ -39,6 +39,7 @@ func TestRenderCloudInit(t *testing.T) {
 		"/ai-desktops/acme/github",
 		"us-east-1",
 		"bridgectl",
+		`config["cert_renewal_check_interval"] = "10m"`,
 		"docker",
 		"tmux",
 		"certbot",

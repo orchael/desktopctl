@@ -602,6 +602,8 @@
         group: ubuntu
         mode: "0600"
         content: |
+          cert_renewal_check_interval: "10m"
+
           server:
             listen: "127.0.0.1:9445"
 

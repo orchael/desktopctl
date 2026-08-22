@@ -179,6 +179,25 @@ runcmd:
     fi
     )
 
+  # --- ensure bridgectl checks certificate renewal frequently ---
+  - |
+    (
+    set -e
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
+    import sys
+    import yaml
+
+    path = sys.argv[1]
+    with open(path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    config["cert_renewal_check_interval"] = "10m"
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
+    )
+
 {{- if .TailscaleNetwork}}
   # --- Tailscale network attachment ---
   - |
