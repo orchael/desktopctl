@@ -139,6 +139,9 @@ func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
 	if strings.Contains(out, `OWNER="{{ .GitHubOwner }}"`) {
 		t.Error("rendered GitHub auth block should not assign GitHubOwner as gh account owner")
 	}
+	if strings.Contains(out, `! "$real_gh" auth status`) {
+		t.Error("gh wrapper should not allow valid-but-wrong inherited tokens to shadow persisted auth")
+	}
 }
 
 func TestRenderCloudInit_bridgectlClearsGitHubTokenOverrides(t *testing.T) {
@@ -156,6 +159,10 @@ func TestRenderCloudInit_bridgectlClearsGitHubTokenOverrides(t *testing.T) {
 	}
 
 	checks := []string{
+		`default_config = {`,
+		`"providers": {`,
+		`os.makedirs(os.path.dirname(path), exist_ok=True)`,
+		`config = default_config`,
 		`bridgectl.service.d/github-auth.conf`,
 		`UnsetEnvironment=GH_TOKEN GITHUB_TOKEN`,
 		`Environment=PATH=/home/ubuntu/.local/bin:`,

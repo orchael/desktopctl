@@ -179,7 +179,7 @@ runcmd:
     fi
     )
 
-  # --- ensure bridgectl checks certificate renewal frequently ---
+  # --- ensure bridgectl config exists and checks certificate renewal frequently ---
   - |
     (
     set -e
@@ -188,12 +188,46 @@ runcmd:
       /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
     fi
     python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
+    import os
     import sys
     import yaml
 
     path = sys.argv[1]
-    with open(path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    default_config = {
+        "server": {
+            "listen": "127.0.0.1:9445",
+        },
+        "providers": {
+            "claude": {
+                "binary": "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                "args": [],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["CLAUDE_CODE_OAUTH_TOKEN"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+            "codex": {
+                "binary": "/usr/bin/node",
+                "args": ["/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["OPENAI_API_KEY"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+        },
+        "allowed_paths": ["/workspace"],
+        "logging": {
+            "level": "info",
+            "format": "json",
+            "redact_patterns": [r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+"],
+        },
+    }
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or default_config
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        config = default_config
     config["cert_renewal_check_interval"] = "10m"
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
@@ -573,9 +607,7 @@ runcmd:
       printf '%s\n' '#!/bin/sh'
       printf '%s\n' 'set -eu'
       printf '%s\n' 'real_gh=/usr/bin/gh'
-      printf '%s\n' 'if { [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; } && ! "$real_gh" auth status >/dev/null 2>&1; then'
-      printf '%s\n' '  unset GH_TOKEN GITHUB_TOKEN'
-      printf '%s\n' 'fi'
+      printf '%s\n' 'unset GH_TOKEN GITHUB_TOKEN'
       printf '%s\n' 'exec "$real_gh" "$@"'
     } > /home/ubuntu/.local/bin/gh
     chown ubuntu:ubuntu /home/ubuntu/.local/bin/gh
