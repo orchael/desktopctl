@@ -183,6 +183,10 @@ runcmd:
   - |
     (
     set -e
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
+    fi
     python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
     import sys
     import yaml
