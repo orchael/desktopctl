@@ -565,6 +565,22 @@ runcmd:
     } > /home/ubuntu/.config/gh/hosts.yml
     chmod 600 /home/ubuntu/.config/gh/hosts.yml
     chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
+
+    # Prefer the persisted gh login when a stale inherited token would otherwise
+    # override ~/.config/gh/hosts.yml and break PR/CI checks in agent sessions.
+    install -d -o ubuntu -g ubuntu -m 755 /home/ubuntu/.local/bin
+    {
+      printf '%s\n' '#!/bin/sh'
+      printf '%s\n' 'set -eu'
+      printf '%s\n' 'real_gh=/usr/bin/gh'
+      printf '%s\n' 'if { [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; } && ! "$real_gh" auth status >/dev/null 2>&1; then'
+      printf '%s\n' '  unset GH_TOKEN GITHUB_TOKEN'
+      printf '%s\n' 'fi'
+      printf '%s\n' 'exec "$real_gh" "$@"'
+    } > /home/ubuntu/.local/bin/gh
+    chown ubuntu:ubuntu /home/ubuntu/.local/bin/gh
+    chmod 755 /home/ubuntu/.local/bin/gh
+
     sudo -u ubuntu gh auth setup-git --hostname github.com || echo "WARNING: gh auth setup-git failed - gh CLI may not be fully configured"
 
     # Configure git commit identity (ubuntu)
@@ -771,6 +787,13 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Prevent stale GitHub token overrides from shadowing the persisted gh login
+    # that cloud-init writes to /home/ubuntu/.config/gh/hosts.yml.
+    printf '[Service]\nUnsetEnvironment=GH_TOKEN GITHUB_TOKEN\nEnvironment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
 
 {{- if .StepCAServerDNS}}
     # Make step-ca metadata and issued certificate paths available to bridgectl.

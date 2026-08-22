@@ -121,6 +121,10 @@ func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
 		`printf '    users:\n'`,
 		`printf '        %s:\n' "$GITHUB_LOGIN"`,
 		`printf '            oauth_token: %s\n' "$GITHUB_TOKEN"`,
+		`printf '%s\n' '#!/bin/sh'`,
+		`printf '%s\n' 'real_gh=/usr/bin/gh'`,
+		`unset GH_TOKEN GITHUB_TOKEN`,
+		`exec "$real_gh" "$@"`,
 		`unset GITHUB_LOGIN`,
 	}
 	for _, want := range checks {
@@ -134,6 +138,32 @@ func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
 	}
 	if strings.Contains(out, `OWNER="{{ .GitHubOwner }}"`) {
 		t.Error("rendered GitHub auth block should not assign GitHubOwner as gh account owner")
+	}
+}
+
+func TestRenderCloudInit_bridgectlClearsGitHubTokenOverrides(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-gh-env",
+		Hostname:         "d-gh-env.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`bridgectl.service.d/github-auth.conf`,
+		`UnsetEnvironment=GH_TOKEN GITHUB_TOKEN`,
+		`Environment=PATH=/home/ubuntu/.local/bin:`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered bridgectl service setup missing %q", want)
+		}
 	}
 }
 
