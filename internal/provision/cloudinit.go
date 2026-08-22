@@ -12,7 +12,7 @@ import (
 
 const (
 	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.10.2"
+	AIAgentBridgeVersion  = "v0.11.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
