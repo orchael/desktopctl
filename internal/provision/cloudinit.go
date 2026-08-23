@@ -179,6 +179,63 @@ runcmd:
     fi
     )
 
+  # --- ensure bridgectl config exists and checks certificate renewal frequently ---
+  - |
+    (
+    set -e
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
+    fi
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
+    import os
+    import sys
+    import yaml
+
+    path = sys.argv[1]
+    default_config = {
+        "server": {
+            "listen": "127.0.0.1:9445",
+        },
+        "providers": {
+            "claude": {
+                "binary": "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                "args": [],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["CLAUDE_CODE_OAUTH_TOKEN"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+            "codex": {
+                "binary": "/usr/bin/node",
+                "args": ["/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["OPENAI_API_KEY"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+        },
+        "allowed_paths": ["/workspace"],
+        "logging": {
+            "level": "info",
+            "format": "json",
+            "redact_patterns": [r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+"],
+        },
+    }
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or default_config
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        config = default_config
+    config["cert_renewal_check_interval"] = "10m"
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
+    )
+
 {{- if .TailscaleNetwork}}
   # --- Tailscale network attachment ---
   - |
@@ -542,6 +599,20 @@ runcmd:
     } > /home/ubuntu/.config/gh/hosts.yml
     chmod 600 /home/ubuntu/.config/gh/hosts.yml
     chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
+
+    # Prefer the persisted gh login when a stale inherited token would otherwise
+    # override ~/.config/gh/hosts.yml and break PR/CI checks in agent sessions.
+    install -d -o ubuntu -g ubuntu -m 755 /home/ubuntu/.local/bin
+    {
+      printf '%s\n' '#!/bin/sh'
+      printf '%s\n' 'set -eu'
+      printf '%s\n' 'real_gh=/usr/bin/gh'
+      printf '%s\n' 'unset GH_TOKEN GITHUB_TOKEN'
+      printf '%s\n' 'exec "$real_gh" "$@"'
+    } > /home/ubuntu/.local/bin/gh
+    chown ubuntu:ubuntu /home/ubuntu/.local/bin/gh
+    chmod 755 /home/ubuntu/.local/bin/gh
+
     sudo -u ubuntu gh auth setup-git --hostname github.com || echo "WARNING: gh auth setup-git failed - gh CLI may not be fully configured"
 
     # Configure git commit identity (ubuntu)
@@ -748,6 +819,13 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Prevent stale GitHub token overrides from shadowing the persisted gh login
+    # that cloud-init writes to /home/ubuntu/.config/gh/hosts.yml.
+    printf '[Service]\nUnsetEnvironment=GH_TOKEN GITHUB_TOKEN\nEnvironment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
 
 {{- if .StepCAServerDNS}}
     # Make step-ca metadata and issued certificate paths available to bridgectl.
