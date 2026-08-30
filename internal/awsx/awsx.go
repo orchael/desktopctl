@@ -163,6 +163,25 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 
 // --- DynamoDB ---
 
+// DynamoTableExists reports whether a DynamoDB table exists and is accessible
+// with the current credentials. It returns false when the table is absent.
+func DynamoTableExists(ctx context.Context, cfg aws.Config, tableName string) (bool, error) {
+	c := dynamodb.NewFromConfig(cfg)
+	_, err := c.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err == nil {
+		return true, nil
+	}
+
+	var notFound *dynamodbtypes.ResourceNotFoundException
+	if errors.As(err, &notFound) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("describe DynamoDB table %s: %w", tableName, err)
+}
+
 // EnsureTable creates the DynamoDB table if it does not exist.
 func EnsureTable(ctx context.Context, cfg aws.Config, tableName string) error {
 	c := dynamodb.NewFromConfig(cfg)

@@ -21,7 +21,8 @@ var initFoundationCmd = &cobra.Command{
 	Short: "Deploy shared AWS foundation resources (VPC, IAM, DNS, security groups)",
 	Long: `init-foundation deploys the foundation Pulumi stack that owns shared
 AWS resources: VPC/subnet, IAM instance profile, security group, Route53
-hosted zone integration, and the DynamoDB fleet table.
+hosted zone integration, the DynamoDB fleet table, and the DynamoDB AMI
+history table.
 
 The foundation stack must be initialized before any desktop can be created.
 Run with --preview to describe what would be applied without making changes.`,
@@ -101,6 +102,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Instance Profile : %s\n", outputs[pulumi.OutputInstanceProfile])
 	fmt.Printf("Zone ID          : %s\n", outputs[pulumi.OutputZoneID])
 	fmt.Printf("Fleet Table      : %s\n", outputs[pulumi.OutputFleetTable])
+	if outputs[pulumi.OutputAMITable] != "" {
+		fmt.Printf("AMI Table        : %s\n", outputs[pulumi.OutputAMITable])
+	}
 	fmt.Println("Foundation stack applied.")
 	return nil
 }

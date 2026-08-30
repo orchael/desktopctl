@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,15 @@ func TestValidateAMIRegionSelection(t *testing.T) {
 	}
 	if err := validateAMIRegionSelection([]string{"us-east-1", "us-west-2"}, "ami-123"); err == nil {
 		t.Fatal("expected multi-region base AMI override error")
+	}
+}
+
+func TestMissingAMITableError(t *testing.T) {
+	err := missingAMITableError("ai-desktops-ami-dev", "us-east-2", "dev")
+	msg := err.Error()
+	for _, want := range []string{"ai-desktops-ami-dev", "us-east-2", "init-foundation", "dev"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missingAMITableError() = %q, want it to contain %q", msg, want)
+		}
 	}
 }
