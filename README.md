@@ -269,7 +269,7 @@ The following variables are **injected automatically** by the CLI and must not b
 
 The foundation stack must already be applied for the configured environment and
 AWS control region because `ami build` records AMI history in the foundation
-DynamoDB AMI table:
+DynamoDB AMI history table:
 
 ```bash
 ai-desktops init-foundation

@@ -141,7 +141,7 @@ func preflightAMIStore(ctx context.Context) error {
 	}
 	exists, err := awsx.DynamoTableExists(ctx, awsCfg, cfg.Fleet.AMITableName)
 	if err != nil {
-		return fmt.Errorf("check AMI history table %q in region %s: %w", cfg.Fleet.AMITableName, cfg.AWS.Region, err)
+		return fmt.Errorf("check AMI history table %q in AWS control region %s: %w", cfg.Fleet.AMITableName, cfg.AWS.Region, err)
 	}
 	if !exists {
 		return missingAMITableError(cfg.Fleet.AMITableName, cfg.AWS.Region, cfg.Fleet.Environment)
@@ -150,7 +150,7 @@ func preflightAMIStore(ctx context.Context) error {
 }
 
 func missingAMITableError(tableName, region, environment string) error {
-	return fmt.Errorf("AMI history table %q does not exist in AWS region %s; run `ai-desktops init-foundation` for environment %q or set fleet.ami_table_name to the existing AMI history table", tableName, region, environment)
+	return fmt.Errorf("AMI history table %q does not exist in AWS control region %s; run `ai-desktops init-foundation` for environment %q or set fleet.ami_table_name to the existing AMI history table", tableName, region, environment)
 }
 
 func validateAMIRegionSelection(regions []string, baseAMI string) error {
