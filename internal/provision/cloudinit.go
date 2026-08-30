@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.11.0"
+	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
+	BridgectlVersion      = "v1.0.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -44,6 +44,7 @@ type BootstrapConfig struct {
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
+	NPMGitHubScopes      []string
 	// SwapSizeGB is the size of the swap file to create in GiB.
 	// 0 means no swap file is created.
 	SwapSizeGB int
@@ -138,43 +139,43 @@ runcmd:
     SH
     chmod 0755 /opt/ai-desktops/apt-with-lock
 
-  # --- ensure ai-agent-bridge/bridgectl package version matches the CLI ---
+  # --- ensure bridgectl package version matches the CLI ---
   - |
     (
     set -e
     EXPECTED_BRIDGE_VERSION="{{ .BridgePackageVersion }}"
-    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge 2>/dev/null || true)
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' bridgectl 2>/dev/null || true)
     if [ "$INSTALLED_BRIDGE_VERSION" = "$EXPECTED_BRIDGE_VERSION" ]; then
-      echo "ai-agent-bridge version $EXPECTED_BRIDGE_VERSION already installed"
+      echo "bridgectl version $EXPECTED_BRIDGE_VERSION already installed"
       exit 0
     fi
 
-    echo "Installing ai-agent-bridge $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
+    echo "Installing bridgectl $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
     /opt/ai-desktops/apt-with-lock apt-get update
     /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates
     install -d -m 0755 /etc/apt/keyrings
-    if [ ! -f /etc/apt/keyrings/ai-agent-bridge.gpg ]; then
+    if [ ! -f /etc/apt/keyrings/bridgectl.gpg ]; then
       BRIDGE_KEY_ASC=$(mktemp)
       trap 'rm -f "$BRIDGE_KEY_ASC"' EXIT
-      curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
-      gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg "$BRIDGE_KEY_ASC"
+      curl -fsSL https://orchael.github.io/bridgectl/apt/bridgectl-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
+      gpg --dearmor -o /etc/apt/keyrings/bridgectl.gpg "$BRIDGE_KEY_ASC"
       rm -f "$BRIDGE_KEY_ASC"
       trap - EXIT
-      chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+      chmod 0644 /etc/apt/keyrings/bridgectl.gpg
     fi
     ARCH=$(dpkg --print-architecture)
     . /etc/os-release
     UBUNTU_CODENAME="${VERSION_CODENAME:-noble}"
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt %s main\n' \
-      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/ai-agent-bridge.list
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/bridgectl.gpg] https://orchael.github.io/bridgectl/apt %s main\n' \
+      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/bridgectl.list
     /opt/ai-desktops/apt-with-lock apt-get update
-    /opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
-    if [ -x /usr/lib/ai-agent-bridge/install-provider-runtime ]; then
-      /usr/lib/ai-agent-bridge/install-provider-runtime || echo "WARNING: install-provider-runtime failed after ai-agent-bridge version correction"
+    /opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends "bridgectl=${EXPECTED_BRIDGE_VERSION}"
+    if [ -x /usr/lib/bridgectl/install-provider-runtime ]; then
+      INSTALL_DIR=/opt/bridgectl /usr/lib/bridgectl/install-provider-runtime || echo "WARNING: install-provider-runtime failed after bridgectl version correction"
     fi
-    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge)
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' bridgectl)
     if [ "$INSTALLED_BRIDGE_VERSION" != "$EXPECTED_BRIDGE_VERSION" ]; then
-      echo "ERROR: ai-agent-bridge version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
+      echo "ERROR: bridgectl version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
       exit 1
     fi
     )
@@ -199,7 +200,7 @@ runcmd:
         },
         "providers": {
             "claude": {
-                "binary": "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                "binary": "/opt/bridgectl/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
                 "args": [],
                 "startup_timeout": "60s",
                 "startup_probe": "output",
@@ -208,7 +209,7 @@ runcmd:
             },
             "codex": {
                 "binary": "/usr/bin/node",
-                "args": ["/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"],
+                "args": ["/opt/bridgectl/node_modules/@openai/codex/bin/codex.js"],
                 "startup_timeout": "60s",
                 "startup_probe": "output",
                 "required_env": ["OPENAI_API_KEY"],
@@ -216,6 +217,9 @@ runcmd:
             },
         },
         "allowed_paths": ["/workspace"],
+        "runtime": {
+            "provider_root": "/opt/bridgectl",
+        },
         "logging": {
             "level": "info",
             "format": "json",
@@ -228,6 +232,22 @@ runcmd:
     else:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         config = default_config
+    runtime = config.setdefault("runtime", {})
+    if runtime.get("provider_root") in (None, "", "/opt/ai-agent-bridge"):
+        runtime["provider_root"] = "/opt/bridgectl"
+    providers = config.setdefault("providers", {})
+    claude = providers.get("claude")
+    if isinstance(claude, dict):
+        if claude.get("binary") == "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe":
+            claude["binary"] = "/opt/bridgectl/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+    codex = providers.get("codex")
+    if isinstance(codex, dict):
+        codex["args"] = [
+            "/opt/bridgectl/node_modules/@openai/codex/bin/codex.js"
+            if arg == "/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"
+            else arg
+            for arg in (codex.get("args") or [])
+        ]
     config["cert_renewal_check_interval"] = "10m"
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
@@ -455,7 +475,7 @@ runcmd:
     install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_ROOT" "$CERT_DIR/step-ca-root.crt"
 
 {{- if .StepCAClients}}
-    JWT_CLIENT_DIR="/home/ubuntu/.ai-agent-bridge/certs/jwt-clients"
+    JWT_CLIENT_DIR="/home/ubuntu/.config/bridgectl/certs/jwt-clients"
     install -d -o ubuntu -g ubuntu -m 700 "$JWT_CLIENT_DIR"
 {{- range .StepCAClients}}
     printf '%s' '{{ b64 .PublicKey }}' | base64 -d > "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
@@ -620,11 +640,17 @@ runcmd:
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
     sudo -u ubuntu git config --global --add safe.directory '*'
 
-    # Write ~/.npmrc so the ubuntu user can install @{{ .GitHubOwner }} packages from GitHub Packages.
+{{- if .NPMGitHubScopes}}
+    # Write ~/.npmrc so the ubuntu user can install configured scopes from GitHub Packages.
     # Pre-create with correct ownership and mode before writing so the token is never world-readable.
     install -o ubuntu -g ubuntu -m 600 /dev/null /home/ubuntu/.npmrc
-    printf '@{{ .GitHubOwner }}:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN" \
-      > /home/ubuntu/.npmrc
+    {
+{{- range .NPMGitHubScopes}}
+      printf '@{{ . }}:registry=https://npm.pkg.github.com\n'
+{{- end}}
+      printf '//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN"
+    } > /home/ubuntu/.npmrc
+{{- end}}
 
     unset SSH_KEY
     unset GITHUB_LOGIN
@@ -1043,6 +1069,11 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
+	var err error
+	cfg.NPMGitHubScopes, err = NormalizeNPMGitHubScopes(cfg.NPMGitHubScopes)
+	if err != nil {
+		return "", err
+	}
 
 	// Pre-compute AVD vars JSON (base64-encoded) for safe shell embedding in cloud-init.
 	// Base64 avoids heredoc indentation issues and shell quote escaping.
@@ -1076,7 +1107,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		for _, c := range cfg.StepCAClients {
 			clients = append(clients, clientVar{
 				Issuer:   c.Issuer,
-				KeyPath:  "/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/" + c.Issuer + ".pub",
+				KeyPath:  "/home/ubuntu/.config/bridgectl/certs/jwt-clients/" + c.Issuer + ".pub",
 				Required: c.Required,
 			})
 		}
@@ -1097,8 +1128,8 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	}
 	data := templateData{
 		BootstrapConfig:      cfg,
-		BridgeVersion:        AIAgentBridgeVersion,
-		BridgePackageVersion: strings.TrimPrefix(AIAgentBridgeVersion, "v"),
+		BridgeVersion:        BridgectlVersion,
+		BridgePackageVersion: strings.TrimPrefix(BridgectlVersion, "v"),
 		AVDsJSONB64:          avdsJSONB64,
 		StepCAClientsJSONB64: stepCAClientsJSONB64,
 	}

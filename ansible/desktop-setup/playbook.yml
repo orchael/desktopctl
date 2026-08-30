@@ -68,8 +68,8 @@
       changed_when: false
       ignore_errors: true
 
-    - name: Check ai-agent-bridge service
-      ansible.builtin.shell: systemctl list-unit-files | grep -q ai-agent-bridge && echo "ai-agent-bridge service installed"
+    - name: Check bridgectl service
+      ansible.builtin.shell: sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user list-unit-files | grep -q bridgectl && echo "bridgectl service installed"
       args:
         executable: /bin/bash
       changed_when: false

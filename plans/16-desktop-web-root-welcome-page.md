@@ -37,7 +37,7 @@ Replace the mock `api-server.js` with a real Node.js server that:
 - Reads `/opt/ai-desktops/desktop.env` for `DESKTOP_ID`, `GITHUB_OWNER`, `WORKSPACE`,
   `ENVIRONMENT`, `BRIDGE_PORT`
 - Scans `$WORKSPACE` for git directories to populate `repos`
-- Queries `systemctl is-active` for `docker`, `ai-agent-bridge`, `novnc-desktop` to populate
+- Queries `systemctl is-active` for `docker`, `bridgectl`, `novnc-desktop` to populate
   `services`
 - Derives `hostname` from `os.hostname()` or env
 - Constructs `novnc_url` as `https://<hostname>:8443/novnc/vnc.html`

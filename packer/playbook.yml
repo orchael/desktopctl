@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    # go_version, uv_version, ai_agent_bridge_version, and tailscale_version must be injected via --extra-vars
+    # go_version, uv_version, bridgectl_version, and tailscale_version must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
     # Minimum acceptable versions for apt-installed packages.
@@ -15,7 +15,7 @@
       certbot: "1.21"
       python3-certbot-dns-route53: "1.0"
       gh: "2.0"
-      ai-agent-bridge: "{{ ai_agent_bridge_version | regex_replace('^v', '') }}"
+      bridgectl: "{{ bridgectl_version | regex_replace('^v', '') }}"
       tailscale: "{{ tailscale_version | regex_replace('^v', '') }}"
 
   pre_tasks:
@@ -39,10 +39,10 @@
         that: android_cmdline_tools_version is defined and android_cmdline_tools_version | length > 0
         fail_msg: "android_cmdline_tools_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
-    - name: Require ai_agent_bridge_version
+    - name: Require bridgectl_version
       ansible.builtin.assert:
-        that: ai_agent_bridge_version is defined and ai_agent_bridge_version | length > 0
-        fail_msg: "ai_agent_bridge_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+        that: bridgectl_version is defined and bridgectl_version | length > 0
+        fail_msg: "bridgectl_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
     - name: Require tailscale_version
       ansible.builtin.assert:
@@ -508,13 +508,13 @@
         state: directory
         mode: "0755"
 
-    - name: Add ai-agent-bridge apt signing key
+    - name: Add bridgectl apt signing key
       ansible.builtin.shell: |
-        curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc \
-          | gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg
-        chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+        curl -fsSL https://orchael.github.io/bridgectl/apt/bridgectl-archive-keyring.asc \
+          | gpg --dearmor -o /etc/apt/keyrings/bridgectl.gpg
+        chmod 0644 /etc/apt/keyrings/bridgectl.gpg
       args:
-        creates: /etc/apt/keyrings/ai-agent-bridge.gpg
+        creates: /etc/apt/keyrings/bridgectl.gpg
 
     - name: Get Debian package architecture
       ansible.builtin.command: dpkg --print-architecture
@@ -526,16 +526,16 @@
       register: ubuntu_codename
       changed_when: false
 
-    - name: Add ai-agent-bridge apt repository
+    - name: Add bridgectl apt repository
       ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/ai-agent-bridge.list
+        dest: /etc/apt/sources.list.d/bridgectl.list
         content: |
-          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt {{ ubuntu_codename.stdout }} main
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/bridgectl.gpg] https://orchael.github.io/bridgectl/apt {{ ubuntu_codename.stdout }} main
         mode: "0644"
 
-    - name: Install ai-agent-bridge from signed apt repository
+    - name: Install bridgectl from signed apt repository
       ansible.builtin.apt:
-        name: "ai-agent-bridge={{ ai_agent_bridge_version | regex_replace('^v', '') }}"
+        name: "bridgectl={{ bridgectl_version | regex_replace('^v', '') }}"
         state: present
         update_cache: true
 
@@ -561,27 +561,29 @@
         update_cache: true
 
     - name: Run install-provider-runtime to install Claude and other provider CLIs
-      ansible.builtin.command: /usr/lib/ai-agent-bridge/install-provider-runtime
+      ansible.builtin.command: /usr/lib/bridgectl/install-provider-runtime
       args:
-        creates: /opt/ai-agent-bridge/node_modules/.bin/claude
+        creates: /opt/bridgectl/node_modules/.bin/claude
+      environment:
+        INSTALL_DIR: /opt/bridgectl
 
-    - name: Add ai-agent-bridge bin to PATH via /etc/profile.d
+    - name: Add bridgectl provider bin to PATH via /etc/profile.d
       ansible.builtin.copy:
-        dest: /etc/profile.d/ai-agent-bridge.sh
+        dest: /etc/profile.d/bridgectl.sh
         owner: root
         group: root
         mode: "0644"
         content: |
-          export PATH="/opt/ai-agent-bridge/node_modules/.bin:$PATH"
+          export PATH="/opt/bridgectl/node_modules/.bin:$PATH"
 
-    - name: Stop and disable ai-agent-bridge system service before masking
+    - name: Stop and disable old ai-agent-bridge system service before masking
       ansible.builtin.systemd:
         name: ai-agent-bridge
         state: stopped
         enabled: false
       ignore_errors: true
 
-    - name: Mask ai-agent-bridge system service (replaced by bridgectl user service)
+    - name: Mask old ai-agent-bridge system service (replaced by bridgectl user service)
       ansible.builtin.systemd:
         name: ai-agent-bridge
         masked: true
@@ -609,7 +611,7 @@
 
           providers:
             claude:
-              binary: "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+              binary: "/opt/bridgectl/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
               args: []
               startup_timeout: "60s"
               startup_probe: "output"
@@ -617,7 +619,7 @@
               prompt_pattern: '(?m)(❯|>\s*$)'
             codex:
               binary: "/usr/bin/node"
-              args: ["/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"]
+              args: ["/opt/bridgectl/node_modules/@openai/codex/bin/codex.js"]
               startup_timeout: "60s"
               startup_probe: "output"
               required_env: ["OPENAI_API_KEY"]
@@ -625,6 +627,9 @@
 
           allowed_paths:
             - "/workspace"
+
+          runtime:
+            provider_root: "/opt/bridgectl"
 
           logging:
             level: "info"
@@ -972,15 +977,15 @@
         that: "'build-tools;35.0.1' in sdk_installed_out.stdout"
         fail_msg: "build-tools;35.0.1 is not installed — Flutter Android toolchain will not validate"
 
-    - name: Verify ai-agent-bridge is installed
-      ansible.builtin.command: dpkg-query -W -f='${Version}' ai-agent-bridge
+    - name: Verify bridgectl is installed
+      ansible.builtin.command: dpkg-query -W -f='${Version}' bridgectl
       register: bridge_ver_out
       changed_when: false
 
-    - name: Assert ai-agent-bridge version matches expected
+    - name: Assert bridgectl version matches expected
       ansible.builtin.assert:
-        that: bridge_ver_out.stdout == (ai_agent_bridge_version | regex_replace('^v', ''))
-        fail_msg: "ai-agent-bridge version mismatch — expected {{ ai_agent_bridge_version | regex_replace('^v', '') }}, got {{ bridge_ver_out.stdout }}"
+        that: bridge_ver_out.stdout == (bridgectl_version | regex_replace('^v', ''))
+        fail_msg: "bridgectl version mismatch — expected {{ bridgectl_version | regex_replace('^v', '') }}, got {{ bridge_ver_out.stdout }}"
 
     - name: Verify Tailscale is installed
       ansible.builtin.command: dpkg-query -W -f='${Version}' tailscale
@@ -1004,12 +1009,12 @@
 
     - name: Verify claude CLI is installed by install-provider-runtime
       ansible.builtin.stat:
-        path: /opt/ai-agent-bridge/node_modules/.bin/claude
+        path: /opt/bridgectl/node_modules/.bin/claude
       register: claude_bin
 
     - name: Fail if claude CLI is missing after install-provider-runtime
       ansible.builtin.fail:
-        msg: "claude CLI not found at /opt/ai-agent-bridge/node_modules/.bin/claude — install-provider-runtime may have failed"
+        msg: "claude CLI not found at /opt/bridgectl/node_modules/.bin/claude — install-provider-runtime may have failed"
       when: not claude_bin.stat.exists
 
     - name: Verify nvm is installed

@@ -25,7 +25,7 @@ Initial UI should show:
 - GitHub owner boundary
 - workspace repo list
 - Docker status
-- `ai-agent-bridge` status
+- `bridgectl` status
 - links to noVNC and useful local services
 
 ## Requirements

@@ -7,7 +7,7 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
-Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `ai-agent-bridge` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
+Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ The foundation stack looks up the zone by domain name and exports the zone ID. I
 
 ### GitHub credentials
 
-Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI and write `/home/ubuntu/.npmrc` so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
+Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI. By default, npm scopes continue to resolve from npmjs; configure explicit GitHub Packages scopes only for desktops that need them.
 
 Recommended token scopes (required scopes are marked):
 
@@ -65,7 +65,7 @@ Recommended token scopes (required scopes are marked):
 | `admin:public_key` | Yes | Register SSH keys |
 | `repo` | Yes | Clone, push, PRs |
 | `read:user` | Yes | Identity |
-| `read:packages` | Yes | Install packages from GitHub Packages |
+| `read:packages` | Optional | Install packages from GitHub Packages when `github.npm_github_scopes` or `--npm-github-scope` is used |
 | `workflow` | Recommended | GitHub Actions |
 | `security_events` | Recommended | Code scanning, secret scanning |
 | `read:org` | Optional | `gh` CLI org features; missing scope produces a warning but auth continues |
@@ -157,6 +157,10 @@ fleet:
 github:
   owner: myorg
   github_secret: /ai-desktops/myorg/github
+  # Optional: only scopes listed here resolve from GitHub Packages.
+  # Leave unset so packages such as @myorg/package resolve from npmjs.
+  # npm_github_scopes:
+  #   - private-tools
 
 operator:
   # Operator-only CLI secret; not needed by desktop cloud-init.
@@ -250,7 +254,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.11.0"
+bridgectl_version       = "v1.0.1"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
@@ -308,7 +312,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
-- `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
+- `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
 - Android Studio (via snap)
@@ -345,6 +349,20 @@ Override the root volume size (default 100 GiB):
 
 ```bash
 ai-desktops create --repo myorg/my-app --volume-size 200
+```
+
+npm scoped packages resolve from npmjs unless a scope is explicitly configured
+for GitHub Packages. Use `github.npm_github_scopes` in config for a default, or
+pass a scope for a single desktop:
+
+```bash
+ai-desktops create --repo myorg/my-app --npm-github-scope @private-tools
+```
+
+To ignore configured GitHub Packages scopes for one desktop:
+
+```bash
+ai-desktops create --repo myorg/my-app --no-npm-github-scopes
 ```
 
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
@@ -471,17 +489,17 @@ Remote `bridgectl` clients also need JWT trust in addition to Step CA client cer
 pki:
   step_ca_clients:
     - issuer: mark-macbook
-      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      public_key_path: /Users/mark/.config/bridgectl/certs/jwt-signing.pub
       required: true
 ```
 
 ```bash
 ai-desktops create \
   --step-ca ca.my-tailnet.ts.net \
-  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub,required=true
+  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.config/bridgectl/certs/jwt-signing.pub,required=true
 ```
 
-The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
+The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.config/bridgectl/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -623,7 +641,7 @@ internal/
       desktop-setup/      Verifies tools, installs Homebrew, configures SSH
   health/                 Readiness checkers (TCP, HTTPS, custom)
   tunnel/                 SSM and SSH tunnel command builders
-  agent/                  Typed HTTP client for ai-agent-bridge
+  agent/                  Typed HTTP client for bridgectl
   version/                Version string (overridable via ldflags)
 infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)

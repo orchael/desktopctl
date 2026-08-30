@@ -33,36 +33,38 @@ import (
 )
 
 var (
-	createOwner         string
-	createRepos         []string
-	createSecrets       []string
-	createPreview       bool
-	createEnv           string
-	createAMI           string
-	createVolumeSize    int
-	createSwapSize      int
-	createAVDs          []string
-	createNestedVirt    bool
-	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
-	createMobile        bool
-	createInstanceType  string
-	createInstanceTypes []string
-	createSpot          bool
-	createSpotMaxPrice  string
-	createTimeout       time.Duration
-	createTailscale     bool
-	createTailscaleNet  string
-	createStepCA        string
-	createStepCAProv    string
-	createStepCAFP      string
-	createStepCAClients []string
+	createOwner             string
+	createRepos             []string
+	createSecrets           []string
+	createPreview           bool
+	createEnv               string
+	createAMI               string
+	createVolumeSize        int
+	createSwapSize          int
+	createAVDs              []string
+	createNestedVirt        bool
+	createNestedVirtSet     bool // true when --nested-virtualization was explicitly passed
+	createMobile            bool
+	createInstanceType      string
+	createInstanceTypes     []string
+	createSpot              bool
+	createSpotMaxPrice      string
+	createTimeout           time.Duration
+	createTailscale         bool
+	createTailscaleNet      string
+	createStepCA            string
+	createStepCAProv        string
+	createStepCAFP          string
+	createStepCAClients     []string
+	createNPMGitHubScopes   []string
+	createNoNPMGitHubScopes bool
 )
 
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new persistent AI coding desktop",
 	Long: `create provisions a remote EC2 instance configured as an AI coding desktop
-with novnc-desktop (Elementary), ai-agent-bridge, and developer tooling.
+with novnc-desktop (Elementary), bridgectl, and developer tooling.
 
 The --github-owner flag sets the owner boundary for all repositories on this
 desktop. When at least one --repo is provided the owner is inferred from the
@@ -96,6 +98,8 @@ func init() {
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
 	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint; required when --step-ca is set (may also be supplied via pki.step_ca_fingerprint or STEP_CA_FINGERPRINT)")
 	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
+	createCmd.Flags().StringArrayVar(&createNPMGitHubScopes, "npm-github-scope", nil, "npm package scope to resolve from GitHub Packages on the desktop, e.g. @myorg (repeatable; default: github.npm_github_scopes)")
+	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -441,6 +445,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			sshPubKey = strings.TrimSpace(string(pubBytes))
 		}
 	}
+	npmGitHubScopes := []string(nil)
+	if !createNoNPMGitHubScopes {
+		npmGitHubScopes = append(npmGitHubScopes, cfg.GitHub.NPMGitHubScopes...)
+	}
+	npmGitHubScopes = append(npmGitHubScopes, createNPMGitHubScopes...)
+	npmGitHubScopes, err = provision.NormalizeNPMGitHubScopes(npmGitHubScopes)
+	if err != nil {
+		return err
+	}
 
 	bootCfg := &provision.BootstrapConfig{
 		DesktopID:            desktopID,
@@ -468,6 +481,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
+		NPMGitHubScopes:      npmGitHubScopes,
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
 	}

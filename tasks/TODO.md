@@ -53,7 +53,7 @@
   - Verify: `go test ./internal/desktop ./internal/store ./internal/pulumi`
 
 - [x] **Task 08** — Desktop cloud-init bootstrap
-  - Install: `git`, `docker`, `nvim`, `tmux`, SSM agent, `novnc-desktop` (elementary desktop type), `ai-agent-bridge` (systemd, localhost-only), `/workspace`, `/opt/ai-desktops`
+  - Install: `git`, `docker`, `nvim`, `tmux`, SSM agent, `novnc-desktop` (elementary desktop type), `bridgectl` (user service, localhost-only), `/workspace`, `/opt/ai-desktops`
   - Secrets from AWS SSM/Secrets Manager via instance role; secret files get restrictive permissions
   - Bootstrap logs available over SSH; leave enough logs for `doctor`
   - Verify: SSH up after boot, all tools on PATH, Docker active, novnc and bridge services active
@@ -148,7 +148,7 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 ## Post-MVP
 
 - [x] Upgrade `novnc-desktop` to v0.1.5 and switch to custom ports 8080 (HTTP) and 8443 (HTTPS) — https://github.com/markcallen/ai-desktops/issues/7
-- [x] Pin `novnc-desktop` and `ai-agent-bridge` installs to release tags — https://github.com/markcallen/ai-desktops/issues/4
+- [x] Pin `novnc-desktop` and `bridgectl` installs to release tags — https://github.com/markcallen/ai-desktops/issues/4
 - [x] Replace self-signed TLS cert with certbot + Route53 DNS-01 (Let's Encrypt) — https://github.com/markcallen/ai-desktops/issues/2
 - [x] `doctor` SSH-based checks (Docker, tools, repos, bridge systemd unit) — https://github.com/markcallen/ai-desktops/issues/3
 - [x] Make bridge port configurable in desktop Pulumi stack — https://github.com/markcallen/ai-desktops/issues/5
@@ -158,7 +158,7 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 - [x] FEAT: Region fallback to cfg.AWS.Region in list and status commands for pre-existing records
 - [x] DOCS: Add SSM debugging guide to README after doctor command
 - [x] IMPL: Public access model — open SSH (port 22) to 0.0.0.0/0, add HTTP (port 80), update Pulumi config
-- [x] Install `ai-agent-bridge` on desktops — superseded by pinned apt installation in the Packer AMI (`v0.4.0` in `packer/variables.pkrvars.hcl`)
+- [x] Install `bridgectl` on desktops — superseded by pinned apt installation in the Packer AMI (`v0.4.0` in `packer/variables.pkrvars.hcl`)
 - [x] SSH tunnel: make `StrictHostKeyChecking` configurable — implemented as `agent.trust_host` / `agent --trust-host` — https://github.com/markcallen/ai-desktops/issues/6
 - [x] RFC: Document and complete the pre-baked AMI approach with pinned versions and runtime-only cloud-init — https://github.com/markcallen/ai-desktops/issues/21
 - [x] FEAT: Hide terminated desktops from `list` by default and add `list --all` plus `purge --dry-run` / `purge` — https://github.com/markcallen/ai-desktops/issues/22

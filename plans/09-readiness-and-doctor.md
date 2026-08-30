@@ -25,7 +25,7 @@ Checks:
 - noVNC HTTPS endpoint responds.
 - `novnc-desktop-url` can mint a valid browser URL.
 - Docker service is active.
-- `ai-agent-bridge.service` is active.
+- `bridgectl.service` is active.
 - required tools exist on `PATH`.
 - requested repositories exist under `/workspace`.
 - requested repositories match the configured GitHub owner.
