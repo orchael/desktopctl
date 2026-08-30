@@ -155,7 +155,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 
 	// Inject all configured secrets because the remote script rewrites the
 	// desktop env files atomically instead of appending to them.
-	fmt.Printf("Injecting %d new secret(s) on %s (%s)...\n", len(toAdd), id, d.Hostname)
+	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
 	script := buildSecretsReloadScript(reloadPaths, region)
 	if err := runRemote(d, script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
