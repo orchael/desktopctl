@@ -105,6 +105,10 @@ pulumi:
 fleet:
   table_name: my-fleet
   environment: prod
+github:
+  owner: acme
+  npm_github_scopes:
+    - private-tools
 network:
   tailscale_network: acme-tailnet
 operator:
@@ -115,7 +119,7 @@ pki:
   step_ca_fingerprint: abcdef
   step_ca_clients:
     - issuer: mark-macbook
-      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      public_key_path: /Users/mark/.config/bridgectl/certs/jwt-signing.pub
       required: true
 `
 	dir := t.TempDir()
@@ -146,6 +150,9 @@ pki:
 	if c.Operator.Secret != "/ai-desktops/acme-ops" {
 		t.Errorf("operator secret: got %q", c.Operator.Secret)
 	}
+	if len(c.GitHub.NPMGitHubScopes) != 1 || c.GitHub.NPMGitHubScopes[0] != "private-tools" {
+		t.Errorf("npm GitHub scopes: got %#v", c.GitHub.NPMGitHubScopes)
+	}
 	if c.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
 		t.Errorf("step-ca server: got %q", c.PKI.StepCAServer)
 	}
@@ -161,7 +168,7 @@ pki:
 	if c.PKI.StepCAClients[0].Issuer != "mark-macbook" {
 		t.Errorf("step-ca client issuer: got %q", c.PKI.StepCAClients[0].Issuer)
 	}
-	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub" {
+	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.config/bridgectl/certs/jwt-signing.pub" {
 		t.Errorf("step-ca client public key path: got %q", c.PKI.StepCAClients[0].PublicKeyPath)
 	}
 	if !c.PKI.StepCAClients[0].Required {
@@ -191,7 +198,7 @@ func TestSave_roundTrip(t *testing.T) {
 			StepCAClients: []StepCAClientConfig{
 				{
 					Issuer:        "mark-macbook",
-					PublicKeyPath: "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub",
+					PublicKeyPath: "/Users/mark/.config/bridgectl/certs/jwt-signing.pub",
 					Required:      true,
 				},
 			},

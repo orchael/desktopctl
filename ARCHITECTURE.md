@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`ai-desktops` is a CLI-driven fleet manager for persistent remote AI coding desktops. The implementation keeps the control surface small: a Go CLI owns lifecycle operations, Pulumi owns AWS infrastructure, DynamoDB stores fleet metadata, and each desktop runs a standard Ubuntu-based runtime with `novnc-desktop`, `ai-agent-bridge`, and developer tools.
+`ai-desktops` is a CLI-driven fleet manager for persistent remote AI coding desktops. The implementation keeps the control surface small: a Go CLI owns lifecycle operations, Pulumi owns AWS infrastructure, DynamoDB stores fleet metadata, and each desktop runs a standard Ubuntu-based runtime with `novnc-desktop`, `bridgectl`, and developer tools.
 
 The design optimizes for a single operator in v1 while preserving a clean path to authenticated external-user access later.
 
@@ -34,7 +34,7 @@ Managed desktop host
   |
   | noVNC HTTPS desktop
   | SSH for debugging
-  | ai-agent-bridge
+  | bridgectl
   | Vite desktop webapp
   | workspace repositories
 ```
@@ -246,7 +246,7 @@ Cloud-init responsibilities:
 - install `novnc-desktop`
 - set `desktop_type=elementary`
 - install `git`, `docker`, `nvim`, and `tmux`
-- install and enable `ai-agent-bridge`
+- install and enable `bridgectl`
 - install the on-desktop webapp bundle
 - configure systemd services
 
@@ -259,7 +259,7 @@ The CLI must not trust instance creation alone. After Pulumi completes the deskt
 - noVNC HTTPS endpoint responds.
 - `novnc-desktop-url` can mint a valid browser URL.
 - Docker service is active.
-- `ai-agent-bridge` service is active.
+- `bridgectl` service is active.
 - required tools exist on `PATH`.
 - requested repositories exist under `/workspace`.
 - every requested repository matches the configured GitHub owner.
@@ -276,9 +276,9 @@ Each desktop host uses a standard runtime contract.
 | --- | --- |
 | `/workspace` | Persistent repository workspace. |
 | `/opt/ai-desktops` | Local runtime assets managed by this project. |
-| `/opt/ai-agent-bridge` | Bridge config and service assets. |
+| `/opt/bridgectl` | Provider CLI runtime assets. |
 | `novnc-desktop` services | Browser desktop substrate and access-token service. |
-| `ai-agent-bridge.service` | Agent process supervisor. |
+| `bridgectl.service` | Agent process supervisor. |
 | `docker.service` | Container runtime for builds and app dependencies. |
 | `ai-desktop-web.service` | Optional local service for the Vite-built desktop webapp. |
 
@@ -355,7 +355,7 @@ The first smoke implementation should use a fine-scoped GitHub PAT stored in AWS
 - noVNC is exposed only through HTTPS.
 - Raw VNC ports stay bound to localhost on the desktop.
 - SSH is restricted to the operator source CIDR where practical.
-- `ai-agent-bridge` binds to localhost in v1.
+- `bridgectl` binds to localhost in v1.
 - Remote bridge access happens through a CLI-managed SSH or SSM tunnel.
 - Security groups must not expose Docker, bridge, CDP, or local development ports publicly by default.
 
@@ -379,7 +379,7 @@ External-user access later should wrap this with application-level authenticatio
 
 The v1 bridge access mode is `tunnel`.
 
-`ai-agent-bridge` listens on the desktop at `127.0.0.1:9445`. When the operator runs an agent command, the CLI establishes a short-lived tunnel from the operator machine to that desktop-local bridge endpoint and then uses the bridge client through the local forwarded port.
+`bridgectl` listens on the desktop at `127.0.0.1:9445`. When the operator runs an agent command, the CLI establishes a short-lived tunnel from the operator machine to that desktop-local bridge endpoint and then uses the bridge client through the local forwarded port.
 
 Preferred tunnel order:
 
@@ -395,7 +395,7 @@ ai-desktops agent desk-123 start --provider codex --repo app-one
   |
   | ensure desktop is running
   | open local tunnel localhost:<ephemeral> -> desktop:127.0.0.1:9445
-  | call ai-agent-bridge through the local forwarded port
+  | call bridgectl through the local forwarded port
   | stream session events to the CLI
   v
 operator terminal
@@ -525,8 +525,8 @@ What still needs design:
 
 - `novnc-desktop` installation with Elementary config
 - base toolchain installation
-- `ai-agent-bridge` installation
-- `ai-agent-bridge` localhost binding
+- `bridgectl` installation
+- `bridgectl` localhost binding
 - CLI-managed SSM or SSH tunnel for bridge control
 - readiness checks for browser URL, Docker, bridge, and tools
 
@@ -551,6 +551,6 @@ What still needs design:
 1. v1 requires Route53 DNS using `desktops.orchael.com` for production and `desktops.orchael.dev` for local/development.
 2. The root EBS volume is the persistence boundary for MVP.
 3. v1 uses a fine-scoped GitHub PAT for the first smoke path, stored in AWS secret storage; GitHub App support comes later.
-4. `ai-agent-bridge` remains localhost-bound, and remote control uses a short-lived SSH or SSM tunnel.
+4. `bridgectl` remains localhost-bound, and remote control uses a short-lived SSH or SSM tunnel.
 5. Failed desktop creation leaves the EC2 instance running by default for debugging.
 6. Pulumi preview runs by default before create/update.

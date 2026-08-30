@@ -20,7 +20,7 @@ const MOCK_DATA = {
   repos: ['mock-repo'],
   services: [
     { name: 'docker', active: true, version: '27.0.0' },
-    { name: 'ai-agent-bridge', active: true, version: '1.2.3' },
+    { name: 'bridgectl', active: true, version: '1.0.1' },
     { name: 'novnc-desktop', active: true, version: '20260525-005909' }
   ],
   novnc_url: 'https://localhost:8443/novnc/vnc.html',
@@ -51,9 +51,8 @@ function readEnvFile(filePath: string): Record<string, string> {
 
 function serviceActive(name: string): boolean {
   try {
-    if (name === 'ai-agent-bridge') {
-      // The system ai-agent-bridge service is masked; the actual service runs
-      // as a user-level bridgectl unit under the ubuntu user.
+    if (name === 'bridgectl') {
+      // bridgectl runs as a user-level systemd unit under the ubuntu user.
       // XDG_RUNTIME_DIR must be set explicitly because ai-desktops-web runs as
       // a system service (not a user session), so the env var is absent.
       execSync('systemctl --user is-active bridgectl', {
@@ -85,7 +84,7 @@ function serviceVersion(name: string): string | undefined {
         const m = out.match(/Docker version ([^\s,]+)/);
         return m?.[1];
       }
-      case 'ai-agent-bridge': {
+      case 'bridgectl': {
         const out = execSync('bridgectl --version', {
           stdio: 'pipe',
           timeout: 5000
@@ -151,7 +150,7 @@ export function buildDesktopInfo(requestHost?: string): object {
   const hostname = rawHost.split(':')[0];
   const novncUrl = `https://${hostname}:${NOVNC_HTTPS_PORT}/novnc/vnc.html`;
 
-  const serviceNames = ['docker', 'ai-agent-bridge', 'novnc-desktop'];
+  const serviceNames = ['docker', 'bridgectl', 'novnc-desktop'];
   const services = serviceNames.map((name) => ({
     name,
     active: serviceActive(name),

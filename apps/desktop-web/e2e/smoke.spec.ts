@@ -32,7 +32,7 @@ test.describe('desktop-web smoke', () => {
     page
   }) => {
     await expect(page.getByText('docker')).toBeVisible();
-    await expect(page.getByText('ai-agent-bridge')).toBeVisible();
+    await expect(page.getByText('bridgectl')).toBeVisible();
     await expect(page.getByText('novnc-desktop')).toBeVisible();
 
     // All three mock services are active
@@ -41,9 +41,9 @@ test.describe('desktop-web smoke', () => {
   });
 
   test('service versions are displayed', async ({ page }) => {
-    // Mock data sets docker to 27.0.0 and ai-agent-bridge to 1.2.3
+    // Mock data sets docker to 27.0.0 and bridgectl to 1.0.1
     await expect(page.getByText('v27.0.0')).toBeVisible();
-    await expect(page.getByText('v1.2.3')).toBeVisible();
+    await expect(page.getByText('v1.0.1')).toBeVisible();
   });
 
   test('footer shows desktop-web version', async ({ page }) => {

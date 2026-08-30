@@ -5,10 +5,10 @@
 #   ai-desktops-doctor
 #
 # Environment overrides (for testing):
-#   CONFIG_FILE        Bridge config path (default: /etc/ai-agent-bridge/bridge.yaml)
-#   INSTALL_DIR        Provider runtime path (default: /opt/ai-agent-bridge)
-#   CREDENTIALS_FILE   Credentials env file (default: /etc/ai-agent-bridge/agents.env)
-#   DROPIN_FILE        systemd drop-in path (default: /etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf)
+#   CONFIG_FILE        Bridge config path (default: /home/ubuntu/.config/bridgectl/config.yaml)
+#   INSTALL_DIR        Provider runtime path (default: /opt/bridgectl)
+#   CREDENTIALS_FILE   Credentials env file (default: /home/ubuntu/.config/bridgectl/agents.env)
+#   SERVICE_FILE       bridgectl user service path (default: /home/ubuntu/.config/systemd/user/bridgectl.service)
 #   BRIDGE_ADDR        Bridge listen address (default: 127.0.0.1:9445)
 #
 # Checks and their meanings:
@@ -18,10 +18,10 @@
 
 set -eu
 
-CONFIG_FILE="${CONFIG_FILE:-/etc/ai-agent-bridge/bridge.yaml}"
-INSTALL_DIR="${INSTALL_DIR:-/opt/ai-agent-bridge}"
-CREDENTIALS_FILE="${CREDENTIALS_FILE:-/etc/ai-agent-bridge/agents.env}"
-DROPIN_FILE="${DROPIN_FILE:-/etc/systemd/system/ai-agent-bridge.service.d/ai-desktops.conf}"
+CONFIG_FILE="${CONFIG_FILE:-/home/ubuntu/.config/bridgectl/config.yaml}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/bridgectl}"
+CREDENTIALS_FILE="${CREDENTIALS_FILE:-/home/ubuntu/.config/bridgectl/agents.env}"
+SERVICE_FILE="${SERVICE_FILE:-/home/ubuntu/.config/systemd/user/bridgectl.service}"
 BRIDGE_ADDR="${BRIDGE_ADDR:-127.0.0.1:9445}"
 REQUIRED_NODE_MAJOR=24
 
@@ -38,17 +38,17 @@ echo ""
 
 # ── 1. Package version ────────────────────────────────────────────────────────
 
-if dpkg -s ai-agent-bridge >/dev/null 2>&1; then
-  _ver=$(dpkg -s ai-agent-bridge 2>/dev/null | awk '/^Version:/{print $2}')
-  _ok "Package version: ai-agent-bridge ${_ver}"
+if dpkg -s bridgectl >/dev/null 2>&1; then
+  _ver=$(dpkg -s bridgectl 2>/dev/null | awk '/^Version:/{print $2}')
+  _ok "Package version: bridgectl ${_ver}"
 else
-  _fail "Package not installed: ai-agent-bridge"
+  _fail "Package not installed: bridgectl"
 fi
 
 # ── 2. Systemd service state ──────────────────────────────────────────────────
 
 if command -v systemctl >/dev/null 2>&1; then
-  _state=$(systemctl is-active ai-agent-bridge 2>/dev/null || true)
+  _state=$(sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user is-active bridgectl 2>/dev/null || true)
   case "$_state" in
     active)     _ok   "Service state: active" ;;
     activating) _warn "Service state: activating (not yet fully started)" ;;
@@ -195,16 +195,16 @@ else
   _fail "/workspace: not in bridge allowed_paths — agent sessions will be denied by policy"
 fi
 
-# ── 9. systemd drop-in and /workspace write access ───────────────────────────
+# ── 9. systemd user service ──────────────────────────────────────────────────
 
-if [ -f "$DROPIN_FILE" ]; then
-  if grep -q 'ReadWritePaths.*workspace' "$DROPIN_FILE" 2>/dev/null; then
-    _ok "systemd drop-in: ${DROPIN_FILE} (ReadWritePaths includes /workspace)"
+if [ -f "$SERVICE_FILE" ]; then
+  if grep -q 'bridgectl server start' "$SERVICE_FILE" 2>/dev/null; then
+    _ok "systemd user service: ${SERVICE_FILE}"
   else
-    _warn "systemd drop-in: ${DROPIN_FILE} exists but ReadWritePaths does not include /workspace"
+    _warn "systemd user service: ${SERVICE_FILE} exists but does not start bridgectl"
   fi
 else
-  _fail "systemd drop-in: ${DROPIN_FILE} not found — agent subprocesses cannot write to /workspace"
+  _fail "systemd user service: ${SERVICE_FILE} not found"
 fi
 
 # ── 10. Bridge health ─────────────────────────────────────────────────────────

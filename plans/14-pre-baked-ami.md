@@ -20,7 +20,7 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 ## Acceptance Criteria
 
 1. `packer/ubuntu-desktop.pkr.hcl` exists and successfully builds Ubuntu 24.04 AMIs for us-east-2.
-2. Built AMI includes pre-installed: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew`, `ai-agent-bridge` (pinned version), `novnc-desktop` (installed without TLS certificates).
+2. Built AMI includes pre-installed: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew`, `bridgectl` (pinned version), `novnc-desktop` (installed without TLS certificates).
 3. `ai-desktops ami build --regions us-east-1,us-west-2 --vars-file packer/variables.pkrvars.hcl` succeeds and updates `config.yaml` with AMI IDs.
 4. `ai-desktops ami list` displays a table of region → AMI ID.
 5. `ai-desktops create` with pre-baked AMI IDs in config detects them and passes them to Pulumi instead of hardcoded Ubuntu map.
@@ -35,7 +35,7 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 ```bash
 # Build AMI for us-east-2
 cd packer
-# Edit variables.pkrvars.hcl with version pins for novnc-desktop, ai-agent-bridge, go
+# Edit variables.pkrvars.hcl with version pins for novnc-desktop, bridgectl, go
 packer init ubuntu-desktop.pkr.hcl
 packer build -var-file=variables.pkrvars.hcl .
 

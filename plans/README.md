@@ -31,7 +31,7 @@ Each task is intended to be handed to another coding agent as a self-contained w
 - Use an S3 DIY backend for Pulumi state.
 - Use DynamoDB for fleet metadata.
 - Use Route53 zones `desktops.orchael.com` and `desktops.orchael.dev`.
-- Keep `ai-agent-bridge` bound to `127.0.0.1` in v1.
+- Keep `bridgectl` bound to `127.0.0.1` in v1.
 - Use CLI-managed SSM or SSH tunnels for remote bridge access.
 - Use a fine-scoped GitHub PAT from AWS secret storage for the first smoke path.
 - Preserve desktop state through EC2 stop/start using the root EBS volume.

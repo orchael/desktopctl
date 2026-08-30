@@ -47,6 +47,15 @@ func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
 	}
 }
 
+func TestCreateCmd_npmGitHubScopeFlagsRegistered(t *testing.T) {
+	if flag := createCmd.Flags().Lookup("npm-github-scope"); flag == nil {
+		t.Fatal("npm-github-scope flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("no-npm-github-scopes"); flag == nil {
+		t.Fatal("no-npm-github-scopes flag not registered")
+	}
+}
+
 func TestValidateSpotMaxPrice(t *testing.T) {
 	tests := []struct {
 		name    string

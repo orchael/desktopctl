@@ -45,10 +45,56 @@ func TestRenderCloudInit(t *testing.T) {
 		"certbot",
 		"dns-route53",
 		"d-001.desktops.orchael.dev",
-		"npm.pkg.github.com",
-		"/home/ubuntu/.npmrc",
 		"/home/ubuntu/.config/gh/hosts.yml",
 		"gh auth setup-git --hostname github.com",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+}
+
+func TestRenderCloudInit_noNPMRCByDefault(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-npm-default",
+		Hostname:         "d-npm-default.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	if strings.Contains(out, "/home/ubuntu/.npmrc") {
+		t.Fatal("cloud-init should not write a user-level .npmrc when no GitHub Packages scopes are configured")
+	}
+	if strings.Contains(out, "@acme:registry=https://npm.pkg.github.com") {
+		t.Fatal("cloud-init should not map the GitHub owner scope to GitHub Packages implicitly")
+	}
+}
+
+func TestRenderCloudInit_npmGitHubScopes(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-npm-scopes",
+		Hostname:         "d-npm-scopes.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		NPMGitHubScopes:  []string{"@private-tools", "acme"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"/home/ubuntu/.npmrc",
+		"@acme:registry=https://npm.pkg.github.com",
+		"@private-tools:registry=https://npm.pkg.github.com",
+		"//npm.pkg.github.com/:_authToken=%s",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -341,7 +387,7 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
 		"server[\"listen\"]",
 		"\"$TAILSCALE_IP:9445\"",
-		"/home/ubuntu/.ai-agent-bridge/certs/jwt-clients",
+		"/home/ubuntu/.config/bridgectl/certs/jwt-clients",
 		"mark-macbook.pub",
 		"STEP_CA_CLIENTS_JSON_B64",
 		"\"d-ca.desktops.orchael.dev\" \"$CERT_NAME\" \"$TAILSCALE_DNS_NAME\"",
@@ -402,7 +448,7 @@ func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
 		"ERROR: fuser is required to wait for apt/dpkg locks",
 		"DPkg::Lock::Timeout",
 		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}\"",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"bridgectl=${EXPECTED_BRIDGE_VERSION}\"",
 		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
 	}
 	for _, want := range checks {
@@ -467,15 +513,15 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 	}
 	// Cloud-init verifies the AMI's baked package and corrects drift to the
 	// exact version expected by the CLI.
-	wantVersion := strings.TrimPrefix(AIAgentBridgeVersion, "v")
+	wantVersion := strings.TrimPrefix(BridgectlVersion, "v")
 	if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="`+wantVersion+`"`) {
 		t.Errorf("cloud-init should include expected bridge package version %s", wantVersion)
 	}
-	if !strings.Contains(out, `"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"`) {
-		t.Error("cloud-init should install the exact ai-agent-bridge package version when the AMI drifts")
+	if !strings.Contains(out, `"bridgectl=${EXPECTED_BRIDGE_VERSION}"`) {
+		t.Error("cloud-init should install the exact bridgectl package version when the AMI drifts")
 	}
 	if !strings.Contains(out, "install-provider-runtime") {
-		t.Error("cloud-init should refresh provider runtime after ai-agent-bridge version correction")
+		t.Error("cloud-init should refresh provider runtime after bridgectl version correction")
 	}
 	// cloud-init must not pull or start the old system bridge daemon.
 	if strings.Contains(out, "systemctl enable ai-agent-bridge") {

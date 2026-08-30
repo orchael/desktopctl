@@ -37,7 +37,7 @@ Generic VMs solve only part of the problem. A useful AI coding desktop needs:
 2. Make desktop creation operator-driven through a CLI-first workflow.
 3. Provide browser-based desktop access by default, with SSH available for debugging and recovery.
 4. Standardize each desktop on the `novnc-desktop` substrate using the Elementary desktop environment.
-5. Install and configure `ai-agent-bridge` on every desktop so AI agents can be launched and supervised in a consistent way.
+5. Install and configure `bridgectl` on every desktop so AI agents can be launched and supervised in a consistent way.
 6. Ensure every desktop includes the baseline developer toolchain: `git`, `docker`, `nvim`, and `tmux`.
 7. Support multiple repositories per desktop, with the constraint that all repos on a given desktop must belong to the same GitHub organization or the same personal account.
 8. Preserve desktop state across stop/start lifecycle operations.
@@ -79,7 +79,7 @@ Each managed desktop includes:
 - `novnc-desktop` configured with the `elementary` desktop type
 - browser-accessible desktop access via noVNC over HTTPS
 - SSH access for debugging
-- `ai-agent-bridge` for agent runtime management
+- `bridgectl` for agent runtime management
 - local developer tooling (`git`, `docker`, `nvim`, `tmux`)
 - one persistent workspace that may contain multiple repositories from a single GitHub owner
 
@@ -91,7 +91,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 1. The operator invokes an `ai-desktops` CLI command to create a new desktop.
 2. The CLI accepts the desktop profile, target GitHub owner, and optional repository list to clone into the workspace.
-3. The system provisions a remote host and configures it with `novnc-desktop`, `ai-agent-bridge`, and the standard toolchain.
+3. The system provisions a remote host and configures it with `novnc-desktop`, `bridgectl`, and the standard toolchain.
 4. The system returns the desktop identifier, browser access URL, and SSH connection details.
 5. The operator opens the browser URL to access the desktop and may use SSH for debugging when needed.
 6. The operator uses the desktop to run AI coding agents and work against one or more repositories in the allowed owner scope.
@@ -170,18 +170,18 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 | ID | Requirement |
 | --- | --- |
-| FR-4.1 | Every desktop must install and configure `ai-agent-bridge`. |
-| FR-4.2 | `ai-agent-bridge` must be the standard mechanism for launching and supervising AI agent processes on a desktop. |
+| FR-4.1 | Every desktop must install and configure `bridgectl`. |
+| FR-4.2 | `bridgectl` must be the standard mechanism for launching and supervising AI agent processes on a desktop. |
 | FR-4.3 | The managed desktop environment must support at least Codex, Claude, and Gemini as intended bridge-managed agent providers. |
 | FR-4.4 | The fleet manager must surface enough connection or status information for the operator to verify that the bridge is running on the desktop. |
-| FR-4.5 | The fleet manager must support remote agent control by creating an authenticated tunnel from the operator machine to the desktop-local `ai-agent-bridge` endpoint. |
-| FR-4.6 | `ai-agent-bridge` must not be exposed directly to the public internet in v1. |
+| FR-4.5 | The fleet manager must support remote agent control by creating an authenticated tunnel from the operator machine to the desktop-local `bridgectl` endpoint. |
+| FR-4.6 | `bridgectl` must not be exposed directly to the public internet in v1. |
 
 **Acceptance criteria:**
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-4.1 | `systemctl is-active ai-agent-bridge` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
+| AC-4.1 | `systemctl --user is-active bridgectl` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
 | AC-4.2 | Bridge listens on `127.0.0.1:9445`, not `0.0.0.0:9445` | `TestFR4_BridgeLocalhostOnly` |
 | AC-4.3 | `ai-desktops agent <id> status` completes without error | `TestFR4_AgentStatusCommand` |
 | AC-4.4 | `ai-desktops agent <id> providers` output includes codex, claude, and gemini | `TestFR4_AgentProvidersCommand` |
@@ -271,7 +271,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 
@@ -372,8 +372,8 @@ The MVP includes:
 - browser access via `novnc-desktop`
 - `elementary` desktop environment
 - SSH debugging access
-- `ai-agent-bridge` installation and runtime enablement
-- remote agent control through a CLI-managed tunnel to `ai-agent-bridge`
+- `bridgectl` installation and runtime enablement
+- remote agent control through a CLI-managed tunnel to `bridgectl`
 - baseline toolchain installation: `git`, `docker`, `nvim`, `tmux`
 - multi-repo workspace support under a single GitHub owner boundary
 
@@ -402,8 +402,8 @@ If any of these assumptions are wrong, the PRD should be updated before implemen
 1. An operator can run a CLI command to create a new desktop and receives a desktop ID, browser URL, and SSH connection details.
 2. The created desktop is reachable in a browser through the `novnc-desktop` interface using the Elementary desktop environment.
 3. The created desktop has `git`, `docker`, `nvim`, and `tmux` installed and usable.
-4. `ai-agent-bridge` is installed, running, and available as the desktop’s standard agent runtime.
-5. The operator can control a desktop's AI agents remotely through a CLI-managed tunnel to `ai-agent-bridge`.
+4. `bridgectl` is installed, running, and available as the desktop’s standard agent runtime.
+5. The operator can control a desktop's AI agents remotely through a CLI-managed tunnel to `bridgectl`.
 6. A desktop can be created with multiple repositories checked out into its workspace when all repositories belong to the same GitHub organization or personal account.
 7. A request that mixes repositories from different GitHub owners is rejected before the desktop is reported ready.
 8. After stopping and restarting a desktop, the workspace contents and prior desktop state remain present.
@@ -443,7 +443,7 @@ The PRD says external-user access must remain possible but does not define v1 au
 
 ### Secrets and provider credentials
 
-`ai-agent-bridge` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
+`bridgectl` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
 
 The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
 
@@ -453,11 +453,11 @@ Repo cloning requires GitHub credentials. v1 uses a fine-scoped GitHub PAT store
 
 ### Remote agent control
 
-The operator needs remote control of agents running inside each desktop. v1 should keep `ai-agent-bridge` bound to localhost on the desktop and create a short-lived SSH or AWS SSM port-forward from the operator machine when remote control is requested. A private-network bridge endpoint with mTLS can be added later if a long-running control plane needs direct access.
+The operator needs remote control of agents running inside each desktop. v1 should keep `bridgectl` bound to localhost on the desktop and create a short-lived SSH or AWS SSM port-forward from the operator machine when remote control is requested. A private-network bridge endpoint with mTLS can be added later if a long-running control plane needs direct access.
 
 ### Desktop readiness
 
-The PRD says the desktop is reported ready after provisioning, but readiness must be concrete. v1 readiness should require SSH reachable, HTTPS noVNC reachable, `novnc-auth` token generation working, Docker active, `ai-agent-bridge` active, and the requested repositories present under the workspace.
+The PRD says the desktop is reported ready after provisioning, but readiness must be concrete. v1 readiness should require SSH reachable, HTTPS noVNC reachable, `novnc-auth` token generation working, Docker active, `bridgectl` active, and the requested repositories present under the workspace.
 
 ### Elementary support
 
@@ -476,7 +476,7 @@ desktop creation. This reduces boot time and removes package-install failures fr
 The `ai-desktops ami build` command invokes Packer to build one or more regions sequentially.
 Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
 `config.yaml`. The baked image includes the baseline development toolchain, `novnc-desktop`, and
-`ai-agent-bridge`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
+`bridgectl`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
 certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and repository cloning. Additional desktop applications such as `ai-agent-browser` and
 `android-emulator-webapp` can be added to the image when they become required by a shipped workflow.
 

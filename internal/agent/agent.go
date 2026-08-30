@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Session represents an ai-agent-bridge session.
+// Session represents a bridgectl session.
 type Session struct {
 	ID       string `json:"id"`
 	Provider string `json:"provider"`
@@ -24,7 +24,7 @@ type ProviderInfo struct {
 	Available bool   `json:"available"`
 }
 
-// Client is a typed client for the ai-agent-bridge HTTP API.
+// Client is a typed client for the bridgectl HTTP API.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
