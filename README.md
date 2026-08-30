@@ -267,6 +267,14 @@ The following variables are **injected automatically** by the CLI and must not b
 
 #### Build the AMI
 
+The foundation stack must already be applied for the configured environment and
+AWS control region because `ami build` records AMI history in the foundation
+DynamoDB AMI history table:
+
+```bash
+ai-desktops init-foundation
+```
+
 ```bash
 export GITHUB_NPM_TOKEN=ghp_...
 ai-desktops ami build --regions us-east-2

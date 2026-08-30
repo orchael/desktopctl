@@ -139,6 +139,7 @@ const (
 	OutputInstanceProfile = "instanceProfile"
 	OutputZoneID          = "zoneId"
 	OutputFleetTable      = "fleetTable"
+	OutputAMITable        = "amiTable"
 	OutputMarketType      = "marketType"
 )
 
