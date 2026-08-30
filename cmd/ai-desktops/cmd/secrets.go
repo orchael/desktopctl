@@ -142,27 +142,21 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Deduplicate: skip paths already on the desktop.
-	existing := make(map[string]bool, len(d.Secrets))
-	for _, p := range d.Secrets {
-		existing[p] = true
-	}
-	var toAdd []string
+	toAdd, reloadPaths := secretPathsAfterAdd(d.Secrets, newPaths)
 	for _, p := range newPaths {
-		if existing[p] {
+		if !containsString(toAdd, p) {
 			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
-			continue
 		}
-		toAdd = append(toAdd, p)
 	}
 	if len(toAdd) == 0 {
 		fmt.Println("No new secrets to add.")
 		return nil
 	}
 
-	// Inject the new secrets onto the running instance first.
-	fmt.Printf("Injecting %d new secret(s) on %s (%s)...\n", len(toAdd), id, d.Hostname)
-	script := buildSecretsReloadScript(toAdd, region)
+	// Inject all configured secrets because the remote script rewrites the
+	// desktop env files atomically instead of appending to them.
+	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
+	script := buildSecretsReloadScript(reloadPaths, region)
 	if err := runRemote(d, script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
 	}
@@ -175,6 +169,26 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
 	return nil
+}
+
+func secretPathsAfterAdd(existingPaths, newPaths []string) ([]string, []string) {
+	existing := make(map[string]bool, len(existingPaths))
+	reloadPaths := append([]string(nil), existingPaths...)
+	for _, p := range existingPaths {
+		existing[p] = true
+	}
+
+	var toAdd []string
+	for _, p := range newPaths {
+		if existing[p] {
+			continue
+		}
+		toAdd = append(toAdd, p)
+		reloadPaths = append(reloadPaths, p)
+		existing[p] = true
+	}
+
+	return toAdd, reloadPaths
 }
 
 // buildSecretsReloadScript returns a shell script that re-fetches each secret
