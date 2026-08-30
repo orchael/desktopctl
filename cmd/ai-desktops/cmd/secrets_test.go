@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -114,5 +115,40 @@ func TestBuildSecretsReloadScript_TempFileCleanup(t *testing.T) {
 	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
 	if !strings.Contains(script, "trap") || !strings.Contains(script, "DESKTOP_ENV_TMP") {
 		t.Errorf("script should set up trap for temp file cleanup, got:\n%s", script)
+	}
+}
+
+func TestSecretPathsAfterAdd_ReloadsExistingAndNewSecrets(t *testing.T) {
+	toAdd, reloadPaths := secretPathsAfterAdd(
+		[]string{"/markcallen/smoke"},
+		[]string{"/orchael/desktops/local"},
+	)
+
+	if want := []string{"/orchael/desktops/local"}; !reflect.DeepEqual(toAdd, want) {
+		t.Fatalf("toAdd = %#v, want %#v", toAdd, want)
+	}
+	if want := []string{"/markcallen/smoke", "/orchael/desktops/local"}; !reflect.DeepEqual(reloadPaths, want) {
+		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
+	}
+
+	script := buildSecretsReloadScript(reloadPaths, "us-east-2")
+	for _, want := range reloadPaths {
+		if !strings.Contains(script, want) {
+			t.Fatalf("reload script missing %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestSecretPathsAfterAdd_DeduplicatesExistingAndNewSecrets(t *testing.T) {
+	toAdd, reloadPaths := secretPathsAfterAdd(
+		[]string{"/existing"},
+		[]string{"/existing", "/new", "/new"},
+	)
+
+	if want := []string{"/new"}; !reflect.DeepEqual(toAdd, want) {
+		t.Fatalf("toAdd = %#v, want %#v", toAdd, want)
+	}
+	if want := []string{"/existing", "/new"}; !reflect.DeepEqual(reloadPaths, want) {
+		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
 	}
 }
