@@ -274,7 +274,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  • repo              (clone, push, PRs)")
 		fmt.Println("  • workflow          (GitHub Actions)")
 		fmt.Println("  • read:user         (identity)")
-		fmt.Println("  • read:org          (required by gh CLI auth)")
+		fmt.Println("  • read:org          (optional; gh CLI org features)")
 		fmt.Println("  • read:packages     (optional; only needed for npm_github_scopes)")
 		fmt.Println()
 		fmt.Println("Create the token at: https://github.com/settings/tokens/new")
