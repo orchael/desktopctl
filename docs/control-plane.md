@@ -23,13 +23,20 @@ flowchart LR
 
 ## Local development
 
-Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your shell, then run:
+Map `app.desktops.orchael.dev` to `127.0.0.1` in `/etc/hosts`, export the PEM
+certificate and private key as `TLS_CERT_PEM` and `TLS_KEY_PEM`, set
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your shell, then run:
 
 ```bash
 docker compose -f docker-compose.dev.yaml up --build --watch
 ```
 
-Compose starts PostgreSQL 17, applies Prisma migrations, starts the mock Go API, and serves Next.js at `http://localhost:3000`. Create a suitable local Auth.js secret for anything beyond throwaway development:
+Compose starts PostgreSQL 17, applies Prisma migrations, starts the mock Go API,
+and serves Next.js through nginx at `https://app.desktops.orchael.dev`. Compose
+refuses to start when either TLS variable is unavailable, and nginx writes the
+values only to its container filesystem. The proxy forwards WebSocket upgrades
+for Next.js development live reload. Create a suitable local Auth.js secret for
+anything beyond throwaway development:
 
 ```bash
 export AUTH_SECRET="$(openssl rand -base64 32)"

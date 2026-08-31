@@ -28,4 +28,17 @@ services:
       DATABASE_URL:
       GOOGLE_CLIENT_ID:
       GOOGLE_CLIENT_SECRET:
-    ports: ["3000:3000"]
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    depends_on:
+      control-plane-web: {condition: service_started}
+    environment:
+      TLS_CERT_PEM: ${TLS_CERT_PEM:?TLS_CERT_PEM is required}
+      TLS_KEY_PEM: ${TLS_KEY_PEM:?TLS_KEY_PEM is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/control-plane.nginx.conf:/etc/nginx/conf.d/default.conf:ro

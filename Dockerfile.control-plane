@@ -19,13 +19,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=web-build /src/apps/control-plane-web/.next/standalone ./
-COPY --from=web-build /src/apps/control-plane-web/.next/static ./apps/control-plane-web/.next/static
+COPY --from=web-build /src/apps/control-plane-web/.next/static ./.next/static
 COPY --from=web-build /src/apps/control-plane-web/package.json ./apps/control-plane-web/package.json
 COPY --from=web-build /src/apps/control-plane-web/prisma ./apps/control-plane-web/prisma
 COPY --from=web-build /src/apps/control-plane-web/node_modules ./apps/control-plane-web/node_modules
 EXPOSE 3000
 USER node
-CMD ["node", "apps/control-plane-web/server.js"]
+CMD ["node", "server.js"]
 
 FROM golang:1.25-bookworm AS api-build
 WORKDIR /src
