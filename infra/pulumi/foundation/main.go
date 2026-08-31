@@ -753,6 +753,17 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": [
         "arn:%[1]s:iam::%[2]s:user/ai-desktops-*"
       ]
+    },
+    {
+      "Sid": "ReadAwsManagedPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": [
+        "arn:%[1]s:iam::aws:policy/*"
+      ]
     }
   ]
 }`, partition, accountID, stateBucket)
