@@ -40,6 +40,18 @@ jobs:
         with:
           context: .
           file: Dockerfile.control-plane
+          target: web
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Build and publish API
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.control-plane
+          target: api
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane:${{ github.ref_name }}-api
+            ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane:sha-${{ github.sha }}-api

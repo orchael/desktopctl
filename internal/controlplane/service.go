@@ -88,14 +88,14 @@ func (s *Service) Ready(ctx context.Context) Readiness {
 	return out
 }
 
-func (s *Service) ListDesktops(ctx context.Context, includeTerminated bool) ([]*store.Desktop, error) {
+func (s *Service) ListDesktops(ctx context.Context, organizationID string, includeTerminated bool) ([]*store.Desktop, error) {
 	desktops, err := s.store.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	filtered := make([]*store.Desktop, 0, len(desktops))
 	for _, d := range desktops {
-		if includeTerminated || d.State != store.StateTerminated {
+		if d.OrganizationID == organizationID && (includeTerminated || d.State != store.StateTerminated) {
 			filtered = append(filtered, d)
 		}
 	}
@@ -105,10 +105,13 @@ func (s *Service) ListDesktops(ctx context.Context, includeTerminated bool) ([]*
 	return filtered, nil
 }
 
-func (s *Service) GetDesktop(ctx context.Context, id string) (*DesktopSummary, error) {
+func (s *Service) GetDesktop(ctx context.Context, organizationID, id string) (*DesktopSummary, error) {
 	d, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+		return nil, store.ErrNotFound
 	}
 	summary := &DesktopSummary{Desktop: d}
 	live, err := s.liveInstanceState(ctx, d)
@@ -118,10 +121,13 @@ func (s *Service) GetDesktop(ctx context.Context, id string) (*DesktopSummary, e
 	return summary, nil
 }
 
-func (s *Service) RefreshDesktop(ctx context.Context, id string) (*DesktopSummary, error) {
+func (s *Service) RefreshDesktop(ctx context.Context, organizationID, id string) (*DesktopSummary, error) {
 	d, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+		return nil, store.ErrNotFound
 	}
 	live, err := s.liveInstanceState(ctx, d)
 	if err != nil {
@@ -162,10 +168,13 @@ func (s *Service) RefreshDesktop(ctx context.Context, id string) (*DesktopSummar
 	return &DesktopSummary{Desktop: d, LiveState: live}, nil
 }
 
-func (s *Service) StopDesktop(ctx context.Context, id string) (*OperationResult, error) {
+func (s *Service) StopDesktop(ctx context.Context, organizationID, id string) (*OperationResult, error) {
 	d, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+		return nil, store.ErrNotFound
 	}
 	if d.InstanceID == "" {
 		return nil, fmt.Errorf("desktop %q has no instance ID", id)
@@ -200,10 +209,13 @@ func (s *Service) StopDesktop(ctx context.Context, id string) (*OperationResult,
 	}, nil
 }
 
-func (s *Service) StartDesktop(ctx context.Context, id string) (*OperationResult, error) {
+func (s *Service) StartDesktop(ctx context.Context, organizationID, id string) (*OperationResult, error) {
 	d, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+		return nil, store.ErrNotFound
 	}
 	if d.InstanceID == "" {
 		return nil, fmt.Errorf("desktop %q has no instance ID", id)

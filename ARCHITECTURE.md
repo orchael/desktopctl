@@ -319,7 +319,7 @@ The desktop webapp is not the primary fleet control plane in v1. Fleet lifecycle
 
 ## Kubernetes Control Plane
 
-The repository also contains a separate Kubernetes-hosted control plane for operators who want a persistent fleet surface outside individual desktops. This app lives in `cmd/control-plane`, `internal/controlplane`, and `apps/control-plane-web`.
+The repository also contains a separate Kubernetes-hosted control plane for operators who want a persistent fleet surface outside individual desktops. The public Next.js application in `apps/control-plane-web` owns Google authentication, PostgreSQL organizations, memberships, and RLS. It proxies organization-scoped fleet requests to the private Go API in `cmd/control-plane` and `internal/controlplane`; each DynamoDB desktop carries the same organization UUID.
 
 The control plane runs well on DOKS. Since DOKS cannot use AWS IRSA, AWS access is bootstrapped by `infra/pulumi/control-plane-access`, which creates a narrow IAM user and an assumable role. The Kubernetes Secret holds only the user access key and role-assumption settings; runtime fleet calls use temporary STS credentials from the role.
 

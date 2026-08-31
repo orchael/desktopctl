@@ -54,8 +54,15 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
 	includeTerminated := r.URL.Query().Get("all") == "true"
-	desktops, err := s.service.ListDesktops(r.Context(), includeTerminated)
+	desktops, err := s.service.ListDesktops(r.Context(), organizationID, includeTerminated)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -65,6 +72,9 @@ func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
 	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	if _, ok := requireOrganization(w, r); !ok {
 		return
 	}
 	writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
@@ -97,6 +107,9 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 		if !s.requireMutationAuth(w, r) {
 			return
 		}
+		if _, ok := requireOrganization(w, r); !ok {
+			return
+		}
 		writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
 	default:
 		writeError(w, http.StatusNotFound, errors.New("unknown action"))
@@ -104,7 +117,14 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getDesktop(w http.ResponseWriter, r *http.Request, id string) {
-	desktop, err := s.service.GetDesktop(r.Context(), id)
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
+	desktop, err := s.service.GetDesktop(r.Context(), organizationID, id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -116,7 +136,11 @@ func (s *Server) refreshDesktop(w http.ResponseWriter, r *http.Request, id strin
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	desktop, err := s.service.RefreshDesktop(r.Context(), id)
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
+	desktop, err := s.service.RefreshDesktop(r.Context(), organizationID, id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -128,7 +152,11 @@ func (s *Server) startDesktop(w http.ResponseWriter, r *http.Request, id string)
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	result, err := s.service.StartDesktop(r.Context(), id)
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.service.StartDesktop(r.Context(), organizationID, id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -140,12 +168,25 @@ func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) 
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	result, err := s.service.StopDesktop(r.Context(), id)
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.service.StopDesktop(r.Context(), organizationID, id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+func requireOrganization(w http.ResponseWriter, r *http.Request) (string, bool) {
+	organizationID := strings.TrimSpace(r.Header.Get("X-Organization-ID"))
+	if organizationID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("X-Organization-ID is required"))
+		return "", false
+	}
+	return organizationID, true
 }
 
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {

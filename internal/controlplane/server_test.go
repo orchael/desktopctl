@@ -14,20 +14,23 @@ import (
 	"github.com/orchael/ai-desktops/internal/store"
 )
 
+const testOrganizationID = "00000000-0000-4000-8000-000000000001"
+
 func TestListDesktopsFiltersTerminated(t *testing.T) {
 	t.Parallel()
 	s := store.NewInMemoryStore()
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-1", State: store.StateReady, CreatedAt: now}); err != nil {
+	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-1", OrganizationID: testOrganizationID, State: store.StateReady, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-2", State: store.StateTerminated, CreatedAt: now}); err != nil {
+	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-2", OrganizationID: testOrganizationID, State: store.StateTerminated, CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	service := newTestService(testConfig(), s)
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/desktops", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -49,6 +52,7 @@ func TestGetDesktopNotFound(t *testing.T) {
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/desktops/missing", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -63,6 +67,7 @@ func TestCreateDesktopDeferredReturnsNotImplemented(t *testing.T) {
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -77,6 +82,7 @@ func TestCreateDesktopRequiresBearerTokenWhenConfigured(t *testing.T) {
 	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -86,6 +92,7 @@ func TestCreateDesktopRequiresBearerTokenWhenConfigured(t *testing.T) {
 
 	req = httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
 	req.Header.Set("Authorization", "Bearer secret-token")
+	req.Header.Set("X-Organization-ID", testOrganizationID)
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 

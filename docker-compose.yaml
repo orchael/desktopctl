@@ -1,0 +1,32 @@
+name: ai-desktops-control-plane
+services:
+  control-plane-api:
+    build: {context: ., dockerfile: Dockerfile.control-plane, target: api}
+    environment:
+      AI_DESKTOPS_CONFIG: ${AI_DESKTOPS_CONFIG:-/app/config.example.yaml}
+      AI_DESKTOPS_ENVIRONMENT: ${AI_DESKTOPS_ENVIRONMENT:-dev}
+      AWS_ACCESS_KEY_ID:
+      AWS_EXTERNAL_ID:
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_ROLE_ARN:
+      AWS_SECRET_ACCESS_KEY:
+      CONTROL_PLANE_API_TOKEN:
+      CONTROL_PLANE_MOCK_AWS: ${CONTROL_PLANE_MOCK_AWS:-true}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  control-plane-web:
+    build: {context: ., dockerfile: Dockerfile.control-plane, target: web}
+    depends_on:
+      control-plane-api: {condition: service_healthy}
+    environment:
+      AUTH_SECRET:
+      AUTH_TRUST_HOST: "true"
+      CONTROL_PLANE_API_TOKEN:
+      CONTROL_PLANE_API_URL: http://control-plane-api:8080
+      DATABASE_URL:
+      GOOGLE_CLIENT_ID:
+      GOOGLE_CLIENT_SECRET:
+    ports: ["3000:3000"]

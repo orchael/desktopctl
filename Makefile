@@ -7,13 +7,25 @@ BUILD_P    ?= 1
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
 AI_DESKTOPS_GITHUB_OWNER ?= orchael
 
-.PHONY: build test setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean very-clean deps check-deps
+.PHONY: build test up down dev-up dev-down setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean very-clean deps check-deps
 
 build:
 	GOGC=$(BUILD_GOGC) go build -p $(BUILD_P) -o $(BINARY) $(CMD)
 
 test:
 	go test ./...
+
+up:
+	docker compose -f docker-compose.yaml up --build --detach
+
+down:
+	docker compose -f docker-compose.yaml down
+
+dev-up:
+	docker compose -f docker-compose.dev.yaml up --build --detach
+
+dev-down:
+	docker compose -f docker-compose.dev.yaml down
 
 # setup-integration performs one-time setup for the integration test environment.
 #

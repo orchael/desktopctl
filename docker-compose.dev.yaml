@@ -1,0 +1,59 @@
+name: ai-desktops-control-plane-dev
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ai_desktops
+      POSTGRES_USER: ai_desktops_admin
+      POSTGRES_PASSWORD: ai_desktops_admin
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_desktops_admin -d ai_desktops"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - control-plane-postgres:/var/lib/postgresql/data
+      - ./deploy/compose/postgres-init.sql:/docker-entrypoint-initdb.d/10-app-role.sql:ro
+  migrations:
+    build: {context: ., dockerfile: Dockerfile.control-plane, target: web-dev}
+    command: pnpm run db:migrate
+    environment:
+      DATABASE_URL: postgresql://ai_desktops_admin:ai_desktops_admin@postgres:5432/ai_desktops
+    depends_on:
+      postgres: {condition: service_healthy}
+  control-plane-api:
+    build: {context: ., dockerfile: Dockerfile.control-plane, target: api-dev}
+    environment:
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:-dev-token}
+      CONTROL_PLANE_MOCK_AWS: ${CONTROL_PLANE_MOCK_AWS:-true}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  control-plane-web:
+    build: {context: ., dockerfile: Dockerfile.control-plane, target: web-dev}
+    depends_on:
+      migrations: {condition: service_completed_successfully}
+      control-plane-api: {condition: service_healthy}
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:-local-development-secret-change-me}
+      AUTH_TRUST_HOST: "true"
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:-dev-token}
+      CONTROL_PLANE_API_URL: http://control-plane-api:8080
+      DATABASE_URL: postgresql://ai_desktops_app:ai_desktops_app@postgres:5432/ai_desktops
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    ports: ["3000:3000"]
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/control-plane-web
+          target: /src/apps/control-plane-web
+          ignore: [node_modules/, .next/]
+        - action: rebuild
+          path: ./apps/control-plane-web/package.json
+        - action: rebuild
+          path: ./apps/control-plane-web/pnpm-lock.yaml
+volumes:
+  control-plane-postgres:

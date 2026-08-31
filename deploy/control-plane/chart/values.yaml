@@ -1,0 +1,30 @@
+image:
+  repository: ghcr.io/orchael/ai-desktops-control-plane
+  tag: latest
+  pullPolicy: IfNotPresent
+web:
+  replicas: 2
+  port: 3000
+api:
+  replicas: 1
+  port: 8080
+ingress:
+  enabled: true
+  className: nginx
+  host: app.desktops.orchael.dev
+  tlsSecretName: ai-desktops-control-plane-tls
+config:
+  awsRegion: us-east-2
+  environment: prod
+  awsRoleArn: ""
+  awsExternalId: ""
+secrets:
+  create: false
+  name: ai-desktops-control-plane
+  databaseUrl: ""
+  migrationDatabaseUrl: ""
+  authSecret: ""
+  googleClientId: ""
+  googleClientSecret: ""
+  controlPlaneApiToken: ""
+resources: {}

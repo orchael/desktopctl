@@ -700,7 +700,7 @@ infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)
   pulumi/desktop/         Per-desktop EC2/Route53 Pulumi program (separate Go module)
 apps/desktop-web/         On-desktop status dashboard (Vite + React + TypeScript)
-apps/control-plane-web/   Kubernetes-hosted fleet control plane UI (Vite + React + TypeScript)
+apps/control-plane-web/   Kubernetes-hosted control plane (Next.js 16, Auth.js, Prisma)
 plans/                    Implementation plan files
 tasks/                    Branch-local TODO tracking
 ```

@@ -7,9 +7,12 @@
     "node": "^22.13.0 || >=24"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "build": "prisma generate && tsc --noEmit && next build",
+    "start": "next start --hostname 0.0.0.0 --port 3000",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:generate": "prisma generate",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prettier": "prettier . --check",
@@ -18,12 +21,20 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.1",
+    "@prisma/client": "^6.19.0",
+    "next": "^16.0.0",
+    "next-auth": "5.0.0-beta.30",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "zod": "^4.1.12"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
     ]
   },
   "devDependencies": {
@@ -33,7 +44,6 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
@@ -43,7 +53,7 @@
     "prettier": "^3.9.6",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.65.0",
-    "vite": "^8.1.5",
+    "prisma": "^6.19.0",
     "vitest": "^4.1.10"
   }
 }

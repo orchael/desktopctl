@@ -1,173 +1,124 @@
 # Kubernetes Control Plane
 
-The ai-desktops control plane is a long-running webapp for operating the AWS-backed desktop fleet from Kubernetes. It is separate from `apps/desktop-web`, which is the status dashboard served from each desktop.
-
-The first deployment target is DOKS. Because DOKS does not provide AWS IRSA, the app uses a bootstrap IAM user stored in a Kubernetes Secret. That user can only assume a control-plane role. All fleet calls use temporary STS role credentials.
-
-## Components
+The control plane is a Next.js 16 application backed by PostgreSQL and Auth.js. It authenticates users with Google, scopes every request to an active organization, and proxies fleet operations to a private Go API. Desktop metadata remains in DynamoDB with an `organization_id` UUID that matches the PostgreSQL organization.
 
 ```mermaid
 flowchart LR
-  Browser[Operator browser] --> Ingress[DOKS ingress]
-  Ingress --> Pod[control-plane pod]
-  Pod --> STS[AWS STS AssumeRole]
-  Pod --> DDB[DynamoDB fleet tables]
-  Pod --> EC2[EC2 lifecycle APIs]
-  Pod --> SSM[SSM sessions]
-  Pod --> Secrets[Secrets Manager]
-  Pod --> S3[S3 Pulumi backend]
+  Browser --> Next[Next.js + Auth.js]
+  Next --> Postgres[(PostgreSQL + RLS)]
+  Next -->|service token + organization UUID| Go[Private Go API]
+  Go --> Dynamo[(DynamoDB desktops)]
+  Go --> AWS[EC2 and AWS services]
 ```
 
-## Local Development
+## Identity and organizations
 
-Start the API in mock mode:
+- Google is the only authentication provider.
+- A first-time user receives an organization named from their normalized email, for example `alex@example.com` becomes `alex-example-com`.
+- Users may belong to multiple organizations and select the active organization in the UI.
+- Owners can rename an organization, invite by email, promote or demote members, and remove members.
+- PostgreSQL rejects any operation that would leave an organization without an owner.
+- PostgreSQL RLS restricts organization, membership, and invitation rows to the authenticated user and active organization.
+- Legacy DynamoDB desktops without `organization_id` are intentionally hidden until migrated.
+
+## Local development
+
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your shell, then run:
 
 ```bash
-CONTROL_PLANE_MOCK_AWS=true \
-AI_DESKTOPS_CONFIG=config.example.yaml \
-go run ./cmd/control-plane
+docker compose -f docker-compose.dev.yaml up --build --watch
 ```
 
-Start the web UI:
+Compose starts PostgreSQL 17, applies Prisma migrations, starts the mock Go API, and serves Next.js at `http://localhost:3000`. Create a suitable local Auth.js secret for anything beyond throwaway development:
 
 ```bash
+export AUTH_SECRET="$(openssl rand -base64 32)"
+```
+
+Configure this Google OAuth redirect URI:
+
+```text
+http://localhost:3000/api/auth/callback/google
+```
+
+The development database is persisted in the `control-plane-postgres` volume. To reset local identity data, explicitly remove that volume with Docker Compose.
+
+## Runtime configuration
+
+| Variable | Component | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Next.js | Restricted PostgreSQL runtime connection string. |
+| `MIGRATION_DATABASE_URL` | Helm migration Job | Privileged PostgreSQL connection used only for schema migrations. |
+| `AUTH_SECRET` | Next.js | Auth.js session signing/encryption secret. |
+| `AUTH_TRUST_HOST` | Next.js | Trust ingress forwarding headers; Helm sets this to `true`. |
+| `GOOGLE_CLIENT_ID` | Next.js | Google OAuth client ID. |
+| `GOOGLE_CLIENT_SECRET` | Next.js | Google OAuth client secret. |
+| `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |
+| `CONTROL_PLANE_API_TOKEN` | Both | Service credential used only between Next.js and Go. |
+| `AWS_REGION` | Go API | Fleet AWS region. |
+| `AWS_ROLE_ARN` | Go API | Control-plane role to assume. |
+| `AWS_EXTERNAL_ID` | Go API | External ID required by the role trust policy. |
+
+Do not expose the Go API ingress or its service token to browsers.
+
+## Database migrations and RLS
+
+Prisma schema changes live under `apps/control-plane-web/prisma`. Local development uses `pnpm run db:migrate:dev`; deployed environments use `pnpm run db:migrate`.
+
+The migration connection must use a role allowed to create roles, tables, functions, triggers, and RLS policies. `DATABASE_URL` must use the non-owner `ai_desktops_app` role created or granted by the migration; `MIGRATION_DATABASE_URL` must never be supplied to the web Deployment. Runtime organization queries set transaction-local `app.current_user_id` and `app.current_organization_id` values before accessing protected tables. Never perform organization queries outside the provided organization helpers.
+
+## Helm deployment
+
+The chart is in `deploy/control-plane/chart`. It installs separate web and API Deployments, public ingress only for Next.js, a private API Service, a NetworkPolicy, and a pre-install/pre-upgrade migration Job.
+
+Prefer creating the Secret with an external secret manager. The chart expects a Secret named `ai-desktops-control-plane` by default with these keys:
+
+- `DATABASE_URL`
+- `MIGRATION_DATABASE_URL`
+- `AUTH_SECRET`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `CONTROL_PLANE_API_TOKEN`
+- AWS credentials when workload identity is unavailable
+
+Example:
+
+```bash
+helm upgrade --install ai-desktops deploy/control-plane/chart \
+  --namespace ai-desktops --create-namespace \
+  --set image.repository=ghcr.io/orchael/ai-desktops-control-plane \
+  --set image.tag=v0.2.0 \
+  --set ingress.host=app.desktops.orchael.dev \
+  --set config.awsRoleArn="$AWS_ROLE_ARN" \
+  --set config.awsExternalId="$AWS_EXTERNAL_ID"
+```
+
+For an isolated test environment, `secrets.create=true` can create the Secret from Helm values, but command-line secret values may be retained in shell and Helm history.
+
+The Google production redirect URI is:
+
+```text
+https://app.desktops.orchael.dev/api/auth/callback/google
+```
+
+## Private Go API contract
+
+All `/api/desktops` requests require `X-Organization-ID` and, when configured, `Authorization: Bearer <CONTROL_PLANE_API_TOKEN>`. A desktop is returned only when its DynamoDB `organization_id` exactly matches the request header; missing and cross-organization records return `404`.
+
+The Next.js `/api/fleet/*` route is the only browser-facing fleet endpoint. It obtains the active organization from an HTTP-only cookie, validates membership in PostgreSQL, and supplies both private headers to Go.
+
+## Existing desktop migration
+
+Existing records are hidden until an administrator writes a valid PostgreSQL organization UUID to their DynamoDB `organization_id` attribute. Determine the target organization with an owner before updating a record. There is no domain-based or automatic migration because that could disclose a desktop to the wrong tenant.
+
+## Verification
+
+```bash
+go test ./...
 cd apps/control-plane-web
-pnpm install
-pnpm run dev
+pnpm run build
+pnpm run test:coverage
+pnpm run lint
+pnpm run prettier
+helm lint ../../deploy/control-plane/chart
 ```
-
-The Vite dev server proxies `/api` and `/readyz` to `127.0.0.1:8080`.
-
-## AWS Access Bootstrap
-
-Create a stable external ID once:
-
-```bash
-openssl rand -hex 24
-```
-
-Configure and deploy the access stack:
-
-```bash
-cd infra/pulumi/control-plane-access
-pulumi stack init control-plane-dev
-pulumi config set aws:region us-east-2
-pulumi config set environment dev
-pulumi config set bootstrapUserName ai-desktop-user-dev
-pulumi config set roleName ai-desktops-control-plane-dev
-pulumi config set backendBucket <pulumi-state-bucket>
-pulumi config set hostedZoneArn arn:aws:route53:::hostedzone/<zone-id>
-pulumi config set desktopRoleArn arn:aws:iam::<account-id>:role/<desktop-instance-role>
-pulumi config set --secret externalId <external-id>
-pulumi up
-```
-
-The stack creates:
-
-- IAM user `ai-desktop-user-<environment>` by default
-- IAM access key for that user
-- IAM role `ai-desktops-control-plane-<environment>`
-- user policy allowing only `sts:AssumeRole` into that role
-- role trust policy requiring the configured external ID
-- role policy for ai-desktops fleet tables, EC2 lifecycle calls, SSM sessions, Route53 updates, Secrets Manager access, and the Pulumi S3 backend
-
-Read the outputs:
-
-```bash
-pulumi stack output ROLE_ARN
-pulumi stack output ACCESS_KEY
-pulumi stack output --show-secrets SECRET
-pulumi stack output --show-secrets EXTERNAL_ID
-```
-
-## DOKS Secret
-
-Create the runtime secret:
-
-```bash
-kubectl create namespace ai-desktops
-kubectl create secret generic ai-desktops-aws \
-  --namespace ai-desktops \
-  --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output ACCESS_KEY)" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets SECRET)" \
-  --from-literal=AWS_REGION="us-east-2" \
-  --from-literal=AWS_ROLE_ARN="$(pulumi stack output ROLE_ARN)" \
-  --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets EXTERNAL_ID)" \
-  --from-literal=CONTROL_PLANE_API_TOKEN="$(openssl rand -hex 32)"
-```
-
-Do not commit a populated Secret manifest.
-
-## Deploy
-
-Build and push the image:
-
-```bash
-docker build -f Dockerfile.control-plane -t ghcr.io/<owner>/ai-desktops-control-plane:<tag> .
-docker push ghcr.io/<owner>/ai-desktops-control-plane:<tag>
-```
-
-Update `deploy/control-plane/base/configmap.yaml` and `deploy/control-plane/base/deployment.yaml` for your environment and image, then apply:
-
-```bash
-kubectl apply -k deploy/control-plane/base
-kubectl -n ai-desktops rollout status deploy/ai-desktops-control-plane
-```
-
-Check readiness:
-
-```bash
-kubectl -n ai-desktops exec deploy/ai-desktops-control-plane -- wget -qO- http://127.0.0.1:8080/readyz
-```
-
-## Runtime Configuration
-
-| Variable | Source | Purpose |
-|---|---|---|
-| `AI_DESKTOPS_CONFIG` | ConfigMap mounted file | Path to the shared ai-desktops config. |
-| `AI_DESKTOPS_ENVIRONMENT` | ConfigMap | Environment name. |
-| `AWS_REGION` | ConfigMap or Secret | Fleet AWS region. |
-| `AWS_ACCESS_KEY_ID` | Secret | Bootstrap IAM user access key ID. |
-| `AWS_SECRET_ACCESS_KEY` | Secret | Bootstrap IAM user secret access key. |
-| `AWS_ROLE_ARN` | Secret | Control-plane role to assume. |
-| `AWS_EXTERNAL_ID` | Secret | External ID required by the role trust policy. |
-| `CONTROL_PLANE_API_TOKEN` | Secret | Bearer token required for mutating fleet API calls. |
-| `CONTROL_PLANE_ADDR` | ConfigMap | HTTP listen address. Defaults to `:8080`. |
-| `CONTROL_PLANE_STATIC_DIR` | ConfigMap | Static web asset directory. |
-| `CONTROL_PLANE_REFRESH_TIMEOUT` | ConfigMap | Timeout for short live-state refresh calls. Defaults to `15s`. |
-| `CONTROL_PLANE_LIFECYCLE_TIMEOUT` | ConfigMap | Timeout for start/stop AWS waiters. Defaults to `12m`. |
-
-## Current API
-
-| Method | Path | Status |
-|---|---|---|
-| `GET` | `/healthz` | Implemented. |
-| `GET` | `/readyz` | Implemented. Checks STS identity and DynamoDB list access. |
-| `GET` | `/api/desktops` | Implemented. |
-| `GET` | `/api/desktops/{id}` | Implemented. Includes best-effort live EC2 state. |
-| `POST` | `/api/desktops/{id}/refresh` | Implemented. Reconciles stopped/running state from EC2. |
-| `POST` | `/api/desktops/{id}/start` | Implemented without DNS refresh. |
-| `POST` | `/api/desktops/{id}/stop` | Implemented. |
-| `POST` | `/api/desktops` | Deferred until CLI create logic is extracted into a shared service. |
-| `POST` | `/api/desktops/{id}/terminate` | Deferred until Pulumi destroy is extracted into a shared service. |
-
-All `POST` endpoints require `Authorization: Bearer <CONTROL_PLANE_API_TOKEN>` unless the server is running with `CONTROL_PLANE_MOCK_AWS=true`.
-
-## Rotation
-
-1. Run `pulumi up` in `infra/pulumi/control-plane-access` after replacing the access key resource or rotating manually in IAM.
-2. Update the `ai-desktops-aws` Kubernetes Secret with the new key.
-3. Restart the deployment:
-
-```bash
-kubectl -n ai-desktops rollout restart deploy/ai-desktops-control-plane
-```
-
-4. Confirm `/readyz` returns `ok: true`.
-
-## Troubleshooting
-
-- `/readyz` reports `AccessDenied` from STS: verify `AWS_ROLE_ARN`, `AWS_EXTERNAL_ID`, and the role trust policy.
-- `/readyz` reports DynamoDB errors: verify `fleet.table_name` and the role policy table ARNs.
-- Fleet rows load but start/stop fails: verify EC2 permissions and that the desktop record has an `instance_id`.
-- The browser loads but API calls 404: verify ingress forwards `/api` and `/readyz` to the control-plane Service.
