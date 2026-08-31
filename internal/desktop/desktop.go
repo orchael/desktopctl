@@ -216,6 +216,29 @@ func (m *Manager) AddSecrets(ctx context.Context, id string, paths []string) err
 	return m.Store.Update(ctx, d)
 }
 
+// RemoveSecrets removes secret paths from the desktop record. Unknown paths are
+// ignored so repeated remove operations are idempotent.
+func (m *Manager) RemoveSecrets(ctx context.Context, id string, paths []string) error {
+	d, err := m.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	remove := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		remove[p] = true
+	}
+
+	remaining := make([]string, 0, len(d.Secrets))
+	for _, p := range d.Secrets {
+		if !remove[p] {
+			remaining = append(remaining, p)
+		}
+	}
+	d.Secrets = remaining
+	return m.Store.Update(ctx, d)
+}
+
 // RecordFailure records a provisioning or lifecycle failure.
 func (m *Manager) RecordFailure(ctx context.Context, id, phase, message string) error {
 	return m.Store.RecordFailure(ctx, id, phase, message)

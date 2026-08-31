@@ -152,3 +152,34 @@ func TestSecretPathsAfterAdd_DeduplicatesExistingAndNewSecrets(t *testing.T) {
 		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
 	}
 }
+
+func TestSecretPathsAfterRemove_RemovesRequestedPaths(t *testing.T) {
+	toRemove, remainingPaths := secretPathsAfterRemove(
+		[]string{"/one", "/two", "/three"},
+		[]string{"/two", "/missing", "/two"},
+	)
+
+	if want := []string{"/two"}; !reflect.DeepEqual(toRemove, want) {
+		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
+	}
+	if want := []string{"/one", "/three"}; !reflect.DeepEqual(remainingPaths, want) {
+		t.Fatalf("remainingPaths = %#v, want %#v", remainingPaths, want)
+	}
+}
+
+func TestBuildSecretsClearScript_ClearsEnvFiles(t *testing.T) {
+	script := buildSecretsClearScript()
+	checks := []string{
+		"~/.config/environment.d/desktop-secrets.conf",
+		"~/.desktop-secrets",
+		"install -d -m 700",
+		"install -m 600 /dev/null",
+		"systemctl --user daemon-reload",
+		"bridgectl",
+	}
+	for _, want := range checks {
+		if !strings.Contains(script, want) {
+			t.Errorf("script should contain %q, got:\n%s", want, script)
+		}
+	}
+}
