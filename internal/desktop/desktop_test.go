@@ -189,6 +189,31 @@ func TestManager_MarkTerminating(t *testing.T) {
 	}
 }
 
+func TestManager_RemoveSecrets(t *testing.T) {
+	s := store.NewInMemoryStore()
+	m := NewManager(s)
+	ctx := context.Background()
+
+	_ = s.Create(ctx, &store.Desktop{
+		DesktopID: "d-sec1",
+		Secrets:   []string{"/one", "/two", "/three"},
+	})
+	if err := m.RemoveSecrets(ctx, "d-sec1", []string{"/two", "/missing", "/two"}); err != nil {
+		t.Fatalf("RemoveSecrets: %v", err)
+	}
+
+	d, _ := s.Get(ctx, "d-sec1")
+	want := []string{"/one", "/three"}
+	if len(d.Secrets) != len(want) {
+		t.Fatalf("secrets = %#v, want %#v", d.Secrets, want)
+	}
+	for i := range want {
+		if d.Secrets[i] != want[i] {
+			t.Fatalf("secrets = %#v, want %#v", d.Secrets, want)
+		}
+	}
+}
+
 func TestManager_RecordFailure(t *testing.T) {
 	s := store.NewInMemoryStore()
 	m := NewManager(s)

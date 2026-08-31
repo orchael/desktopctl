@@ -43,9 +43,23 @@ The desktop must be running and reachable via SSH.`,
 	RunE: runSecretsAdd,
 }
 
+var secretsRemoveCmd = &cobra.Command{
+	Use:   "remove <desktop-id> <secret-path> [<secret-path> ...]",
+	Short: "Remove one or more secrets from a running desktop",
+	Long: `remove deletes one or more AWS Secrets Manager paths from the desktop's
+configured secret list, rewrites the running instance's secret environment files
+without those paths, and persists the updated list so future reloads exclude
+them.
+
+The desktop must be running and reachable via SSH.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: runSecretsRemove,
+}
+
 func init() {
 	secretsCmd.AddCommand(secretsReloadCmd)
 	secretsCmd.AddCommand(secretsAddCmd)
+	secretsCmd.AddCommand(secretsRemoveCmd)
 	rootCmd.AddCommand(secretsCmd)
 }
 
@@ -171,6 +185,70 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runSecretsRemove(cmd *cobra.Command, args []string) error {
+	if err := requireTools("ssh"); err != nil {
+		return err
+	}
+	if cfg.Desktop.SSHKeyPath == "" {
+		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
+	}
+
+	ctx := context.Background()
+	id := args[0]
+	removePaths := args[1:]
+
+	s, err := openStore(ctx)
+	if err != nil {
+		return err
+	}
+	d, err := s.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("desktop %q not found", id)
+		}
+		return err
+	}
+
+	if d.Hostname == "" {
+		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
+	}
+
+	toRemove, remainingPaths := secretPathsAfterRemove(d.Secrets, removePaths)
+	for _, p := range removePaths {
+		if !containsString(toRemove, p) {
+			fmt.Printf("Secret %s is not configured on %s, skipping\n", p, id)
+		}
+	}
+	if len(toRemove) == 0 {
+		fmt.Println("No configured secrets to remove.")
+		return nil
+	}
+
+	var script string
+	if len(remainingPaths) == 0 {
+		fmt.Printf("Clearing desktop secret files on %s (%s); removing %d secret(s)...\n", id, d.Hostname, len(toRemove))
+		script = buildSecretsClearScript()
+	} else {
+		region := d.Region
+		if region == "" {
+			region = cfg.AWS.Region
+		}
+		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
+		script = buildSecretsRemoveReloadScript(remainingPaths, region)
+	}
+	if err := runRemote(d, script); err != nil {
+		return fmt.Errorf("secrets remove failed: %w", err)
+	}
+
+	mgr := desktop.NewManager(s)
+	if err := mgr.RemoveSecrets(ctx, id, toRemove); err != nil {
+		return fmt.Errorf("update fleet record: %w", err)
+	}
+
+	fmt.Printf("Removed %d secret(s) from %s: %s\n", len(toRemove), id, strings.Join(toRemove, ", "))
+	return nil
+}
+
 func secretPathsAfterAdd(existingPaths, newPaths []string) ([]string, []string) {
 	existing := make(map[string]bool, len(existingPaths))
 	reloadPaths := append([]string(nil), existingPaths...)
@@ -191,9 +269,47 @@ func secretPathsAfterAdd(existingPaths, newPaths []string) ([]string, []string) 
 	return toAdd, reloadPaths
 }
 
+func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []string) {
+	removeRequested := make(map[string]bool, len(removePaths))
+	for _, p := range removePaths {
+		removeRequested[p] = true
+	}
+
+	removed := make(map[string]bool, len(removePaths))
+	var toRemove []string
+	var remainingPaths []string
+	for _, p := range existingPaths {
+		if removeRequested[p] {
+			if !removed[p] {
+				toRemove = append(toRemove, p)
+				removed[p] = true
+			}
+			continue
+		}
+		remainingPaths = append(remainingPaths, p)
+	}
+
+	return toRemove, remainingPaths
+}
+
 // buildSecretsReloadScript returns a shell script that re-fetches each secret
 // path from AWS Secrets Manager and rewrites the desktop secret files.
 func buildSecretsReloadScript(secretPaths []string, region string) string {
+	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorPreserve)
+}
+
+type emptySecretBehavior int
+
+const (
+	emptySecretBehaviorPreserve emptySecretBehavior = iota
+	emptySecretBehaviorClearAndFail
+)
+
+func buildSecretsRemoveReloadScript(secretPaths []string, region string) string {
+	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorClearAndFail)
+}
+
+func buildSecretsReloadScriptWithEmptyBehavior(secretPaths []string, region string, emptyBehavior emptySecretBehavior) string {
 	var b strings.Builder
 
 	b.WriteString("set -euo pipefail\n")
@@ -247,11 +363,27 @@ unset SECRET_JSON
 `, path, path, path)
 	}
 
-	b.WriteString(`
+	if emptyBehavior == emptySecretBehaviorPreserve {
+		b.WriteString(`
 if [ ! -s "$DESKTOP_ENV_TMP" ]; then
   echo "WARNING: no secret values retrieved; files not updated" >&2
   exit 0
 fi
+`)
+	} else {
+		b.WriteString(`
+if [ ! -s "$DESKTOP_ENV_TMP" ]; then
+  echo "WARNING: no remaining secret values retrieved; clearing secret files" >&2
+  install -d -m 700 ~/.config/environment.d
+  install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf
+  install -m 600 /dev/null ~/.desktop-secrets
+  systemctl --user daemon-reload
+  exit 1
+fi
+`)
+	}
+
+	b.WriteString(`
 
 # Write the shell-sourceable file to a temp location first, then move it into
 # place atomically so a partial write is never observed by a concurrent shell.
@@ -282,4 +414,24 @@ echo "secrets reloaded successfully"
 `)
 
 	return b.String()
+}
+
+func buildSecretsClearScript() string {
+	return `set -euo pipefail
+
+# Clear both user environment surfaces when the configured secret list becomes empty.
+install -d -m 700 ~/.config/environment.d
+install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf
+install -m 600 /dev/null ~/.desktop-secrets
+
+systemctl --user daemon-reload
+
+for svc in bridgectl; do
+  if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+    systemctl --user restart "$svc" && echo "restarted $svc" || echo "WARNING: failed to restart $svc" >&2
+  fi
+done
+
+echo "secrets cleared successfully"
+`
 }

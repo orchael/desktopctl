@@ -152,3 +152,83 @@ func TestSecretPathsAfterAdd_DeduplicatesExistingAndNewSecrets(t *testing.T) {
 		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
 	}
 }
+
+func TestSecretPathsAfterRemove_RemovesRequestedPaths(t *testing.T) {
+	toRemove, remainingPaths := secretPathsAfterRemove(
+		[]string{"/one", "/two", "/three"},
+		[]string{"/two", "/missing", "/two"},
+	)
+
+	if want := []string{"/two"}; !reflect.DeepEqual(toRemove, want) {
+		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
+	}
+	if want := []string{"/one", "/three"}; !reflect.DeepEqual(remainingPaths, want) {
+		t.Fatalf("remainingPaths = %#v, want %#v", remainingPaths, want)
+	}
+}
+
+func TestSecretPathsAfterRemove_ReloadScriptExcludesRemovedPaths(t *testing.T) {
+	toRemove, remainingPaths := secretPathsAfterRemove(
+		[]string{"/markcallen/smoke", "/orchael/desktops/local", "/ai-desktops/dev/control-plane/aws-operator"},
+		[]string{"/ai-desktops/dev/control-plane/aws-operator"},
+	)
+
+	if want := []string{"/ai-desktops/dev/control-plane/aws-operator"}; !reflect.DeepEqual(toRemove, want) {
+		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
+	}
+
+	script := buildSecretsReloadScript(remainingPaths, "us-east-2")
+	if strings.Contains(script, "/ai-desktops/dev/control-plane/aws-operator") {
+		t.Fatalf("reload script includes removed secret:\n%s", script)
+	}
+	for _, want := range []string{"/markcallen/smoke", "/orchael/desktops/local"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("reload script missing remaining secret %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestBuildSecretsRemoveReloadScript_ClearsAndFailsWhenNoRemainingValuesRetrieved(t *testing.T) {
+	script := buildSecretsRemoveReloadScript([]string{"/remaining"}, "us-east-2")
+	checks := []string{
+		"no remaining secret values retrieved; clearing secret files",
+		"install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf",
+		"install -m 600 /dev/null ~/.desktop-secrets",
+		"exit 1",
+	}
+	for _, want := range checks {
+		if !strings.Contains(script, want) {
+			t.Errorf("remove reload script should contain %q, got:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "files not updated") {
+		t.Errorf("remove reload script must not preserve stale files when no values are retrieved:\n%s", script)
+	}
+}
+
+func TestBuildSecretsReloadScript_PreservesFilesWhenNoValuesRetrieved(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/remaining"}, "us-east-2")
+	if !strings.Contains(script, "no secret values retrieved; files not updated") {
+		t.Errorf("reload script should preserve existing files when no values are retrieved, got:\n%s", script)
+	}
+	if strings.Contains(script, "no remaining secret values retrieved; clearing secret files") {
+		t.Errorf("reload script should not use remove-specific clear-on-empty behavior:\n%s", script)
+	}
+}
+
+func TestBuildSecretsClearScript_ClearsEnvFiles(t *testing.T) {
+	script := buildSecretsClearScript()
+	checks := []string{
+		"~/.config/environment.d/desktop-secrets.conf",
+		"~/.desktop-secrets",
+		"install -d -m 700",
+		"install -m 600 /dev/null",
+		"systemctl --user daemon-reload",
+		"bridgectl",
+	}
+	for _, want := range checks {
+		if !strings.Contains(script, want) {
+			t.Errorf("script should contain %q, got:\n%s", want, script)
+		}
+	}
+}
