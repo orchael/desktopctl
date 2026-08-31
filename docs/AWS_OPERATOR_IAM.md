@@ -37,13 +37,13 @@ The secret payload has this shape:
 
 ```json
 {
-  "aws_access_key_id": "AKIA...",
-  "aws_secret_access_key": "...",
-  "role_arn": "arn:aws:iam::<account-id>:role/ai-desktops-control-plane-role-dev",
-  "user_arn": "arn:aws:iam::<account-id>:user/ai-desktops-control-plane-dev",
-  "environment": "dev",
-  "source_profile": "ai-desktops-dev-user",
-  "role_profile": "ai-desktops-dev"
+  "OPERATOR_AWS_ACCESS_KEY_ID": "AKIA...",
+  "OPERATOR_AWS_SECRET_ACCESS_KEY": "...",
+  "OPERATOR_ROLE_ARN": "arn:aws:iam::<account-id>:role/ai-desktops-control-plane-role-dev",
+  "OPERATOR_USER_ARN": "arn:aws:iam::<account-id>:user/ai-desktops-control-plane-dev",
+  "OPERATOR_ENVIRONMENT": "dev",
+  "OPERATOR_SOURCE_PROFILE": "ai-desktops-dev-user",
+  "OPERATOR_ROLE_PROFILE": "ai-desktops-dev"
 }
 ```
 
@@ -83,11 +83,11 @@ Put the access key on a source profile and use the role profile for `ai-desktops
 
 ```ini
 [profile ai-desktops-dev-user]
-aws_access_key_id = <aws_access_key_id from secret>
-aws_secret_access_key = <aws_secret_access_key from secret>
+aws_access_key_id = <OPERATOR_AWS_ACCESS_KEY_ID from secret>
+aws_secret_access_key = <OPERATOR_AWS_SECRET_ACCESS_KEY from secret>
 
 [profile ai-desktops-dev]
-role_arn = <role_arn from secret>
+role_arn = <OPERATOR_ROLE_ARN from secret>
 source_profile = ai-desktops-dev-user
 region = us-east-2
 ```

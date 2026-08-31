@@ -436,13 +436,13 @@ func run(ctx *pulumi.Context) error {
 		operatorUser.Arn,
 	).ApplyT(func(args []interface{}) (string, error) {
 		payload := map[string]string{
-			"aws_access_key_id":     fmt.Sprint(args[0]),
-			"aws_secret_access_key": fmt.Sprint(args[1]),
-			"role_arn":              fmt.Sprint(args[2]),
-			"user_arn":              fmt.Sprint(args[3]),
-			"environment":           environment,
-			"source_profile":        "ai-desktops-" + environment + "-user",
-			"role_profile":          "ai-desktops-" + environment,
+			"OPERATOR_AWS_ACCESS_KEY_ID":     fmt.Sprint(args[0]),
+			"OPERATOR_AWS_SECRET_ACCESS_KEY": fmt.Sprint(args[1]),
+			"OPERATOR_ROLE_ARN":              fmt.Sprint(args[2]),
+			"OPERATOR_USER_ARN":              fmt.Sprint(args[3]),
+			"OPERATOR_ENVIRONMENT":           environment,
+			"OPERATOR_SOURCE_PROFILE":        "ai-desktops-" + environment + "-user",
+			"OPERATOR_ROLE_PROFILE":          "ai-desktops-" + environment,
 		}
 		b, err := json.Marshal(payload)
 		if err != nil {
