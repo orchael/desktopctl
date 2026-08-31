@@ -63,7 +63,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
-	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "")
+	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 
 	fmt.Fprintf(os.Stderr, "Foundation environment : %s\n", env)
 	fmt.Fprintf(os.Stderr, "AWS region             : %s\n", cfg.AWS.Region)
@@ -104,6 +104,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Fleet Table      : %s\n", outputs[pulumi.OutputFleetTable])
 	if outputs[pulumi.OutputAMITable] != "" {
 		fmt.Printf("AMI Table        : %s\n", outputs[pulumi.OutputAMITable])
+	}
+	if outputs[pulumi.OutputOperatorSecret] != "" {
+		fmt.Printf("Operator Secret  : %s\n", outputs[pulumi.OutputOperatorSecret])
 	}
 	fmt.Println("Foundation stack applied.")
 	return nil

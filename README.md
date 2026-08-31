@@ -22,24 +22,35 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 
 The operator profile needs the following permissions:
 
+The foundation Pulumi stack can create a dedicated environment-specific IAM
+user, assumable role, access key, and Secrets Manager credential bundle for
+these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
+
 **Bootstrap (`bootstrap` command):**
-- `s3:CreateBucket`, `s3:HeadBucket`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
+- `s3:CreateBucket`, `s3:ListBucket` (for `HeadBucket` checks), `s3:GetBucketTagging`, `s3:PutBucketTagging`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
 - `dynamodb:CreateTable`, `dynamodb:DescribeTable`
 
 **Foundation (`init-foundation` command):**
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
-- `iam:CreateRole`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*` variants
+- `iam:CreateUser`, `iam:CreateAccessKey`, `iam:CreateRole`, `iam:PutUserPolicy`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*`/`Tag*` variants
 - `route53:GetHostedZone`, `route53:ListHostedZones`
+- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/ai-desktops/<env>/control-plane/aws-operator`
 - Full Pulumi S3 state backend access on the bootstrap bucket
 
 **Desktop lifecycle (`create`, `stop`, `start`, `terminate`):**
-- `ec2:RunInstances`, `ec2:StopInstances`, `ec2:StartInstances`, `ec2:TerminateInstances`, `ec2:DescribeInstances`
+- `ec2:RunInstances`, `ec2:StopInstances`, `ec2:StartInstances`, `ec2:TerminateInstances`, `ec2:DescribeInstances`, `ec2:ModifyInstanceAttribute`
 - `ec2:CreateTags`
+- `ec2:ImportKeyPair` when registering an EC2 key pair through `setup`
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
-- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`
+- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`, `dynamodb:DeleteItem`
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/ai-desktops/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
 - `TAILSCALE_API_KEY` in the local environment, or in the `/ai-desktops/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
+
+**AMI build/list/delete (`ami` commands):**
+- `ec2:DescribeImages`, `ec2:DescribeSubnets`, `ec2:CreateImage`, `ec2:ModifyImageAttribute`, `ec2:DeregisterImage`, `ec2:DeleteSnapshot`
+- Packer also needs EC2 launch, tagging, stop, and terminate permissions for its build instance.
+- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:DeleteItem` on the AMI history table.
 
 **Tunnel access (`agent` command):**
 - `ssm:StartSession` with document `AWS-StartPortForwardingSession`
@@ -208,7 +219,7 @@ Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, e
 ai-desktops init-foundation
 ```
 
-Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, and looks up the Route53 zone.
+Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, environment-specific control-plane IAM credentials in Secrets Manager, and looks up the Route53 zone.
 
 Preview without applying:
 
