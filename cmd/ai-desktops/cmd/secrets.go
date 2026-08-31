@@ -234,7 +234,7 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 			region = cfg.AWS.Region
 		}
 		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
-		script = buildSecretsReloadScript(remainingPaths, region)
+		script = buildSecretsRemoveReloadScript(remainingPaths, region)
 	}
 	if err := runRemote(d, script); err != nil {
 		return fmt.Errorf("secrets remove failed: %w", err)
@@ -295,6 +295,21 @@ func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []st
 // buildSecretsReloadScript returns a shell script that re-fetches each secret
 // path from AWS Secrets Manager and rewrites the desktop secret files.
 func buildSecretsReloadScript(secretPaths []string, region string) string {
+	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorPreserve)
+}
+
+type emptySecretBehavior int
+
+const (
+	emptySecretBehaviorPreserve emptySecretBehavior = iota
+	emptySecretBehaviorClearAndFail
+)
+
+func buildSecretsRemoveReloadScript(secretPaths []string, region string) string {
+	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorClearAndFail)
+}
+
+func buildSecretsReloadScriptWithEmptyBehavior(secretPaths []string, region string, emptyBehavior emptySecretBehavior) string {
 	var b strings.Builder
 
 	b.WriteString("set -euo pipefail\n")
@@ -348,11 +363,27 @@ unset SECRET_JSON
 `, path, path, path)
 	}
 
-	b.WriteString(`
+	if emptyBehavior == emptySecretBehaviorPreserve {
+		b.WriteString(`
 if [ ! -s "$DESKTOP_ENV_TMP" ]; then
   echo "WARNING: no secret values retrieved; files not updated" >&2
   exit 0
 fi
+`)
+	} else {
+		b.WriteString(`
+if [ ! -s "$DESKTOP_ENV_TMP" ]; then
+  echo "WARNING: no remaining secret values retrieved; clearing secret files" >&2
+  install -d -m 700 ~/.config/environment.d
+  install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf
+  install -m 600 /dev/null ~/.desktop-secrets
+  systemctl --user daemon-reload
+  exit 1
+fi
+`)
+	}
+
+	b.WriteString(`
 
 # Write the shell-sourceable file to a temp location first, then move it into
 # place atomically so a partial write is never observed by a concurrent shell.

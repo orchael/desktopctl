@@ -188,6 +188,34 @@ func TestSecretPathsAfterRemove_ReloadScriptExcludesRemovedPaths(t *testing.T) {
 	}
 }
 
+func TestBuildSecretsRemoveReloadScript_ClearsAndFailsWhenNoRemainingValuesRetrieved(t *testing.T) {
+	script := buildSecretsRemoveReloadScript([]string{"/remaining"}, "us-east-2")
+	checks := []string{
+		"no remaining secret values retrieved; clearing secret files",
+		"install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf",
+		"install -m 600 /dev/null ~/.desktop-secrets",
+		"exit 1",
+	}
+	for _, want := range checks {
+		if !strings.Contains(script, want) {
+			t.Errorf("remove reload script should contain %q, got:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "files not updated") {
+		t.Errorf("remove reload script must not preserve stale files when no values are retrieved:\n%s", script)
+	}
+}
+
+func TestBuildSecretsReloadScript_PreservesFilesWhenNoValuesRetrieved(t *testing.T) {
+	script := buildSecretsReloadScript([]string{"/remaining"}, "us-east-2")
+	if !strings.Contains(script, "no secret values retrieved; files not updated") {
+		t.Errorf("reload script should preserve existing files when no values are retrieved, got:\n%s", script)
+	}
+	if strings.Contains(script, "no remaining secret values retrieved; clearing secret files") {
+		t.Errorf("reload script should not use remove-specific clear-on-empty behavior:\n%s", script)
+	}
+}
+
 func TestBuildSecretsClearScript_ClearsEnvFiles(t *testing.T) {
 	script := buildSecretsClearScript()
 	checks := []string{
