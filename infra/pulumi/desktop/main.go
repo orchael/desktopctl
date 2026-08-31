@@ -24,6 +24,7 @@ func run(ctx *pulumi.Context) error {
 	awsCfg := config.New(ctx, "aws")
 
 	desktopID := cfg.Require("desktopId")
+	desktopName := cfg.Get("desktopName")
 	githubOwner := cfg.Require("githubOwner")
 	zone := cfg.Require("zone")
 	instanceType := cfg.Get("instanceType")
@@ -63,6 +64,26 @@ func run(ctx *pulumi.Context) error {
 		marketType = "on-demand"
 	}
 	spotMaxPrice := cfg.Get("spotMaxPrice")
+	workspaceMode := cfg.Get("workspaceMode")
+	if workspaceMode == "" {
+		workspaceMode = "local"
+	}
+	workspaceName := cfg.Get("workspaceName")
+	workspaceEFSFileSystemID := cfg.Get("workspaceEFSFileSystemId")
+	workspaceEFSAccessPointID := cfg.Get("workspaceEFSAccessPointId")
+	if workspaceMode == "efs" {
+		if workspaceName == "" {
+			return fmt.Errorf("workspaceName is required when workspaceMode is efs")
+		}
+		if workspaceEFSFileSystemID == "" {
+			return fmt.Errorf("workspaceEFSFileSystemId is required when workspaceMode is efs")
+		}
+		if workspaceEFSAccessPointID == "" {
+			return fmt.Errorf("workspaceEFSAccessPointId is required when workspaceMode is efs")
+		}
+	} else if workspaceMode != "local" {
+		return fmt.Errorf("workspaceMode must be local or efs")
+	}
 
 	// importInstanceId is set by the CLI when the instance was pre-launched via
 	// RunInstances with CpuOptions.NestedVirtualization=enabled. Pulumi imports
@@ -79,11 +100,11 @@ func run(ctx *pulumi.Context) error {
 	// Prefer gzip-compressed base64 user data so large cloud-init payloads stay
 	// under EC2's 16 KiB raw user-data limit. Keep raw userData as a fallback
 	// for older CLI-created stack configs.
+	// Some legacy stacks do not have userData in stack config at all. Allow that
+	// case so start can refresh existing instances and update DNS without
+	// requiring user-data that AWS does not expose back to the CLI.
 	userDataBase64 := cfg.Get("userDataBase64")
 	userData := cfg.Get("userData")
-	if userDataBase64 == "" && userData == "" {
-		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
-	}
 
 	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
 	// are also configured to stop on interruption, so keep hibernation disabled.
@@ -105,11 +126,14 @@ func run(ctx *pulumi.Context) error {
 			DeleteOnTermination: pulumi.Bool(true),
 		},
 		Tags: pulumi.StringMap{
-			"Name":         pulumi.String(hostname),
-			"managed-by":   pulumi.String("ai-desktops"),
-			"desktop-id":   pulumi.String(desktopID),
-			"github-owner": pulumi.String(githubOwner),
-			"environment":  pulumi.String(environment),
+			"Name":           pulumi.String(hostname),
+			"managed-by":     pulumi.String("ai-desktops"),
+			"desktop-id":     pulumi.String(desktopID),
+			"desktop-name":   pulumi.String(desktopName),
+			"github-owner":   pulumi.String(githubOwner),
+			"environment":    pulumi.String(environment),
+			"workspace-mode": pulumi.String(workspaceMode),
+			"workspace-name": pulumi.String(workspaceName),
 		},
 	}
 	// NestedVirtualization is set at launch time by the CLI via RunInstances with
@@ -184,6 +208,10 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("novncUrl", pulumi.Sprintf("https://%s:%d/novnc/vnc.html", hostname, novncHTTPSPort))
 	ctx.Export("sshTarget", pulumi.Sprintf("ubuntu@%s", hostname))
 	ctx.Export("workspacePath", pulumi.String("/workspace"))
+	ctx.Export("workspaceMode", pulumi.String(workspaceMode))
+	ctx.Export("workspaceName", pulumi.String(workspaceName))
+	ctx.Export("workspaceEFSFileSystemId", pulumi.String(workspaceEFSFileSystemID))
+	ctx.Export("workspaceEFSAccessPointId", pulumi.String(workspaceEFSAccessPointID))
 	ctx.Export("githubOwner", pulumi.String(githubOwner))
 	ctx.Export("amiId", pulumi.String(amiID))
 	ctx.Export("instanceType", pulumi.String(instanceType))

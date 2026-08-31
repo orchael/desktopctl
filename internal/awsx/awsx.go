@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,6 +15,8 @@ import (
 	dynamodbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/route53"
+	route53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -392,6 +395,8 @@ func InstanceState(ctx context.Context, cfg aws.Config, instanceID string) (stri
 // reconciliation without leaking AWS SDK types to command packages.
 type EC2InstanceStatus struct {
 	State                 string
+	ImageID               string
+	PublicIP              string
 	StateTransitionReason string
 	InstanceLifecycle     string
 	SpotInstanceRequestID string
@@ -411,6 +416,8 @@ func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC
 	}
 	inst := out.Reservations[0].Instances[0]
 	status := &EC2InstanceStatus{
+		ImageID:               aws.ToString(inst.ImageId),
+		PublicIP:              aws.ToString(inst.PublicIpAddress),
 		StateTransitionReason: aws.ToString(inst.StateTransitionReason),
 		InstanceLifecycle:     string(inst.InstanceLifecycle),
 		SpotInstanceRequestID: aws.ToString(inst.SpotInstanceRequestId),
@@ -430,6 +437,60 @@ func InstanceRunning(ctx context.Context, cfg aws.Config, instanceID string) (bo
 		return false, err
 	}
 	return state == string(ec2types.InstanceStateNameRunning), nil
+}
+
+// UpsertARecord points hostname at ip in the public Route53 hosted zone.
+func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, hostname, ip string) error {
+	if zoneName == "" {
+		return fmt.Errorf("zone name is required")
+	}
+	if hostname == "" {
+		return fmt.Errorf("hostname is required")
+	}
+	if ip == "" {
+		return fmt.Errorf("IP address is required")
+	}
+	c := route53.NewFromConfig(cfg)
+	zoneDNSName := ensureTrailingDot(zoneName)
+	zones, err := c.ListHostedZonesByName(ctx, &route53.ListHostedZonesByNameInput{
+		DNSName:  aws.String(zoneDNSName),
+		MaxItems: aws.Int32(1),
+	})
+	if err != nil {
+		return fmt.Errorf("find Route53 zone %s: %w", zoneName, err)
+	}
+	if len(zones.HostedZones) == 0 || aws.ToString(zones.HostedZones[0].Name) != zoneDNSName {
+		return fmt.Errorf("Route53 zone %q not found", zoneName)
+	}
+	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: zones.HostedZones[0].Id,
+		ChangeBatch: &route53types.ChangeBatch{
+			Changes: []route53types.Change{
+				{
+					Action: route53types.ChangeActionUpsert,
+					ResourceRecordSet: &route53types.ResourceRecordSet{
+						Name: aws.String(ensureTrailingDot(hostname)),
+						Type: route53types.RRTypeA,
+						TTL:  aws.Int64(60),
+						ResourceRecords: []route53types.ResourceRecord{
+							{Value: aws.String(ip)},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("upsert Route53 A record %s -> %s: %w", hostname, ip, err)
+	}
+	return nil
+}
+
+func ensureTrailingDot(s string) string {
+	if strings.HasSuffix(s, ".") {
+		return s
+	}
+	return s + "."
 }
 
 // --- SSM / Secrets Manager ---

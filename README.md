@@ -376,6 +376,47 @@ Override the root volume size (default 100 GiB):
 ai-desktops create --repo myorg/my-app --volume-size 200
 ```
 
+Name a desktop for easier operator workflows:
+
+```bash
+ai-desktops create --name orchael-factory-dev --repo myorg/my-app
+```
+
+By default `/workspace` lives on the desktop root EBS volume and is deleted when
+the desktop is terminated. To retain `/workspace` across desktop replacement,
+create an EFS-backed workspace first, then attach it during desktop creation:
+
+```bash
+ai-desktops workspace create \
+  --name orchael-factory-dev \
+  --github-owner myorg \
+  --repo myorg/my-app
+
+ai-desktops create \
+  --name orchael-factory-dev \
+  --github-owner myorg \
+  --workspace-mode efs \
+  --workspace-name orchael-factory-dev \
+  --repo myorg/my-app
+```
+
+Each environment has one shared encrypted EFS file system with AWS Backup
+enabled by default. Named workspaces are isolated with EFS access points. A
+workspace can be attached to only one non-terminated desktop at a time; stopped
+desktops keep the attachment lock. `terminate` releases the lock but always
+retains the EFS workspace until `ai-desktops workspace delete <name>` is run.
+To change the repo set for a retained workspace, first detach or terminate the
+desktop, then update the workspace metadata:
+
+```bash
+ai-desktops workspace add-repo orchael-factory-dev --repo myorg/new-service
+ai-desktops workspace remove-repo orchael-factory-dev --repo myorg/old-service
+```
+
+Removing a repo from workspace metadata does not delete any existing directory
+or files from EFS. The updated repo set is enforced on the next
+`ai-desktops create --workspace-mode efs` call.
+
 npm scoped packages resolve from npmjs unless a scope is explicitly configured
 for GitHub Packages. Use `github.npm_github_scopes` in config for a default, or
 pass a scope for a single desktop:
@@ -401,6 +442,8 @@ ai-desktops create --repo myorg/my-app --no-npm-github-scopes
 ai-desktops list
 ai-desktops list --all
 ai-desktops status d-a1b2c3d4
+ai-desktops workspace list
+ai-desktops workspace status orchael-factory-dev
 ```
 
 `list` hides terminated desktop records by default. Use `list --all` to include them.
@@ -643,7 +686,8 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 ## Known limitations
 
 - **Elementary/Pantheon reliability**: The `novnc-desktop` elementary AMI runs Pantheon on Ubuntu 24.04. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
-- **Root EBS persistence**: Workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating.
+- **Root EBS persistence**: By default, workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating local-workspace desktops.
+- **EFS workspace retention**: EFS workspaces are opt-in with `--workspace-mode efs`. They survive desktop termination and must be deleted explicitly with `ai-desktops workspace delete <name>`.
 - **Hibernation requires new desktops**: Hibernation is configured at launch time and cannot be retrofitted onto existing instances. Running `ai-desktops stop` on a desktop created before this change will fail because the instance was not launched with hibernation enabled. Recreate the desktop with `ai-desktops terminate` followed by `ai-desktops create`.
 - **Failed desktops left running**: If `terminate` fails mid-way, the EC2 instance is intentionally left running so you can SSH in to diagnose. Clean up manually with `aws ec2 terminate-instances` and `pulumi destroy` from `infra/pulumi/desktop/`.
 - **Single availability zone**: Desktops land in the first public subnet from the foundation stack. Multi-AZ placement is not yet supported.

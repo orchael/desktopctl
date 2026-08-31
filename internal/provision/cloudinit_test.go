@@ -123,6 +123,49 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_efsWorkspace(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-efs",
+		Hostname:         "d-efs.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		WorkspacePath:    "/workspace",
+		WorkspaceMode:    "efs",
+		WorkspaceName:    "factory-dev",
+		EFSFileSystemID:  "fs-123",
+		EFSAccessPointID: "fsap-123",
+		Repos:            []string{"github.com/acme/repo"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`EFS_FILE_SYSTEM_ID="fs-123"`,
+		`EFS_ACCESS_POINT_ID="fsap-123"`,
+		`EFS_DNS="${EFS_FILE_SYSTEM_ID}.efs.`,
+		`EFS_ROOT="/workspaces/factory-dev"`,
+		`if ! command -v mount.efs >/dev/null 2>&1 || ! command -v mount.nfs4 >/dev/null 2>&1; then`,
+		`if ! command -v mount.nfs4 >/dev/null 2>&1; then`,
+		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends nfs-common`,
+		`if ! command -v mount.efs >/dev/null 2>&1; then`,
+		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils || true`,
+		`ERROR: EFS workspace mode requires mount.efs or mount.nfs4`,
+		`mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"`,
+		`mount -t nfs4 -o nfsvers=4.1`,
+		`_netdev,tls,accesspoint=%s`,
+		`nfs4 _netdev,nfsvers=4.1`,
+		`refusing to clone repositories onto local disk`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+}
+
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-003",

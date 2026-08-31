@@ -56,6 +56,18 @@ func TestCreateCmd_npmGitHubScopeFlagsRegistered(t *testing.T) {
 	}
 }
 
+func TestCreateCmd_workspaceFlagsRegistered(t *testing.T) {
+	if flag := createCmd.Flags().Lookup("name"); flag == nil {
+		t.Fatal("name flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("workspace-mode"); flag == nil {
+		t.Fatal("workspace-mode flag not registered")
+	}
+	if flag := createCmd.Flags().Lookup("workspace-name"); flag == nil {
+		t.Fatal("workspace-name flag not registered")
+	}
+}
+
 func TestValidateSpotMaxPrice(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -80,6 +92,30 @@ func TestValidateSpotMaxPrice(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateDesktopName(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr string
+	}{
+		{name: "orchael-factory-dev"},
+		{name: "  orchael-factory-dev  "},
+		{name: ""},
+		{name: "bad/name", wantErr: "desktop name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDesktopName(tt.name)
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}
@@ -698,6 +734,41 @@ func TestParseAndValidateRepos(t *testing.T) {
 				t.Errorf("repo count: got %d, want %d", len(repos), tt.wantCount)
 			}
 		})
+	}
+}
+
+func TestEnsureDesktopNameAvailable(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	if err := s.Create(ctx, &store.Desktop{
+		DesktopID:   "d-001",
+		DesktopName: "factory-dev",
+		Environment: "dev",
+		State:       store.StateReady,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := ensureDesktopNameAvailable(ctx, s, "dev", "factory-dev"); err == nil {
+		t.Fatal("expected duplicate name error")
+	}
+	if err := ensureDesktopNameAvailable(ctx, s, "prod", "factory-dev"); err != nil {
+		t.Fatalf("prod duplicate should be allowed: %v", err)
+	}
+}
+
+func TestEnsureDesktopNameAvailableIgnoresTerminated(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	if err := s.Create(ctx, &store.Desktop{
+		DesktopID:   "d-terminated",
+		DesktopName: "factory-dev",
+		Environment: "dev",
+		State:       store.StateTerminated,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := ensureDesktopNameAvailable(ctx, s, "dev", "factory-dev"); err != nil {
+		t.Fatalf("terminated duplicate should be allowed: %v", err)
 	}
 }
 

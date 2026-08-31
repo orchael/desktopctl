@@ -55,6 +55,7 @@ func SSHTarget(hostname string) string {
 
 // CreateRequest holds the parameters for creating a new desktop.
 type CreateRequest struct {
+	DesktopName   string
 	GitHubOwner   string
 	Repos         []string
 	InstanceType  string
@@ -71,8 +72,12 @@ type CreateRequest struct {
 	MarketType    string   // on-demand or spot
 	BackendBucket string
 	Region        string
+	Environment   string
 	Profile       string
 	AMIID         string // Pre-baked AMI ID (optional)
+	WorkspaceMode string
+	WorkspaceName string
+	WorkspaceID   string
 }
 
 // Validate checks that the CreateRequest is well-formed.
@@ -86,6 +91,21 @@ func (r *CreateRequest) Validate() error {
 	if r.BackendBucket == "" {
 		return fmt.Errorf("pulumi backend bucket is required")
 	}
+	if r.WorkspaceMode == "" {
+		r.WorkspaceMode = "local"
+	}
+	switch r.WorkspaceMode {
+	case "local":
+		if r.WorkspaceName != "" {
+			return fmt.Errorf("workspace_name requires workspace_mode efs")
+		}
+	case "efs":
+		if r.WorkspaceName == "" {
+			return fmt.Errorf("workspace_name is required for workspace_mode efs")
+		}
+	default:
+		return fmt.Errorf("workspace_mode must be local or efs")
+	}
 	return nil
 }
 
@@ -95,9 +115,11 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 	hostname := Hostname(id, zone)
 	d := &store.Desktop{
 		DesktopID:     id,
+		DesktopName:   req.DesktopName,
 		StackName:     StackName(id),
 		GitHubOwner:   req.GitHubOwner,
 		Region:        req.Region,
+		Environment:   req.Environment,
 		State:         store.StateCreating,
 		Hostname:      hostname,
 		NoVNCURL:      NoVNCURL(hostname),
@@ -106,6 +128,9 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		InstanceType:  req.InstanceType,
 		NestedVirt:    req.NestedVirt,
 		WorkspacePath: "/workspace",
+		WorkspaceMode: req.WorkspaceMode,
+		WorkspaceName: req.WorkspaceName,
+		WorkspaceID:   req.WorkspaceID,
 		Repos:         req.Repos,
 		Secrets:       req.Secrets,
 		TailscaleNet:  req.TailscaleNet,
@@ -140,6 +165,12 @@ func (m *Manager) UpdateFromOutputs(ctx context.Context, id string, outputs map[
 	if v, ok := outputs["instanceType"]; ok {
 		d.InstanceType = v
 	}
+	if v, ok := outputs["workspacePath"]; ok {
+		d.WorkspacePath = v
+	}
+	if v, ok := outputs["workspaceMode"]; ok {
+		d.WorkspaceMode = v
+	}
 	return m.Store.Update(ctx, d)
 }
 
@@ -151,6 +182,8 @@ func (m *Manager) MarkReady(ctx context.Context, id, readinessSummary string) er
 	}
 	d.State = store.StateReady
 	d.Readiness = readinessSummary
+	d.FailurePhase = ""
+	d.FailureMsg = ""
 	return m.Store.Update(ctx, d)
 }
 
@@ -183,6 +216,8 @@ func (m *Manager) MarkRunning(ctx context.Context, id, readinessSummary string) 
 	d.Readiness = readinessSummary
 	d.StopReason = ""
 	d.StoppedAt = ""
+	d.FailurePhase = ""
+	d.FailureMsg = ""
 	return m.Store.Update(ctx, d)
 }
 

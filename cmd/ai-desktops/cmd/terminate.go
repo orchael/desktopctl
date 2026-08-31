@@ -68,7 +68,7 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)
-	fmt.Fprintln(os.Stderr, "WARNING: This will permanently destroy the EC2 instance and EBS volume.")
+	fmt.Fprintln(os.Stderr, terminateWarning(d))
 
 	if err := requireBackend(ctx); err != nil {
 		return err
@@ -102,7 +102,25 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	if err := s.MarkTerminated(ctx, id); err != nil {
 		return fmt.Errorf("mark terminated: %w", err)
 	}
+	if d.WorkspaceMode == workspaceModeEFS && d.WorkspaceName != "" {
+		if ws, ok := s.(store.WorkspaceStore); ok {
+			env := d.Environment
+			if env == "" {
+				env = cfg.Fleet.Environment
+			}
+			if err := ws.DetachWorkspace(ctx, env, d.WorkspaceName, d.DesktopID); err != nil {
+				return fmt.Errorf("desktop terminated, but failed to detach workspace %q: %w", d.WorkspaceName, err)
+			}
+		}
+	}
 
 	fmt.Printf("Desktop %s terminated.\n", id)
 	return nil
+}
+
+func terminateWarning(d *store.Desktop) string {
+	if d.WorkspaceMode == workspaceModeEFS && d.WorkspaceName != "" {
+		return fmt.Sprintf("WARNING: This will permanently destroy the EC2 instance and EBS volume. EFS workspace %q will not be deleted.", d.WorkspaceName)
+	}
+	return "WARNING: This will permanently destroy the EC2 instance and EBS volume."
 }

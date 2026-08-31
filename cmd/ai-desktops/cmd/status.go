@@ -8,12 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -91,9 +89,6 @@ func desktopStatusJSON(d *store.Desktop, costLabel string) desktopStatusOutput {
 }
 
 func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.Desktop) error {
-	if err := requireTools("pulumi"); err != nil {
-		return err
-	}
 	if d.InstanceID == "" {
 		return fmt.Errorf("desktop %q has no instance ID", id)
 	}
@@ -112,20 +107,26 @@ func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.De
 	if !canRefreshDNSForInstanceState(status.State) {
 		return fmt.Errorf("cannot refresh DNS for desktop %q while instance %s is %q; start the desktop first", id, d.InstanceID, status.State)
 	}
-	if err := requireBackend(ctx); err != nil {
+	zone, err := cfg.DNSZone()
+	if err != nil {
 		return err
 	}
-	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
-	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
-
-	fmt.Fprintln(os.Stderr, "Refreshing DNS record from current instance public IP ...")
-	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
-	if err != nil {
-		return fmt.Errorf("pulumi refresh+up: %w", err)
+	if d.Hostname == "" {
+		d.Hostname = fmt.Sprintf("%s.%s", id, zone)
 	}
-	updateDesktopFromPulumiOutputs(d, outputs)
+	if status.PublicIP == "" {
+		return fmt.Errorf("EC2 instance %s has no public IP; cannot update DNS", d.InstanceID)
+	}
+
+	fmt.Fprintf(os.Stderr, "Refreshing DNS record %s -> %s ...\n", d.Hostname, status.PublicIP)
+	if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, status.PublicIP); err != nil {
+		return err
+	}
+	d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)
+	d.SSHTarget = fmt.Sprintf("ubuntu@%s", d.Hostname)
+	if d.AMIID == "" && status.ImageID != "" {
+		d.AMIID = status.ImageID
+	}
 	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("update store record: %w", err)
 	}
@@ -136,21 +137,12 @@ func canRefreshDNSForInstanceState(state string) bool {
 	return state == "running"
 }
 
-func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string) {
-	if v := outputs[pulumi.OutputHostname]; v != "" {
-		d.Hostname = v
-	}
-	if v := outputs[pulumi.OutputNoVNCURL]; v != "" {
-		d.NoVNCURL = v
-	}
-	if v := outputs[pulumi.OutputSSHTarget]; v != "" {
-		d.SSHTarget = v
-	}
-}
-
 // printDesktopStatus writes the human-readable status block to w.
 func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL, costLabel string) {
 	fmt.Fprintf(w, "Desktop ID   : %s\n", d.DesktopID)
+	if d.DesktopName != "" {
+		fmt.Fprintf(w, "Desktop name : %s\n", d.DesktopName)
+	}
 	fmt.Fprintf(w, "State        : %s\n", d.State)
 	fmt.Fprintf(w, "Owner        : %s\n", d.GitHubOwner)
 	fmt.Fprintf(w, "Region       : %s\n", region)
@@ -176,6 +168,17 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL, costLabe
 	}
 	if d.AMIID != "" {
 		fmt.Fprintf(w, "AMI ID       : %s\n", d.AMIID)
+	}
+	workspaceMode := d.WorkspaceMode
+	if workspaceMode == "" {
+		workspaceMode = workspaceModeLocal
+	}
+	fmt.Fprintf(w, "Workspace    : %s\n", workspaceMode)
+	if d.WorkspaceName != "" {
+		fmt.Fprintf(w, "Workspace name: %s\n", d.WorkspaceName)
+	}
+	if d.WorkspacePath != "" {
+		fmt.Fprintf(w, "Workspace path: %s\n", d.WorkspacePath)
 	}
 	fmt.Fprintf(w, "Pulumi stack : %s\n", d.StackName)
 	fmt.Fprintf(w, "Readiness    : %s\n", d.Readiness)

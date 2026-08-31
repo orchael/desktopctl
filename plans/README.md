@@ -23,6 +23,7 @@ Each task is intended to be handed to another coding agent as a self-contained w
 15. `15-wireguard-vpn.md`
 16. `16-desktop-web-root-welcome-page.md`
 17. `17-github-developer-tooling.md`
+18. `18-efs-workspaces.md`
 
 ## Global Constraints
 
@@ -34,7 +35,8 @@ Each task is intended to be handed to another coding agent as a self-contained w
 - Keep `bridgectl` bound to `127.0.0.1` in v1.
 - Use CLI-managed SSM or SSH tunnels for remote bridge access.
 - Use a fine-scoped GitHub PAT from AWS secret storage for the first smoke path.
-- Preserve desktop state through EC2 stop/start using the root EBS volume.
+- Preserve desktop state through EC2 stop/start using the root EBS volume by default.
+- Keep EFS-backed `/workspace` persistence optional and managed separately from desktop compute.
 - Leave failed desktop instances running by default for debugging.
 
 ## Completion Standard

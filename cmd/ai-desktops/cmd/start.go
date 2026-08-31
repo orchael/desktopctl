@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
-	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -27,9 +25,6 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	if err := requireTools("pulumi"); err != nil {
-		return err
-	}
 	ctx := context.Background()
 	id := args[0]
 
@@ -54,34 +49,55 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AWS config: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Starting instance %s ...\n", d.InstanceID)
-	if err := awsx.StartInstance(ctx, awsCfg, d.InstanceID); err != nil {
-		return err
+	instanceStatus, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("instance status: %w", err)
+	}
+	if instanceStatus.State == "running" {
+		fmt.Fprintf(os.Stderr, "Instance %s is already running; refreshing DNS ...\n", d.InstanceID)
+	} else {
+		fmt.Fprintf(os.Stderr, "Starting instance %s ...\n", d.InstanceID)
+		if err := awsx.StartInstance(ctx, awsCfg, d.InstanceID); err != nil {
+			return err
+		}
 	}
 
 	mgr := desktop.NewManager(s)
 
-	// After hibernation the instance gets a new public IP. Refresh the Pulumi
-	// stack state from AWS then run pulumi up so the Route53 A record is
-	// updated to point at the new IP before we mark the desktop ready.
-	if err := requireBackend(ctx); err != nil {
-		return err
+	if d.AMIID == "" {
+		if instanceStatus.ImageID == "" {
+			err := fmt.Errorf("resolve AMI for started instance: EC2 returned no image ID for %s", d.InstanceID)
+			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			return err
+		}
+		d.AMIID = instanceStatus.ImageID
+		if err := s.Update(ctx, d); err != nil {
+			return fmt.Errorf("update store record with instance AMI: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Backfilled AMI ID from existing instance: %s\n", d.AMIID)
 	}
-	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
-	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
-	fmt.Fprintln(os.Stderr, "Updating DNS record for new public IP ...")
-	outputs, err := runner.RefreshAndUp(ctx, ref, os.Stderr)
+	zone, err := cfg.DNSZone()
 	if err != nil {
 		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
-		return fmt.Errorf("pulumi refresh+up: %w (instance is running; DNS may be stale)", err)
+		return err
+	}
+	if d.Hostname == "" {
+		d.Hostname = fmt.Sprintf("%s.%s", id, zone)
+	}
+	if instanceStatus.PublicIP == "" {
+		err := fmt.Errorf("EC2 instance %s has no public IP; cannot update DNS", d.InstanceID)
+		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+		return err
 	}
 
-	// Persist updated outputs (new public IP reflected in hostname/SSH/noVNC)
-	// back to the store so subsequent commands see current values.
-	updateDesktopFromPulumiOutputs(d, outputs)
+	fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
+	if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, instanceStatus.PublicIP); err != nil {
+		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+		return err
+	}
+	d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)
+	d.SSHTarget = fmt.Sprintf("ubuntu@%s", d.Hostname)
 	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("update store record: %w", err)
 	}

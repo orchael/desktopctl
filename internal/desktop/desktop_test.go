@@ -55,10 +55,35 @@ func TestCreateRequest_Validate(t *testing.T) {
 	if err := r.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
+	if r.WorkspaceMode != "local" {
+		t.Errorf("workspace mode default = %q, want local", r.WorkspaceMode)
+	}
 
 	r.GitHubOwner = ""
 	if err := r.Validate(); err == nil {
 		t.Error("expected error for missing GitHubOwner")
+	}
+}
+
+func TestCreateRequest_ValidateWorkspaceMode(t *testing.T) {
+	base := CreateRequest{GitHubOwner: "acme", Zone: "desktops.orchael.dev", BackendBucket: "bucket"}
+	efs := base
+	efs.WorkspaceMode = "efs"
+	efs.WorkspaceName = "factory-dev"
+	if err := efs.Validate(); err != nil {
+		t.Fatalf("efs workspace should validate: %v", err)
+	}
+
+	missingName := base
+	missingName.WorkspaceMode = "efs"
+	if err := missingName.Validate(); err == nil {
+		t.Fatal("expected missing workspace name error")
+	}
+
+	localWithName := base
+	localWithName.WorkspaceName = "factory-dev"
+	if err := localWithName.Validate(); err == nil {
+		t.Fatal("expected local workspace-name error")
 	}
 }
 
@@ -68,12 +93,17 @@ func TestManager_CreateRecord(t *testing.T) {
 	ctx := context.Background()
 
 	req := &CreateRequest{
+		DesktopName:   "factory-dev",
 		GitHubOwner:   "acme",
 		Zone:          "desktops.orchael.dev",
 		BackendBucket: "my-bucket",
+		Environment:   "dev",
 		Repos:         []string{"github.com/acme/app"},
 		InstanceType:  "m7i.xlarge",
 		MarketType:    store.MarketSpot,
+		WorkspaceMode: "efs",
+		WorkspaceName: "workspace-dev",
+		WorkspaceID:   "workspace:dev:workspace-dev",
 	}
 
 	if err := m.CreateRecord(ctx, "d-test1", req); err != nil {
@@ -96,6 +126,12 @@ func TestManager_CreateRecord(t *testing.T) {
 	if d.MarketType != store.MarketSpot {
 		t.Errorf("market type: got %q", d.MarketType)
 	}
+	if d.DesktopName != "factory-dev" || d.Environment != "dev" {
+		t.Errorf("desktop name/environment not persisted: %+v", d)
+	}
+	if d.WorkspaceMode != "efs" || d.WorkspaceName != "workspace-dev" || d.WorkspaceID != "workspace:dev:workspace-dev" {
+		t.Errorf("workspace fields not persisted: %+v", d)
+	}
 }
 
 func TestManager_MarkReady(t *testing.T) {
@@ -103,13 +139,49 @@ func TestManager_MarkReady(t *testing.T) {
 	m := NewManager(s)
 	ctx := context.Background()
 
-	_ = s.Create(ctx, &store.Desktop{DesktopID: "d-r1", State: store.StateCreating})
+	_ = s.Create(ctx, &store.Desktop{
+		DesktopID:    "d-r1",
+		State:        store.StateFailed,
+		FailurePhase: "create",
+		FailureMsg:   "old failure",
+	})
 	if err := m.MarkReady(ctx, "d-r1", "all checks passed"); err != nil {
 		t.Fatalf("MarkReady: %v", err)
 	}
 	d, _ := s.Get(ctx, "d-r1")
 	if d.State != store.StateReady {
 		t.Errorf("state: got %q", d.State)
+	}
+	if d.FailurePhase != "" || d.FailureMsg != "" {
+		t.Errorf("failure fields should be cleared: phase=%q msg=%q", d.FailurePhase, d.FailureMsg)
+	}
+}
+
+func TestManager_MarkRunningClearsStopAndFailureDetails(t *testing.T) {
+	s := store.NewInMemoryStore()
+	m := NewManager(s)
+	ctx := context.Background()
+
+	_ = s.Create(ctx, &store.Desktop{
+		DesktopID:    "d-run1",
+		State:        store.StateFailed,
+		StopReason:   store.StopReasonUserRequest,
+		StoppedAt:    "2026-09-01T00:00:00Z",
+		FailurePhase: "start",
+		FailureMsg:   "old failure",
+	})
+	if err := m.MarkRunning(ctx, "d-run1", "started"); err != nil {
+		t.Fatalf("MarkRunning: %v", err)
+	}
+	d, _ := s.Get(ctx, "d-run1")
+	if d.State != store.StateReady {
+		t.Errorf("state: got %q", d.State)
+	}
+	if d.StopReason != "" || d.StoppedAt != "" {
+		t.Errorf("stop fields should be cleared: reason=%q stopped_at=%q", d.StopReason, d.StoppedAt)
+	}
+	if d.FailurePhase != "" || d.FailureMsg != "" {
+		t.Errorf("failure fields should be cleared: phase=%q msg=%q", d.FailurePhase, d.FailureMsg)
 	}
 }
 
