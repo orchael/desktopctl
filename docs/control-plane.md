@@ -56,8 +56,9 @@ The development database is persisted in the `control-plane-postgres` volume. To
 | `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |
 | `CONTROL_PLANE_API_TOKEN` | Both | Service credential used only between Next.js and Go. |
 | `AWS_REGION` | Go API | Fleet AWS region. |
-| `AWS_ROLE_ARN` | Go API | Control-plane role to assume. |
-| `AWS_EXTERNAL_ID` | Go API | External ID required by the role trust policy. |
+| `OPERATOR_AWS_ACCESS_KEY_ID` | Go API | Bootstrap operator access key used only for STS. |
+| `OPERATOR_AWS_SECRET_ACCESS_KEY` | Go API | Bootstrap operator secret used only for STS. |
+| `OPERATOR_ROLE_ARN` | Go API | Fleet role assumed by the Go API. |
 
 Do not expose the Go API ingress or its service token to browsers.
 
@@ -79,7 +80,8 @@ Prefer creating the Secret with an external secret manager. The chart expects a 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `CONTROL_PLANE_API_TOKEN`
-- AWS credentials when workload identity is unavailable
+- `OPERATOR_AWS_ACCESS_KEY_ID`
+- `OPERATOR_AWS_SECRET_ACCESS_KEY`
 
 Example:
 
@@ -89,8 +91,7 @@ helm upgrade --install ai-desktops deploy/control-plane/chart \
   --set image.repository=ghcr.io/orchael/ai-desktops-control-plane \
   --set image.tag=v0.2.0 \
   --set ingress.host=app.desktops.orchael.dev \
-  --set config.awsRoleArn="$AWS_ROLE_ARN" \
-  --set config.awsExternalId="$AWS_EXTERNAL_ID"
+  --set config.operatorRoleArn="$OPERATOR_ROLE_ARN"
 ```
 
 For an isolated test environment, `secrets.create=true` can create the Secret from Helm values, but command-line secret values may be retained in shell and Helm history.

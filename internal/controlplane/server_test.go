@@ -136,7 +136,11 @@ func TestRuntimeConfigRequiresRoleWhenNotMock(t *testing.T) {
 
 func TestRuntimeConfigRequiresAPITokenWhenNotMock(t *testing.T) {
 	t.Parallel()
-	cfg := RuntimeConfig{AWSRoleARN: "arn:aws:iam::123456789012:role/control-plane", AWSExternalID: "external-id"}
+	cfg := RuntimeConfig{
+		OperatorAccessKeyID:     "operator-access-key",
+		OperatorSecretAccessKey: "operator-secret-key",
+		OperatorRoleARN:         "arn:aws:iam::123456789012:role/control-plane",
+	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected missing API token error")
 	}

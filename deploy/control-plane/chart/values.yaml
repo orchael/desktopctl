@@ -16,8 +16,7 @@ ingress:
 config:
   awsRegion: us-east-2
   environment: prod
-  awsRoleArn: ""
-  awsExternalId: ""
+  operatorRoleArn: ""
 secrets:
   create: false
   name: ai-desktops-control-plane

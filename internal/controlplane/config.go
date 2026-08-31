@@ -17,15 +17,16 @@ const (
 
 // RuntimeConfig contains control-plane-only settings loaded from environment.
 type RuntimeConfig struct {
-	Addr             string
-	ConfigPath       string
-	StaticDir        string
-	MockAWS          bool
-	AWSRoleARN       string
-	AWSExternalID    string
-	APIToken         string
-	RefreshTimeout   time.Duration
-	LifecycleTimeout time.Duration
+	Addr                    string
+	ConfigPath              string
+	StaticDir               string
+	MockAWS                 bool
+	OperatorAccessKeyID     string
+	OperatorSecretAccessKey string
+	OperatorRoleARN         string
+	APIToken                string
+	RefreshTimeout          time.Duration
+	LifecycleTimeout        time.Duration
 }
 
 // LoadRuntimeConfig reads runtime settings from environment variables.
@@ -51,15 +52,16 @@ func LoadRuntimeConfig() RuntimeConfig {
 		addr = defaultAddr
 	}
 	return RuntimeConfig{
-		Addr:             addr,
-		ConfigPath:       firstNonEmpty(os.Getenv("AI_DESKTOPS_CONFIG"), os.Getenv("CONFIG_PATH")),
-		StaticDir:        os.Getenv("CONTROL_PLANE_STATIC_DIR"),
-		MockAWS:          mockAWS,
-		AWSRoleARN:       os.Getenv("AWS_ROLE_ARN"),
-		AWSExternalID:    os.Getenv("AWS_EXTERNAL_ID"),
-		APIToken:         os.Getenv("CONTROL_PLANE_API_TOKEN"),
-		RefreshTimeout:   timeout,
-		LifecycleTimeout: lifecycleTimeout,
+		Addr:                    addr,
+		ConfigPath:              firstNonEmpty(os.Getenv("AI_DESKTOPS_CONFIG"), os.Getenv("CONFIG_PATH")),
+		StaticDir:               os.Getenv("CONTROL_PLANE_STATIC_DIR"),
+		MockAWS:                 mockAWS,
+		OperatorAccessKeyID:     os.Getenv("OPERATOR_AWS_ACCESS_KEY_ID"),
+		OperatorSecretAccessKey: os.Getenv("OPERATOR_AWS_SECRET_ACCESS_KEY"),
+		OperatorRoleARN:         os.Getenv("OPERATOR_ROLE_ARN"),
+		APIToken:                os.Getenv("CONTROL_PLANE_API_TOKEN"),
+		RefreshTimeout:          timeout,
+		LifecycleTimeout:        lifecycleTimeout,
 	}
 }
 
@@ -86,11 +88,14 @@ func (c RuntimeConfig) Validate() error {
 	if c.MockAWS {
 		return nil
 	}
-	if c.AWSRoleARN == "" {
-		return errors.New("AWS_ROLE_ARN is required unless CONTROL_PLANE_MOCK_AWS=true")
+	if c.OperatorAccessKeyID == "" {
+		return errors.New("OPERATOR_AWS_ACCESS_KEY_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
-	if c.AWSExternalID == "" {
-		return errors.New("AWS_EXTERNAL_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
+	if c.OperatorSecretAccessKey == "" {
+		return errors.New("OPERATOR_AWS_SECRET_ACCESS_KEY is required unless CONTROL_PLANE_MOCK_AWS=true")
+	}
+	if c.OperatorRoleARN == "" {
+		return errors.New("OPERATOR_ROLE_ARN is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
 	if c.APIToken == "" {
 		return errors.New("CONTROL_PLANE_API_TOKEN is required unless CONTROL_PLANE_MOCK_AWS=true")
