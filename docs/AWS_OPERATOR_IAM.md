@@ -61,6 +61,7 @@ ai-desktops init-foundation --env dev
 To override the default secret name outside the CLI, set this Pulumi config value in `infra/pulumi/foundation` before applying the stack:
 
 ```bash
+pulumi config set pulumiBackendBucket myorg-ai-desktops-pulumi-state
 pulumi config set operatorCredentialsSecretName /ai-desktops/dev/control-plane/aws-operator
 ```
 

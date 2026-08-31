@@ -434,7 +434,7 @@ func run(ctx *pulumi.Context) error {
 		operatorAccessKey.Secret,
 		operatorRole.Arn,
 		operatorUser.Arn,
-	).ApplyT(func(args []interface{}) string {
+	).ApplyT(func(args []interface{}) (string, error) {
 		payload := map[string]string{
 			"aws_access_key_id":     args[0].(string),
 			"aws_secret_access_key": args[1].(string),
@@ -446,9 +446,9 @@ func run(ctx *pulumi.Context) error {
 		}
 		b, err := json.Marshal(payload)
 		if err != nil {
-			panic(err)
+			return "", err
 		}
-		return string(b)
+		return string(b), nil
 	}).(pulumi.StringOutput)
 
 	if _, err := secretsmanager.NewSecretVersion(ctx, "ai-desktops-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
@@ -615,10 +615,17 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*"
     },
     {
+      "Sid": "DynamoDBCreateTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "DynamoDBFleetAndAmiTables",
       "Effect": "Allow",
       "Action": [
-        "dynamodb:CreateTable",
         "dynamodb:DeleteItem",
         "dynamodb:DeleteTable",
         "dynamodb:DescribeTable",
@@ -645,10 +652,22 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*"
     },
     {
+      "Sid": "CreateAiDesktopsSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "secretsmanager:Name": "/ai-desktops/*"
+        }
+      }
+    },
+    {
       "Sid": "SecretsAndParameters",
       "Effect": "Allow",
       "Action": [
-        "secretsmanager:CreateSecret",
         "secretsmanager:DescribeSecret",
         "secretsmanager:GetSecretValue",
         "secretsmanager:ListSecretVersionIds",
