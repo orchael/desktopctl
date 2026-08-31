@@ -447,6 +447,8 @@ The PRD says external-user access must remain possible but does not define v1 au
 
 The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
 
+Operators must also be able to manage per-desktop injected secret references after creation. Adding a secret path should validate that the AWS Secrets Manager secret exists, inject all configured desktop secrets, and persist the updated fleet metadata. Removing a secret path should rewrite the desktop environment files without the removed secret, clear those files when no configured secrets remain, and persist the updated fleet metadata. Reloading should re-fetch the currently configured fleet secret list without changing it.
+
 ### Repository authentication
 
 Repo cloning requires GitHub credentials. v1 uses a fine-scoped GitHub PAT stored in AWS secret storage and scoped to the configured owner. A GitHub App should replace the PAT after the first smoke path is working.

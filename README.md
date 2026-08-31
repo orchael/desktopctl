@@ -125,6 +125,20 @@ The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set
 
 Existing desktops do not automatically re-fetch `/ai-desktops/<owner>/agents`; recreate the desktop or restart/reload the `bridgectl` user service after updating `/home/ubuntu/.config/bridgectl/agents.env` on the instance.
 
+### Desktop Secret Management
+
+Secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop.
+
+Manage those per-desktop secret references after creation with:
+
+```bash
+ai-desktops secrets add d-a1b2c3d4 /ai-desktops/myorg/app
+ai-desktops secrets reload d-a1b2c3d4
+ai-desktops secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
+```
+
+`secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
+
 ## Installation
 
 ```bash
