@@ -13,3 +13,7 @@ config:
     default: ""
   vpcId:
     default: ""
+  pulumiBackendBucket:
+    default: ""
+  operatorCredentialsSecretName:
+    default: ""

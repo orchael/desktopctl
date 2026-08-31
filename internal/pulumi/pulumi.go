@@ -53,13 +53,14 @@ type StackConfig map[string]string
 // FoundationConfig builds the Pulumi config for the foundation stack.
 // vpcID is optional; when non-empty the foundation stack will use the existing VPC
 // instead of creating a new one.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID string) StackConfig {
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID, backendBucket string) StackConfig {
 	cfg := StackConfig{
-		"aws:region":   region,
-		"zone":         zone,
-		"fleetTable":   fleetTable,
-		"operatorCIDR": operatorCIDR,
-		"environment":  environment,
+		"aws:region":          region,
+		"zone":                zone,
+		"fleetTable":          fleetTable,
+		"operatorCIDR":        operatorCIDR,
+		"environment":         environment,
+		"pulumiBackendBucket": backendBucket,
 	}
 	if vpcID != "" {
 		cfg["vpcId"] = vpcID
@@ -141,6 +142,9 @@ const (
 	OutputFleetTable      = "fleetTable"
 	OutputAMITable        = "amiTable"
 	OutputMarketType      = "marketType"
+	OutputOperatorSecret  = "operatorCredentialsSecretName"
+	OutputOperatorRoleArn = "operatorRoleArn"
+	OutputOperatorUser    = "operatorUserName"
 )
 
 // Runner drives Pulumi stacks by invoking the `pulumi` CLI as a subprocess.

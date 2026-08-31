@@ -100,9 +100,12 @@ func TestDesktopConfig_spotMarket(t *testing.T) {
 }
 
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "", "my-state-bucket")
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
+	}
+	if cfg["pulumiBackendBucket"] != "my-state-bucket" {
+		t.Errorf("pulumiBackendBucket: got %q", cfg["pulumiBackendBucket"])
 	}
 }
 
