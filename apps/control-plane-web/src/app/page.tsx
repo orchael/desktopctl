@@ -46,8 +46,8 @@ function LandingPage() {
   return (
     <main className="landingPage">
       <header className="landingHeader">
-        <Link className="landingBrand" href="/" aria-label="ai-desktops home">
-          ai-desktops
+        <Link className="landingBrand" href="/" aria-label="Desktops home">
+          Desktops
         </Link>
         <Link className="landingSignIn landingSignInSmall" href="/signin">
           Sign in
