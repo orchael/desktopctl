@@ -8,6 +8,7 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/efs"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/route53"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
@@ -230,6 +231,71 @@ func run(ctx *pulumi.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	efsSG, err := ec2.NewSecurityGroup(ctx, "ai-desktops-efs-sg", &ec2.SecurityGroupArgs{
+		VpcId:       vpcIDOutput,
+		Description: pulumi.String("ai-desktops EFS security group"),
+		Ingress: ec2.SecurityGroupIngressArray{
+			&ec2.SecurityGroupIngressArgs{
+				Protocol:       pulumi.String("tcp"),
+				FromPort:       pulumi.Int(2049),
+				ToPort:         pulumi.Int(2049),
+				SecurityGroups: pulumi.StringArray{sg.ID()},
+				Description:    pulumi.String("NFS from ai-desktops desktops"),
+			},
+		},
+		Egress: ec2.SecurityGroupEgressArray{
+			&ec2.SecurityGroupEgressArgs{
+				Protocol:   pulumi.String("-1"),
+				FromPort:   pulumi.Int(0),
+				ToPort:     pulumi.Int(0),
+				CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			},
+		},
+		Tags: pulumi.StringMap{
+			"Name":        pulumi.String("ai-desktops-efs-sg-" + environment),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	workspaceFS, err := efs.NewFileSystem(ctx, "ai-desktops-workspaces-efs", &efs.FileSystemArgs{
+		CreationToken:  pulumi.StringPtr("ai-desktops-workspaces-" + environment),
+		Encrypted:      pulumi.BoolPtr(true),
+		ThroughputMode: pulumi.StringPtr("elastic"),
+		Tags: pulumi.StringMap{
+			"Name":        pulumi.String("ai-desktops-workspaces-" + environment),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := efs.NewBackupPolicy(ctx, "ai-desktops-workspaces-backup", &efs.BackupPolicyArgs{
+		FileSystemId: workspaceFS.ID(),
+		BackupPolicy: &efs.BackupPolicyBackupPolicyArgs{
+			Status: pulumi.String("ENABLED"),
+		},
+	}); err != nil {
+		return err
+	}
+	for i, subnet := range subnetIDs {
+		name := "ai-desktops-efs-mount-target"
+		if i > 0 {
+			name = fmt.Sprintf("ai-desktops-efs-mount-target-%d", i+1)
+		}
+		if _, err := efs.NewMountTarget(ctx, name, &efs.MountTargetArgs{
+			FileSystemId:   workspaceFS.ID(),
+			SubnetId:       subnet,
+			SecurityGroups: pulumi.StringArray{efsSG.ID()},
+		}); err != nil {
+			return err
+		}
 	}
 
 	// --- IAM instance profile ---
@@ -506,6 +572,8 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("subnetId", subnetID)
 	ctx.Export("subnetIds", subnetIDs.ToStringArrayOutput())
 	ctx.Export("securityGroupId", sg.ID())
+	ctx.Export("efsFileSystemId", workspaceFS.ID())
+	ctx.Export("efsSecurityGroupId", efsSG.ID())
 	ctx.Export("instanceProfile", instanceProfile.Name)
 	ctx.Export("zoneId", pulumi.String(zoneData.ZoneId))
 	ctx.Export("zone", pulumi.String(zone))
@@ -611,6 +679,39 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "ec2:StartInstances",
         "ec2:StopInstances",
         "ec2:TerminateInstances"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EFSWorkspaces",
+      "Effect": "Allow",
+      "Action": [
+        "backup:CreateBackupPlan",
+        "backup:CreateBackupSelection",
+        "backup:DeleteBackupPlan",
+        "backup:DeleteBackupSelection",
+        "backup:DescribeBackupVault",
+        "backup:GetBackupPlan",
+        "backup:ListBackupPlans",
+        "backup:ListBackupSelections",
+        "backup:TagResource",
+        "backup:UntagResource",
+        "elasticfilesystem:CreateAccessPoint",
+        "elasticfilesystem:CreateFileSystem",
+        "elasticfilesystem:CreateMountTarget",
+        "elasticfilesystem:CreateTags",
+        "elasticfilesystem:DeleteAccessPoint",
+        "elasticfilesystem:DeleteFileSystem",
+        "elasticfilesystem:DeleteMountTarget",
+        "elasticfilesystem:DeleteTags",
+        "elasticfilesystem:DescribeAccessPoints",
+        "elasticfilesystem:DescribeBackupPolicy",
+        "elasticfilesystem:DescribeFileSystems",
+        "elasticfilesystem:DescribeMountTargets",
+        "elasticfilesystem:ModifyMountTargetSecurityGroups",
+        "elasticfilesystem:PutBackupPolicy",
+        "elasticfilesystem:TagResource",
+        "elasticfilesystem:UntagResource"
       ],
       "Resource": "*"
     },

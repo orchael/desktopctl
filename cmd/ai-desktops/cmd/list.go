@@ -51,14 +51,21 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DESKTOP ID\tSTATE\tMARKET\tOWNER\tREGION\tHOSTNAME\tCREATED")
+	fmt.Fprintln(w, "DESKTOP ID\tNAME\tSTATE\tMARKET\tOWNER\tREGION\tWORKSPACE\tHOSTNAME\tCREATED")
 	for _, d := range desktops {
 		region := d.Region
 		if region == "" {
 			region = cfg.AWS.Region
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			d.DesktopID, d.State, effectiveMarketType(d), d.GitHubOwner, region, d.Hostname, d.CreatedAt)
+		workspace := d.WorkspaceMode
+		if workspace == "" {
+			workspace = workspaceModeLocal
+		}
+		if d.WorkspaceName != "" {
+			workspace += ":" + d.WorkspaceName
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			d.DesktopID, d.DesktopName, d.State, effectiveMarketType(d), d.GitHubOwner, region, workspace, d.Hostname, d.CreatedAt)
 	}
 	return w.Flush()
 }

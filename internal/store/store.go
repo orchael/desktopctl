@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -41,12 +43,23 @@ const (
 	StopReasonAWSStopped       = "aws-stopped"
 )
 
+type WorkspaceState string
+
+const (
+	WorkspaceStateAvailable WorkspaceState = "available"
+	WorkspaceStateAttached  WorkspaceState = "attached"
+	WorkspaceStateFailed    WorkspaceState = "failed"
+	WorkspaceStateDeleted   WorkspaceState = "deleted"
+)
+
 // Desktop is the fleet metadata record for one managed desktop.
 type Desktop struct {
 	DesktopID     string         `dynamodbav:"desktop_id"       json:"desktop_id"`
+	DesktopName   string         `dynamodbav:"desktop_name,omitempty" json:"desktop_name,omitempty"`
 	StackName     string         `dynamodbav:"stack_name"       json:"stack_name"`
 	GitHubOwner   string         `dynamodbav:"github_owner"     json:"github_owner"`
 	Region        string         `dynamodbav:"region"           json:"region"`
+	Environment   string         `dynamodbav:"environment,omitempty" json:"environment,omitempty"`
 	State         LifecycleState `dynamodbav:"lifecycle_state"  json:"lifecycle_state"`
 	InstanceID    string         `dynamodbav:"instance_id"      json:"instance_id"`
 	Hostname      string         `dynamodbav:"hostname"         json:"hostname"`
@@ -67,8 +80,31 @@ type Desktop struct {
 	StopReason    string         `dynamodbav:"stop_reason,omitempty"     json:"stop_reason,omitempty"`
 	StoppedAt     string         `dynamodbav:"stopped_at,omitempty"      json:"stopped_at,omitempty"`
 	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
+	WorkspaceMode string         `dynamodbav:"workspace_mode,omitempty"  json:"workspace_mode,omitempty"`
+	WorkspaceName string         `dynamodbav:"workspace_name,omitempty"  json:"workspace_name,omitempty"`
+	WorkspaceID   string         `dynamodbav:"workspace_id,omitempty"    json:"workspace_id,omitempty"`
 	CreatedAt     string         `dynamodbav:"created_at"       json:"created_at"`
 	UpdatedAt     string         `dynamodbav:"updated_at"       json:"updated_at"`
+}
+
+type Workspace struct {
+	WorkspaceID         string         `dynamodbav:"desktop_id"                 json:"workspace_id"`
+	WorkspaceName       string         `dynamodbav:"workspace_name"             json:"workspace_name"`
+	WorkspaceMode       string         `dynamodbav:"workspace_mode"             json:"workspace_mode"`
+	Environment         string         `dynamodbav:"environment"                json:"environment"`
+	GitHubOwner         string         `dynamodbav:"github_owner"               json:"github_owner"`
+	Repos               []string       `dynamodbav:"repos,omitempty"            json:"repos,omitempty"`
+	RepoFingerprint     string         `dynamodbav:"repo_fingerprint,omitempty" json:"repo_fingerprint,omitempty"`
+	EFSFileSystemID     string         `dynamodbav:"efs_file_system_id"         json:"efs_file_system_id"`
+	EFSAccessPointID    string         `dynamodbav:"efs_access_point_id"        json:"efs_access_point_id"`
+	MountPath           string         `dynamodbav:"mount_path"                 json:"mount_path"`
+	State               WorkspaceState `dynamodbav:"workspace_state"            json:"workspace_state"`
+	AttachedDesktopID   string         `dynamodbav:"attached_desktop_id,omitempty"   json:"attached_desktop_id,omitempty"`
+	AttachedDesktopName string         `dynamodbav:"attached_desktop_name,omitempty" json:"attached_desktop_name,omitempty"`
+	CreatedAt           string         `dynamodbav:"created_at"                 json:"created_at"`
+	UpdatedAt           string         `dynamodbav:"updated_at"                 json:"updated_at"`
+	FailurePhase        string         `dynamodbav:"failure_phase,omitempty"     json:"failure_phase,omitempty"`
+	FailureMsg          string         `dynamodbav:"failure_message,omitempty"   json:"failure_message,omitempty"`
 }
 
 // now returns the current time as RFC3339.
@@ -78,6 +114,7 @@ func now() string {
 
 // ErrNotFound is returned when a desktop record does not exist.
 var ErrNotFound = errors.New("desktop not found")
+var ErrWorkspaceAttached = errors.New("workspace already attached")
 
 // Store is the interface for fleet metadata operations.
 type Store interface {
@@ -90,15 +127,30 @@ type Store interface {
 	RecordFailure(ctx context.Context, id, phase, message string) error
 }
 
+type WorkspaceStore interface {
+	CreateWorkspace(ctx context.Context, w *Workspace) error
+	GetWorkspace(ctx context.Context, environment, name string) (*Workspace, error)
+	ListWorkspaces(ctx context.Context) ([]*Workspace, error)
+	UpdateWorkspace(ctx context.Context, w *Workspace) error
+	UpdateDetachedWorkspaceRepos(ctx context.Context, environment, name string, repos []string, repoFingerprint string) error
+	DeleteWorkspace(ctx context.Context, environment, name string) error
+	AttachWorkspace(ctx context.Context, environment, name, desktopID, desktopName string) error
+	DetachWorkspace(ctx context.Context, environment, name, desktopID string) error
+}
+
 // InMemoryStore is a non-persistent Store implementation used in tests and
 // local-only CLI development.
 type InMemoryStore struct {
-	records map[string]*Desktop
+	records    map[string]*Desktop
+	workspaces map[string]*Workspace
 }
 
 // NewInMemoryStore returns an initialised in-memory store.
 func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{records: make(map[string]*Desktop)}
+	return &InMemoryStore{
+		records:    make(map[string]*Desktop),
+		workspaces: make(map[string]*Workspace),
+	}
 }
 
 func (s *InMemoryStore) Create(ctx context.Context, d *Desktop) error {
@@ -125,7 +177,10 @@ func (s *InMemoryStore) Get(ctx context.Context, id string) (*Desktop, error) {
 
 func (s *InMemoryStore) List(ctx context.Context) ([]*Desktop, error) {
 	out := make([]*Desktop, 0, len(s.records))
-	for _, d := range s.records {
+	for id, d := range s.records {
+		if IsWorkspaceRecordID(id) {
+			continue
+		}
 		cp := *d
 		out = append(out, &cp)
 	}
@@ -169,5 +224,143 @@ func (s *InMemoryStore) RecordFailure(ctx context.Context, id, phase, message st
 	d.FailurePhase = phase
 	d.FailureMsg = message
 	d.UpdatedAt = now()
+	return nil
+}
+
+func WorkspaceRecordID(environment, name string) string {
+	return "workspace:" + strings.TrimSpace(environment) + ":" + strings.TrimSpace(name)
+}
+
+func IsWorkspaceRecordID(id string) bool {
+	return strings.HasPrefix(id, "workspace:")
+}
+
+func NormalizeWorkspaceRepos(repos []string) []string {
+	out := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		repo = strings.TrimSpace(repo)
+		if repo == "" || slices.Contains(out, repo) {
+			continue
+		}
+		out = append(out, repo)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func RepoFingerprint(repos []string) string {
+	return strings.Join(NormalizeWorkspaceRepos(repos), "\n")
+}
+
+func (s *InMemoryStore) CreateWorkspace(ctx context.Context, w *Workspace) error {
+	if w.WorkspaceID == "" {
+		w.WorkspaceID = WorkspaceRecordID(w.Environment, w.WorkspaceName)
+	}
+	if existing, ok := s.workspaces[w.WorkspaceID]; ok && existing.State != WorkspaceStateDeleted {
+		return fmt.Errorf("workspace %q already exists", w.WorkspaceName)
+	}
+	if w.CreatedAt == "" {
+		w.CreatedAt = now()
+	}
+	w.UpdatedAt = now()
+	cp := *w
+	cp.Repos = append([]string(nil), w.Repos...)
+	s.workspaces[w.WorkspaceID] = &cp
+	return nil
+}
+
+func (s *InMemoryStore) GetWorkspace(ctx context.Context, environment, name string) (*Workspace, error) {
+	w, ok := s.workspaces[WorkspaceRecordID(environment, name)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *w
+	cp.Repos = append([]string(nil), w.Repos...)
+	return &cp, nil
+}
+
+func (s *InMemoryStore) ListWorkspaces(ctx context.Context) ([]*Workspace, error) {
+	out := make([]*Workspace, 0, len(s.workspaces))
+	for _, w := range s.workspaces {
+		cp := *w
+		cp.Repos = append([]string(nil), w.Repos...)
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (s *InMemoryStore) UpdateWorkspace(ctx context.Context, w *Workspace) error {
+	if w.WorkspaceID == "" {
+		w.WorkspaceID = WorkspaceRecordID(w.Environment, w.WorkspaceName)
+	}
+	if _, ok := s.workspaces[w.WorkspaceID]; !ok {
+		return ErrNotFound
+	}
+	w.UpdatedAt = now()
+	cp := *w
+	cp.Repos = append([]string(nil), w.Repos...)
+	s.workspaces[w.WorkspaceID] = &cp
+	return nil
+}
+
+func (s *InMemoryStore) UpdateDetachedWorkspaceRepos(ctx context.Context, environment, name string, repos []string, repoFingerprint string) error {
+	id := WorkspaceRecordID(environment, name)
+	w, ok := s.workspaces[id]
+	if !ok || w.State == WorkspaceStateDeleted {
+		return ErrNotFound
+	}
+	if w.AttachedDesktopID != "" {
+		return ErrWorkspaceAttached
+	}
+	w.Repos = NormalizeWorkspaceRepos(repos)
+	w.RepoFingerprint = repoFingerprint
+	w.UpdatedAt = now()
+	return nil
+}
+
+func (s *InMemoryStore) DeleteWorkspace(ctx context.Context, environment, name string) error {
+	id := WorkspaceRecordID(environment, name)
+	w, ok := s.workspaces[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if w.AttachedDesktopID != "" {
+		return ErrWorkspaceAttached
+	}
+	w.State = WorkspaceStateDeleted
+	w.UpdatedAt = now()
+	return nil
+}
+
+func (s *InMemoryStore) AttachWorkspace(ctx context.Context, environment, name, desktopID, desktopName string) error {
+	w, ok := s.workspaces[WorkspaceRecordID(environment, name)]
+	if !ok {
+		return ErrNotFound
+	}
+	if w.AttachedDesktopID != "" && w.AttachedDesktopID != desktopID {
+		return ErrWorkspaceAttached
+	}
+	w.State = WorkspaceStateAttached
+	w.AttachedDesktopID = desktopID
+	w.AttachedDesktopName = desktopName
+	w.UpdatedAt = now()
+	return nil
+}
+
+func (s *InMemoryStore) DetachWorkspace(ctx context.Context, environment, name, desktopID string) error {
+	w, ok := s.workspaces[WorkspaceRecordID(environment, name)]
+	if !ok {
+		return ErrNotFound
+	}
+	if w.State == WorkspaceStateDeleted {
+		return ErrNotFound
+	}
+	if desktopID != "" && w.AttachedDesktopID != "" && w.AttachedDesktopID != desktopID {
+		return ErrWorkspaceAttached
+	}
+	w.State = WorkspaceStateAvailable
+	w.AttachedDesktopID = ""
+	w.AttachedDesktopName = ""
+	w.UpdatedAt = now()
 	return nil
 }

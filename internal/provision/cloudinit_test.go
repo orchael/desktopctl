@@ -123,6 +123,51 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_efsWorkspace(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-efs",
+		Hostname:         "d-efs.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		WorkspacePath:    "/workspace",
+		WorkspaceMode:    "efs",
+		WorkspaceName:    "factory-dev",
+		EFSFileSystemID:  "fs-123",
+		EFSAccessPointID: "fsap-123",
+		Repos:            []string{"github.com/acme/repo"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`EFS_FILE_SYSTEM_ID="fs-123"`,
+		`EFS_ACCESS_POINT_ID="fsap-123"`,
+		`if ! command -v mount.efs >/dev/null 2>&1; then`,
+		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils`,
+		`ERROR: EFS workspace mode requires amazon-efs-utils mount.efs`,
+		`mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"`,
+		`_netdev,tls,accesspoint=%s`,
+		`refusing to clone repositories onto local disk`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+	for _, reject := range []string{
+		`amazon-efs-utils || true`,
+		`mount -t nfs4`,
+		`nfs4 _netdev`,
+	} {
+		if strings.Contains(out, reject) {
+			t.Errorf("rendered output should not contain %q", reject)
+		}
+	}
+}
+
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-003",

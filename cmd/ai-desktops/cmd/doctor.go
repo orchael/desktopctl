@@ -145,7 +145,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "Services", Checkers: health.SSHCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
-		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
+		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.WorkspaceMode)},
 		{Label: "Secrets", Checkers: health.SecretsCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Secrets)},
 		{Label: "Tailscale", Checkers: health.TailscaleCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.TailscaleNet, cfg.Agent.BridgePort)},
 		{Label: "step-ca", Checkers: health.StepCACheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.StepCAServer)},

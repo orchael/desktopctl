@@ -483,12 +483,17 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 }
 
 // WorkspaceCheckers returns checks for workspace integrity.
-func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+func WorkspaceCheckers(hostname string, sshPort int, user, keyPath, workspaceMode string) []Checker {
 	t := 20 * time.Second
-	return []Checker{
+	checkers := []Checker{
 		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
 			"[ -d /workspace ] && [ -w /workspace ]", t),
 	}
+	if workspaceMode == "efs" {
+		checkers = append(checkers, NewSSHChecker("workspace-efs-mounted", hostname, sshPort, user, keyPath,
+			"mountpoint -q /workspace && findmnt -n -o FSTYPE /workspace | grep -Eq '^(efs|nfs4?)$'", t))
+	}
+	return checkers
 }
 
 // DesktopWebCheckers returns checks for the desktop-web Express server.

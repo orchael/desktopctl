@@ -7,6 +7,7 @@
     # go_version, uv_version, bridgectl_version, and tailscale_version must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
+    amazon_efs_utils_version: v3.3.1
     # Minimum acceptable versions for apt-installed packages.
     min_versions:
       ansible: "2.10"
@@ -78,12 +79,22 @@
 
     # ansible is needed for cloud-init's ansible-playbook desktop-setup run.
     # python3-certbot-dns-route53 is not in the novnc-desktop elementary AMI.
-    - name: Install ansible, certbot Route53 plugin, and ACL support
+    - name: Install cloud-init runtime support packages
       ansible.builtin.apt:
         name:
           - ansible
           - python3-certbot-dns-route53
           - acl
+          - openssl
+          - psmisc
+          - python3-yaml
+        state: present
+
+    - name: Install NFS client support for EFS workspaces
+      ansible.builtin.apt:
+        name:
+          - nfs-common
+          - stunnel4
         state: present
 
     - name: Check for Pantheon dock binary
@@ -428,6 +439,18 @@
             . "$HOME/.cargo/env"
           fi
 
+    - name: Build and install Amazon EFS mount helper
+      ansible.builtin.shell: |
+        set -euo pipefail
+        rm -rf /tmp/efs-utils
+        runuser -l ubuntu -c 'git clone --depth 1 --branch {{ amazon_efs_utils_version }} https://github.com/aws/efs-utils /tmp/efs-utils'
+        runuser -l ubuntu -c 'cd /tmp/efs-utils && PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH ./build-deb.sh'
+        apt-get install -y --no-install-recommends /tmp/efs-utils/build/amazon-efs-utils*.deb
+        rm -rf /tmp/efs-utils
+      args:
+        executable: /bin/bash
+        creates: /sbin/mount.efs
+
     - name: Install pyenv build dependencies
       ansible.builtin.apt:
         name:
@@ -557,6 +580,31 @@
     - name: Install Tailscale from signed apt repository
       ansible.builtin.apt:
         name: "tailscale={{ tailscale_version | regex_replace('^v', '') }}"
+        state: present
+        update_cache: true
+
+    - name: Add Smallstep apt signing key
+      ansible.builtin.get_url:
+        url: https://packages.smallstep.com/keys/apt/repo-signing-key.gpg
+        dest: /etc/apt/keyrings/smallstep.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add Smallstep apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/smallstep.sources
+        content: |
+          Types: deb
+          URIs: https://packages.smallstep.com/stable/debian
+          Suites: debs
+          Components: main
+          Signed-By: /etc/apt/keyrings/smallstep.asc
+        mode: "0644"
+
+    - name: Install Step CLI
+      ansible.builtin.apt:
+        name: step-cli
         state: present
         update_cache: true
 
@@ -847,6 +895,19 @@
         path: /root/.npmrc
         state: absent
 
+    - name: Install Amazon CloudWatch agent
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cw_arch=$(dpkg --print-architecture)
+        wget -q --timeout=60 --tries=3 \
+          "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/${cw_arch}/latest/amazon-cloudwatch-agent.deb" \
+          -O /tmp/amazon-cloudwatch-agent.deb
+        apt-get install -y --no-install-recommends /tmp/amazon-cloudwatch-agent.deb
+        rm -f /tmp/amazon-cloudwatch-agent.deb
+      args:
+        executable: /bin/bash
+        creates: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent
+
     - name: Install ai-desktops-web systemd service
       ansible.builtin.copy:
         src: files/ai-desktops-web.service
@@ -996,6 +1057,55 @@
       ansible.builtin.assert:
         that: tailscale_ver_out.stdout == (tailscale_version | regex_replace('^v', ''))
         fail_msg: "Tailscale version mismatch — expected {{ tailscale_version | regex_replace('^v', '') }}, got {{ tailscale_ver_out.stdout }}"
+
+    - name: Verify EFS mount helper is installed
+      ansible.builtin.command: /sbin/mount.efs --version
+      register: efs_mount_helper_ver_out
+      changed_when: false
+
+    - name: Show EFS mount helper version
+      ansible.builtin.debug:
+        msg: "EFS mount helper version: {{ efs_mount_helper_ver_out.stdout }}"
+
+    - name: Verify NFSv4 mount helper is installed
+      ansible.builtin.command: mount.nfs4 --version
+      register: nfs_mount_helper_ver_out
+      changed_when: false
+
+    - name: Show NFSv4 mount helper version
+      ansible.builtin.debug:
+        msg: "NFSv4 mount helper version: {{ nfs_mount_helper_ver_out.stdout }}"
+
+    - name: Verify fuser is installed
+      ansible.builtin.command: fuser --version
+      register: fuser_ver_out
+      changed_when: false
+
+    - name: Show fuser version
+      ansible.builtin.debug:
+        msg: "fuser version: {{ fuser_ver_out.stdout_lines[0] | default(fuser_ver_out.stdout) }}"
+
+    - name: Verify Python YAML module is installed
+      ansible.builtin.command: python3 -c "import yaml"
+      changed_when: false
+
+    - name: Verify Step CLI is installed
+      ansible.builtin.command: step version
+      register: step_ver_out
+      changed_when: false
+
+    - name: Show Step CLI version
+      ansible.builtin.debug:
+        msg: "Step CLI version: {{ step_ver_out.stdout_lines[0] | default(step_ver_out.stdout) }}"
+
+    - name: Verify CloudWatch agent is installed
+      ansible.builtin.command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent --version
+      register: cloudwatch_agent_ver_out
+      changed_when: false
+
+    - name: Show CloudWatch agent version
+      ansible.builtin.debug:
+        msg: "CloudWatch agent version: {{ cloudwatch_agent_ver_out.stdout }}"
 
     - name: Verify Node.js 24 is installed
       ansible.builtin.command: node --version

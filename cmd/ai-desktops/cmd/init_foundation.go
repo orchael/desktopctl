@@ -99,6 +99,12 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Subnet ID        : %s\n", outputs[pulumi.OutputSubnetID])
 	fmt.Printf("Security Group ID: %s\n", outputs[pulumi.OutputSGID])
+	if outputs[pulumi.OutputEFSFileSystemID] != "" {
+		fmt.Printf("EFS File System  : %s\n", outputs[pulumi.OutputEFSFileSystemID])
+	}
+	if outputs[pulumi.OutputEFSSGID] != "" {
+		fmt.Printf("EFS SG ID        : %s\n", outputs[pulumi.OutputEFSSGID])
+	}
 	fmt.Printf("Instance Profile : %s\n", outputs[pulumi.OutputInstanceProfile])
 	fmt.Printf("Zone ID          : %s\n", outputs[pulumi.OutputZoneID])
 	fmt.Printf("Fleet Table      : %s\n", outputs[pulumi.OutputFleetTable])

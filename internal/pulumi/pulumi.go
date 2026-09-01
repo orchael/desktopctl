@@ -79,13 +79,14 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
 // marketType is "on-demand" or "spot"; spotMaxPrice is optional.
 func DesktopConfig(
-	region, desktopID, gitHubOwner, zone, instanceType,
+	region, desktopID, desktopName, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
 	repos []string,
 	bridgePort, volumeSize int,
 	amiID, userDataBase64, environment string,
 	nestedVirtualization bool,
 	marketType, spotMaxPrice string,
+	workspace WorkspaceConfig,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -98,6 +99,9 @@ func DesktopConfig(
 		"instanceProfile": instanceProfile,
 		"repos":           strings.Join(repos, ","),
 		"environment":     environment,
+	}
+	if desktopName != "" {
+		cfg["desktopName"] = desktopName
 	}
 	if sshKeyName != "" {
 		cfg["sshKeyName"] = sshKeyName
@@ -123,7 +127,26 @@ func DesktopConfig(
 	if spotMaxPrice != "" {
 		cfg["spotMaxPrice"] = spotMaxPrice
 	}
+	if workspace.Mode != "" {
+		cfg["workspaceMode"] = workspace.Mode
+	}
+	if workspace.Name != "" {
+		cfg["workspaceName"] = workspace.Name
+	}
+	if workspace.EFSFileSystemID != "" {
+		cfg["workspaceEFSFileSystemId"] = workspace.EFSFileSystemID
+	}
+	if workspace.EFSAccessPointID != "" {
+		cfg["workspaceEFSAccessPointId"] = workspace.EFSAccessPointID
+	}
 	return cfg
+}
+
+type WorkspaceConfig struct {
+	Mode             string
+	Name             string
+	EFSFileSystemID  string
+	EFSAccessPointID string
 }
 
 // OutputKey constants for stack outputs.
@@ -142,6 +165,9 @@ const (
 	OutputFleetTable      = "fleetTable"
 	OutputAMITable        = "amiTable"
 	OutputMarketType      = "marketType"
+	OutputWorkspaceMode   = "workspaceMode"
+	OutputEFSFileSystemID = "efsFileSystemId"
+	OutputEFSSGID         = "efsSecurityGroupId"
 	OutputOperatorSecret  = "operatorCredentialsSecretName"
 	OutputOperatorRoleArn = "operatorRoleArn"
 	OutputOperatorUser    = "operatorUserName"

@@ -24,6 +24,10 @@ type BootstrapConfig struct {
 	GitHubOwner          string
 	Repos                []string
 	WorkspacePath        string
+	WorkspaceMode        string
+	WorkspaceName        string
+	EFSFileSystemID      string
+	EFSAccessPointID     string
 	BridgePort           int
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
@@ -105,8 +109,38 @@ runcmd:
 {{- end}}
 
   # --- workspace ---
+{{- if eq .WorkspaceMode "efs"}}
+  - |
+    (
+    set -e
+    EFS_FILE_SYSTEM_ID="{{ .EFSFileSystemID }}"
+    EFS_ACCESS_POINT_ID="{{ .EFSAccessPointID }}"
+    WORKSPACE="{{ .WorkspacePath }}"
+    if [ -z "$EFS_FILE_SYSTEM_ID" ] || [ -z "$EFS_ACCESS_POINT_ID" ]; then
+      echo "ERROR: EFS workspace mode requires file system and access point IDs" >&2
+      exit 1
+    fi
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      apt-get -o DPkg::Lock::Timeout=600 update
+      apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils
+    fi
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      echo "ERROR: EFS workspace mode requires amazon-efs-utils mount.efs" >&2
+      exit 1
+    fi
+    mkdir -p "$WORKSPACE"
+    if ! mountpoint -q "$WORKSPACE"; then
+      mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"
+    fi
+    if ! grep -q "[[:space:]]$WORKSPACE[[:space:]]" /etc/fstab; then
+      printf '%s:/ %s efs _netdev,tls,accesspoint=%s 0 0\n' "$EFS_FILE_SYSTEM_ID" "$WORKSPACE" "$EFS_ACCESS_POINT_ID" >> /etc/fstab
+    fi
+    chown ubuntu:ubuntu "$WORKSPACE"
+    )
+{{- else}}
   - mkdir -p {{ .WorkspacePath }}
   - chown ubuntu:ubuntu {{ .WorkspacePath }}
+{{- end}}
 
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
@@ -815,6 +849,21 @@ runcmd:
     REPO_NAME=$(basename "$REPO_URL" .git)
     REPO_OWNER=$(echo "$REPO_URL" | sed 's|.*github\.com[/:]||' | cut -d/ -f1)
 
+{{- if eq $.WorkspaceMode "efs"}}
+    if ! mountpoint -q "$WORKSPACE"; then
+      echo "ERROR: EFS workspace mode expected $WORKSPACE to be mounted; refusing to clone repositories onto local disk" >&2
+      exit 1
+    fi
+    WORKSPACE_FSTYPE=$(findmnt -n -o FSTYPE "$WORKSPACE" 2>/dev/null || true)
+    case "$WORKSPACE_FSTYPE" in
+      efs|nfs|nfs4) ;;
+      *)
+        echo "ERROR: EFS workspace mode expected $WORKSPACE to be efs/nfs mounted, got ${WORKSPACE_FSTYPE:-unknown}; refusing to clone repositories onto local disk" >&2
+        exit 1
+        ;;
+    esac
+
+{{- end}}
     if [ "$REPO_OWNER" != "$OWNER" ]; then
       echo "ERROR: repo $REPO_URL owner $REPO_OWNER does not match desktop owner $OWNER" >&2
       exit 1
@@ -1056,6 +1105,9 @@ final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.WorkspacePath == "" {
 		cfg.WorkspacePath = "/workspace"
+	}
+	if cfg.WorkspaceMode == "" {
+		cfg.WorkspaceMode = "local"
 	}
 	if cfg.BridgePort == 0 {
 		cfg.BridgePort = 9445

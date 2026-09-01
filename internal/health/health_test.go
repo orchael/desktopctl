@@ -138,7 +138,7 @@ func TestSystemCheckers_returnsCheckers(t *testing.T) {
 }
 
 func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
-	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
 	if len(checkers) == 0 {
 		t.Error("WorkspaceCheckers must return at least one checker")
 	}
@@ -146,6 +146,19 @@ func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
 		if c.Name() == "" {
 			t.Error("checker must have a name")
 		}
+	}
+}
+
+func TestWorkspaceCheckers_efsModeAddsMountCheck(t *testing.T) {
+	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "efs")
+	found := false
+	for _, c := range checkers {
+		if c.Name() == "workspace-efs-mounted" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("EFS workspace mode should add workspace-efs-mounted check")
 	}
 }
 
