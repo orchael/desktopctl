@@ -16,3 +16,21 @@ approval_mode = "approve"
 
 [mcp_servers.pilot.tools.browser_evaluate]
 approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_get_errors]
+approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_page_info]
+approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_screenshot]
+approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_click]
+approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_wait]
+approval_mode = "approve"
+
+[mcp_servers.pilot.tools.browser_viewport_resize]
+approval_mode = "approve"

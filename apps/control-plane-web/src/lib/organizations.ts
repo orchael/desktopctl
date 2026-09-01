@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { organizationNameFromEmail } from '@/lib/organization-name';
 
 export const activeOrganizationCookie = 'ai-desktops-organization';
 
@@ -19,10 +20,16 @@ export async function listOrganizations(userId: string) {
   });
 }
 
-export async function getActiveOrganization(userId: string) {
-  const memberships = await listOrganizations(userId);
+type Membership = Awaited<ReturnType<typeof listOrganizations>>[number];
+
+export async function getActiveOrganization(userId: string, memberships?: Membership[]) {
+  const available = memberships ?? (await listOrganizations(userId));
   const requested = (await cookies()).get(activeOrganizationCookie)?.value;
-  return memberships.find((item) => item.organizationId === requested) ?? memberships[0] ?? null;
+  return available.find((item) => item.organizationId === requested) ?? available[0] ?? null;
+}
+
+export async function ensureUserOrganization(userId: string, email: string) {
+  await prisma.$executeRaw`SELECT bootstrap_user_organization(${userId}, ${organizationNameFromEmail(email)}, ${email})`;
 }
 
 export async function withOrganization<T>(

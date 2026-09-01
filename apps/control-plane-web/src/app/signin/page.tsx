@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { auth, signIn } from '@/auth';
 
 export default async function SignInPage() {
-  if (await auth()) redirect('/');
+  if ((await auth())?.user?.id) redirect('/');
   return (
     <main className="signinPage">
       <section className="signinPanel">
