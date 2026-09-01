@@ -3,7 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDNSZone(t *testing.T) {
@@ -264,6 +267,28 @@ func TestDefaults_AMIs(t *testing.T) {
 	// Defaults should not initialize an empty ActiveAMI map
 	if c.Desktop.ActiveAMI != nil {
 		t.Error("ActiveAMI should be nil after Defaults()")
+	}
+}
+
+func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
+	data, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("read config.example.yaml: %v", err)
+	}
+	text := string(data)
+	if strings.Contains(text, "root_volume_size") {
+		t.Fatal("config.example.yaml must use desktop.volume_size, not root_volume_size")
+	}
+	if !strings.Contains(text, "volume_size:") {
+		t.Fatal("config.example.yaml must document desktop.volume_size")
+	}
+
+	var c Config
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		t.Fatalf("parse config.example.yaml: %v", err)
+	}
+	if c.Desktop.VolumeSize != DefaultVolumeSize {
+		t.Fatalf("desktop.volume_size = %d, want %d", c.Desktop.VolumeSize, DefaultVolumeSize)
 	}
 }
 
