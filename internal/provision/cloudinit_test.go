@@ -145,23 +145,25 @@ func TestRenderCloudInit_efsWorkspace(t *testing.T) {
 	checks := []string{
 		`EFS_FILE_SYSTEM_ID="fs-123"`,
 		`EFS_ACCESS_POINT_ID="fsap-123"`,
-		`EFS_DNS="${EFS_FILE_SYSTEM_ID}.efs.`,
-		`EFS_ROOT="/workspaces/factory-dev"`,
-		`if ! command -v mount.efs >/dev/null 2>&1 || ! command -v mount.nfs4 >/dev/null 2>&1; then`,
-		`if ! command -v mount.nfs4 >/dev/null 2>&1; then`,
-		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends nfs-common`,
 		`if ! command -v mount.efs >/dev/null 2>&1; then`,
-		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils || true`,
-		`ERROR: EFS workspace mode requires mount.efs or mount.nfs4`,
+		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils`,
+		`ERROR: EFS workspace mode requires amazon-efs-utils mount.efs`,
 		`mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"`,
-		`mount -t nfs4 -o nfsvers=4.1`,
 		`_netdev,tls,accesspoint=%s`,
-		`nfs4 _netdev,nfsvers=4.1`,
 		`refusing to clone repositories onto local disk`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered output missing %q", want)
+		}
+	}
+	for _, reject := range []string{
+		`amazon-efs-utils || true`,
+		`mount -t nfs4`,
+		`nfs4 _netdev`,
+	} {
+		if strings.Contains(out, reject) {
+			t.Errorf("rendered output should not contain %q", reject)
 		}
 	}
 }

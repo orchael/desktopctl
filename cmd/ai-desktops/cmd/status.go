@@ -115,7 +115,12 @@ func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.De
 		d.Hostname = fmt.Sprintf("%s.%s", id, zone)
 	}
 	if status.PublicIP == "" {
-		return fmt.Errorf("EC2 instance %s has no public IP; cannot update DNS", d.InstanceID)
+		fmt.Fprintln(os.Stderr, "Waiting for public IP assignment ...")
+		publicIP, err := awsx.WaitInstancePublicIP(ctx, awsCfg, d.InstanceID, 2*time.Minute)
+		if err != nil {
+			return err
+		}
+		status.PublicIP = publicIP
 	}
 
 	fmt.Fprintf(os.Stderr, "Refreshing DNS record %s -> %s ...\n", d.Hostname, status.PublicIP)

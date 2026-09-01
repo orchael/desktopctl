@@ -115,46 +115,25 @@ runcmd:
     set -e
     EFS_FILE_SYSTEM_ID="{{ .EFSFileSystemID }}"
     EFS_ACCESS_POINT_ID="{{ .EFSAccessPointID }}"
-    EFS_DNS="${EFS_FILE_SYSTEM_ID}.efs.{{ .AWSRegion }}.amazonaws.com"
-    EFS_ROOT="/workspaces/{{ .WorkspaceName }}"
     WORKSPACE="{{ .WorkspacePath }}"
     if [ -z "$EFS_FILE_SYSTEM_ID" ] || [ -z "$EFS_ACCESS_POINT_ID" ]; then
       echo "ERROR: EFS workspace mode requires file system and access point IDs" >&2
       exit 1
     fi
-    if ! command -v mount.efs >/dev/null 2>&1 || ! command -v mount.nfs4 >/dev/null 2>&1; then
+    if ! command -v mount.efs >/dev/null 2>&1; then
       apt-get -o DPkg::Lock::Timeout=600 update
-      if ! command -v mount.nfs4 >/dev/null 2>&1; then
-        apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends nfs-common
-      fi
-      if ! command -v mount.efs >/dev/null 2>&1; then
-        apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils || true
-      fi
+      apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils
+    fi
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      echo "ERROR: EFS workspace mode requires amazon-efs-utils mount.efs" >&2
+      exit 1
     fi
     mkdir -p "$WORKSPACE"
     if ! mountpoint -q "$WORKSPACE"; then
-      if command -v mount.efs >/dev/null 2>&1; then
-        mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"
-      else
-        if ! command -v mount.nfs4 >/dev/null 2>&1; then
-          echo "ERROR: EFS workspace mode requires mount.efs or mount.nfs4" >&2
-          exit 1
-        fi
-        TMP_EFS_ROOT="$(mktemp -d)"
-        mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport "$EFS_DNS:/" "$TMP_EFS_ROOT"
-        mkdir -p "$TMP_EFS_ROOT$EFS_ROOT"
-        chown ubuntu:ubuntu "$TMP_EFS_ROOT$EFS_ROOT"
-        umount "$TMP_EFS_ROOT"
-        rmdir "$TMP_EFS_ROOT"
-        mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport "$EFS_DNS:$EFS_ROOT" "$WORKSPACE"
-      fi
+      mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"
     fi
     if ! grep -q "[[:space:]]$WORKSPACE[[:space:]]" /etc/fstab; then
-      if command -v mount.efs >/dev/null 2>&1; then
-        printf '%s:/ %s efs _netdev,tls,accesspoint=%s 0 0\n' "$EFS_FILE_SYSTEM_ID" "$WORKSPACE" "$EFS_ACCESS_POINT_ID" >> /etc/fstab
-      else
-        printf '%s:%s %s nfs4 _netdev,nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport 0 0\n' "$EFS_DNS" "$EFS_ROOT" "$WORKSPACE" >> /etc/fstab
-      fi
+      printf '%s:/ %s efs _netdev,tls,accesspoint=%s 0 0\n' "$EFS_FILE_SYSTEM_ID" "$WORKSPACE" "$EFS_ACCESS_POINT_ID" >> /etc/fstab
     fi
     chown ubuntu:ubuntu "$WORKSPACE"
     )

@@ -100,11 +100,11 @@ func run(ctx *pulumi.Context) error {
 	// Prefer gzip-compressed base64 user data so large cloud-init payloads stay
 	// under EC2's 16 KiB raw user-data limit. Keep raw userData as a fallback
 	// for older CLI-created stack configs.
-	// Some legacy stacks do not have userData in stack config at all. Allow that
-	// case so start can refresh existing instances and update DNS without
-	// requiring user-data that AWS does not expose back to the CLI.
 	userDataBase64 := cfg.Get("userDataBase64")
 	userData := cfg.Get("userData")
+	if userDataBase64 == "" && userData == "" {
+		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
+	}
 
 	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
 	// are also configured to stop on interruption, so keep hibernation disabled.

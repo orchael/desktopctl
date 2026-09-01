@@ -483,16 +483,27 @@ func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, hostname, ip s
 	zoneDNSName := ensureTrailingDot(zoneName)
 	zones, err := c.ListHostedZonesByName(ctx, &route53.ListHostedZonesByNameInput{
 		DNSName:  aws.String(zoneDNSName),
-		MaxItems: aws.Int32(1),
+		MaxItems: aws.Int32(100),
 	})
 	if err != nil {
 		return fmt.Errorf("find Route53 zone %s: %w", zoneName, err)
 	}
-	if len(zones.HostedZones) == 0 || aws.ToString(zones.HostedZones[0].Name) != zoneDNSName {
-		return fmt.Errorf("Route53 zone %q not found", zoneName)
+	var hostedZoneID *string
+	for _, zone := range zones.HostedZones {
+		if aws.ToString(zone.Name) != zoneDNSName {
+			continue
+		}
+		if zone.Config != nil && zone.Config.PrivateZone {
+			continue
+		}
+		hostedZoneID = zone.Id
+		break
+	}
+	if hostedZoneID == nil {
+		return fmt.Errorf("public Route53 zone %q not found", zoneName)
 	}
 	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
-		HostedZoneId: zones.HostedZones[0].Id,
+		HostedZoneId: hostedZoneID,
 		ChangeBatch: &route53types.ChangeBatch{
 			Changes: []route53types.Change{
 				{
