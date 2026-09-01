@@ -309,9 +309,10 @@ func (s *DynamoStore) DetachWorkspace(ctx context.Context, environment, name, de
 	ts := now()
 	exprValues := map[string]types.AttributeValue{
 		":available": &types.AttributeValueMemberS{Value: string(WorkspaceStateAvailable)},
+		":deleted":   &types.AttributeValueMemberS{Value: string(WorkspaceStateDeleted)},
 		":t":         &types.AttributeValueMemberS{Value: ts},
 	}
-	condition := "attribute_exists(desktop_id)"
+	condition := "attribute_exists(desktop_id) AND (attribute_not_exists(workspace_state) OR workspace_state <> :deleted)"
 	if desktopID != "" {
 		condition += " AND (attribute_not_exists(attached_desktop_id) OR attached_desktop_id = :desktop_id)"
 		exprValues[":desktop_id"] = &types.AttributeValueMemberS{Value: desktopID}
@@ -328,7 +329,8 @@ func (s *DynamoStore) DetachWorkspace(ctx context.Context, environment, name, de
 	if err != nil {
 		var cce *types.ConditionalCheckFailedException
 		if errors.As(err, &cce) {
-			if _, getErr := s.GetWorkspace(ctx, environment, name); errors.Is(getErr, ErrNotFound) {
+			w, getErr := s.GetWorkspace(ctx, environment, name)
+			if errors.Is(getErr, ErrNotFound) || (getErr == nil && w.State == WorkspaceStateDeleted) {
 				return ErrNotFound
 			}
 			return ErrWorkspaceAttached

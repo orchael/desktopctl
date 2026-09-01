@@ -466,6 +466,50 @@ func TestDynamoStore_DeleteWorkspace_Attached(t *testing.T) {
 	}
 }
 
+func TestDynamoStore_DetachWorkspace_SuccessGuardsDeleted(t *testing.T) {
+	var input *dynamodb.UpdateItemInput
+	mock := &mockDynamoClient{
+		updateFn: func(params *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			input = params
+			return &dynamodb.UpdateItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.DetachWorkspace(context.Background(), "dev", "factory-dev", "d-001"); err != nil {
+		t.Fatalf("DetachWorkspace: %v", err)
+	}
+	if input == nil {
+		t.Fatal("expected UpdateItem")
+	}
+	if got := aws.ToString(input.ConditionExpression); !contains(got, "workspace_state <> :deleted") {
+		t.Fatalf("condition = %q", got)
+	}
+	if _, ok := input.ExpressionAttributeValues[":deleted"]; !ok {
+		t.Fatal("missing :deleted expression value")
+	}
+}
+
+func TestDynamoStore_DetachWorkspace_Deleted(t *testing.T) {
+	item, _ := attributevalue.MarshalMap(&Workspace{
+		WorkspaceName: "factory-dev",
+		Environment:   "dev",
+		State:         WorkspaceStateDeleted,
+	})
+	mock := &mockDynamoClient{
+		updateFn: func(_ *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	err := s.DetachWorkspace(context.Background(), "dev", "factory-dev", "")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestDynamoStore_UpdateDetachedWorkspaceRepos_Success(t *testing.T) {
 	var input *dynamodb.UpdateItemInput
 	mock := &mockDynamoClient{

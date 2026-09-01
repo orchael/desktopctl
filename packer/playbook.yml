@@ -7,6 +7,7 @@
     # go_version, uv_version, bridgectl_version, and tailscale_version must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
+    amazon_efs_utils_version: v3.3.1
     # Minimum acceptable versions for apt-installed packages.
     min_versions:
       ansible: "2.10"
@@ -442,7 +443,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         rm -rf /tmp/efs-utils
-        runuser -l ubuntu -c 'git clone --depth 1 https://github.com/aws/efs-utils /tmp/efs-utils'
+        runuser -l ubuntu -c 'git clone --depth 1 --branch {{ amazon_efs_utils_version }} https://github.com/aws/efs-utils /tmp/efs-utils'
         runuser -l ubuntu -c 'cd /tmp/efs-utils && PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH ./build-deb.sh'
         apt-get install -y --no-install-recommends /tmp/efs-utils/build/amazon-efs-utils*.deb
         rm -rf /tmp/efs-utils

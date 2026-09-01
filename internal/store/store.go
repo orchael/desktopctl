@@ -352,6 +352,9 @@ func (s *InMemoryStore) DetachWorkspace(ctx context.Context, environment, name, 
 	if !ok {
 		return ErrNotFound
 	}
+	if w.State == WorkspaceStateDeleted {
+		return ErrNotFound
+	}
 	if desktopID != "" && w.AttachedDesktopID != "" && w.AttachedDesktopID != desktopID {
 		return ErrWorkspaceAttached
 	}

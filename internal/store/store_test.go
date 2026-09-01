@@ -124,6 +124,13 @@ func TestInMemoryStore_WorkspaceLifecycle(t *testing.T) {
 	if got.State != WorkspaceStateDeleted {
 		t.Fatalf("workspace state = %q, want deleted", got.State)
 	}
+	if err := s.DetachWorkspace(ctx, "dev", "factory-dev", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DetachWorkspace deleted: got %v, want ErrNotFound", err)
+	}
+	got, _ = s.GetWorkspace(ctx, "dev", "factory-dev")
+	if got.State != WorkspaceStateDeleted {
+		t.Fatalf("deleted workspace was resurrected: %+v", got)
+	}
 }
 
 func TestInMemoryStore_UpdateDetachedWorkspaceRepos(t *testing.T) {

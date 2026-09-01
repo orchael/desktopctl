@@ -109,7 +109,7 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 				env = cfg.Fleet.Environment
 			}
 			if err := ws.DetachWorkspace(ctx, env, d.WorkspaceName, d.DesktopID); err != nil {
-				return fmt.Errorf("desktop terminated, but failed to detach workspace %q: %w", d.WorkspaceName, err)
+				return fmt.Errorf("desktop terminated, but failed to detach workspace %q: %w; verify no live desktop is using the mount, then run `%s`", d.WorkspaceName, err, workspaceDetachRecoveryCommand(env, d.WorkspaceName))
 			}
 		}
 	}
@@ -123,4 +123,11 @@ func terminateWarning(d *store.Desktop) string {
 		return fmt.Sprintf("WARNING: This will permanently destroy the EC2 instance and EBS volume. EFS workspace %q will not be deleted.", d.WorkspaceName)
 	}
 	return "WARNING: This will permanently destroy the EC2 instance and EBS volume."
+}
+
+func workspaceDetachRecoveryCommand(env, workspaceName string) string {
+	if env == "" {
+		return fmt.Sprintf("ai-desktops workspace detach %s --force", workspaceName)
+	}
+	return fmt.Sprintf("ai-desktops workspace detach %s --env %s --force", workspaceName, env)
 }
