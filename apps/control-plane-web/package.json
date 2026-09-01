@@ -7,7 +7,7 @@
     "node": "^22.13.0 || >=24"
   },
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "dev": "prisma generate && next dev --hostname 0.0.0.0 --port 3000",
     "build": "prisma generate && tsc --noEmit && next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "db:migrate": "prisma migrate deploy",

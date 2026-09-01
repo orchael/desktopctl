@@ -16,16 +16,16 @@ test:
 	go test ./...
 
 up:
-	docker compose -f docker-compose.yaml up --build --detach
+	docker compose -f docker-compose.yml up --build --detach
 
 down:
-	docker compose -f docker-compose.yaml down
+	docker compose -f docker-compose.yml down
 
 dev-up:
-	docker compose -f docker-compose.dev.yaml up --build --detach
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 dev-down:
-	docker compose -f docker-compose.dev.yaml down
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml down
 
 # setup-integration performs one-time setup for the integration test environment.
 #

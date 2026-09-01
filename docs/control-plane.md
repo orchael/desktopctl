@@ -28,10 +28,11 @@ certificate and private key as `TLS_CERT_PEM` and `TLS_KEY_PEM`, set
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your shell, then run:
 
 ```bash
-docker compose -f docker-compose.dev.yaml up --build --watch
+make dev-up
 ```
 
-Compose starts PostgreSQL 17, applies Prisma migrations, starts the mock Go API,
+This layers `docker-compose.dev.yml` over `docker-compose.yml`. Compose starts
+PostgreSQL 16, applies Prisma migrations, starts the mock Go API,
 and serves Next.js through nginx at `https://app.desktops.orchael.dev`. Compose
 refuses to start when either TLS variable is unavailable, and nginx writes the
 values only to its container filesystem. The proxy forwards WebSocket upgrades
@@ -48,7 +49,9 @@ Configure this Google OAuth redirect URI:
 https://app.desktops.orchael.dev/api/auth/callback/google
 ```
 
-The development database is persisted in the `control-plane-postgres` volume. To reset local identity data, explicitly remove that volume with Docker Compose.
+Development uses the same `control-plane-postgres` volume as the base Compose
+stack. To reset local identity data, explicitly remove that volume with Docker
+Compose.
 
 ## Runtime configuration
 

@@ -1,0 +1,22 @@
+services:
+  control-plane-api:
+    build: {target: api-dev}
+    environment:
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:-dev-token}
+    healthcheck:
+      interval: 5s
+
+  control-plane-web:
+    build: {target: web-dev}
+    environment:
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:-dev-token}
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/control-plane-web
+          target: /src/apps/control-plane-web
+          ignore: [node_modules/, .next/]
+        - action: rebuild
+          path: ./apps/control-plane-web/package.json
+        - action: rebuild
+          path: ./apps/control-plane-web/pnpm-lock.yaml
