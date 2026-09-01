@@ -45,7 +45,7 @@ export AUTH_SECRET="$(openssl rand -base64 32)"
 Configure this Google OAuth redirect URI:
 
 ```text
-http://localhost:3000/api/auth/callback/google
+https://app.desktops.orchael.dev/api/auth/callback/google
 ```
 
 The development database is persisted in the `control-plane-postgres` volume. To reset local identity data, explicitly remove that volume with Docker Compose.
@@ -58,6 +58,7 @@ The development database is persisted in the `control-plane-postgres` volume. To
 | `MIGRATION_DATABASE_URL` | Helm migration Job | Privileged PostgreSQL connection used only for schema migrations. |
 | `AUTH_SECRET` | Next.js | Auth.js session signing/encryption secret. |
 | `AUTH_TRUST_HOST` | Next.js | Trust ingress forwarding headers; Helm sets this to `true`. |
+| `AUTH_URL` | Next.js | Public Auth.js origin used for OAuth callbacks. |
 | `GOOGLE_CLIENT_ID` | Next.js | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | Next.js | Google OAuth client secret. |
 | `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |

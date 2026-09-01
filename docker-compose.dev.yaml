@@ -39,6 +39,7 @@ services:
     environment:
       AUTH_SECRET: temporary-local-auth-secret-change-me
       AUTH_TRUST_HOST: "true"
+      AUTH_URL: https://app.desktops.orchael.dev
       CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:-dev-token}
       CONTROL_PLANE_API_URL: http://control-plane-api:8080
       DATABASE_URL: postgresql://ai_desktops_app:ai_desktops_app@postgres:5432/ai_desktops
