@@ -430,6 +430,35 @@ func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC
 	return status, nil
 }
 
+// WaitInstancePublicIP waits for a running instance to report an assigned public
+// IP address. EC2 can reach the running state before PublicIpAddress is visible
+// in DescribeInstances, but DNS reconciliation requires the address.
+func WaitInstancePublicIP(ctx context.Context, cfg aws.Config, instanceID string, timeout time.Duration) (string, error) {
+	deadline, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	var lastState string
+	for {
+		status, err := InstanceStatus(deadline, cfg, instanceID)
+		if err != nil {
+			return "", fmt.Errorf("wait for instance %s public IP: %w", instanceID, err)
+		}
+		lastState = status.State
+		if status.PublicIP != "" {
+			return status.PublicIP, nil
+		}
+
+		select {
+		case <-deadline.Done():
+			return "", fmt.Errorf("instance %s has no public IP after %s (last state: %s)", instanceID, timeout, lastState)
+		case <-ticker.C:
+		}
+	}
+}
+
 // InstanceRunning reports whether the EC2 instance is in the running state.
 func InstanceRunning(ctx context.Context, cfg aws.Config, instanceID string) (bool, error) {
 	state, err := InstanceState(ctx, cfg, instanceID)

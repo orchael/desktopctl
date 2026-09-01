@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -44,7 +45,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop %q has no instance ID", id)
 	}
 
-	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
 	if err != nil {
 		return fmt.Errorf("AWS config: %w", err)
 	}
@@ -86,9 +91,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 		d.Hostname = fmt.Sprintf("%s.%s", id, zone)
 	}
 	if instanceStatus.PublicIP == "" {
-		err := fmt.Errorf("EC2 instance %s has no public IP; cannot update DNS", d.InstanceID)
-		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
-		return err
+		fmt.Fprintln(os.Stderr, "Waiting for public IP assignment ...")
+		publicIP, waitErr := awsx.WaitInstancePublicIP(ctx, awsCfg, d.InstanceID, 2*time.Minute)
+		if waitErr != nil {
+			_ = mgr.RecordFailure(ctx, id, "start", waitErr.Error())
+			return waitErr
+		}
+		instanceStatus.PublicIP = publicIP
 	}
 
 	fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
@@ -112,7 +121,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		"novnc_url":  d.NoVNCURL,
 		"ssh_target": d.SSHTarget,
 		"ami_id":     d.AMIID,
-		"region":     d.Region,
+		"region":     region,
 	}
 
 	if jsonOut {
