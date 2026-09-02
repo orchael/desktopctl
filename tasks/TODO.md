@@ -179,3 +179,16 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 - [x] `PACKER_WORKFLOW.md` — replaced contributor-specific absolute paths with repo-relative references
 - [x] `internal/provision/ansible/desktop-setup/inventory.ini` — removed unused duplicate; only `ansible/desktop-setup/inventory.ini` is needed — https://github.com/markcallen/ai-desktops/issues/32
 - [x] `internal/health/health.go` — updated `HTTPSChecker` doc comment to reflect non-4xx/5xx semantics (3xx is a pass)
+
+## EFS Workspaces (issue #184)
+
+- [x] Create `feature/efs-workspaces` worktree for the EFS workspace definition.
+- [x] Update `PRD.md` with optional EFS workspace requirements, defaults, naming, and attachment constraints.
+- [x] Add Plan 18 covering the setup workflow, metadata model, failure modes, and open questions.
+- [x] Review open questions with the operator before implementation.
+- [x] Create durable GitHub issue: https://github.com/markcallen/ai-desktops/issues/184
+- [x] Implement workspace metadata, create/list/status/delete/detach commands, desktop names, and EFS attachment locking.
+- [x] Add detached-only `workspace add-repo` and `workspace remove-repo` commands.
+- [x] Wire foundation EFS, desktop workspace config, cloud-init EFS mount, and doctor checks.
+- [x] Update README with retained workspace workflow.
+- [x] Run final full verification after implementation.
