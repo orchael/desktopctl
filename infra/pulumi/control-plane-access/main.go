@@ -171,11 +171,26 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 				"Resource": []string{ddbFleetArn, ddbAMIArn},
 			},
 			{
+				"Sid":      "EC2FleetDescribe",
+				"Effect":   "Allow",
+				"Action":   "ec2:Describe*",
+				"Resource": "*",
+			},
+			{
+				"Sid":      "EC2FleetLaunch",
+				"Effect":   "Allow",
+				"Action":   "ec2:RunInstances",
+				"Resource": "*",
+				"Condition": map[string]any{
+					"StringEquals": map[string]string{
+						"aws:RequestTag/managed-by": "ai-desktops",
+					},
+				},
+			},
+			{
 				"Sid":    "EC2FleetLifecycle",
 				"Effect": "Allow",
 				"Action": []string{
-					"ec2:Describe*",
-					"ec2:RunInstances",
 					"ec2:StartInstances",
 					"ec2:StopInstances",
 					"ec2:TerminateInstances",
@@ -183,6 +198,11 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 					"ec2:ModifyInstanceAttribute",
 				},
 				"Resource": "*",
+				"Condition": map[string]any{
+					"StringEquals": map[string]string{
+						"ec2:ResourceTag/managed-by": "ai-desktops",
+					},
+				},
 			},
 			{
 				"Sid":      "PassDesktopRole",

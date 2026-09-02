@@ -44,6 +44,7 @@ func (l *assumeRoleLoader) Load(ctx context.Context) (aws.Config, error) {
 	stsClient := sts.NewFromConfig(cfg)
 	provider := stscreds.NewAssumeRoleProvider(stsClient, l.runtime.OperatorRoleARN, func(options *stscreds.AssumeRoleOptions) {
 		options.RoleSessionName = "ai-desktops-control-plane"
+		options.ExternalID = aws.String(l.runtime.OperatorExternalID)
 		options.Duration = time.Hour
 	})
 	cfg.Credentials = aws.NewCredentialsCache(provider)

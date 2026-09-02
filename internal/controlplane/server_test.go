@@ -140,6 +140,7 @@ func TestRuntimeConfigRequiresAPITokenWhenNotMock(t *testing.T) {
 		OperatorAccessKeyID:     "operator-access-key",
 		OperatorSecretAccessKey: "operator-secret-key",
 		OperatorRoleARN:         "arn:aws:iam::123456789012:role/control-plane",
+		OperatorExternalID:      "external-id",
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected missing API token error")

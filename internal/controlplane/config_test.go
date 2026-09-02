@@ -9,6 +9,7 @@ func TestLoadRuntimeConfigReadsOperatorAWSVariables(t *testing.T) {
 	t.Setenv("OPERATOR_AWS_ACCESS_KEY_ID", "operator-access-key")
 	t.Setenv("OPERATOR_AWS_SECRET_ACCESS_KEY", "operator-secret-key")
 	t.Setenv("OPERATOR_ROLE_ARN", "arn:aws:iam::123456789012:role/operator")
+	t.Setenv("OPERATOR_EXTERNAL_ID", "external-id")
 
 	cfg := LoadRuntimeConfig()
 
@@ -20,6 +21,9 @@ func TestLoadRuntimeConfigReadsOperatorAWSVariables(t *testing.T) {
 	}
 	if cfg.OperatorRoleARN != "arn:aws:iam::123456789012:role/operator" {
 		t.Errorf("OperatorRoleARN = %q", cfg.OperatorRoleARN)
+	}
+	if cfg.OperatorExternalID != "external-id" {
+		t.Errorf("OperatorExternalID = %q", cfg.OperatorExternalID)
 	}
 }
 
@@ -43,6 +47,11 @@ func TestRuntimeConfigValidateRequiresOperatorAWSVariables(t *testing.T) {
 			name:    "role ARN",
 			cfg:     RuntimeConfig{OperatorAccessKeyID: "key", OperatorSecretAccessKey: "secret", APIToken: "token"},
 			missing: "OPERATOR_ROLE_ARN",
+		},
+		{
+			name:    "external ID",
+			cfg:     RuntimeConfig{OperatorAccessKeyID: "key", OperatorSecretAccessKey: "secret", OperatorRoleARN: "role", APIToken: "token"},
+			missing: "OPERATOR_EXTERNAL_ID",
 		},
 	}
 

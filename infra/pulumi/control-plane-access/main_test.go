@@ -65,6 +65,11 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 	for _, want := range []string{
 		"arn:aws:secretsmanager:*:*:secret:/ai-desktops/*",
 		"arn:aws:ssm:*:*:parameter/ai-desktops/*",
+		"EC2FleetDescribe",
+		"EC2FleetLaunch",
+		"EC2FleetLifecycle",
+		"aws:RequestTag/managed-by",
+		"ec2:ResourceTag/managed-by",
 	} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("policy missing scoped namespace ARN %q: %s", want, raw)

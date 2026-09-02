@@ -70,6 +70,7 @@ Compose.
 | `OPERATOR_AWS_ACCESS_KEY_ID` | Go API | Bootstrap operator access key used only for STS. |
 | `OPERATOR_AWS_SECRET_ACCESS_KEY` | Go API | Bootstrap operator secret used only for STS. |
 | `OPERATOR_ROLE_ARN` | Go API | Fleet role assumed by the Go API. |
+| `OPERATOR_EXTERNAL_ID` | Go API | External ID required by the fleet role trust policy. |
 
 Do not expose the Go API ingress or its service token to browsers.
 
@@ -93,6 +94,7 @@ Prefer creating the Secret with an external secret manager. The chart expects a 
 - `CONTROL_PLANE_API_TOKEN`
 - `OPERATOR_AWS_ACCESS_KEY_ID`
 - `OPERATOR_AWS_SECRET_ACCESS_KEY`
+- `OPERATOR_EXTERNAL_ID`
 
 Example:
 

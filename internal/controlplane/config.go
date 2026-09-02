@@ -24,6 +24,7 @@ type RuntimeConfig struct {
 	OperatorAccessKeyID     string
 	OperatorSecretAccessKey string
 	OperatorRoleARN         string
+	OperatorExternalID      string
 	APIToken                string
 	RefreshTimeout          time.Duration
 	LifecycleTimeout        time.Duration
@@ -59,6 +60,7 @@ func LoadRuntimeConfig() RuntimeConfig {
 		OperatorAccessKeyID:     os.Getenv("OPERATOR_AWS_ACCESS_KEY_ID"),
 		OperatorSecretAccessKey: os.Getenv("OPERATOR_AWS_SECRET_ACCESS_KEY"),
 		OperatorRoleARN:         os.Getenv("OPERATOR_ROLE_ARN"),
+		OperatorExternalID:      os.Getenv("OPERATOR_EXTERNAL_ID"),
 		APIToken:                os.Getenv("CONTROL_PLANE_API_TOKEN"),
 		RefreshTimeout:          timeout,
 		LifecycleTimeout:        lifecycleTimeout,
@@ -96,6 +98,9 @@ func (c RuntimeConfig) Validate() error {
 	}
 	if c.OperatorRoleARN == "" {
 		return errors.New("OPERATOR_ROLE_ARN is required unless CONTROL_PLANE_MOCK_AWS=true")
+	}
+	if c.OperatorExternalID == "" {
+		return errors.New("OPERATOR_EXTERNAL_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
 	if c.APIToken == "" {
 		return errors.New("CONTROL_PLANE_API_TOKEN is required unless CONTROL_PLANE_MOCK_AWS=true")

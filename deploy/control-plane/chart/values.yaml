@@ -26,4 +26,7 @@ secrets:
   googleClientId: ""
   googleClientSecret: ""
   controlPlaneApiToken: ""
+  operatorAwsAccessKeyId: ""
+  operatorAwsSecretAccessKey: ""
+  operatorExternalId: ""
 resources: {}
