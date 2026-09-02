@@ -2,7 +2,12 @@ import { auth } from '@/auth';
 import { getActiveOrganization, withOrganization } from '@/lib/organizations';
 import { z } from 'zod';
 
-const schema = z.object({ email: z.email().transform((value) => value.toLowerCase()) });
+const schema = z.object({
+  email: z
+    .string()
+    .email()
+    .transform((value) => value.toLowerCase())
+});
 
 export async function POST(request: Request) {
   const session = await auth();
