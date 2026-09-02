@@ -34,6 +34,7 @@ import (
 
 var (
 	createOwner             string
+	createOrganizationID    string
 	createName              string
 	createRepos             []string
 	createSecrets           []string
@@ -80,6 +81,7 @@ rejected before any infrastructure is changed.`,
 
 func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
+	createCmd.Flags().StringVar(&createOrganizationID, "organization-id", "", "control-plane organization UUID for the desktop record (overrides fleet.organization_id)")
 	createCmd.Flags().StringVar(&createName, "name", "", "desktop name, unique among non-terminated desktops in the environment")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
@@ -193,6 +195,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Fall back to config file owner when --github-owner not explicitly set.
 	if createOwner == "" && cfg.GitHub.Owner != "" {
 		createOwner = cfg.GitHub.Owner
+	}
+	organizationID := strings.TrimSpace(cfg.Fleet.OrganizationID)
+	if cmd.Flags().Changed("organization-id") {
+		organizationID = strings.TrimSpace(createOrganizationID)
 	}
 
 	// Validate repo inputs. Owner may be inferred from repos when createOwner is empty.
@@ -312,26 +318,27 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	req := &desktop.CreateRequest{
-		DesktopName:   createName,
-		GitHubOwner:   owner,
-		Repos:         repoStrings(repos),
-		Secrets:       createSecrets,
-		TailscaleNet:  tailscaleNetwork,
-		StepCAServer:  stepCAServer,
-		InstanceType:  instanceTypes[0],
-		NestedVirt:    nestedVirt,
-		MarketType:    marketType,
-		Zone:          zone,
-		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
-		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
-		GitHubSecret:  gitHubSecret,
-		BackendBucket: cfg.Pulumi.BackendBucket,
-		Region:        cfg.AWS.Region,
-		Environment:   env,
-		Profile:       cfg.AWS.Profile,
-		AMIID:         amiID,
-		WorkspaceMode: createWorkspaceMode,
-		WorkspaceName: createWorkspaceName,
+		OrganizationID: organizationID,
+		DesktopName:    createName,
+		GitHubOwner:    owner,
+		Repos:          repoStrings(repos),
+		Secrets:        createSecrets,
+		TailscaleNet:   tailscaleNetwork,
+		StepCAServer:   stepCAServer,
+		InstanceType:   instanceTypes[0],
+		NestedVirt:     nestedVirt,
+		MarketType:     marketType,
+		Zone:           zone,
+		OperatorCIDR:   cfg.Desktop.OperatorCIDR,
+		SSHKeyPath:     cfg.Desktop.SSHKeyPath,
+		GitHubSecret:   gitHubSecret,
+		BackendBucket:  cfg.Pulumi.BackendBucket,
+		Region:         cfg.AWS.Region,
+		Environment:    env,
+		Profile:        cfg.AWS.Profile,
+		AMIID:          amiID,
+		WorkspaceMode:  createWorkspaceMode,
+		WorkspaceName:  createWorkspaceName,
 	}
 
 	if err := req.Validate(); err != nil {

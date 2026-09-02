@@ -16,7 +16,7 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 - Go 1.22+
 - [Pulumi CLI](https://www.pulumi.com/docs/install/) — `curl -fsSL https://get.pulumi.com | sh`
 - AWS CLI v2 — configured with a profile that has the permissions listed below
-- `pnpm` — for the desktop webapp (`apps/desktop-web`)
+- `pnpm` — for the desktop webapp (`apps/desktop-web`) and Kubernetes control plane webapp (`apps/control-plane-web`)
 
 ### AWS permissions
 
@@ -162,6 +162,110 @@ go build -o ai-desktops ./cmd/ai-desktops
 | `test`      | us-west-2   |
 
 Each environment gets its own foundation stack, DynamoDB fleet table, and DNS zone. The `prod` and `dev` environments use separate hosted zones (`desktops.orchael.com` and `desktops.orchael.dev`); the `test` environment shares the `dev` zone.
+
+## Kubernetes control plane AWS access
+
+The Kubernetes control plane webapp runs outside AWS when deployed to DOKS, so it cannot use EKS IRSA. Use the separate Pulumi stack in `infra/pulumi/control-plane-access` to create a constrained bootstrap IAM user and an assumable control-plane role.
+
+The stack creates:
+
+- IAM user `ai-desktop-user-<environment>` by default.
+- IAM access key and secret for that user.
+- IAM role `ai-desktops-control-plane-<environment>` by default.
+- A user policy that only allows `sts:AssumeRole` into that role.
+- A role trust policy that requires `EXTERNAL_ID`.
+- A role policy for the fleet DynamoDB tables, EC2 lifecycle operations, SSM sessions, scoped Secrets Manager/SSM Parameter access, Route53 record updates, CloudWatch Logs, and the Pulumi S3 backend.
+
+The stack exports both Pulumi-style output names and Docker/Kubernetes-friendly names:
+
+| Output | Use |
+|--------|-----|
+| `ROLE_ARN` | Set as `AWS_ROLE_ARN` for the control-plane container. |
+| `EXTERNAL_ID` | Set as `AWS_EXTERNAL_ID` for the control-plane container. |
+| `ACCESS_KEY` | Set as `AWS_ACCESS_KEY_ID` for the control-plane container. |
+| `SECRET` | Set as `AWS_SECRET_ACCESS_KEY` for the control-plane container. |
+
+### Development access stack
+
+Run this after `ai-desktops bootstrap` and `ai-desktops init-foundation` have created the dev backend, DynamoDB tables, desktop instance profile, and Route53 zone.
+
+```bash
+cd infra/pulumi/foundation
+pulumi stack select foundation-dev
+ZONE_ID="$(pulumi stack output zoneId)"
+INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
+DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
+  --instance-profile-name "$INSTANCE_PROFILE" \
+  --query 'InstanceProfile.Roles[0].Arn' \
+  --output text)"
+cd ../control-plane-access
+
+pulumi stack init control-plane-dev
+pulumi config set aws:region us-east-2
+pulumi config set environment dev
+pulumi config set fleetTable ai-desktops-fleet-dev
+pulumi config set amiTable ai-desktops-ami-dev
+pulumi config set bootstrapUserName ai-desktop-user-dev
+pulumi config set roleName ai-desktops-control-plane-dev
+pulumi config set backendBucket <dev-pulumi-state-bucket>
+pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
+pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
+pulumi config set --secret externalId "$(openssl rand -hex 24)"
+pulumi up
+```
+
+Use the outputs for a local Docker Compose `.env` file or a DOKS Secret:
+
+```bash
+AWS_REGION=us-east-2
+AWS_ACCESS_KEY_ID=$(pulumi stack output ACCESS_KEY)
+AWS_SECRET_ACCESS_KEY=$(pulumi stack output --show-secrets SECRET)
+AWS_ROLE_ARN=$(pulumi stack output ROLE_ARN)
+AWS_EXTERNAL_ID=$(pulumi stack output --show-secrets EXTERNAL_ID)
+CONTROL_PLANE_API_TOKEN=$(openssl rand -hex 32)
+```
+
+### Production access stack
+
+Use a separate Pulumi stack, production region, production backend bucket, production DNS zone, and production fleet table names. If dev and prod share one AWS account, keep the `-prod` suffixes because IAM user names are account-global. If production uses a separate AWS account and you want the literal user name requested by operations, set `bootstrapUserName` to `ai-desktop-user`.
+
+```bash
+cd infra/pulumi/foundation
+pulumi stack select foundation-prod
+ZONE_ID="$(pulumi stack output zoneId)"
+INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
+DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
+  --instance-profile-name "$INSTANCE_PROFILE" \
+  --query 'InstanceProfile.Roles[0].Arn' \
+  --output text)"
+cd ../control-plane-access
+
+pulumi stack init control-plane-prod
+pulumi config set aws:region us-east-1
+pulumi config set environment prod
+pulumi config set fleetTable ai-desktops-fleet-prod
+pulumi config set amiTable ai-desktops-ami-prod
+pulumi config set bootstrapUserName ai-desktop-user-prod
+pulumi config set roleName ai-desktops-control-plane-prod
+pulumi config set backendBucket <prod-pulumi-state-bucket>
+pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
+pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
+pulumi config set --secret externalId "$(openssl rand -hex 24)"
+pulumi up
+```
+
+Create or update the production Kubernetes Secret with:
+
+```bash
+kubectl create secret generic ai-desktops-aws \
+  --namespace ai-desktops \
+  --from-literal=AWS_REGION="us-east-1" \
+  --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output ACCESS_KEY)" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets SECRET)" \
+  --from-literal=AWS_ROLE_ARN="$(pulumi stack output ROLE_ARN)" \
+  --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets EXTERNAL_ID)" \
+  --from-literal=CONTROL_PLANE_API_TOKEN="$(openssl rand -hex 32)"
+```
 
 ## Configuration
 
@@ -716,6 +820,7 @@ infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)
   pulumi/desktop/         Per-desktop EC2/Route53 Pulumi program (separate Go module)
 apps/desktop-web/         On-desktop status dashboard (Vite + React + TypeScript)
+apps/control-plane-web/   Kubernetes-hosted control plane (Next.js 16, Auth.js, Prisma)
 plans/                    Implementation plan files
 tasks/                    Branch-local TODO tracking
 ```

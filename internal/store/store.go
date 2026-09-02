@@ -54,37 +54,38 @@ const (
 
 // Desktop is the fleet metadata record for one managed desktop.
 type Desktop struct {
-	DesktopID     string         `dynamodbav:"desktop_id"       json:"desktop_id"`
-	DesktopName   string         `dynamodbav:"desktop_name,omitempty" json:"desktop_name,omitempty"`
-	StackName     string         `dynamodbav:"stack_name"       json:"stack_name"`
-	GitHubOwner   string         `dynamodbav:"github_owner"     json:"github_owner"`
-	Region        string         `dynamodbav:"region"           json:"region"`
-	Environment   string         `dynamodbav:"environment,omitempty" json:"environment,omitempty"`
-	State         LifecycleState `dynamodbav:"lifecycle_state"  json:"lifecycle_state"`
-	InstanceID    string         `dynamodbav:"instance_id"      json:"instance_id"`
-	Hostname      string         `dynamodbav:"hostname"         json:"hostname"`
-	NoVNCURL      string         `dynamodbav:"novnc_url"        json:"novnc_url"`
-	SSHTarget     string         `dynamodbav:"ssh_target"       json:"ssh_target"`
-	AMIID         string         `dynamodbav:"ami_id,omitempty" json:"ami_id,omitempty"`
-	Readiness     string         `dynamodbav:"readiness"        json:"readiness"`
-	FailurePhase  string         `dynamodbav:"failure_phase,omitempty"   json:"failure_phase,omitempty"`
-	FailureMsg    string         `dynamodbav:"failure_message,omitempty" json:"failure_message,omitempty"`
-	Repos         []string       `dynamodbav:"repos,omitempty"           json:"repos,omitempty"`
-	Secrets       []string       `dynamodbav:"secrets,omitempty"         json:"secrets,omitempty"`
-	TailscaleNet  string         `dynamodbav:"tailscale_network,omitempty" json:"tailscale_network,omitempty"`
-	StepCAServer  string         `dynamodbav:"step_ca_server,omitempty"  json:"step_ca_server,omitempty"`
-	AVDNames      []string       `dynamodbav:"avd_names,omitempty"       json:"avd_names,omitempty"`
-	InstanceType  string         `dynamodbav:"instance_type,omitempty"   json:"instance_type,omitempty"`
-	NestedVirt    bool           `dynamodbav:"nested_virt,omitempty"     json:"nested_virt,omitempty"`
-	MarketType    string         `dynamodbav:"market_type,omitempty"     json:"market_type,omitempty"`
-	StopReason    string         `dynamodbav:"stop_reason,omitempty"     json:"stop_reason,omitempty"`
-	StoppedAt     string         `dynamodbav:"stopped_at,omitempty"      json:"stopped_at,omitempty"`
-	WorkspacePath string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
-	WorkspaceMode string         `dynamodbav:"workspace_mode,omitempty"  json:"workspace_mode,omitempty"`
-	WorkspaceName string         `dynamodbav:"workspace_name,omitempty"  json:"workspace_name,omitempty"`
-	WorkspaceID   string         `dynamodbav:"workspace_id,omitempty"    json:"workspace_id,omitempty"`
-	CreatedAt     string         `dynamodbav:"created_at"       json:"created_at"`
-	UpdatedAt     string         `dynamodbav:"updated_at"       json:"updated_at"`
+	DesktopID      string         `dynamodbav:"desktop_id"       json:"desktop_id"`
+	OrganizationID string         `dynamodbav:"organization_id,omitempty" json:"organization_id,omitempty"`
+	DesktopName    string         `dynamodbav:"desktop_name,omitempty" json:"desktop_name,omitempty"`
+	StackName      string         `dynamodbav:"stack_name"       json:"stack_name"`
+	GitHubOwner    string         `dynamodbav:"github_owner"     json:"github_owner"`
+	Region         string         `dynamodbav:"region"           json:"region"`
+	Environment    string         `dynamodbav:"environment,omitempty" json:"environment,omitempty"`
+	State          LifecycleState `dynamodbav:"lifecycle_state"  json:"lifecycle_state"`
+	InstanceID     string         `dynamodbav:"instance_id"      json:"instance_id"`
+	Hostname       string         `dynamodbav:"hostname"         json:"hostname"`
+	NoVNCURL       string         `dynamodbav:"novnc_url"        json:"novnc_url"`
+	SSHTarget      string         `dynamodbav:"ssh_target"       json:"ssh_target"`
+	AMIID          string         `dynamodbav:"ami_id,omitempty" json:"ami_id,omitempty"`
+	Readiness      string         `dynamodbav:"readiness"        json:"readiness"`
+	FailurePhase   string         `dynamodbav:"failure_phase,omitempty"   json:"failure_phase,omitempty"`
+	FailureMsg     string         `dynamodbav:"failure_message,omitempty" json:"failure_message,omitempty"`
+	Repos          []string       `dynamodbav:"repos,omitempty"           json:"repos,omitempty"`
+	Secrets        []string       `dynamodbav:"secrets,omitempty"         json:"secrets,omitempty"`
+	TailscaleNet   string         `dynamodbav:"tailscale_network,omitempty" json:"tailscale_network,omitempty"`
+	StepCAServer   string         `dynamodbav:"step_ca_server,omitempty"  json:"step_ca_server,omitempty"`
+	AVDNames       []string       `dynamodbav:"avd_names,omitempty"       json:"avd_names,omitempty"`
+	InstanceType   string         `dynamodbav:"instance_type,omitempty"   json:"instance_type,omitempty"`
+	NestedVirt     bool           `dynamodbav:"nested_virt,omitempty"     json:"nested_virt,omitempty"`
+	MarketType     string         `dynamodbav:"market_type,omitempty"     json:"market_type,omitempty"`
+	StopReason     string         `dynamodbav:"stop_reason,omitempty"     json:"stop_reason,omitempty"`
+	StoppedAt      string         `dynamodbav:"stopped_at,omitempty"      json:"stopped_at,omitempty"`
+	WorkspacePath  string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
+	WorkspaceMode  string         `dynamodbav:"workspace_mode,omitempty"  json:"workspace_mode,omitempty"`
+	WorkspaceName  string         `dynamodbav:"workspace_name,omitempty"  json:"workspace_name,omitempty"`
+	WorkspaceID    string         `dynamodbav:"workspace_id,omitempty"    json:"workspace_id,omitempty"`
+	CreatedAt      string         `dynamodbav:"created_at"       json:"created_at"`
+	UpdatedAt      string         `dynamodbav:"updated_at"       json:"updated_at"`
 }
 
 type Workspace struct {

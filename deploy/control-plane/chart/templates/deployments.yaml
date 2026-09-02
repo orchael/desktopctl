@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "control-plane.name" . }}-web
+  labels: {{- include "control-plane.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector: {matchLabels: {app.kubernetes.io/component: web, app.kubernetes.io/instance: {{ .Release.Name }}}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: web, app.kubernetes.io/instance: {{ .Release.Name }}}}
+    spec:
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: {{ .Values.web.port }}}]
+          env:
+            - {name: AUTH_TRUST_HOST, value: "true"}
+            - {name: CONTROL_PLANE_API_URL, value: "http://{{ include "control-plane.name" . }}-api:{{ .Values.api.port }}"}
+            {{- range $name := list "DATABASE_URL" "AUTH_SECRET" "GOOGLE_CLIENT_ID" "GOOGLE_CLIENT_SECRET" "CONTROL_PLANE_API_TOKEN" }}
+            - name: {{ $name }}
+              valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" $ }}, key: {{ $name }}}}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /signin, port: http}, initialDelaySeconds: 5}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "control-plane.name" . }}-api
+  labels: {{- include "control-plane.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector: {matchLabels: {app.kubernetes.io/component: api, app.kubernetes.io/instance: {{ .Release.Name }}}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: api, app.kubernetes.io/instance: {{ .Release.Name }}}}
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}-api"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: {{ .Values.api.port }}}]
+          env:
+            - {name: AWS_REGION, value: {{ .Values.config.awsRegion | quote }}}
+            - {name: AI_DESKTOPS_ENVIRONMENT, value: {{ .Values.config.environment | quote }}}
+            - {name: PULUMI_BACKEND_BUCKET, value: {{ required "config.backendBucket is required" .Values.config.backendBucket | quote }}}
+            - {name: AI_DESKTOPS_FLEET_TABLE, value: {{ default (printf "ai-desktops-fleet-%s" .Values.config.environment) .Values.config.fleetTableName | quote }}}
+            - {name: AI_DESKTOPS_AMI_TABLE, value: {{ default (printf "ai-desktops-ami-%s" .Values.config.environment) .Values.config.amiTableName | quote }}}
+            - {name: OPERATOR_ROLE_ARN, value: {{ required "config.operatorRoleArn is required" .Values.config.operatorRoleArn | quote }}}
+            - name: CONTROL_PLANE_API_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" . }}, key: CONTROL_PLANE_API_TOKEN}}
+            - name: OPERATOR_AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" . }}, key: OPERATOR_AWS_ACCESS_KEY_ID}}
+            - name: OPERATOR_AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" . }}, key: OPERATOR_AWS_SECRET_ACCESS_KEY}}
+            - name: OPERATOR_EXTERNAL_ID
+              valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" . }}, key: OPERATOR_EXTERNAL_ID}}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, initialDelaySeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5}
+          resources: {{- toYaml .Values.resources | nindent 12 }}

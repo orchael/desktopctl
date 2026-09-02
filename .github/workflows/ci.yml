@@ -79,3 +79,64 @@ jobs:
 
       - name: Run smoke tests
         run: pnpm run test:smoke
+
+  control-plane-web:
+    name: Control plane web build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/control-plane-web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: apps/control-plane-web/.nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/control-plane-web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run tests
+        run: pnpm run test
+
+      - name: Run tests with coverage
+        run: pnpm run test:coverage
+
+  control-plane-container:
+    name: Control plane container smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -f Dockerfile.control-plane --target api -t ai-desktops-control-plane-api:test .
+
+      - name: Smoke image
+        run: |
+          docker run -d --rm \
+            --name ai-desktops-control-plane \
+            -e CONTROL_PLANE_MOCK_AWS=true \
+            -e AI_DESKTOPS_CONFIG=/app/config.example.yaml \
+            -p 18080:8080 \
+            ai-desktops-control-plane-api:test
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz; then
+              curl -fsS http://127.0.0.1:18080/readyz
+              curl -fsS -H 'X-Organization-ID: 00000000-0000-4000-8000-000000000001' http://127.0.0.1:18080/api/desktops
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ai-desktops-control-plane
+          exit 1

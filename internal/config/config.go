@@ -93,9 +93,10 @@ type PulumiConfig struct {
 }
 
 type FleetConfig struct {
-	TableName    string `yaml:"table_name"`
-	AMITableName string `yaml:"ami_table_name"`
-	Environment  string `yaml:"environment"`
+	TableName      string `yaml:"table_name"`
+	AMITableName   string `yaml:"ami_table_name"`
+	Environment    string `yaml:"environment"`
+	OrganizationID string `yaml:"organization_id,omitempty"`
 }
 
 type GitHubConfig struct {

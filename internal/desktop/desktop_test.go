@@ -93,17 +93,18 @@ func TestManager_CreateRecord(t *testing.T) {
 	ctx := context.Background()
 
 	req := &CreateRequest{
-		DesktopName:   "factory-dev",
-		GitHubOwner:   "acme",
-		Zone:          "desktops.orchael.dev",
-		BackendBucket: "my-bucket",
-		Environment:   "dev",
-		Repos:         []string{"github.com/acme/app"},
-		InstanceType:  "m7i.xlarge",
-		MarketType:    store.MarketSpot,
-		WorkspaceMode: "efs",
-		WorkspaceName: "workspace-dev",
-		WorkspaceID:   "workspace:dev:workspace-dev",
+		OrganizationID: "00000000-0000-4000-8000-000000000001",
+		DesktopName:    "factory-dev",
+		GitHubOwner:    "acme",
+		Zone:           "desktops.orchael.dev",
+		BackendBucket:  "my-bucket",
+		Environment:    "dev",
+		Repos:          []string{"github.com/acme/app"},
+		InstanceType:   "m7i.xlarge",
+		MarketType:     store.MarketSpot,
+		WorkspaceMode:  "efs",
+		WorkspaceName:  "workspace-dev",
+		WorkspaceID:    "workspace:dev:workspace-dev",
 	}
 
 	if err := m.CreateRecord(ctx, "d-test1", req); err != nil {
@@ -119,6 +120,9 @@ func TestManager_CreateRecord(t *testing.T) {
 	}
 	if d.GitHubOwner != "acme" {
 		t.Errorf("owner: got %q", d.GitHubOwner)
+	}
+	if d.OrganizationID != "00000000-0000-4000-8000-000000000001" {
+		t.Errorf("organization ID: got %q", d.OrganizationID)
 	}
 	if d.InstanceType != "m7i.xlarge" {
 		t.Errorf("instance type: got %q", d.InstanceType)

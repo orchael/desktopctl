@@ -34,6 +34,12 @@ apps/desktop-web/.vite/
 apps/desktop-web/coverage/
 apps/desktop-web/test-results/
 apps/desktop-web/playwright-report/
+apps/control-plane-web/dist/
+apps/control-plane-web/.vite/
+apps/control-plane-web/.next/
+apps/control-plane-web/coverage/
+apps/control-plane-web/test-results/
+apps/control-plane-web/tsconfig.tsbuildinfo
 pnpm-debug.log*
 
 # macOS
@@ -49,6 +55,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
 packer/.ansible/
 packer/manifest.json
 t.t

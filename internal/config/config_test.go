@@ -107,6 +107,7 @@ pulumi:
   backend_bucket: my-state-bucket
 fleet:
   table_name: my-fleet
+  organization_id: 00000000-0000-4000-8000-000000000001
   environment: prod
 github:
   owner: acme
@@ -147,6 +148,9 @@ pki:
 	if c.Fleet.TableName != "my-fleet" {
 		t.Errorf("table: got %q", c.Fleet.TableName)
 	}
+	if c.Fleet.OrganizationID != "00000000-0000-4000-8000-000000000001" {
+		t.Errorf("organization ID: got %q", c.Fleet.OrganizationID)
+	}
 	if c.Network.TailscaleNetwork != "acme-tailnet" {
 		t.Errorf("tailscale network: got %q", c.Network.TailscaleNetwork)
 	}
@@ -183,6 +187,7 @@ func TestSave_roundTrip(t *testing.T) {
 	c := &Config{
 		AWS:    AWSConfig{Region: "us-west-2", Profile: "prod"},
 		Pulumi: PulumiConfig{BackendBucket: "my-bucket"},
+		Fleet:  FleetConfig{OrganizationID: "00000000-0000-4000-8000-000000000002"},
 		Desktop: DesktopConfig{
 			InstanceType:  "t3.large",
 			InstanceTypes: []string{"m6i.xlarge", "m5.xlarge"},
@@ -228,6 +233,9 @@ func TestSave_roundTrip(t *testing.T) {
 	}
 	if loaded.Desktop.InstanceType != "t3.large" {
 		t.Errorf("instance type round-trip: got %q", loaded.Desktop.InstanceType)
+	}
+	if loaded.Fleet.OrganizationID != "00000000-0000-4000-8000-000000000002" {
+		t.Errorf("organization ID round-trip: got %q", loaded.Fleet.OrganizationID)
 	}
 	if len(loaded.Desktop.InstanceTypes) != 2 || loaded.Desktop.InstanceTypes[0] != "m6i.xlarge" || loaded.Desktop.InstanceTypes[1] != "m5.xlarge" {
 		t.Errorf("instance types round-trip: got %v", loaded.Desktop.InstanceTypes)

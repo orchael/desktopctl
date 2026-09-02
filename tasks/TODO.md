@@ -118,6 +118,10 @@ Summary: implement Plan 16 so the desktop root URL serves the status app, noVNC 
 - [x] Split the current mock `apps/desktop-web/api-server.js` into local mock data and a production stdlib Python `/api/desktop` backend that reads live desktop state.
 - [x] Add and enable `ai-desktops-web.service` in the Packer AMI.
 - [x] Reconfigure `ai-desktops-setup-tls` so `/` serves the built welcome page, `/novnc/` proxies noVNC, and `/api/` proxies the live backend.
+
+## Control Plane Follow-Up
+
+- [ ] Extract CLI create/terminate Pulumi lifecycle logic into a shared service and replace the control-plane HTTP `501` responses with real create/terminate operations — https://github.com/markcallen/ai-desktops/issues/157
 - [x] Bake `apps/desktop-web` static assets into `/opt/ai-desktops/web/dist/`; add `pnpm run dev:mock` and align the Vite proxy with the mock/backend port.
 
 ### 3. GitHub Developer Tooling
@@ -134,16 +138,16 @@ Summary: align operator docs and the plan index with the implemented setup flow 
 post-MVP plan sequence.
 
 - [x] Update `README.md` to document `ai-desktops setup`, per-owner Secrets Manager JSON credentials, SSH-based clones, and remove stale plain-PAT SSM instructions.
-- [ ] Update `plans/README.md` sequence and completion guidance for Plans 14-17.
+- [ ] Update `plans/README.md` sequence and completion guidance for Plans 14-17 — https://github.com/markcallen/ai-desktops/issues/158
 
 ### 5. Live Acceptance
 
 Summary: after implementation, rebuild the AMI and exercise the complete desktop workflow against
 AWS because several acceptance criteria cannot be proven by unit tests alone.
 
-- [ ] Run the Plan 14 acceptance path: build an AMI, create a desktop from it, verify the toolchain, and record the provisioning-time improvement.
-- [ ] Run the Plan 16 browser, API, service, and noVNC checks against a rebuilt desktop.
-- [ ] Run `ai-desktops setup` against a test owner, provision a desktop, and run the FR-11 live integration checks.
+- [ ] Run the Plan 14 acceptance path: build an AMI, create a desktop from it, verify the toolchain, and record the provisioning-time improvement — https://github.com/markcallen/ai-desktops/issues/159
+- [ ] Run the Plan 16 browser, API, service, and noVNC checks against a rebuilt desktop — https://github.com/markcallen/ai-desktops/issues/159
+- [ ] Run `ai-desktops setup` against a test owner, provision a desktop, and run the FR-11 live integration checks — https://github.com/markcallen/ai-desktops/issues/159
 
 ## Post-MVP
 

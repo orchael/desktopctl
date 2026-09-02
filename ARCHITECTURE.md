@@ -315,7 +315,15 @@ Build and deployment:
 - A small local HTTP service or Nginx location serves the built app.
 - The webapp talks only to local desktop services or a same-host API shim.
 
-The webapp is not the primary fleet control plane in v1. Fleet lifecycle remains in the Go CLI.
+The desktop webapp is not the primary fleet control plane in v1. Fleet lifecycle remains in the Go CLI.
+
+## Kubernetes Control Plane
+
+The repository also contains a separate Kubernetes-hosted control plane for operators who want a persistent fleet surface outside individual desktops. The public Next.js application in `apps/control-plane-web` owns Google authentication, PostgreSQL organizations, memberships, and RLS. It proxies organization-scoped fleet requests to the private Go API in `cmd/control-plane` and `internal/controlplane`; each DynamoDB desktop carries the same organization UUID.
+
+The control plane runs well on DOKS. Since DOKS cannot use AWS IRSA, AWS access is bootstrapped by `infra/pulumi/control-plane-access`, which creates a narrow IAM user and an assumable role. The Kubernetes Secret holds only the user access key and role-assumption settings; runtime fleet calls use temporary STS credentials from the role.
+
+The first server implementation supports health, readiness, fleet list, desktop detail, refresh, start, and stop. Create and terminate remain CLI-first until the Pulumi lifecycle code is extracted into a shared service that both the CLI and HTTP API can call safely.
 
 ---
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -13,6 +14,7 @@ import (
 )
 
 var listAll bool
+var listOrganizationID string
 
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -23,6 +25,7 @@ var listCmd = &cobra.Command{
 
 func init() {
 	listCmd.Flags().BoolVar(&listAll, "all", false, "include terminated desktops")
+	listCmd.Flags().StringVar(&listOrganizationID, "organization-id", "", "only list desktops for this control-plane organization UUID (overrides fleet.organization_id)")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -36,7 +39,11 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("list desktops: %w", err)
 	}
-	desktops = filterListedDesktops(desktops, listAll)
+	organizationID := strings.TrimSpace(cfg.Fleet.OrganizationID)
+	if cmd.Flags().Changed("organization-id") {
+		organizationID = strings.TrimSpace(listOrganizationID)
+	}
+	desktops = filterListedDesktops(desktops, listAll, organizationID)
 	sort.Slice(desktops, func(i, j int) bool {
 		return desktops[i].CreatedAt < desktops[j].CreatedAt
 	})
@@ -70,13 +77,16 @@ func runList(cmd *cobra.Command, args []string) error {
 	return w.Flush()
 }
 
-func filterListedDesktops(desktops []*store.Desktop, includeTerminated bool) []*store.Desktop {
-	if includeTerminated {
+func filterListedDesktops(desktops []*store.Desktop, includeTerminated bool, organizationID string) []*store.Desktop {
+	if includeTerminated && organizationID == "" {
 		return desktops
 	}
 	filtered := make([]*store.Desktop, 0, len(desktops))
 	for _, desktop := range desktops {
-		if desktop.State != store.StateTerminated {
+		if organizationID != "" && desktop.OrganizationID != organizationID {
+			continue
+		}
+		if includeTerminated || desktop.State != store.StateTerminated {
 			filtered = append(filtered, desktop)
 		}
 	}

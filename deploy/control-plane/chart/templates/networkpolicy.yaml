@@ -1,0 +1,10 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: {{ include "control-plane.name" . }}-api}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: api, app.kubernetes.io/instance: {{ .Release.Name }}}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: web, app.kubernetes.io/instance: {{ .Release.Name }}}}
+      ports: [{protocol: TCP, port: {{ .Values.api.port }}}]

@@ -24,6 +24,7 @@ Each task is intended to be handed to another coding agent as a self-contained w
 16. `16-desktop-web-root-welcome-page.md`
 17. `15-wireguard-vpn.md`
 18. `18-efs-workspaces.md`
+19. `18-control-plane-webapp.md`
 
 Plans 14-17 were originally written as independent follow-on tasks. The implemented path
 landed in this order:
@@ -34,6 +35,8 @@ landed in this order:
 | 15 | `17-github-developer-tooling.md` | Implemented through `ai-desktops setup`, per-owner `github_secret` records in Secrets Manager, SSH git credentials, `gh auth`, git identity, and desktop developer tooling baked/configured by the AMI/bootstrap flow. |
 | 16 | `16-desktop-web-root-welcome-page.md` | Implemented with the desktop-web app served at `/`, noVNC at `/novnc/vnc.html`, `/api/desktop`, `ai-desktops-web.service`, and `update-web` for a running desktop. |
 | Deferred | `15-wireguard-vpn.md` | Not implemented. Private access currently uses the Tailscale and step-ca flows documented in the README; keep this plan as a future VPN design unless the product direction changes. |
+| Follow-on | `18-efs-workspaces.md` | Adds retained EFS workspace lifecycle and optional workspace attachment. |
+| Follow-on | `18-control-plane-webapp.md` | Adds the Kubernetes-hosted control-plane web app and private Go API. |
 
 When adding future plan files, preserve numeric filenames for existing historical plans, but
 sequence the README by implemented dependency order when that differs from the original file
@@ -52,6 +55,7 @@ number.
 - Preserve desktop state through EC2 stop/start using the root EBS volume by default.
 - Keep EFS-backed `/workspace` persistence optional and managed separately from desktop compute.
 - Leave failed desktop instances running by default for debugging.
+- Keep `apps/desktop-web` as the on-desktop status surface; build any fleet control plane as a separate Kubernetes-hosted app.
 
 ## Completion Standard
 
