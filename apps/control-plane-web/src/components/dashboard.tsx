@@ -57,10 +57,12 @@ export function Dashboard({
 
   const load = useCallback(async () => {
     const response = await fetch('/api/fleet/desktops', { cache: 'no-store' });
-    if (!response.ok) throw new Error((await response.json()).error ?? 'Could not load desktops');
-    const value = (await response.json()) as Desktop[];
-    setDesktops(value);
-    setSelectedId((current) => current ?? value[0]?.desktop_id);
+    const value = (await response.json()) as Desktop[] | { error?: string };
+    if (!response.ok)
+      throw new Error(('error' in value && value.error) || 'Could not load desktops');
+    const desktops = value as Desktop[];
+    setDesktops(desktops);
+    setSelectedId((current) => current ?? desktops[0]?.desktop_id);
   }, []);
 
   useEffect(() => {

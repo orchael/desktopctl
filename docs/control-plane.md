@@ -67,6 +67,10 @@ Compose.
 | `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |
 | `CONTROL_PLANE_API_TOKEN` | Both | Service credential used only between Next.js and Go. |
 | `AWS_REGION` | Go API | Fleet AWS region. |
+| `AI_DESKTOPS_ENVIRONMENT` | Go API | Environment used for fleet defaults and resource naming. |
+| `PULUMI_BACKEND_BUCKET` | Go API | Pulumi state bucket for lifecycle operations. |
+| `AI_DESKTOPS_FLEET_TABLE` | Go API | DynamoDB fleet metadata table. |
+| `AI_DESKTOPS_AMI_TABLE` | Go API | DynamoDB AMI metadata table. |
 | `OPERATOR_AWS_ACCESS_KEY_ID` | Go API | Bootstrap operator access key used only for STS. |
 | `OPERATOR_AWS_SECRET_ACCESS_KEY` | Go API | Bootstrap operator secret used only for STS. |
 | `OPERATOR_ROLE_ARN` | Go API | Fleet role assumed by the Go API. |
@@ -104,6 +108,7 @@ helm upgrade --install ai-desktops deploy/control-plane/chart \
   --set image.repository=ghcr.io/orchael/ai-desktops-control-plane \
   --set image.tag=v0.2.0 \
   --set ingress.host=app.desktops.orchael.dev \
+  --set config.backendBucket="$PULUMI_BACKEND_BUCKET" \
   --set config.operatorRoleArn="$OPERATOR_ROLE_ARN"
 ```
 

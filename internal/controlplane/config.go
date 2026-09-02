@@ -79,6 +79,15 @@ func LoadAppConfig(runtime RuntimeConfig) (*appconfig.Config, error) {
 	if region := os.Getenv("AWS_REGION"); region != "" {
 		cfg.AWS.Region = region
 	}
+	if backendBucket := os.Getenv("PULUMI_BACKEND_BUCKET"); backendBucket != "" {
+		cfg.Pulumi.BackendBucket = backendBucket
+	}
+	if fleetTable := os.Getenv("AI_DESKTOPS_FLEET_TABLE"); fleetTable != "" {
+		cfg.Fleet.TableName = fleetTable
+	}
+	if amiTable := os.Getenv("AI_DESKTOPS_AMI_TABLE"); amiTable != "" {
+		cfg.Fleet.AMITableName = amiTable
+	}
 	cfg.Defaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err

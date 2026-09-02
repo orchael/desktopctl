@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/orchael/ai-desktops/internal/controlplane"
@@ -48,7 +49,15 @@ func main() {
 	server := controlplane.NewServer(service, runtime.StaticDir, logger, runtime.APIToken)
 
 	logger.Info("control plane listening", "addr", runtime.Addr)
-	if err := http.ListenAndServe(runtime.Addr, server.Handler()); err != nil {
+	httpServer := &http.Server{
+		Addr:              runtime.Addr,
+		Handler:           server.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

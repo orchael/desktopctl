@@ -17,6 +17,9 @@ config:
   awsRegion: us-east-2
   environment: prod
   operatorRoleArn: ""
+  backendBucket: ""
+  fleetTableName: ""
+  amiTableName: ""
 secrets:
   create: false
   name: ai-desktops-control-plane

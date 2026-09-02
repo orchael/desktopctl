@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,34 @@ func TestLoadRuntimeConfigReadsOperatorAWSVariables(t *testing.T) {
 	}
 	if cfg.OperatorExternalID != "external-id" {
 		t.Errorf("OperatorExternalID = %q", cfg.OperatorExternalID)
+	}
+}
+
+func TestLoadAppConfigReadsDeploymentOverrides(t *testing.T) {
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("AI_DESKTOPS_ENVIRONMENT", "prod")
+	t.Setenv("PULUMI_BACKEND_BUCKET", "prod-state")
+	t.Setenv("AI_DESKTOPS_FLEET_TABLE", "prod-fleet")
+	t.Setenv("AI_DESKTOPS_AMI_TABLE", "prod-ami")
+
+	cfg, err := LoadAppConfig(RuntimeConfig{ConfigPath: filepath.Join(t.TempDir(), "missing.yaml")})
+	if err != nil {
+		t.Fatalf("LoadAppConfig: %v", err)
+	}
+	if cfg.AWS.Region != "us-west-2" {
+		t.Errorf("AWS.Region = %q", cfg.AWS.Region)
+	}
+	if cfg.Fleet.Environment != "prod" {
+		t.Errorf("Fleet.Environment = %q", cfg.Fleet.Environment)
+	}
+	if cfg.Pulumi.BackendBucket != "prod-state" {
+		t.Errorf("Pulumi.BackendBucket = %q", cfg.Pulumi.BackendBucket)
+	}
+	if cfg.Fleet.TableName != "prod-fleet" {
+		t.Errorf("Fleet.TableName = %q", cfg.Fleet.TableName)
+	}
+	if cfg.Fleet.AMITableName != "prod-ami" {
+		t.Errorf("Fleet.AMITableName = %q", cfg.Fleet.AMITableName)
 	}
 }
 
