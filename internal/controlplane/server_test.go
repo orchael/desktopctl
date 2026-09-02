@@ -122,6 +122,20 @@ func TestAPIPathWithoutTrailingSlashReturnsJSONNotStatic(t *testing.T) {
 	}
 }
 
+func TestReadyTreatsMissingProbeRecordAsStorageReady(t *testing.T) {
+	t.Parallel()
+	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, true, time.Second, time.Minute)
+
+	got := service.Ready(t.Context())
+
+	if !got.OK {
+		t.Fatalf("Ready().OK = false, error = %q", got.Error)
+	}
+	if got.Identity != "mock" {
+		t.Fatalf("Ready().Identity = %q, want mock", got.Identity)
+	}
+}
+
 func TestRuntimeConfigRequiresRoleWhenNotMock(t *testing.T) {
 	t.Parallel()
 	cfg := RuntimeConfig{}

@@ -253,8 +253,13 @@ tbody tr {
   cursor: pointer;
 }
 tbody tr:hover,
+tbody tr:focus-visible,
 tbody tr.selected {
   background: #f7faff;
+}
+tbody tr:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 tbody tr.selected {
   box-shadow: inset 3px 0 var(--blue);

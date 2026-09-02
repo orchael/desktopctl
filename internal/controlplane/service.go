@@ -65,8 +65,8 @@ func (s *Service) Ready(ctx context.Context) Readiness {
 		Region:      s.cfg.AWS.Region,
 		FleetTable:  s.cfg.Fleet.TableName,
 	}
-	if _, err := s.store.List(ctx); err != nil {
-		out.Error = fmt.Sprintf("list fleet table: %v", err)
+	if _, err := s.store.Get(ctx, "__readyz_probe__"); err != nil && !errors.Is(err, store.ErrNotFound) {
+		out.Error = fmt.Sprintf("read fleet table: %v", err)
 		return out
 	}
 	if s.mockAWS {

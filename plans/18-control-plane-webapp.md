@@ -127,7 +127,7 @@ Initial role permissions:
 
 ### 3. Add control plane web UI
 
-- Create a new Vite React app under `apps/control-plane-web`.
+- Create a new Next.js app under `apps/control-plane-web`.
 - Show fleet list, lifecycle state, hostnames, readiness summaries, and recent operation results.
 - Add desktop detail actions for start, stop, terminate, and refresh.
 - Make destructive operations require explicit confirmation.

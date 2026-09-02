@@ -189,7 +189,14 @@ export function Dashboard({
                       <tr
                         key={desktop.desktop_id}
                         className={desktop.desktop_id === selected?.desktop_id ? 'selected' : ''}
+                        tabIndex={0}
                         onClick={() => setSelectedId(desktop.desktop_id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setSelectedId(desktop.desktop_id);
+                          }
+                        }}
                       >
                         <td className="mono">{desktop.desktop_id}</td>
                         <td>

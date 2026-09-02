@@ -46,7 +46,7 @@ spec:
             - {name: PULUMI_BACKEND_BUCKET, value: {{ required "config.backendBucket is required" .Values.config.backendBucket | quote }}}
             - {name: AI_DESKTOPS_FLEET_TABLE, value: {{ default (printf "ai-desktops-fleet-%s" .Values.config.environment) .Values.config.fleetTableName | quote }}}
             - {name: AI_DESKTOPS_AMI_TABLE, value: {{ default (printf "ai-desktops-ami-%s" .Values.config.environment) .Values.config.amiTableName | quote }}}
-            - {name: OPERATOR_ROLE_ARN, value: {{ .Values.config.operatorRoleArn | quote }}}
+            - {name: OPERATOR_ROLE_ARN, value: {{ required "config.operatorRoleArn is required" .Values.config.operatorRoleArn | quote }}}
             - name: CONTROL_PLANE_API_TOKEN
               valueFrom: {secretKeyRef: {name: {{ include "control-plane.secretName" . }}, key: CONTROL_PLANE_API_TOKEN}}
             - name: OPERATOR_AWS_ACCESS_KEY_ID
