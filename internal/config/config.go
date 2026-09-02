@@ -116,6 +116,9 @@ type GitHubConfig struct {
 	GitUserName string `yaml:"git_user_name,omitempty"`
 	// GitUserEmail is the git commit author email written to the desktop's global git config.
 	GitUserEmail string `yaml:"git_user_email,omitempty"`
+	// NPMGitHubScopes lists npm package scopes that should resolve from GitHub Packages
+	// on provisioned desktops. Leave empty so scoped packages use npmjs by default.
+	NPMGitHubScopes []string `yaml:"npm_github_scopes,omitempty"`
 }
 
 type OperatorConfig struct {

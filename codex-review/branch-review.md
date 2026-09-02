@@ -37,5 +37,5 @@ P2 - README IAM permissions are stale for the new create-time integration secret
 
 - `go test ./...`
 - `git diff --check origin/main...HEAD`
-- `ANSIBLE_LOCAL_TEMP=/tmp/ansible-local ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote ansible-playbook --syntax-check packer/playbook.yml --extra-vars 'go_version=1.24.0 uv_version=0.4.0 flutter_version=3.32.0 android_cmdline_tools_version=11076708 ai_agent_bridge_version=v0.8.0 tailscale_version=1.98.9 desktop_web_version=0.1.0 novnc_desktop_version=v1.0.0'`
+- `ANSIBLE_LOCAL_TEMP=/tmp/ansible-local ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote ansible-playbook --syntax-check packer/playbook.yml --extra-vars 'go_version=1.24.0 uv_version=0.4.0 flutter_version=3.32.0 android_cmdline_tools_version=11076708 bridgectl_version=v1.0.1 tailscale_version=1.98.9 desktop_web_version=0.1.0 novnc_desktop_version=v1.0.0'`
 - `packer init packer/ubuntu-desktop.pkr.hcl && packer validate -var-file=packer/variables.pkrvars.hcl ... packer/ubuntu-desktop.pkr.hcl` with the repo’s normal required Packer vars in an environment where plugins can load.

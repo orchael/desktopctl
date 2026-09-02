@@ -3,7 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDNSZone(t *testing.T) {
@@ -106,6 +109,10 @@ fleet:
   table_name: my-fleet
   organization_id: 00000000-0000-4000-8000-000000000001
   environment: prod
+github:
+  owner: acme
+  npm_github_scopes:
+    - private-tools
 network:
   tailscale_network: acme-tailnet
 operator:
@@ -116,7 +123,7 @@ pki:
   step_ca_fingerprint: abcdef
   step_ca_clients:
     - issuer: mark-macbook
-      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      public_key_path: /Users/mark/.config/bridgectl/certs/jwt-signing.pub
       required: true
 `
 	dir := t.TempDir()
@@ -150,6 +157,9 @@ pki:
 	if c.Operator.Secret != "/ai-desktops/acme-ops" {
 		t.Errorf("operator secret: got %q", c.Operator.Secret)
 	}
+	if len(c.GitHub.NPMGitHubScopes) != 1 || c.GitHub.NPMGitHubScopes[0] != "private-tools" {
+		t.Errorf("npm GitHub scopes: got %#v", c.GitHub.NPMGitHubScopes)
+	}
 	if c.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
 		t.Errorf("step-ca server: got %q", c.PKI.StepCAServer)
 	}
@@ -165,7 +175,7 @@ pki:
 	if c.PKI.StepCAClients[0].Issuer != "mark-macbook" {
 		t.Errorf("step-ca client issuer: got %q", c.PKI.StepCAClients[0].Issuer)
 	}
-	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub" {
+	if c.PKI.StepCAClients[0].PublicKeyPath != "/Users/mark/.config/bridgectl/certs/jwt-signing.pub" {
 		t.Errorf("step-ca client public key path: got %q", c.PKI.StepCAClients[0].PublicKeyPath)
 	}
 	if !c.PKI.StepCAClients[0].Required {
@@ -196,7 +206,7 @@ func TestSave_roundTrip(t *testing.T) {
 			StepCAClients: []StepCAClientConfig{
 				{
 					Issuer:        "mark-macbook",
-					PublicKeyPath: "/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub",
+					PublicKeyPath: "/Users/mark/.config/bridgectl/certs/jwt-signing.pub",
 					Required:      true,
 				},
 			},
@@ -265,6 +275,28 @@ func TestDefaults_AMIs(t *testing.T) {
 	// Defaults should not initialize an empty ActiveAMI map
 	if c.Desktop.ActiveAMI != nil {
 		t.Error("ActiveAMI should be nil after Defaults()")
+	}
+}
+
+func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
+	data, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("read config.example.yaml: %v", err)
+	}
+	text := string(data)
+	if strings.Contains(text, "root_volume_size") {
+		t.Fatal("config.example.yaml must use desktop.volume_size, not root_volume_size")
+	}
+	if !strings.Contains(text, "volume_size:") {
+		t.Fatal("config.example.yaml must document desktop.volume_size")
+	}
+
+	var c Config
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		t.Fatalf("parse config.example.yaml: %v", err)
+	}
+	if c.Desktop.VolumeSize != DefaultVolumeSize {
+		t.Fatalf("desktop.volume_size = %d, want %d", c.Desktop.VolumeSize, DefaultVolumeSize)
 	}
 }
 

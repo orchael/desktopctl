@@ -25,6 +25,11 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
     groups:
+      # React and React DOM must stay on matching versions at runtime.
+      react-runtime:
+        patterns:
+          - react
+          - react-dom
       aws-sdk:
         patterns:
           - aws-sdk

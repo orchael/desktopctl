@@ -2,7 +2,7 @@
 
 ## Objective
 
-Implement remote agent control through a CLI-managed tunnel to the desktop-local `ai-agent-bridge`.
+Implement remote agent control through a CLI-managed tunnel to the desktop-local `bridgectl`.
 
 ## Depends On
 
@@ -32,7 +32,7 @@ Tunnel modes:
 
 ## Requirements
 
-- `ai-agent-bridge` remains bound to `127.0.0.1:9445` on the desktop.
+- `bridgectl` remains bound to `127.0.0.1:9445` on the desktop.
 - The bridge port is not opened in the public security group.
 - Tunnel lifetime is tied to the CLI command.
 - Local forwarded port should be ephemeral.

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// AIAgentBridgeVersion must match ai_agent_bridge_version in packer/variables.pkrvars.hcl.
-	AIAgentBridgeVersion  = "v0.9.1"
+	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
+	BridgectlVersion      = "v1.0.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -24,6 +24,10 @@ type BootstrapConfig struct {
 	GitHubOwner          string
 	Repos                []string
 	WorkspacePath        string
+	WorkspaceMode        string
+	WorkspaceName        string
+	EFSFileSystemID      string
+	EFSAccessPointID     string
 	BridgePort           int
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
@@ -44,6 +48,7 @@ type BootstrapConfig struct {
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
+	NPMGitHubScopes      []string
 	// SwapSizeGB is the size of the swap file to create in GiB.
 	// 0 means no swap file is created.
 	SwapSizeGB int
@@ -104,8 +109,38 @@ runcmd:
 {{- end}}
 
   # --- workspace ---
+{{- if eq .WorkspaceMode "efs"}}
+  - |
+    (
+    set -e
+    EFS_FILE_SYSTEM_ID="{{ .EFSFileSystemID }}"
+    EFS_ACCESS_POINT_ID="{{ .EFSAccessPointID }}"
+    WORKSPACE="{{ .WorkspacePath }}"
+    if [ -z "$EFS_FILE_SYSTEM_ID" ] || [ -z "$EFS_ACCESS_POINT_ID" ]; then
+      echo "ERROR: EFS workspace mode requires file system and access point IDs" >&2
+      exit 1
+    fi
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      apt-get -o DPkg::Lock::Timeout=600 update
+      apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils
+    fi
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      echo "ERROR: EFS workspace mode requires amazon-efs-utils mount.efs" >&2
+      exit 1
+    fi
+    mkdir -p "$WORKSPACE"
+    if ! mountpoint -q "$WORKSPACE"; then
+      mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"
+    fi
+    if ! grep -q "[[:space:]]$WORKSPACE[[:space:]]" /etc/fstab; then
+      printf '%s:/ %s efs _netdev,tls,accesspoint=%s 0 0\n' "$EFS_FILE_SYSTEM_ID" "$WORKSPACE" "$EFS_ACCESS_POINT_ID" >> /etc/fstab
+    fi
+    chown ubuntu:ubuntu "$WORKSPACE"
+    )
+{{- else}}
   - mkdir -p {{ .WorkspacePath }}
   - chown ubuntu:ubuntu {{ .WorkspacePath }}
+{{- end}}
 
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
@@ -138,45 +173,121 @@ runcmd:
     SH
     chmod 0755 /opt/ai-desktops/apt-with-lock
 
-  # --- ensure ai-agent-bridge/bridgectl package version matches the CLI ---
+  # --- ensure bridgectl package version matches the CLI ---
   - |
     (
     set -e
     EXPECTED_BRIDGE_VERSION="{{ .BridgePackageVersion }}"
-    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge 2>/dev/null || true)
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' bridgectl 2>/dev/null || true)
     if [ "$INSTALLED_BRIDGE_VERSION" = "$EXPECTED_BRIDGE_VERSION" ]; then
-      echo "ai-agent-bridge version $EXPECTED_BRIDGE_VERSION already installed"
+      echo "bridgectl version $EXPECTED_BRIDGE_VERSION already installed"
       exit 0
     fi
 
-    echo "Installing ai-agent-bridge $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
+    echo "Installing bridgectl $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
     /opt/ai-desktops/apt-with-lock apt-get update
     /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates
     install -d -m 0755 /etc/apt/keyrings
-    if [ ! -f /etc/apt/keyrings/ai-agent-bridge.gpg ]; then
+    if [ ! -f /etc/apt/keyrings/bridgectl.gpg ]; then
       BRIDGE_KEY_ASC=$(mktemp)
       trap 'rm -f "$BRIDGE_KEY_ASC"' EXIT
-      curl -fsSL https://markcallen.github.io/ai-agent-bridge/apt/ai-agent-bridge-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
-      gpg --dearmor -o /etc/apt/keyrings/ai-agent-bridge.gpg "$BRIDGE_KEY_ASC"
+      curl -fsSL https://orchael.github.io/bridgectl/apt/bridgectl-archive-keyring.asc -o "$BRIDGE_KEY_ASC"
+      gpg --dearmor -o /etc/apt/keyrings/bridgectl.gpg "$BRIDGE_KEY_ASC"
       rm -f "$BRIDGE_KEY_ASC"
       trap - EXIT
-      chmod 0644 /etc/apt/keyrings/ai-agent-bridge.gpg
+      chmod 0644 /etc/apt/keyrings/bridgectl.gpg
     fi
     ARCH=$(dpkg --print-architecture)
     . /etc/os-release
     UBUNTU_CODENAME="${VERSION_CODENAME:-noble}"
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/ai-agent-bridge.gpg] https://markcallen.github.io/ai-agent-bridge/apt %s main\n' \
-      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/ai-agent-bridge.list
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/bridgectl.gpg] https://orchael.github.io/bridgectl/apt %s main\n' \
+      "$ARCH" "$UBUNTU_CODENAME" > /etc/apt/sources.list.d/bridgectl.list
     /opt/ai-desktops/apt-with-lock apt-get update
-    /opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends "ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"
-    if [ -x /usr/lib/ai-agent-bridge/install-provider-runtime ]; then
-      /usr/lib/ai-agent-bridge/install-provider-runtime || echo "WARNING: install-provider-runtime failed after ai-agent-bridge version correction"
+    /opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends "bridgectl=${EXPECTED_BRIDGE_VERSION}"
+    if [ -x /usr/lib/bridgectl/install-provider-runtime ]; then
+      INSTALL_DIR=/opt/bridgectl /usr/lib/bridgectl/install-provider-runtime || echo "WARNING: install-provider-runtime failed after bridgectl version correction"
     fi
-    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' ai-agent-bridge)
+    INSTALLED_BRIDGE_VERSION=$(dpkg-query -W -f='${Version}' bridgectl)
     if [ "$INSTALLED_BRIDGE_VERSION" != "$EXPECTED_BRIDGE_VERSION" ]; then
-      echo "ERROR: ai-agent-bridge version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
+      echo "ERROR: bridgectl version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
       exit 1
     fi
+    )
+
+  # --- ensure bridgectl config exists and checks certificate renewal frequently ---
+  - |
+    (
+    set -e
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      /opt/ai-desktops/apt-with-lock apt-get update
+      /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
+    fi
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
+    import os
+    import sys
+    import yaml
+
+    path = sys.argv[1]
+    default_config = {
+        "server": {
+            "listen": "127.0.0.1:9445",
+        },
+        "providers": {
+            "claude": {
+                "binary": "/opt/bridgectl/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                "args": [],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["CLAUDE_CODE_OAUTH_TOKEN"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+            "codex": {
+                "binary": "/usr/bin/node",
+                "args": ["/opt/bridgectl/node_modules/@openai/codex/bin/codex.js"],
+                "startup_timeout": "60s",
+                "startup_probe": "output",
+                "required_env": ["OPENAI_API_KEY"],
+                "prompt_pattern": r"(?m)(❯|>\s*$)",
+            },
+        },
+        "allowed_paths": ["/workspace"],
+        "runtime": {
+            "provider_root": "/opt/bridgectl",
+        },
+        "logging": {
+            "level": "info",
+            "format": "json",
+            "redact_patterns": [r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+"],
+        },
+    }
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or default_config
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        config = default_config
+    runtime = config.setdefault("runtime", {})
+    if runtime.get("provider_root") in (None, "", "/opt/ai-agent-bridge"):
+        runtime["provider_root"] = "/opt/bridgectl"
+    providers = config.setdefault("providers", {})
+    claude = providers.get("claude")
+    if isinstance(claude, dict):
+        if claude.get("binary") == "/opt/ai-agent-bridge/node_modules/@anthropic-ai/claude-code/bin/claude.exe":
+            claude["binary"] = "/opt/bridgectl/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+    codex = providers.get("codex")
+    if isinstance(codex, dict):
+        codex["args"] = [
+            "/opt/bridgectl/node_modules/@openai/codex/bin/codex.js"
+            if arg == "/opt/ai-agent-bridge/node_modules/@openai/codex/bin/codex.js"
+            else arg
+            for arg in (codex.get("args") or [])
+        ]
+    config["cert_renewal_check_interval"] = "10m"
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
+    PY
+    chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/config.yaml
+    chmod 600 /home/ubuntu/.config/bridgectl/config.yaml
     )
 
 {{- if .TailscaleNetwork}}
@@ -398,7 +509,7 @@ runcmd:
     install -o ubuntu -g ubuntu -m 0644 "$STEP_CA_ROOT" "$CERT_DIR/step-ca-root.crt"
 
 {{- if .StepCAClients}}
-    JWT_CLIENT_DIR="/home/ubuntu/.ai-agent-bridge/certs/jwt-clients"
+    JWT_CLIENT_DIR="/home/ubuntu/.config/bridgectl/certs/jwt-clients"
     install -d -o ubuntu -g ubuntu -m 700 "$JWT_CLIENT_DIR"
 {{- range .StepCAClients}}
     printf '%s' '{{ b64 .PublicKey }}' | base64 -d > "$JWT_CLIENT_DIR/{{ .Issuer }}.pub"
@@ -408,15 +519,21 @@ runcmd:
 {{- end}}
 
     STEP_CA_CLIENTS_JSON_B64="{{ .StepCAClientsJSONB64 }}"
-    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" "$STEP_PROVISIONER" "$STEP_CA_PERSISTENT_PASSWORD_FILE" <<'PY'
+    python3 - /home/ubuntu/.config/bridgectl/config.yaml "$STEP_CA" "$CERT_DIR/step-ca-root.crt" "$CERT_DIR/server.crt" "$CERT_DIR/server.key" "$STEP_CA_CLIENTS_JSON_B64" "$STEP_PROVISIONER" "$STEP_CA_PERSISTENT_PASSWORD_FILE" "{{ .Hostname }}" "$CERT_NAME" "$TAILSCALE_DNS_NAME" <<'PY'
     import base64
     import json
     import sys
     import yaml
 
-    config_path, step_ca, root_path, cert_path, key_path, clients_b64, provisioner, provisioner_password_file = sys.argv[1:9]
+    config_path, step_ca, root_path, cert_path, key_path, clients_b64, provisioner, provisioner_password_file, hostname, cert_name, tailscale_dns_name = sys.argv[1:12]
     with open(config_path, encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file) or {}
+    server_config = config.setdefault("server", {})
+    existing_sans = server_config.get("san") or []
+    if isinstance(existing_sans, str):
+        existing_sans = [existing_sans]
+    sans = [name for name in [hostname, cert_name, tailscale_dns_name] if name]
+    server_config["san"] = list(dict.fromkeys([*existing_sans, *sans]))
     step_ca_config = config.setdefault("step_ca", {})
     step_ca_config["url"] = f"https://{step_ca}"
     step_ca_config["root"] = root_path
@@ -486,7 +603,6 @@ runcmd:
     REGION="{{ .AWSRegion }}"
     SECRET="{{ .GitHubSecretPath }}"
     WORKSPACE="{{ .WorkspacePath }}"
-    OWNER="{{ .GitHubOwner }}"
 
     # Retrieve JSON secret from Secrets Manager
     SECRET_JSON=$(aws secretsmanager get-secret-value \
@@ -503,6 +619,14 @@ runcmd:
     GITHUB_TOKEN=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['github_token'])")
     SSH_KEY=$(printf '%s\n' "$SECRET_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_private_key'])")
     unset SECRET_JSON
+    if ! GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login); then
+      echo "ERROR: could not resolve GitHub login from token" >&2
+      exit 1
+    fi
+    if [ -z "$GITHUB_LOGIN" ]; then
+      echo "ERROR: GitHub token resolved to an empty login" >&2
+      exit 1
+    fi
 
     # Install SSH private key for github.com (ubuntu)
     install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/.ssh
@@ -522,10 +646,27 @@ runcmd:
       printf 'github.com:\n'
       printf '    oauth_token: %s\n' "$GITHUB_TOKEN"
       printf '    git_protocol: ssh\n'
-      printf '    user: %s\n' "$OWNER"
+      printf '    user: %s\n' "$GITHUB_LOGIN"
+      printf '    users:\n'
+      printf '        %s:\n' "$GITHUB_LOGIN"
+      printf '            oauth_token: %s\n' "$GITHUB_TOKEN"
     } > /home/ubuntu/.config/gh/hosts.yml
     chmod 600 /home/ubuntu/.config/gh/hosts.yml
     chown ubuntu:ubuntu /home/ubuntu/.config/gh/hosts.yml
+
+    # Prefer the persisted gh login when a stale inherited token would otherwise
+    # override ~/.config/gh/hosts.yml and break PR/CI checks in agent sessions.
+    install -d -o ubuntu -g ubuntu -m 755 /home/ubuntu/.local/bin
+    {
+      printf '%s\n' '#!/bin/sh'
+      printf '%s\n' 'set -eu'
+      printf '%s\n' 'real_gh=/usr/bin/gh'
+      printf '%s\n' 'unset GH_TOKEN GITHUB_TOKEN'
+      printf '%s\n' 'exec "$real_gh" "$@"'
+    } > /home/ubuntu/.local/bin/gh
+    chown ubuntu:ubuntu /home/ubuntu/.local/bin/gh
+    chmod 755 /home/ubuntu/.local/bin/gh
+
     sudo -u ubuntu gh auth setup-git --hostname github.com || echo "WARNING: gh auth setup-git failed - gh CLI may not be fully configured"
 
     # Configure git commit identity (ubuntu)
@@ -533,13 +674,20 @@ runcmd:
     sudo -u ubuntu git config --global user.email "{{ if .GitUserEmail }}{{ .GitUserEmail }}{{ else }}desktop-{{ .DesktopID }}@noreply.github.com{{ end }}"
     sudo -u ubuntu git config --global --add safe.directory '*'
 
-    # Write ~/.npmrc so the ubuntu user can install @{{ .GitHubOwner }} packages from GitHub Packages.
+{{- if .NPMGitHubScopes}}
+    # Write ~/.npmrc so the ubuntu user can install configured scopes from GitHub Packages.
     # Pre-create with correct ownership and mode before writing so the token is never world-readable.
     install -o ubuntu -g ubuntu -m 600 /dev/null /home/ubuntu/.npmrc
-    printf '@{{ .GitHubOwner }}:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN" \
-      > /home/ubuntu/.npmrc
+    {
+{{- range .NPMGitHubScopes}}
+      printf '@{{ . }}:registry=https://npm.pkg.github.com\n'
+{{- end}}
+      printf '//npm.pkg.github.com/:_authToken=%s\n' "$GITHUB_TOKEN"
+    } > /home/ubuntu/.npmrc
+{{- end}}
 
     unset SSH_KEY
+    unset GITHUB_LOGIN
     unset GITHUB_TOKEN
     )
 
@@ -701,6 +849,21 @@ runcmd:
     REPO_NAME=$(basename "$REPO_URL" .git)
     REPO_OWNER=$(echo "$REPO_URL" | sed 's|.*github\.com[/:]||' | cut -d/ -f1)
 
+{{- if eq $.WorkspaceMode "efs"}}
+    if ! mountpoint -q "$WORKSPACE"; then
+      echo "ERROR: EFS workspace mode expected $WORKSPACE to be mounted; refusing to clone repositories onto local disk" >&2
+      exit 1
+    fi
+    WORKSPACE_FSTYPE=$(findmnt -n -o FSTYPE "$WORKSPACE" 2>/dev/null || true)
+    case "$WORKSPACE_FSTYPE" in
+      efs|nfs|nfs4) ;;
+      *)
+        echo "ERROR: EFS workspace mode expected $WORKSPACE to be efs/nfs mounted, got ${WORKSPACE_FSTYPE:-unknown}; refusing to clone repositories onto local disk" >&2
+        exit 1
+        ;;
+    esac
+
+{{- end}}
     if [ "$REPO_OWNER" != "$OWNER" ]; then
       echo "ERROR: repo $REPO_URL owner $REPO_OWNER does not match desktop owner $OWNER" >&2
       exit 1
@@ -731,6 +894,13 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Prevent stale GitHub token overrides from shadowing the persisted gh login
+    # that cloud-init writes to /home/ubuntu/.config/gh/hosts.yml.
+    printf '[Service]\nUnsetEnvironment=GH_TOKEN GITHUB_TOKEN\nEnvironment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/github-auth.conf
 
 {{- if .StepCAServerDNS}}
     # Make step-ca metadata and issued certificate paths available to bridgectl.
@@ -936,6 +1106,9 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.WorkspacePath == "" {
 		cfg.WorkspacePath = "/workspace"
 	}
+	if cfg.WorkspaceMode == "" {
+		cfg.WorkspaceMode = "local"
+	}
 	if cfg.BridgePort == 0 {
 		cfg.BridgePort = 9445
 	}
@@ -947,6 +1120,11 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	}
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
+	}
+	var err error
+	cfg.NPMGitHubScopes, err = NormalizeNPMGitHubScopes(cfg.NPMGitHubScopes)
+	if err != nil {
+		return "", err
 	}
 
 	// Pre-compute AVD vars JSON (base64-encoded) for safe shell embedding in cloud-init.
@@ -981,7 +1159,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		for _, c := range cfg.StepCAClients {
 			clients = append(clients, clientVar{
 				Issuer:   c.Issuer,
-				KeyPath:  "/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/" + c.Issuer + ".pub",
+				KeyPath:  "/home/ubuntu/.config/bridgectl/certs/jwt-clients/" + c.Issuer + ".pub",
 				Required: c.Required,
 			})
 		}
@@ -1002,8 +1180,8 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	}
 	data := templateData{
 		BootstrapConfig:      cfg,
-		BridgeVersion:        AIAgentBridgeVersion,
-		BridgePackageVersion: strings.TrimPrefix(AIAgentBridgeVersion, "v"),
+		BridgeVersion:        BridgectlVersion,
+		BridgePackageVersion: strings.TrimPrefix(BridgectlVersion, "v"),
 		AVDsJSONB64:          avdsJSONB64,
 		StepCAClientsJSONB64: stepCAClientsJSONB64,
 	}

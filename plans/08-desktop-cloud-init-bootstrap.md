@@ -19,13 +19,13 @@ Create cloud-init or rendered bootstrap assets for:
 - `tmux`
 - SSM agent validation or installation
 - `novnc-desktop` installation with `desktop_type=elementary`
-- `ai-agent-bridge` installation and systemd service
+- `bridgectl` installation and user systemd service
 - `/workspace` setup
 - `/opt/ai-desktops` setup
 
 ## Requirements
 
-- `ai-agent-bridge` must bind to `127.0.0.1`.
+- `bridgectl` must bind to `127.0.0.1`.
 - Raw VNC must not be publicly reachable.
 - Secrets are retrieved from AWS SSM Parameter Store or Secrets Manager using the instance role.
 - Rendered secret files must have restrictive permissions.
@@ -38,7 +38,7 @@ Create cloud-init or rendered bootstrap assets for:
 - Required tools are installed and on `PATH`.
 - Docker service is active.
 - `novnc-desktop` services are active.
-- `ai-agent-bridge.service` is active and localhost-bound.
+- `bridgectl.service` is active and localhost-bound.
 
 ## Verification
 

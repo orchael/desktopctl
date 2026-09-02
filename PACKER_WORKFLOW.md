@@ -11,14 +11,14 @@ runtime-only work: TLS certificates, secret injection, workspace setup, and repo
 Review `packer/variables.pkrvars.hcl` before building:
 
 ```hcl
-ai_agent_bridge_version = "v0.9.0"
-go_version              = "1.24.0"
-uv_version              = "0.12.3"
+bridgectl_version = "v1.0.1"
+go_version        = "1.24.0"
+uv_version        = "0.12.3"
 ```
 
 The Packer build starts from the latest public `novnc-desktop-ubuntu-24.04-elementary-*` AMI in
 each requested region. The resulting image adds Docker, GitHub CLI, Python, Go, uv, Homebrew,
-Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned `ai-agent-bridge` package.
+Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned `bridgectl` package.
 
 ## Build
 

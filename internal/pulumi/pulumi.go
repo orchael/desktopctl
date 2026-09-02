@@ -53,13 +53,14 @@ type StackConfig map[string]string
 // FoundationConfig builds the Pulumi config for the foundation stack.
 // vpcID is optional; when non-empty the foundation stack will use the existing VPC
 // instead of creating a new one.
-func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID string) StackConfig {
+func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID, backendBucket string) StackConfig {
 	cfg := StackConfig{
-		"aws:region":   region,
-		"zone":         zone,
-		"fleetTable":   fleetTable,
-		"operatorCIDR": operatorCIDR,
-		"environment":  environment,
+		"aws:region":          region,
+		"zone":                zone,
+		"fleetTable":          fleetTable,
+		"operatorCIDR":        operatorCIDR,
+		"environment":         environment,
+		"pulumiBackendBucket": backendBucket,
 	}
 	if vpcID != "" {
 		cfg["vpcId"] = vpcID
@@ -71,20 +72,21 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // subnetID, sgID, and instanceProfile come from the foundation stack outputs.
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
-// bridgePort is the localhost port for ai-agent-bridge; 0 means use the stack default (9445).
+// bridgePort is the localhost port for bridgectl; 0 means use the stack default (9445).
 // volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
 // amiID is the pre-baked AMI ID.
 // userDataBase64 is gzip-compressed, base64-encoded cloud-init user-data.
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.
 // marketType is "on-demand" or "spot"; spotMaxPrice is optional.
 func DesktopConfig(
-	region, desktopID, gitHubOwner, zone, instanceType,
+	region, desktopID, desktopName, gitHubOwner, zone, instanceType,
 	subnetID, sgID, instanceProfile, sshKeyName string,
 	repos []string,
 	bridgePort, volumeSize int,
 	amiID, userDataBase64, environment string,
 	nestedVirtualization bool,
 	marketType, spotMaxPrice string,
+	workspace WorkspaceConfig,
 ) StackConfig {
 	cfg := StackConfig{
 		"aws:region":      region,
@@ -97,6 +99,9 @@ func DesktopConfig(
 		"instanceProfile": instanceProfile,
 		"repos":           strings.Join(repos, ","),
 		"environment":     environment,
+	}
+	if desktopName != "" {
+		cfg["desktopName"] = desktopName
 	}
 	if sshKeyName != "" {
 		cfg["sshKeyName"] = sshKeyName
@@ -122,7 +127,26 @@ func DesktopConfig(
 	if spotMaxPrice != "" {
 		cfg["spotMaxPrice"] = spotMaxPrice
 	}
+	if workspace.Mode != "" {
+		cfg["workspaceMode"] = workspace.Mode
+	}
+	if workspace.Name != "" {
+		cfg["workspaceName"] = workspace.Name
+	}
+	if workspace.EFSFileSystemID != "" {
+		cfg["workspaceEFSFileSystemId"] = workspace.EFSFileSystemID
+	}
+	if workspace.EFSAccessPointID != "" {
+		cfg["workspaceEFSAccessPointId"] = workspace.EFSAccessPointID
+	}
 	return cfg
+}
+
+type WorkspaceConfig struct {
+	Mode             string
+	Name             string
+	EFSFileSystemID  string
+	EFSAccessPointID string
 }
 
 // OutputKey constants for stack outputs.
@@ -139,7 +163,14 @@ const (
 	OutputInstanceProfile = "instanceProfile"
 	OutputZoneID          = "zoneId"
 	OutputFleetTable      = "fleetTable"
+	OutputAMITable        = "amiTable"
 	OutputMarketType      = "marketType"
+	OutputWorkspaceMode   = "workspaceMode"
+	OutputEFSFileSystemID = "efsFileSystemId"
+	OutputEFSSGID         = "efsSecurityGroupId"
+	OutputOperatorSecret  = "operatorCredentialsSecretName"
+	OutputOperatorRoleArn = "operatorRoleArn"
+	OutputOperatorUser    = "operatorUserName"
 )
 
 // Runner drives Pulumi stacks by invoking the `pulumi` CLI as a subprocess.

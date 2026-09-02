@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/efs"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/route53"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
@@ -33,6 +37,21 @@ func run(ctx *pulumi.Context) error {
 		operatorCIDR = "0.0.0.0/0"
 	}
 	vpcID := cfg.Get("vpcId")
+	pulumiBackendBucket := cfg.Get("pulumiBackendBucket")
+	if pulumiBackendBucket == "" {
+		return fmt.Errorf("pulumiBackendBucket is required")
+	}
+	operatorCredentialsSecretName := cfg.Get("operatorCredentialsSecretName")
+	if operatorCredentialsSecretName == "" {
+		operatorCredentialsSecretName = fmt.Sprintf("/ai-desktops/%s/control-plane/aws-operator", environment)
+	}
+
+	caller, err := aws.GetCallerIdentity(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("get AWS caller identity: %w", err)
+	}
+	partition := arnPartition(caller.Arn)
+	accountID := caller.AccountId
 
 	// --- Route53 hosted zone lookup ---
 	zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
@@ -214,6 +233,71 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
+	efsSG, err := ec2.NewSecurityGroup(ctx, "ai-desktops-efs-sg", &ec2.SecurityGroupArgs{
+		VpcId:       vpcIDOutput,
+		Description: pulumi.String("ai-desktops EFS security group"),
+		Ingress: ec2.SecurityGroupIngressArray{
+			&ec2.SecurityGroupIngressArgs{
+				Protocol:       pulumi.String("tcp"),
+				FromPort:       pulumi.Int(2049),
+				ToPort:         pulumi.Int(2049),
+				SecurityGroups: pulumi.StringArray{sg.ID()},
+				Description:    pulumi.String("NFS from ai-desktops desktops"),
+			},
+		},
+		Egress: ec2.SecurityGroupEgressArray{
+			&ec2.SecurityGroupEgressArgs{
+				Protocol:   pulumi.String("-1"),
+				FromPort:   pulumi.Int(0),
+				ToPort:     pulumi.Int(0),
+				CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			},
+		},
+		Tags: pulumi.StringMap{
+			"Name":        pulumi.String("ai-desktops-efs-sg-" + environment),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	workspaceFS, err := efs.NewFileSystem(ctx, "ai-desktops-workspaces-efs", &efs.FileSystemArgs{
+		CreationToken:  pulumi.StringPtr("ai-desktops-workspaces-" + environment),
+		Encrypted:      pulumi.BoolPtr(true),
+		ThroughputMode: pulumi.StringPtr("elastic"),
+		Tags: pulumi.StringMap{
+			"Name":        pulumi.String("ai-desktops-workspaces-" + environment),
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := efs.NewBackupPolicy(ctx, "ai-desktops-workspaces-backup", &efs.BackupPolicyArgs{
+		FileSystemId: workspaceFS.ID(),
+		BackupPolicy: &efs.BackupPolicyBackupPolicyArgs{
+			Status: pulumi.String("ENABLED"),
+		},
+	}); err != nil {
+		return err
+	}
+	for i, subnet := range subnetIDs {
+		name := "ai-desktops-efs-mount-target"
+		if i > 0 {
+			name = fmt.Sprintf("ai-desktops-efs-mount-target-%d", i+1)
+		}
+		if _, err := efs.NewMountTarget(ctx, name, &efs.MountTargetArgs{
+			FileSystemId:   workspaceFS.ID(),
+			SubnetId:       subnet,
+			SecurityGroups: pulumi.StringArray{efsSG.ID()},
+		}); err != nil {
+			return err
+		}
+	}
+
 	// --- IAM instance profile ---
 	assumeRolePolicy := `{
   "Version": "2012-10-17",
@@ -328,6 +412,118 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
+	operatorUserName := "ai-desktops-control-plane-" + environment
+	operatorRoleName := "ai-desktops-control-plane-role-" + environment
+
+	operatorUser, err := iam.NewUser(ctx, "ai-desktops-control-plane-user", &iam.UserArgs{
+		Name: pulumi.String(operatorUserName),
+		Tags: pulumi.StringMap{
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	operatorAssumeRolePolicy := operatorUser.Arn.ApplyT(func(userArn string) string {
+		return fmt.Sprintf(`{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "AWS": %q },
+    "Action": "sts:AssumeRole"
+  }]
+}`, userArn)
+	}).(pulumi.StringOutput)
+
+	operatorRole, err := iam.NewRole(ctx, "ai-desktops-control-plane-role", &iam.RoleArgs{
+		Name:             pulumi.String(operatorRoleName),
+		AssumeRolePolicy: operatorAssumeRolePolicy,
+		Tags: pulumi.StringMap{
+			"managed-by":  pulumi.String("ai-desktops"),
+			"environment": pulumi.String(environment),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	operatorPolicy := controlPlanePolicy(partition, accountID, pulumiBackendBucket)
+	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-control-plane-policy", &iam.RolePolicyArgs{
+		Role:   operatorRole.Name,
+		Policy: pulumi.String(operatorPolicy),
+	}); err != nil {
+		return err
+	}
+
+	operatorAssumePolicy := operatorRole.Arn.ApplyT(func(roleArn string) string {
+		return fmt.Sprintf(`{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "sts:AssumeRole",
+    "Resource": %q
+  }]
+}`, roleArn)
+	}).(pulumi.StringOutput)
+
+	if _, err := iam.NewUserPolicy(ctx, "ai-desktops-control-plane-assume-role", &iam.UserPolicyArgs{
+		User:   operatorUser.Name,
+		Policy: operatorAssumePolicy,
+	}); err != nil {
+		return err
+	}
+
+	operatorAccessKey, err := iam.NewAccessKey(ctx, "ai-desktops-control-plane-access-key", &iam.AccessKeyArgs{
+		User: operatorUser.Name,
+	})
+	if err != nil {
+		return err
+	}
+
+	operatorSecret, err := secretsmanager.NewSecret(ctx, "ai-desktops-control-plane-credentials", &secretsmanager.SecretArgs{
+		Name:        pulumi.String(operatorCredentialsSecretName),
+		Description: pulumi.String("AWS control-plane credentials for ai-desktops " + environment),
+		Tags: pulumi.StringMap{
+			"managed-by":        pulumi.String("ai-desktops"),
+			"environment":       pulumi.String(environment),
+			"ai-desktops-scope": pulumi.String("operator"),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	operatorSecretPayload := pulumi.All(
+		operatorAccessKey.ID(),
+		operatorAccessKey.Secret,
+		operatorRole.Arn,
+		operatorUser.Arn,
+	).ApplyT(func(args []interface{}) (string, error) {
+		payload := map[string]string{
+			"OPERATOR_AWS_ACCESS_KEY_ID":     fmt.Sprint(args[0]),
+			"OPERATOR_AWS_SECRET_ACCESS_KEY": fmt.Sprint(args[1]),
+			"OPERATOR_ROLE_ARN":              fmt.Sprint(args[2]),
+			"OPERATOR_USER_ARN":              fmt.Sprint(args[3]),
+			"OPERATOR_ENVIRONMENT":           environment,
+			"OPERATOR_SOURCE_PROFILE":        "ai-desktops-" + environment + "-user",
+			"OPERATOR_ROLE_PROFILE":          "ai-desktops-" + environment,
+		}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}).(pulumi.StringOutput)
+
+	if _, err := secretsmanager.NewSecretVersion(ctx, "ai-desktops-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
+		SecretId:     operatorSecret.ID(),
+		SecretString: operatorSecretPayload,
+	}); err != nil {
+		return err
+	}
+
 	// --- DynamoDB fleet table ---
 	// pulumi.Aliases preserves the prior logical name ("ai-desktops-fleet") so
 	// existing stacks don't force a delete/recreate on the next `pulumi up`.
@@ -376,11 +572,300 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("subnetId", subnetID)
 	ctx.Export("subnetIds", subnetIDs.ToStringArrayOutput())
 	ctx.Export("securityGroupId", sg.ID())
+	ctx.Export("efsFileSystemId", workspaceFS.ID())
+	ctx.Export("efsSecurityGroupId", efsSG.ID())
 	ctx.Export("instanceProfile", instanceProfile.Name)
 	ctx.Export("zoneId", pulumi.String(zoneData.ZoneId))
 	ctx.Export("zone", pulumi.String(zone))
 	ctx.Export("fleetTable", table.Name)
 	ctx.Export("amiTable", amiTable.Name)
+	ctx.Export("operatorCredentialsSecretName", operatorSecret.Name)
+	ctx.Export("operatorRoleArn", operatorRole.Arn)
+	ctx.Export("operatorUserName", operatorUser.Name)
 
 	return nil
+}
+
+func arnPartition(arn string) string {
+	parts := strings.Split(arn, ":")
+	if len(parts) >= 2 && parts[1] != "" {
+		return parts[1]
+	}
+	return "aws"
+}
+
+func controlPlanePolicy(partition, accountID, stateBucket string) string {
+	return fmt.Sprintf(`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IdentityChecks",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PulumiStateBackend",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:GetBucketLocation",
+        "s3:GetBucketTagging",
+        "s3:PutBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:%[1]s:s3:::%[3]s",
+        "arn:%[1]s:s3:::%[3]s/*"
+      ]
+    },
+    {
+      "Sid": "EC2AndPackerControlPlane",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AllocateAddress",
+        "ec2:AssociateAddress",
+        "ec2:AssociateRouteTable",
+        "ec2:AttachInternetGateway",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:CreateImage",
+        "ec2:CreateInternetGateway",
+        "ec2:CreateKeyPair",
+        "ec2:CreateRoute",
+        "ec2:CreateRouteTable",
+        "ec2:CreateSecurityGroup",
+        "ec2:CreateSnapshot",
+        "ec2:CreateSubnet",
+        "ec2:CreateTags",
+        "ec2:CreateVolume",
+        "ec2:CreateVpc",
+        "ec2:DeleteInternetGateway",
+        "ec2:DeleteKeyPair",
+        "ec2:DeleteRoute",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DeleteSnapshot",
+        "ec2:DeleteSubnet",
+        "ec2:DeleteTags",
+        "ec2:DeleteVolume",
+        "ec2:DeleteVpc",
+        "ec2:DeregisterImage",
+        "ec2:Describe*",
+        "ec2:DetachInternetGateway",
+        "ec2:DisassociateAddress",
+        "ec2:DisassociateRouteTable",
+        "ec2:GetPasswordData",
+        "ec2:ImportKeyPair",
+        "ec2:ModifyImageAttribute",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:ModifySubnetAttribute",
+        "ec2:ModifyVpcAttribute",
+        "ec2:ReleaseAddress",
+        "ec2:ReplaceRoute",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RunInstances",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "ec2:TerminateInstances"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EFSWorkspaces",
+      "Effect": "Allow",
+      "Action": [
+        "backup:CreateBackupPlan",
+        "backup:CreateBackupSelection",
+        "backup:DeleteBackupPlan",
+        "backup:DeleteBackupSelection",
+        "backup:DescribeBackupVault",
+        "backup:GetBackupPlan",
+        "backup:ListBackupPlans",
+        "backup:ListBackupSelections",
+        "backup:TagResource",
+        "backup:UntagResource",
+        "elasticfilesystem:CreateAccessPoint",
+        "elasticfilesystem:CreateFileSystem",
+        "elasticfilesystem:CreateMountTarget",
+        "elasticfilesystem:CreateTags",
+        "elasticfilesystem:DeleteAccessPoint",
+        "elasticfilesystem:DeleteFileSystem",
+        "elasticfilesystem:DeleteMountTarget",
+        "elasticfilesystem:DeleteTags",
+        "elasticfilesystem:DescribeAccessPoints",
+        "elasticfilesystem:DescribeBackupPolicy",
+        "elasticfilesystem:DescribeFileSystems",
+        "elasticfilesystem:DescribeMountTargets",
+        "elasticfilesystem:ModifyMountTargetSecurityGroups",
+        "elasticfilesystem:PutBackupPolicy",
+        "elasticfilesystem:TagResource",
+        "elasticfilesystem:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDBCreateTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DynamoDBFleetAndAmiTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DeleteItem",
+        "dynamodb:DeleteTable",
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutItem",
+        "dynamodb:Scan",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateItem",
+        "dynamodb:UpdateTable"
+      ],
+      "Resource": ["arn:%[1]s:dynamodb:*:%[2]s:table/ai-desktops-*"]
+    },
+    {
+      "Sid": "Route53DesktopRecords",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ChangeResourceRecordSets",
+        "route53:GetChange",
+        "route53:GetHostedZone",
+        "route53:ListHostedZones",
+        "route53:ListResourceRecordSets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateAiDesktopsSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "secretsmanager:Name": "/ai-desktops/*"
+        }
+      }
+    },
+    {
+      "Sid": "SecretsAndParameters",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:ListSecretVersionIds",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:TagResource",
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": [
+        "arn:%[1]s:secretsmanager:*:%[2]s:secret:/ai-desktops/*",
+        "arn:%[1]s:ssm:*:%[2]s:parameter/ai-desktops/*"
+      ]
+    },
+    {
+      "Sid": "SessionManagerTunnels",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeSessions",
+        "ssm:StartSession",
+        "ssm:TerminateSession"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassAiDesktopsInstanceRole",
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": ["arn:%[1]s:iam::%[2]s:role/ai-desktops-*"]
+    },
+    {
+      "Sid": "ManageAiDesktopsIamRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AddRoleToInstanceProfile",
+        "iam:AttachRolePolicy",
+        "iam:CreateInstanceProfile",
+        "iam:CreateRole",
+        "iam:DeleteInstanceProfile",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetInstanceProfile",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRolePolicies",
+        "iam:PutRolePolicy",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:TagInstanceProfile",
+        "iam:TagRole",
+        "iam:UntagInstanceProfile",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": [
+        "arn:%[1]s:iam::%[2]s:role/ai-desktops-*",
+        "arn:%[1]s:iam::%[2]s:instance-profile/ai-desktops-*",
+        "arn:%[1]s:iam::%[2]s:policy/ai-desktops-*"
+      ]
+    },
+    {
+      "Sid": "ManageAiDesktopsIamUsers",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateAccessKey",
+        "iam:CreateUser",
+        "iam:DeleteAccessKey",
+        "iam:DeleteUser",
+        "iam:DeleteUserPolicy",
+        "iam:GetAccessKeyLastUsed",
+        "iam:GetUser",
+        "iam:GetUserPolicy",
+        "iam:ListAccessKeys",
+        "iam:ListUserPolicies",
+        "iam:PutUserPolicy",
+        "iam:TagUser",
+        "iam:UntagUser",
+        "iam:UpdateAccessKey"
+      ],
+      "Resource": [
+        "arn:%[1]s:iam::%[2]s:user/ai-desktops-*"
+      ]
+    },
+    {
+      "Sid": "ReadAwsManagedPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": [
+        "arn:%[1]s:iam::aws:policy/*"
+      ]
+    }
+  ]
+}`, partition, accountID, stateBucket)
 }

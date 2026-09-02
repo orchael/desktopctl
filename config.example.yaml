@@ -49,6 +49,12 @@ github:
   git_user_name: Your Name
   git_user_email: you@example.com
 
+  # Optional npm scopes that should resolve from GitHub Packages on provisioned
+  # desktops. Leave empty so scoped packages use npmjs by default. Values may
+  # be written with or without the leading "@".
+  # npm_github_scopes:
+  #   - private-tools
+
 operator:
   # AWS Secrets Manager path for operator-only credentials used by the
   # ai-desktops CLI, not injected into desktop environments.
@@ -62,8 +68,8 @@ desktop:
   # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.
   instance_type: t3.xlarge
 
-  # Root EBS volume size in GiB. 40 GiB is the default.
-  # root_volume_size: 40
+  # Root EBS volume size in GiB. 100 GiB is the default.
+  volume_size: 100
 
   # Pre-baked AMI IDs per region, populated automatically by `ai-desktops ami build`.
   # When present, desktop creation uses these AMIs instead of the default Ubuntu map,
@@ -141,5 +147,5 @@ pki:
   # with --step-ca-client issuer=<name>,public-key-path=<path>,required=true.
   # step_ca_clients:
   #   - issuer: mark-macbook
-  #     public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+  #     public_key_path: /Users/mark/.config/bridgectl/certs/jwt-signing.pub
   #     required: true

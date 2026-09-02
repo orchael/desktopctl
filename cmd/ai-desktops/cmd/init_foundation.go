@@ -21,7 +21,8 @@ var initFoundationCmd = &cobra.Command{
 	Short: "Deploy shared AWS foundation resources (VPC, IAM, DNS, security groups)",
 	Long: `init-foundation deploys the foundation Pulumi stack that owns shared
 AWS resources: VPC/subnet, IAM instance profile, security group, Route53
-hosted zone integration, and the DynamoDB fleet table.
+hosted zone integration, the DynamoDB fleet table, and the DynamoDB AMI
+history table.
 
 The foundation stack must be initialized before any desktop can be created.
 Run with --preview to describe what would be applied without making changes.`,
@@ -62,7 +63,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
-	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "")
+	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 
 	fmt.Fprintf(os.Stderr, "Foundation environment : %s\n", env)
 	fmt.Fprintf(os.Stderr, "AWS region             : %s\n", cfg.AWS.Region)
@@ -98,9 +99,21 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Subnet ID        : %s\n", outputs[pulumi.OutputSubnetID])
 	fmt.Printf("Security Group ID: %s\n", outputs[pulumi.OutputSGID])
+	if outputs[pulumi.OutputEFSFileSystemID] != "" {
+		fmt.Printf("EFS File System  : %s\n", outputs[pulumi.OutputEFSFileSystemID])
+	}
+	if outputs[pulumi.OutputEFSSGID] != "" {
+		fmt.Printf("EFS SG ID        : %s\n", outputs[pulumi.OutputEFSSGID])
+	}
 	fmt.Printf("Instance Profile : %s\n", outputs[pulumi.OutputInstanceProfile])
 	fmt.Printf("Zone ID          : %s\n", outputs[pulumi.OutputZoneID])
 	fmt.Printf("Fleet Table      : %s\n", outputs[pulumi.OutputFleetTable])
+	if outputs[pulumi.OutputAMITable] != "" {
+		fmt.Printf("AMI Table        : %s\n", outputs[pulumi.OutputAMITable])
+	}
+	if outputs[pulumi.OutputOperatorSecret] != "" {
+		fmt.Printf("Operator Secret  : %s\n", outputs[pulumi.OutputOperatorSecret])
+	}
 	fmt.Println("Foundation stack applied.")
 	return nil
 }

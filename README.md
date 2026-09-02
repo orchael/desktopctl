@@ -7,7 +7,7 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
-Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `ai-agent-bridge` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
+Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
 
 ## Prerequisites
 
@@ -22,24 +22,35 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 
 The operator profile needs the following permissions:
 
+The foundation Pulumi stack can create a dedicated environment-specific IAM
+user, assumable role, access key, and Secrets Manager credential bundle for
+these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
+
 **Bootstrap (`bootstrap` command):**
-- `s3:CreateBucket`, `s3:HeadBucket`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
+- `s3:CreateBucket`, `s3:ListBucket` (for `HeadBucket` checks), `s3:GetBucketTagging`, `s3:PutBucketTagging`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
 - `dynamodb:CreateTable`, `dynamodb:DescribeTable`
 
 **Foundation (`init-foundation` command):**
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
-- `iam:CreateRole`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*` variants
+- `iam:CreateUser`, `iam:CreateAccessKey`, `iam:CreateRole`, `iam:PutUserPolicy`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*`/`Tag*` variants
 - `route53:GetHostedZone`, `route53:ListHostedZones`
+- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/ai-desktops/<env>/control-plane/aws-operator`
 - Full Pulumi S3 state backend access on the bootstrap bucket
 
 **Desktop lifecycle (`create`, `stop`, `start`, `terminate`):**
-- `ec2:RunInstances`, `ec2:StopInstances`, `ec2:StartInstances`, `ec2:TerminateInstances`, `ec2:DescribeInstances`
+- `ec2:RunInstances`, `ec2:StopInstances`, `ec2:StartInstances`, `ec2:TerminateInstances`, `ec2:DescribeInstances`, `ec2:ModifyInstanceAttribute`
 - `ec2:CreateTags`
+- `ec2:ImportKeyPair` when registering an EC2 key pair through `setup`
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
-- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`
+- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`, `dynamodb:DeleteItem`
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
 - `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/ai-desktops/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
 - `TAILSCALE_API_KEY` in the local environment, or in the `/ai-desktops/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
+
+**AMI build/list/delete (`ami` commands):**
+- `ec2:DescribeImages`, `ec2:DescribeSubnets`, `ec2:CreateImage`, `ec2:ModifyImageAttribute`, `ec2:DeregisterImage`, `ec2:DeleteSnapshot`
+- Packer also needs EC2 launch, tagging, stop, and terminate permissions for its build instance.
+- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:DeleteItem` on the AMI history table.
 
 **Tunnel access (`agent` command):**
 - `ssm:StartSession` with document `AWS-StartPortForwardingSession`
@@ -56,7 +67,7 @@ The foundation stack looks up the zone by domain name and exports the zone ID. I
 
 ### GitHub credentials
 
-Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI and write `/home/ubuntu/.npmrc` so the ubuntu user can install packages from GitHub Packages (e.g. `@<owner>/*` scoped packages).
+Repositories are cloned during desktop boot via SSH using a key retrieved from AWS Secrets Manager. The GitHub personal access token is also used to authenticate `gh` CLI. By default, npm scopes continue to resolve from npmjs; configure explicit GitHub Packages scopes only for desktops that need them.
 
 Recommended token scopes (required scopes are marked):
 
@@ -65,7 +76,7 @@ Recommended token scopes (required scopes are marked):
 | `admin:public_key` | Yes | Register SSH keys |
 | `repo` | Yes | Clone, push, PRs |
 | `read:user` | Yes | Identity |
-| `read:packages` | Yes | Install packages from GitHub Packages |
+| `read:packages` | Optional | Install packages from GitHub Packages when `github.npm_github_scopes` or `--npm-github-scope` is used |
 | `workflow` | Recommended | GitHub Actions |
 | `security_events` | Recommended | Code scanning, secret scanning |
 | `read:org` | Optional | `gh` CLI org features; missing scope produces a warning but auth continues |
@@ -88,6 +99,45 @@ Run `ai-desktops setup` to configure credentials. The wizard:
 Run `ai-desktops setup` before running `create`. It is safe to re-run — it prompts whether to rotate an existing token or SSH key.
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
+
+### Codex and Claude Code Agent Auth
+
+`ai-desktops setup` stores provider API keys in AWS Secrets Manager, but Codex ChatGPT auth and Claude Code long-lived OAuth tokens have their own local credential flows:
+
+- Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
+- Claude Code's `claude setup-token` command prints a long-lived `CLAUDE_CODE_OAUTH_TOKEN`; Anthropic's Claude Code docs state that command does not save the token, so copy it when it is printed.
+
+Use the helper script to merge these credentials into `/ai-desktops/<owner>/agents` without overwriting unrelated keys:
+
+```bash
+# Default owner is markcallen and default Codex auth path is ${CODEX_HOME:-$HOME/.codex}/auth.json.
+scripts/update-agent-auth.sh --region us-east-1
+
+# Equivalent explicit form for the markcallen agent secret:
+scripts/update-agent-auth.sh \
+  --owner markcallen \
+  --secret-id /ai-desktops/markcallen/agents \
+  --codex-auth-json ~/.codex/auth.json \
+  --region us-east-1
+```
+
+The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
+
+Existing desktops do not automatically re-fetch `/ai-desktops/<owner>/agents`; recreate the desktop or restart/reload the `bridgectl` user service after updating `/home/ubuntu/.config/bridgectl/agents.env` on the instance.
+
+### Desktop Secret Management
+
+Secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop.
+
+Manage those per-desktop secret references after creation with:
+
+```bash
+ai-desktops secrets add d-a1b2c3d4 /ai-desktops/myorg/app
+ai-desktops secrets reload d-a1b2c3d4
+ai-desktops secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
+```
+
+`secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
 
 ## Installation
 
@@ -236,6 +286,10 @@ fleet:
 github:
   owner: myorg
   github_secret: /ai-desktops/myorg/github
+  # Optional: only scopes listed here resolve from GitHub Packages.
+  # Leave unset so packages such as @myorg/package resolve from npmjs.
+  # npm_github_scopes:
+  #   - private-tools
 
 operator:
   # Operator-only CLI secret; not needed by desktop cloud-init.
@@ -283,7 +337,7 @@ Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, e
 ai-desktops init-foundation
 ```
 
-Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, and looks up the Route53 zone.
+Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, environment-specific control-plane IAM credentials in Secrets Manager, and looks up the Route53 zone.
 
 Preview without applying:
 
@@ -329,7 +383,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-ai_agent_bridge_version = "v0.9.0"
+bridgectl_version       = "v1.0.1"
 tailscale_version       = "1.98.9"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
@@ -345,6 +399,14 @@ The following variables are **injected automatically** by the CLI and must not b
 | `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` environment variable |
 
 #### Build the AMI
+
+The foundation stack must already be applied for the configured environment and
+AWS control region because `ami build` records AMI history in the foundation
+DynamoDB AMI history table:
+
+```bash
+ai-desktops init-foundation
+```
 
 ```bash
 export GITHUB_NPM_TOKEN=ghp_...
@@ -379,7 +441,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
-- `ai-agent-bridge` (version from `ai_agent_bridge_version` var)
+- `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
 - Android Studio (via snap)
@@ -418,6 +480,61 @@ Override the root volume size (default 100 GiB):
 ai-desktops create --repo myorg/my-app --volume-size 200
 ```
 
+Name a desktop for easier operator workflows:
+
+```bash
+ai-desktops create --name orchael-factory-dev --repo myorg/my-app
+```
+
+By default `/workspace` lives on the desktop root EBS volume and is deleted when
+the desktop is terminated. To retain `/workspace` across desktop replacement,
+create an EFS-backed workspace first, then attach it during desktop creation:
+
+```bash
+ai-desktops workspace create \
+  --name orchael-factory-dev \
+  --github-owner myorg \
+  --repo myorg/my-app
+
+ai-desktops create \
+  --name orchael-factory-dev \
+  --github-owner myorg \
+  --workspace-mode efs \
+  --workspace-name orchael-factory-dev \
+  --repo myorg/my-app
+```
+
+Each environment has one shared encrypted EFS file system with AWS Backup
+enabled by default. Named workspaces are isolated with EFS access points. A
+workspace can be attached to only one non-terminated desktop at a time; stopped
+desktops keep the attachment lock. `terminate` releases the lock but always
+retains the EFS workspace until `ai-desktops workspace delete <name>` is run.
+To change the repo set for a retained workspace, first detach or terminate the
+desktop, then update the workspace metadata:
+
+```bash
+ai-desktops workspace add-repo orchael-factory-dev --repo myorg/new-service
+ai-desktops workspace remove-repo orchael-factory-dev --repo myorg/old-service
+```
+
+Removing a repo from workspace metadata does not delete any existing directory
+or files from EFS. The updated repo set is enforced on the next
+`ai-desktops create --workspace-mode efs` call.
+
+npm scoped packages resolve from npmjs unless a scope is explicitly configured
+for GitHub Packages. Use `github.npm_github_scopes` in config for a default, or
+pass a scope for a single desktop:
+
+```bash
+ai-desktops create --repo myorg/my-app --npm-github-scope @private-tools
+```
+
+To ignore configured GitHub Packages scopes for one desktop:
+
+```bash
+ai-desktops create --repo myorg/my-app --no-npm-github-scopes
+```
+
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
 - Creates a DynamoDB record in state `creating`
 - Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
@@ -429,6 +546,8 @@ ai-desktops create --repo myorg/my-app --volume-size 200
 ai-desktops list
 ai-desktops list --all
 ai-desktops status d-a1b2c3d4
+ai-desktops workspace list
+ai-desktops workspace status orchael-factory-dev
 ```
 
 `list` hides terminated desktop records by default. Use `list --all` to include them.
@@ -534,7 +653,7 @@ Desktops join Tailscale with Tailscale SSH enabled. The tailnet policy must stil
 
 Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
 
-When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port. Tailscale-only desktops keep the safer localhost-only listener.
+When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port, and `server.san` includes the desktop's Tailscale DNS name. Tailscale-only desktops keep the safer localhost-only listener.
 
 Remote `bridgectl` clients also need JWT trust in addition to Step CA client certificates. Add known clients in config under `pki.step_ca_clients`, or pass them at create time:
 
@@ -542,17 +661,17 @@ Remote `bridgectl` clients also need JWT trust in addition to Step CA client cer
 pki:
   step_ca_clients:
     - issuer: mark-macbook
-      public_key_path: /Users/mark/.ai-agent-bridge/certs/jwt-signing.pub
+      public_key_path: /Users/mark/.config/bridgectl/certs/jwt-signing.pub
       required: true
 ```
 
 ```bash
 ai-desktops create \
   --step-ca ca.my-tailnet.ts.net \
-  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.ai-agent-bridge/certs/jwt-signing.pub,required=true
+  --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.config/bridgectl/certs/jwt-signing.pub,required=true
 ```
 
-The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.ai-agent-bridge/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
+The CLI reads each public key locally during `create`, copies it to `/home/ubuntu/.config/bridgectl/certs/jwt-clients/<issuer>.pub`, and adds a matching `step_ca.clients` entry to `/home/ubuntu/.config/bridgectl/config.yaml`. Do not provide a JWT private key.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -671,7 +790,8 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 ## Known limitations
 
 - **Elementary/Pantheon reliability**: The `novnc-desktop` elementary AMI runs Pantheon on Ubuntu 24.04. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
-- **Root EBS persistence**: Workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating.
+- **Root EBS persistence**: By default, workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating local-workspace desktops.
+- **EFS workspace retention**: EFS workspaces are opt-in with `--workspace-mode efs`. They survive desktop termination and must be deleted explicitly with `ai-desktops workspace delete <name>`.
 - **Hibernation requires new desktops**: Hibernation is configured at launch time and cannot be retrofitted onto existing instances. Running `ai-desktops stop` on a desktop created before this change will fail because the instance was not launched with hibernation enabled. Recreate the desktop with `ai-desktops terminate` followed by `ai-desktops create`.
 - **Failed desktops left running**: If `terminate` fails mid-way, the EC2 instance is intentionally left running so you can SSH in to diagnose. Clean up manually with `aws ec2 terminate-instances` and `pulumi destroy` from `infra/pulumi/desktop/`.
 - **Single availability zone**: Desktops land in the first public subnet from the foundation stack. Multi-AZ placement is not yet supported.
@@ -694,7 +814,7 @@ internal/
       desktop-setup/      Verifies tools, installs Homebrew, configures SSH
   health/                 Readiness checkers (TCP, HTTPS, custom)
   tunnel/                 SSM and SSH tunnel command builders
-  agent/                  Typed HTTP client for ai-agent-bridge
+  agent/                  Typed HTTP client for bridgectl
   version/                Version string (overridable via ldflags)
 infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)

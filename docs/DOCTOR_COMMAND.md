@@ -67,6 +67,7 @@ Only runs when the desktop was created with Tailscale enabled by `--tailscale` o
 - **tailscale-running** — Tailscale backend state is Running
 - **tailscale-network-metadata** — requested network name was recorded on the desktop
 - **bridgectl-tailscale-listener** — when step-ca is also configured, bridgectl is bound on the desktop's Tailscale IPv4 address and bridge port; skipped for Tailscale-only desktops
+- **bridgectl-tailscale-san** — when step-ca is also configured, the desktop's Tailscale DNS name is present in both bridgectl `server.san` and the issued bridge TLS certificate; skipped for Tailscale-only desktops
 
 ### step-ca (Optional)
 

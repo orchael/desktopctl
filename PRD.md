@@ -37,7 +37,7 @@ Generic VMs solve only part of the problem. A useful AI coding desktop needs:
 2. Make desktop creation operator-driven through a CLI-first workflow.
 3. Provide browser-based desktop access by default, with SSH available for debugging and recovery.
 4. Standardize each desktop on the `novnc-desktop` substrate using the Elementary desktop environment.
-5. Install and configure `ai-agent-bridge` on every desktop so AI agents can be launched and supervised in a consistent way.
+5. Install and configure `bridgectl` on every desktop so AI agents can be launched and supervised in a consistent way.
 6. Ensure every desktop includes the baseline developer toolchain: `git`, `docker`, `nvim`, and `tmux`.
 7. Support multiple repositories per desktop, with the constraint that all repos on a given desktop must belong to the same GitHub organization or the same personal account.
 8. Preserve desktop state across stop/start lifecycle operations.
@@ -79,24 +79,28 @@ Each managed desktop includes:
 - `novnc-desktop` configured with the `elementary` desktop type
 - browser-accessible desktop access via noVNC over HTTPS
 - SSH access for debugging
-- `ai-agent-bridge` for agent runtime management
+- `bridgectl` for agent runtime management
 - local developer tooling (`git`, `docker`, `nvim`, `tmux`)
-- one persistent workspace that may contain multiple repositories from a single GitHub owner
+- one workspace mounted at `/workspace`, either on the desktop's root EBS volume or on an optional separately managed EFS workspace
+- a human-readable desktop name for operator workflows, in addition to the generated fleet identifier
 
-The desktop is the unit of management. A desktop may be stopped and later resumed with its state intact.
+The desktop is the unit of compute management. A desktop may be stopped and later resumed with its
+state intact. When EFS workspace mode is used, workspace storage is a separately named resource with
+its own lifecycle and may survive desktop termination.
 
 ---
 
 ## Operator Workflow
 
 1. The operator invokes an `ai-desktops` CLI command to create a new desktop.
-2. The CLI accepts the desktop profile, target GitHub owner, and optional repository list to clone into the workspace.
-3. The system provisions a remote host and configures it with `novnc-desktop`, `ai-agent-bridge`, and the standard toolchain.
+2. The CLI accepts the desktop profile, target GitHub owner, optional repository list to clone into the workspace, and optional desktop/workspace names.
+3. The system provisions a remote host and configures it with `novnc-desktop`, `bridgectl`, and the standard toolchain.
 4. The system returns the desktop identifier, browser access URL, and SSH connection details.
 5. The operator opens the browser URL to access the desktop and may use SSH for debugging when needed.
 6. The operator uses the desktop to run AI coding agents and work against one or more repositories in the allowed owner scope.
 7. The operator can stop the desktop while preserving state, then start it again later.
 8. The operator can terminate the desktop when it is no longer needed.
+9. If the desktop was attached to an EFS workspace, the operator can create a replacement desktop and attach the same named workspace after the prior desktop releases it.
 
 ---
 
@@ -113,6 +117,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-1.5 | Terminating a desktop must permanently destroy its compute resources and attached state. |
 | FR-1.6 | Fleet listing must hide terminated desktop records by default while allowing operators to include them explicitly. |
 | FR-1.7 | Operators must be able to preview and purge terminated desktop records from fleet metadata. |
+| FR-1.8 | Desktops must support an optional human-readable name that is unique within the selected environment. |
 
 **Acceptance criteria:**
 
@@ -129,6 +134,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-1.9 | `ai-desktops list --all` includes terminated desktop records | Unit and manual CLI verification |
 | AC-1.10 | `ai-desktops purge --dry-run` previews terminated records without deleting them | Unit and manual CLI verification |
 | AC-1.11 | `ai-desktops purge` deletes terminated records and reports the number deleted | Unit and manual CLI verification |
+| AC-1.12 | `ai-desktops create --name orchael-factory-dev --preview` records and displays the requested desktop name without changing the generated `desktop_id` contract | Unit and manual CLI verification |
 
 ### FR-2 — Desktop access
 
@@ -170,18 +176,18 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 
 | ID | Requirement |
 | --- | --- |
-| FR-4.1 | Every desktop must install and configure `ai-agent-bridge`. |
-| FR-4.2 | `ai-agent-bridge` must be the standard mechanism for launching and supervising AI agent processes on a desktop. |
+| FR-4.1 | Every desktop must install and configure `bridgectl`. |
+| FR-4.2 | `bridgectl` must be the standard mechanism for launching and supervising AI agent processes on a desktop. |
 | FR-4.3 | The managed desktop environment must support at least Codex, Claude, and Gemini as intended bridge-managed agent providers. |
 | FR-4.4 | The fleet manager must surface enough connection or status information for the operator to verify that the bridge is running on the desktop. |
-| FR-4.5 | The fleet manager must support remote agent control by creating an authenticated tunnel from the operator machine to the desktop-local `ai-agent-bridge` endpoint. |
-| FR-4.6 | `ai-agent-bridge` must not be exposed directly to the public internet in v1. |
+| FR-4.5 | The fleet manager must support remote agent control by creating an authenticated tunnel from the operator machine to the desktop-local `bridgectl` endpoint. |
+| FR-4.6 | `bridgectl` must not be exposed directly to the public internet in v1. |
 
 **Acceptance criteria:**
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-4.1 | `systemctl is-active ai-agent-bridge` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
+| AC-4.1 | `systemctl --user is-active bridgectl` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
 | AC-4.2 | Bridge listens on `127.0.0.1:9445`, not `0.0.0.0:9445` | `TestFR4_BridgeLocalhostOnly` |
 | AC-4.3 | `ai-desktops agent <id> status` completes without error | `TestFR4_AgentStatusCommand` |
 | AC-4.4 | `ai-desktops agent <id> providers` output includes codex, claude, and gemini | `TestFR4_AgentProvidersCommand` |
@@ -216,6 +222,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-6.3 | Desktop creation must require the caller to specify the GitHub owner boundary for that desktop. |
 | FR-6.4 | The system must reject attempts to attach or clone repositories from a different owner into an existing desktop-managed workspace. |
 | FR-6.5 | Automatic checkout into a standard workspace location must be supported during desktop creation when repositories are provided. |
+| FR-6.6 | Multiple named workspaces may exist for the same GitHub owner and repository set so an operator can maintain independent states, for example `orchael-factory-dev` and `orchael-factory-update`. |
 
 **Acceptance criteria:**
 
@@ -227,6 +234,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-6.4 | `create --preview` with repos from two different owners exits non-zero with an error | `TestFR6_MixedOwnerRejected` |
 | AC-6.5 | `create --preview` with a non-GitHub repo URL exits non-zero | `TestFR6_NonGitHubRepoRejected` |
 | AC-6.6 | `create` without `--github-owner` exits non-zero | `TestFR1_CreateRejectsWithoutOwner` |
+| AC-6.7 | Two EFS workspaces with the same GitHub owner and repo list can be created under different workspace names and report distinct attachment state | Unit and live acceptance |
 
 ### FR-7 — Persistence
 
@@ -240,6 +248,9 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-7.6 | An operator may resize an existing on-demand desktop to a different EC2 instance type while preserving its root EBS volume and fleet identity. |
 | FR-7.7 | Resize operations must power-stop the instance before changing instance type; RAM hibernation state is not preserved during resize. |
 | FR-7.8 | Resize must reject incompatible nested-virtualization target instance families and Spot desktops until Spot resize semantics are explicitly supported. |
+| FR-7.9 | The default workspace storage mode must remain local root EBS at `/workspace`; EFS-backed `/workspace` must be opt-in. |
+| FR-7.10 | When a desktop is created with an EFS workspace, `/workspace` must be mounted from the selected EFS access point or directory before repository checkout and readiness checks run. |
+| FR-7.11 | Terminating a desktop attached to an EFS workspace must destroy desktop compute resources without deleting the separately managed EFS file system or workspace directory unless the operator explicitly requests workspace deletion. |
 
 **Acceptance criteria:**
 
@@ -252,6 +263,8 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-7.5 | `ai-desktops create --volume-size <n>` launches an instance with a root volume of the specified size | Manual CLI verification |
 | AC-7.6 | `ai-desktops resize --help` exits 0 and describes `--instance-type` | Unit/smoke help verification |
 | AC-7.7 | Resize validation rejects empty, unchanged, Spot, and nested-virtualization-incompatible target instance types | Unit tests |
+| AC-7.8 | `ai-desktops create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |
+| AC-7.9 | `ai-desktops create --workspace-mode efs --workspace-name orchael-factory-dev --preview` configures `/workspace` as an EFS mount and preserves the named workspace after desktop termination | Unit and live acceptance |
 
 ### FR-8 — External access posture
 
@@ -271,7 +284,7 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `ai-agent-bridge` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 
@@ -316,6 +329,39 @@ The desktop is the unit of management. A desktop may be stopped and later resume
 | AC-11.10 | `gh api /repos/OWNER/REPO/secret-scanning/alerts?state=open\&per_page=1` exits 0 or returns HTTP 403 | `TestFR11_SecretScanningAPIReachable` |
 | AC-11.11 | `gh api /repos/OWNER/REPO/branches/main/protection` exits 0 or returns HTTP 403 | `TestFR11_BranchProtectionAPIReachable` |
 | AC-11.12 | `git push --dry-run` succeeds against the cloned workspace repo without credential prompts | `TestFR11_GitPushCredentials` |
+
+### FR-12 — EFS-backed workspaces
+
+| ID | Requirement |
+| --- | --- |
+| FR-12.1 | The system must support separately managed AWS EFS workspaces that can be created, listed, inspected, and deleted independently from desktop EC2 instances. |
+| FR-12.2 | EFS workspaces must have stable operator-provided names that are unique within an environment and GitHub owner boundary. |
+| FR-12.3 | A desktop may attach one existing EFS workspace as `/workspace` during create. |
+| FR-12.4 | The system must reject attaching an EFS workspace that is already attached to another non-terminated desktop. |
+| FR-12.5 | The system must record EFS workspace metadata, including workspace name, storage mode, file system ID, access point ID or directory path, GitHub owner, repository list, attachment desktop ID, attachment state, created time, and updated time. |
+| FR-12.6 | EFS workspace detach must occur on desktop stop or terminate only after the desktop no longer has active compute using the mount. |
+| FR-12.7 | EFS workspace deletion must require an explicit command and must fail while the workspace is attached to any active desktop. |
+| FR-12.8 | Existing local `/workspace` behavior must continue to work without requiring EFS permissions, EFS configuration, or workspace-management commands. |
+| FR-12.9 | The system must create one shared encrypted EFS file system per environment, for example one for `dev`, with each named workspace isolated by an access point or directory under that file system. |
+| FR-12.10 | EFS workspaces must be bound to the GitHub owner and current exact repository set recorded in workspace metadata. |
+| FR-12.11 | EFS workspace resources must be provisioned immediately during `workspace create`, not deferred until the first desktop attach. |
+| FR-12.12 | AWS Backup must be enabled by default for the shared environment EFS file system. |
+| FR-12.13 | EFS workspace repo membership may be changed only while the workspace is detached; add/remove commands must fail while any desktop holds the attachment lock. |
+| FR-12.14 | Removing a repo from EFS workspace metadata must not delete the existing checkout directory or files from the retained EFS workspace. |
+
+**Acceptance criteria:**
+
+| ID | Criterion | Integration test |
+| --- | --- | --- |
+| AC-12.1 | `ai-desktops workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/ai-desktops --json` returns a workspace record with `workspace_mode=efs` and no attached desktop | New unit and live acceptance |
+| AC-12.2 | `ai-desktops create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --json` returns a ready desktop whose `workspace_path` is `/workspace` and whose metadata references the EFS workspace | New unit and live acceptance |
+| AC-12.3 | A second `create` against the same attached EFS workspace fails before provisioning a new EC2 instance | New unit test |
+| AC-12.4 | After terminating an EFS-backed desktop, the workspace record remains listable and can be attached to a replacement desktop | Live acceptance |
+| AC-12.5 | Deleting an attached EFS workspace fails with a clear error; deleting a detached EFS workspace requires an explicit workspace delete command | Unit and manual CLI verification |
+| AC-12.6 | Two EFS workspaces for the same repo set, for example `orchael-factory-dev` and `orchael-factory-update`, remain isolated and attach independently | Live acceptance |
+| AC-12.7 | Foundation provisioning creates or verifies one encrypted EFS file system for the selected environment and enables AWS Backup by default | Infrastructure review and live acceptance |
+| AC-12.8 | `workspace create` provisions the workspace access point or directory immediately and rejects later attachment with a different repo set | Unit and live acceptance |
+| AC-12.9 | `workspace add-repo` and `workspace remove-repo` update the repo fingerprint for detached workspaces and fail clearly for attached workspaces | Unit and manual CLI verification |
 
 ---
 
@@ -372,8 +418,8 @@ The MVP includes:
 - browser access via `novnc-desktop`
 - `elementary` desktop environment
 - SSH debugging access
-- `ai-agent-bridge` installation and runtime enablement
-- remote agent control through a CLI-managed tunnel to `ai-agent-bridge`
+- `bridgectl` installation and runtime enablement
+- remote agent control through a CLI-managed tunnel to `bridgectl`
 - baseline toolchain installation: `git`, `docker`, `nvim`, `tmux`
 - multi-repo workspace support under a single GitHub owner boundary
 
@@ -402,12 +448,13 @@ If any of these assumptions are wrong, the PRD should be updated before implemen
 1. An operator can run a CLI command to create a new desktop and receives a desktop ID, browser URL, and SSH connection details.
 2. The created desktop is reachable in a browser through the `novnc-desktop` interface using the Elementary desktop environment.
 3. The created desktop has `git`, `docker`, `nvim`, and `tmux` installed and usable.
-4. `ai-agent-bridge` is installed, running, and available as the desktop’s standard agent runtime.
-5. The operator can control a desktop's AI agents remotely through a CLI-managed tunnel to `ai-agent-bridge`.
+4. `bridgectl` is installed, running, and available as the desktop’s standard agent runtime.
+5. The operator can control a desktop's AI agents remotely through a CLI-managed tunnel to `bridgectl`.
 6. A desktop can be created with multiple repositories checked out into its workspace when all repositories belong to the same GitHub organization or personal account.
 7. A request that mixes repositories from different GitHub owners is rejected before the desktop is reported ready.
 8. After stopping and restarting a desktop, the workspace contents and prior desktop state remain present.
-9. After terminating a desktop, the desktop and its persisted state are no longer recoverable through normal lifecycle operations.
+9. After terminating a default local-workspace desktop, the desktop and its persisted state are no longer recoverable through normal lifecycle operations.
+10. After terminating an EFS-backed desktop, the desktop compute is removed and the named EFS workspace remains recoverable until explicitly deleted.
 
 ---
 
@@ -417,9 +464,23 @@ The following items are likely to cause implementation churn or security gaps if
 
 ### State ownership
 
-The PRD requires persistent desktops, but persistence must be defined at the infrastructure layer. The v1 architecture treats the EC2 instance plus its root EBS volume as the persisted desktop unit. Stop hibernates the instance, saving RAM to the encrypted root volume; start resumes it. Terminate destroys the instance and volume unless snapshot support is explicitly added later.
+The PRD requires persistent desktops, but persistence must be defined at the infrastructure layer.
+The default architecture treats the EC2 instance plus its root EBS volume as the persisted desktop
+unit. Stop hibernates the instance, saving RAM to the encrypted root volume; start resumes it.
+Terminate destroys the instance and volume unless snapshot support is explicitly added later.
 
 EC2 hibernation requires two immutable launch-time settings: `Hibernation: true` and an encrypted root EBS volume. These cannot be enabled on existing instances. The desktop Pulumi stack sets both unconditionally. Operators must recreate existing desktops to gain hibernation support.
+
+EFS workspace mode deliberately splits workspace persistence from desktop compute persistence. In
+that mode, `/workspace` is backed by a separately managed EFS file system access point or directory,
+and termination removes compute while leaving the named workspace intact. RAM, GUI session state,
+system packages, Docker layers outside `/workspace`, and files outside `/workspace` still belong to
+the desktop instance lifecycle unless another persistence mechanism is added.
+
+The EFS storage topology is one encrypted file system per environment, with named workspaces isolated
+under that file system. Workspace creation provisions the backing access point or directory
+immediately, binds it to the requested GitHub owner and exact repo set, and enables AWS Backup for the
+environment EFS file system by default.
 
 ### Pulumi backend bootstrap
 
@@ -433,6 +494,11 @@ One large infrastructure state for the full fleet will make individual desktop l
 
 Pulumi state should remain the source of truth for cloud resources, but it is not the right query layer for fast fleet listing, workflow state, or failed-provisioning diagnostics. The implementation should use DynamoDB as the fleet metadata store for desktop records, lifecycle state, hostnames, owner boundaries, and last readiness results.
 
+EFS workspace attachment state must also be queryable outside Pulumi state so `create` can reject
+double attachment before provisioning EC2 resources. The attachment record should be updated
+transactionally with desktop lifecycle transitions where possible, and reconciliation commands should
+be able to clear stale attachments after failed provisioning or manual AWS cleanup.
+
 ### DNS and TLS
 
 v1 requires Route53-backed DNS. Production desktops use `desktops.orchael.com`; local and development desktops use `desktops.orchael.dev`. Per-desktop hostnames should be created under the selected zone.
@@ -443,7 +509,11 @@ The PRD says external-user access must remain possible but does not define v1 au
 
 ### Secrets and provider credentials
 
-`ai-agent-bridge` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
+`bridgectl` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
+
+The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
+
+Operators must also be able to manage per-desktop injected secret references after creation. Adding a secret path should validate that the AWS Secrets Manager secret exists, inject all configured desktop secrets, and persist the updated fleet metadata. Removing a secret path should rewrite the desktop environment files without the removed secret, clear those files when no configured secrets remain, and persist the updated fleet metadata. Reloading should re-fetch the currently configured fleet secret list without changing it.
 
 ### Repository authentication
 
@@ -451,11 +521,11 @@ Repo cloning requires GitHub credentials. v1 uses a fine-scoped GitHub PAT store
 
 ### Remote agent control
 
-The operator needs remote control of agents running inside each desktop. v1 should keep `ai-agent-bridge` bound to localhost on the desktop and create a short-lived SSH or AWS SSM port-forward from the operator machine when remote control is requested. A private-network bridge endpoint with mTLS can be added later if a long-running control plane needs direct access.
+The operator needs remote control of agents running inside each desktop. v1 should keep `bridgectl` bound to localhost on the desktop and create a short-lived SSH or AWS SSM port-forward from the operator machine when remote control is requested. A private-network bridge endpoint with mTLS can be added later if a long-running control plane needs direct access.
 
 ### Desktop readiness
 
-The PRD says the desktop is reported ready after provisioning, but readiness must be concrete. v1 readiness should require SSH reachable, HTTPS noVNC reachable, `novnc-auth` token generation working, Docker active, `ai-agent-bridge` active, and the requested repositories present under the workspace.
+The PRD says the desktop is reported ready after provisioning, but readiness must be concrete. v1 readiness should require SSH reachable, HTTPS noVNC reachable, `novnc-auth` token generation working, Docker active, `bridgectl` active, and the requested repositories present under the workspace.
 
 ### Elementary support
 
@@ -474,7 +544,7 @@ desktop creation. This reduces boot time and removes package-install failures fr
 The `ai-desktops ami build` command invokes Packer to build one or more regions sequentially.
 Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
 `config.yaml`. The baked image includes the baseline development toolchain, `novnc-desktop`, and
-`ai-agent-bridge`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
+`bridgectl`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
 certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and repository cloning. Additional desktop applications such as `ai-agent-browser` and
 `android-emulator-webapp` can be added to the image when they become required by a shipped workflow.
 

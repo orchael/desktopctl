@@ -16,9 +16,10 @@
     "testing"
   ],
   "skills": [
-    "github-health-check"
+    "github-health-check",
+    "github-pr-copilot-cycle"
   ],
-  "ballastVersion": "5.11.0",
+  "ballastVersion": "5.16.5",
   "languages": [
     "typescript",
     "go",
@@ -35,8 +36,25 @@
       "infra/pulumi/foundation"
     ],
     "typescript": [
+      "apps/desktop-web/server",
       "apps/desktop-web"
     ]
   },
-  "taskSystem": "github"
+  "tools": {
+    "ansible": [
+      "ansible-lint",
+      "molecule"
+    ],
+    "go": [
+      "go",
+      "gofumpt",
+      "golangci-lint"
+    ],
+    "typescript": [
+      "pnpm",
+      "corepack"
+    ]
+  },
+  "taskSystem": "github",
+  "deploymentModel": "none"
 }

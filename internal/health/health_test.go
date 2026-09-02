@@ -138,7 +138,7 @@ func TestSystemCheckers_returnsCheckers(t *testing.T) {
 }
 
 func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
-	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "")
+	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "")
 	if len(checkers) == 0 {
 		t.Error("WorkspaceCheckers must return at least one checker")
 	}
@@ -146,6 +146,19 @@ func TestWorkspaceCheckers_returnsCheckers(t *testing.T) {
 		if c.Name() == "" {
 			t.Error("checker must have a name")
 		}
+	}
+}
+
+func TestWorkspaceCheckers_efsModeAddsMountCheck(t *testing.T) {
+	checkers := WorkspaceCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", "efs")
+	found := false
+	for _, c := range checkers {
+		if c.Name() == "workspace-efs-mounted" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("EFS workspace mode should add workspace-efs-mounted check")
 	}
 }
 
@@ -352,7 +365,7 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 	for _, c := range checkers {
 		names[c.Name()] = true
 	}
-	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener"} {
+	for _, n := range []string{"tailscale-installed", "tailscaled-active", "tailscale-running", "tailscale-network-metadata", "bridgectl-tailscale-listener", "bridgectl-tailscale-san"} {
 		if !names[n] {
 			t.Errorf("TailscaleCheckers missing expected checker %q", n)
 		}
@@ -362,6 +375,18 @@ func TestTailscaleCheckers_returnsExpectedChecks(t *testing.T) {
 	}
 	if !checkerCommandContains(checkers, "bridgectl-tailscale-listener", `listen: ${TAILSCALE_IP}:9445`) {
 		t.Error("bridgectl-tailscale-listener should accept unquoted YAML listener values")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `server') or {}).get('san')`) {
+		t.Error("bridgectl-tailscale-san should verify server.san in config")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `openssl x509`) {
+		t.Error("bridgectl-tailscale-san should verify the issued certificate SAN")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `entries=[part.strip()`) {
+		t.Error("bridgectl-tailscale-san should parse certificate SAN entries")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-tailscale-san", `want in entries`) {
+		t.Error("bridgectl-tailscale-san should require an exact certificate SAN match")
 	}
 }
 

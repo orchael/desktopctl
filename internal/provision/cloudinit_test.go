@@ -39,15 +39,62 @@ func TestRenderCloudInit(t *testing.T) {
 		"/ai-desktops/acme/github",
 		"us-east-1",
 		"bridgectl",
+		`config["cert_renewal_check_interval"] = "10m"`,
 		"docker",
 		"tmux",
 		"certbot",
 		"dns-route53",
 		"d-001.desktops.orchael.dev",
-		"npm.pkg.github.com",
-		"/home/ubuntu/.npmrc",
 		"/home/ubuntu/.config/gh/hosts.yml",
 		"gh auth setup-git --hostname github.com",
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+}
+
+func TestRenderCloudInit_noNPMRCByDefault(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-npm-default",
+		Hostname:         "d-npm-default.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	if strings.Contains(out, "/home/ubuntu/.npmrc") {
+		t.Fatal("cloud-init should not write a user-level .npmrc when no GitHub Packages scopes are configured")
+	}
+	if strings.Contains(out, "@acme:registry=https://npm.pkg.github.com") {
+		t.Fatal("cloud-init should not map the GitHub owner scope to GitHub Packages implicitly")
+	}
+}
+
+func TestRenderCloudInit_npmGitHubScopes(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-npm-scopes",
+		Hostname:         "d-npm-scopes.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		NPMGitHubScopes:  []string{"@private-tools", "acme"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		"/home/ubuntu/.npmrc",
+		"@acme:registry=https://npm.pkg.github.com",
+		"@private-tools:registry=https://npm.pkg.github.com",
+		"//npm.pkg.github.com/:_authToken=%s",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -76,6 +123,51 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_efsWorkspace(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-efs",
+		Hostname:         "d-efs.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		WorkspacePath:    "/workspace",
+		WorkspaceMode:    "efs",
+		WorkspaceName:    "factory-dev",
+		EFSFileSystemID:  "fs-123",
+		EFSAccessPointID: "fsap-123",
+		Repos:            []string{"github.com/acme/repo"},
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`EFS_FILE_SYSTEM_ID="fs-123"`,
+		`EFS_ACCESS_POINT_ID="fsap-123"`,
+		`if ! command -v mount.efs >/dev/null 2>&1; then`,
+		`apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils`,
+		`ERROR: EFS workspace mode requires amazon-efs-utils mount.efs`,
+		`mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"`,
+		`_netdev,tls,accesspoint=%s`,
+		`refusing to clone repositories onto local disk`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered output missing %q", want)
+		}
+	}
+	for _, reject := range []string{
+		`amazon-efs-utils || true`,
+		`mount -t nfs4`,
+		`nfs4 _netdev`,
+	} {
+		if strings.Contains(out, reject) {
+			t.Errorf("rendered output should not contain %q", reject)
+		}
+	}
+}
+
 func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-003",
@@ -94,6 +186,82 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 	// token should appear.
 	if strings.Contains(out, "ghp_") {
 		t.Error("rendered cloud-init must not contain a literal GitHub PAT")
+	}
+}
+
+func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-gh",
+		Hostname:         "d-gh.desktops.orchael.dev",
+		GitHubOwner:      "repo-org",
+		GitHubSecretPath: "/ai-desktops/repo-org/github",
+		AWSRegion:        "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`if ! GITHUB_LOGIN=$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login); then`,
+		`ERROR: could not resolve GitHub login from token`,
+		`if [ -z "$GITHUB_LOGIN" ]; then`,
+		`ERROR: GitHub token resolved to an empty login`,
+		`printf '    user: %s\n' "$GITHUB_LOGIN"`,
+		`printf '    users:\n'`,
+		`printf '        %s:\n' "$GITHUB_LOGIN"`,
+		`printf '            oauth_token: %s\n' "$GITHUB_TOKEN"`,
+		`printf '%s\n' '#!/bin/sh'`,
+		`printf '%s\n' 'real_gh=/usr/bin/gh'`,
+		`unset GH_TOKEN GITHUB_TOKEN`,
+		`exec "$real_gh" "$@"`,
+		`unset GITHUB_LOGIN`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered GitHub auth block missing %q", want)
+		}
+	}
+
+	if strings.Contains(out, `printf '    user: %s\n' "$OWNER"`) {
+		t.Error("gh hosts.yml must use the token login, not the repository owner")
+	}
+	if strings.Contains(out, `OWNER="{{ .GitHubOwner }}"`) {
+		t.Error("rendered GitHub auth block should not assign GitHubOwner as gh account owner")
+	}
+	if strings.Contains(out, `! "$real_gh" auth status`) {
+		t.Error("gh wrapper should not allow valid-but-wrong inherited tokens to shadow persisted auth")
+	}
+}
+
+func TestRenderCloudInit_bridgectlClearsGitHubTokenOverrides(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:        "d-gh-env",
+		Hostname:         "d-gh-env.desktops.orchael.dev",
+		GitHubOwner:      "acme",
+		GitHubSecretPath: "/ai-desktops/acme/github",
+		AWSRegion:        "us-east-1",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	checks := []string{
+		`default_config = {`,
+		`"providers": {`,
+		`os.makedirs(os.path.dirname(path), exist_ok=True)`,
+		`config = default_config`,
+		`bridgectl.service.d/github-auth.conf`,
+		`UnsetEnvironment=GH_TOKEN GITHUB_TOKEN`,
+		`Environment=PATH=/home/ubuntu/.local/bin:`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered bridgectl service setup missing %q", want)
+		}
 	}
 }
 
@@ -264,9 +432,15 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		"TAILSCALE_IP=$(tailscale ip -4 | head -n 1)",
 		"server[\"listen\"]",
 		"\"$TAILSCALE_IP:9445\"",
-		"/home/ubuntu/.ai-agent-bridge/certs/jwt-clients",
+		"/home/ubuntu/.config/bridgectl/certs/jwt-clients",
 		"mark-macbook.pub",
 		"STEP_CA_CLIENTS_JSON_B64",
+		"\"d-ca.desktops.orchael.dev\" \"$CERT_NAME\" \"$TAILSCALE_DNS_NAME\"",
+		"server_config = config.setdefault(\"server\", {})",
+		"existing_sans = server_config.get(\"san\") or []",
+		"if isinstance(existing_sans, str):",
+		"sans = [name for name in [hostname, cert_name, tailscale_dns_name] if name]",
+		"server_config[\"san\"] = list(dict.fromkeys([*existing_sans, *sans]))",
 		"step_ca_config[\"clients\"]",
 		"step_ca_config[\"provisioner\"] = provisioner",
 		"step_ca_config[\"provisioner_password_file\"] = provisioner_password_file",
@@ -319,7 +493,7 @@ func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
 		"ERROR: fuser is required to wait for apt/dpkg locks",
 		"DPkg::Lock::Timeout",
 		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}\"",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"bridgectl=${EXPECTED_BRIDGE_VERSION}\"",
 		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
 	}
 	for _, want := range checks {
@@ -384,15 +558,15 @@ func TestRenderCloudInit_versionPins(t *testing.T) {
 	}
 	// Cloud-init verifies the AMI's baked package and corrects drift to the
 	// exact version expected by the CLI.
-	wantVersion := strings.TrimPrefix(AIAgentBridgeVersion, "v")
+	wantVersion := strings.TrimPrefix(BridgectlVersion, "v")
 	if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="`+wantVersion+`"`) {
 		t.Errorf("cloud-init should include expected bridge package version %s", wantVersion)
 	}
-	if !strings.Contains(out, `"ai-agent-bridge=${EXPECTED_BRIDGE_VERSION}"`) {
-		t.Error("cloud-init should install the exact ai-agent-bridge package version when the AMI drifts")
+	if !strings.Contains(out, `"bridgectl=${EXPECTED_BRIDGE_VERSION}"`) {
+		t.Error("cloud-init should install the exact bridgectl package version when the AMI drifts")
 	}
 	if !strings.Contains(out, "install-provider-runtime") {
-		t.Error("cloud-init should refresh provider runtime after ai-agent-bridge version correction")
+		t.Error("cloud-init should refresh provider runtime after bridgectl version correction")
 	}
 	// cloud-init must not pull or start the old system bridge daemon.
 	if strings.Contains(out, "systemctl enable ai-agent-bridge") {

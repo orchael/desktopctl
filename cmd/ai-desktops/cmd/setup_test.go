@@ -88,7 +88,7 @@ func TestValidateGitHubToken_Success(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		w.Header().Set("X-OAuth-Scopes", "repo, workflow, security_events, admin:public_key, read:packages")
+		w.Header().Set("X-OAuth-Scopes", "repo, workflow, security_events, admin:public_key")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"login":"testuser"}`))
 	}))
@@ -124,7 +124,7 @@ func TestValidateGitHubToken_Unauthorized(t *testing.T) {
 
 func TestValidateGitHubToken_MissingScope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Only grant repo — missing workflow, security_events, admin:public_key.
+		// Only grant repo — missing workflow and admin:public_key.
 		w.Header().Set("X-OAuth-Scopes", "repo")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"login":"testuser"}`))

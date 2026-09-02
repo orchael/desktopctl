@@ -57,6 +57,15 @@ func TestInMemoryStore_List(t *testing.T) {
 
 	_ = s.Create(ctx, newDesktop("d-001"))
 	_ = s.Create(ctx, newDesktop("d-002"))
+	_ = s.CreateWorkspace(ctx, &Workspace{
+		WorkspaceName:   "factory-dev",
+		WorkspaceMode:   "efs",
+		Environment:     "dev",
+		GitHubOwner:     "acme",
+		EFSFileSystemID: "fs-123",
+		MountPath:       "/workspace",
+		State:           WorkspaceStateAvailable,
+	})
 
 	list, err := s.List(ctx)
 	if err != nil {
@@ -64,6 +73,102 @@ func TestInMemoryStore_List(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Errorf("got %d items, want 2", len(list))
+	}
+}
+
+func TestInMemoryStore_WorkspaceLifecycle(t *testing.T) {
+	s := NewInMemoryStore()
+	ctx := context.Background()
+	w := &Workspace{
+		WorkspaceName:    "factory-dev",
+		WorkspaceMode:    "efs",
+		Environment:      "dev",
+		GitHubOwner:      "acme",
+		Repos:            []string{"github.com/acme/app"},
+		RepoFingerprint:  RepoFingerprint([]string{"github.com/acme/app"}),
+		EFSFileSystemID:  "fs-123",
+		EFSAccessPointID: "fsap-123",
+		MountPath:        "/workspace",
+		State:            WorkspaceStateAvailable,
+	}
+	if err := s.CreateWorkspace(ctx, w); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if err := s.AttachWorkspace(ctx, "dev", "factory-dev", "d-001", "desktop-one"); err != nil {
+		t.Fatalf("AttachWorkspace: %v", err)
+	}
+	got, err := s.GetWorkspace(ctx, "dev", "factory-dev")
+	if err != nil {
+		t.Fatalf("GetWorkspace: %v", err)
+	}
+	if got.State != WorkspaceStateAttached || got.AttachedDesktopID != "d-001" {
+		t.Fatalf("workspace not attached: %+v", got)
+	}
+	if err := s.AttachWorkspace(ctx, "dev", "factory-dev", "d-002", "desktop-two"); !errors.Is(err, ErrWorkspaceAttached) {
+		t.Fatalf("AttachWorkspace conflict: got %v, want ErrWorkspaceAttached", err)
+	}
+	if err := s.DeleteWorkspace(ctx, "dev", "factory-dev"); !errors.Is(err, ErrWorkspaceAttached) {
+		t.Fatalf("DeleteWorkspace attached: got %v, want ErrWorkspaceAttached", err)
+	}
+	if err := s.DetachWorkspace(ctx, "dev", "factory-dev", "d-001"); err != nil {
+		t.Fatalf("DetachWorkspace: %v", err)
+	}
+	got, _ = s.GetWorkspace(ctx, "dev", "factory-dev")
+	if got.State != WorkspaceStateAvailable || got.AttachedDesktopID != "" {
+		t.Fatalf("workspace not detached: %+v", got)
+	}
+	if err := s.DeleteWorkspace(ctx, "dev", "factory-dev"); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+	got, _ = s.GetWorkspace(ctx, "dev", "factory-dev")
+	if got.State != WorkspaceStateDeleted {
+		t.Fatalf("workspace state = %q, want deleted", got.State)
+	}
+	if err := s.DetachWorkspace(ctx, "dev", "factory-dev", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DetachWorkspace deleted: got %v, want ErrNotFound", err)
+	}
+	got, _ = s.GetWorkspace(ctx, "dev", "factory-dev")
+	if got.State != WorkspaceStateDeleted {
+		t.Fatalf("deleted workspace was resurrected: %+v", got)
+	}
+}
+
+func TestInMemoryStore_UpdateDetachedWorkspaceRepos(t *testing.T) {
+	s := NewInMemoryStore()
+	ctx := context.Background()
+	w := &Workspace{
+		WorkspaceName:   "factory-dev",
+		WorkspaceMode:   "efs",
+		Environment:     "dev",
+		GitHubOwner:     "acme",
+		Repos:           []string{"github.com/acme/app"},
+		RepoFingerprint: RepoFingerprint([]string{"github.com/acme/app"}),
+		State:           WorkspaceStateAvailable,
+	}
+	if err := s.CreateWorkspace(ctx, w); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	repos := []string{"github.com/acme/api", "github.com/acme/app"}
+	if err := s.UpdateDetachedWorkspaceRepos(ctx, "dev", "factory-dev", repos, RepoFingerprint(repos)); err != nil {
+		t.Fatalf("UpdateDetachedWorkspaceRepos: %v", err)
+	}
+	got, _ := s.GetWorkspace(ctx, "dev", "factory-dev")
+	if got.RepoFingerprint != "github.com/acme/api\ngithub.com/acme/app" {
+		t.Fatalf("fingerprint = %q", got.RepoFingerprint)
+	}
+	if err := s.AttachWorkspace(ctx, "dev", "factory-dev", "d-001", "desktop-one"); err != nil {
+		t.Fatalf("AttachWorkspace: %v", err)
+	}
+	if err := s.UpdateDetachedWorkspaceRepos(ctx, "dev", "factory-dev", []string{"github.com/acme/app"}, RepoFingerprint([]string{"github.com/acme/app"})); !errors.Is(err, ErrWorkspaceAttached) {
+		t.Fatalf("UpdateDetachedWorkspaceRepos attached: got %v, want ErrWorkspaceAttached", err)
+	}
+}
+
+func TestRepoFingerprintNormalizesRepos(t *testing.T) {
+	got := RepoFingerprint([]string{" github.com/acme/b ", "github.com/acme/a", "github.com/acme/a"})
+	want := "github.com/acme/a\ngithub.com/acme/b"
+	if got != want {
+		t.Fatalf("RepoFingerprint = %q, want %q", got, want)
 	}
 }
 

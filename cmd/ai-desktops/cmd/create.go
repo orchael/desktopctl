@@ -33,37 +33,42 @@ import (
 )
 
 var (
-	createOwner          string
-	createOrganizationID string
-	createRepos          []string
-	createSecrets        []string
-	createPreview        bool
-	createEnv            string
-	createAMI            string
-	createVolumeSize     int
-	createSwapSize       int
-	createAVDs           []string
-	createNestedVirt     bool
-	createNestedVirtSet  bool // true when --nested-virtualization was explicitly passed
-	createMobile         bool
-	createInstanceType   string
-	createInstanceTypes  []string
-	createSpot           bool
-	createSpotMaxPrice   string
-	createTimeout        time.Duration
-	createTailscale      bool
-	createTailscaleNet   string
-	createStepCA         string
-	createStepCAProv     string
-	createStepCAFP       string
-	createStepCAClients  []string
+	createOwner             string
+	createOrganizationID    string
+	createName              string
+	createRepos             []string
+	createSecrets           []string
+	createPreview           bool
+	createWorkspaceMode     string
+	createWorkspaceName     string
+	createEnv               string
+	createAMI               string
+	createVolumeSize        int
+	createSwapSize          int
+	createAVDs              []string
+	createNestedVirt        bool
+	createNestedVirtSet     bool // true when --nested-virtualization was explicitly passed
+	createMobile            bool
+	createInstanceType      string
+	createInstanceTypes     []string
+	createSpot              bool
+	createSpotMaxPrice      string
+	createTimeout           time.Duration
+	createTailscale         bool
+	createTailscaleNet      string
+	createStepCA            string
+	createStepCAProv        string
+	createStepCAFP          string
+	createStepCAClients     []string
+	createNPMGitHubScopes   []string
+	createNoNPMGitHubScopes bool
 )
 
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new persistent AI coding desktop",
 	Long: `create provisions a remote EC2 instance configured as an AI coding desktop
-with novnc-desktop (Elementary), ai-agent-bridge, and developer tooling.
+with novnc-desktop (Elementary), bridgectl, and developer tooling.
 
 The --github-owner flag sets the owner boundary for all repositories on this
 desktop. When at least one --repo is provided the owner is inferred from the
@@ -77,9 +82,12 @@ rejected before any infrastructure is changed.`,
 func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
 	createCmd.Flags().StringVar(&createOrganizationID, "organization-id", "", "control-plane organization UUID for the desktop record (overrides fleet.organization_id)")
+	createCmd.Flags().StringVar(&createName, "name", "", "desktop name, unique among non-terminated desktops in the environment")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
+	createCmd.Flags().StringVar(&createWorkspaceMode, "workspace-mode", workspaceModeLocal, "workspace storage mode (local|efs)")
+	createCmd.Flags().StringVar(&createWorkspaceName, "workspace-name", "", "existing retained EFS workspace to mount at /workspace")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
@@ -98,6 +106,8 @@ func init() {
 	createCmd.Flags().StringVar(&createStepCAProv, "step-ca-provisioner", "admin", "step-ca provisioner name used with --step-ca")
 	createCmd.Flags().StringVar(&createStepCAFP, "step-ca-fingerprint", "", "step-ca root certificate fingerprint; required when --step-ca is set (may also be supplied via pki.step_ca_fingerprint or STEP_CA_FINGERPRINT)")
 	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
+	createCmd.Flags().StringArrayVar(&createNPMGitHubScopes, "npm-github-scope", nil, "npm package scope to resolve from GitHub Packages on the desktop, e.g. @myorg (repeatable; default: github.npm_github_scopes)")
+	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -140,6 +150,27 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if createTimeout <= 0 {
 		return fmt.Errorf("--create-timeout must be positive")
+	}
+	createWorkspaceMode = strings.TrimSpace(createWorkspaceMode)
+	if createWorkspaceMode == "" {
+		createWorkspaceMode = workspaceModeLocal
+	}
+	if createWorkspaceMode != workspaceModeLocal && createWorkspaceMode != workspaceModeEFS {
+		return fmt.Errorf("--workspace-mode must be local or efs")
+	}
+	if createWorkspaceMode == workspaceModeLocal && strings.TrimSpace(createWorkspaceName) != "" {
+		return fmt.Errorf("--workspace-name requires --workspace-mode efs")
+	}
+	if createWorkspaceMode == workspaceModeEFS {
+		if err := validateWorkspaceName(createWorkspaceName); err != nil {
+			return fmt.Errorf("--workspace-name: %w", err)
+		}
+	}
+	createName = strings.TrimSpace(createName)
+	if createName != "" {
+		if err := validateDesktopName(createName); err != nil {
+			return fmt.Errorf("--name: %w", err)
+		}
 	}
 	marketType := store.MarketOnDemand
 	if createSpot {
@@ -288,6 +319,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	req := &desktop.CreateRequest{
 		OrganizationID: organizationID,
+		DesktopName:    createName,
 		GitHubOwner:    owner,
 		Repos:          repoStrings(repos),
 		Secrets:        createSecrets,
@@ -302,8 +334,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		GitHubSecret:   gitHubSecret,
 		BackendBucket:  cfg.Pulumi.BackendBucket,
 		Region:         cfg.AWS.Region,
+		Environment:    env,
 		Profile:        cfg.AWS.Profile,
 		AMIID:          amiID,
+		WorkspaceMode:  createWorkspaceMode,
+		WorkspaceName:  createWorkspaceName,
 	}
 
 	if err := req.Validate(); err != nil {
@@ -348,6 +383,51 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if err := pulumi.ValidateFoundationOutputs(foundationOutputs); err != nil {
 		return fmt.Errorf("foundation stack incomplete (run init-foundation first): %w", err)
+	}
+
+	var s store.Store
+	var ws store.WorkspaceStore
+	var attachedWorkspace *store.Workspace
+	if createWorkspaceMode == workspaceModeEFS || createName != "" {
+		s, err = openStore(ctx)
+		if err != nil {
+			return err
+		}
+		if createName != "" {
+			if err := ensureDesktopNameAvailable(ctx, s, env, createName); err != nil {
+				return err
+			}
+		}
+	}
+	if createWorkspaceMode == workspaceModeEFS {
+		var ok bool
+		ws, ok = s.(store.WorkspaceStore)
+		if !ok {
+			return fmt.Errorf("configured store does not support workspaces")
+		}
+		attachedWorkspace, err = ws.GetWorkspace(ctx, env, createWorkspaceName)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("workspace %q not found in environment %q; create it with `ai-desktops workspace create` first", createWorkspaceName, env)
+			}
+			return err
+		}
+		if attachedWorkspace.State == store.WorkspaceStateDeleted {
+			return fmt.Errorf("workspace %q is deleted", createWorkspaceName)
+		}
+		if attachedWorkspace.AttachedDesktopID != "" {
+			return fmt.Errorf("workspace %q is already attached to desktop %q", createWorkspaceName, attachedWorkspace.AttachedDesktopID)
+		}
+		if !strings.EqualFold(attachedWorkspace.GitHubOwner, owner) {
+			return fmt.Errorf("workspace %q owner %q does not match desktop owner %q", createWorkspaceName, attachedWorkspace.GitHubOwner, owner)
+		}
+		if got, want := store.RepoFingerprint(repoStrings(repos)), attachedWorkspace.RepoFingerprint; got != want {
+			return fmt.Errorf("workspace %q repo set does not match create repo set", createWorkspaceName)
+		}
+		if attachedWorkspace.EFSFileSystemID == "" || attachedWorkspace.EFSAccessPointID == "" {
+			return fmt.Errorf("workspace %q is missing EFS attachment metadata", createWorkspaceName)
+		}
+		req.WorkspaceID = attachedWorkspace.WorkspaceID
 	}
 
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
@@ -448,6 +528,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			sshPubKey = strings.TrimSpace(string(pubBytes))
 		}
 	}
+	npmGitHubScopes := []string(nil)
+	if !createNoNPMGitHubScopes {
+		npmGitHubScopes = append(npmGitHubScopes, cfg.GitHub.NPMGitHubScopes...)
+	}
+	npmGitHubScopes = append(npmGitHubScopes, createNPMGitHubScopes...)
+	npmGitHubScopes, err = provision.NormalizeNPMGitHubScopes(npmGitHubScopes)
+	if err != nil {
+		return err
+	}
 
 	bootCfg := &provision.BootstrapConfig{
 		DesktopID:            desktopID,
@@ -471,12 +560,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		StepCAClients:        stepCAClients,
 		AWSRegion:            cfg.AWS.Region,
 		Environment:          env,
+		WorkspaceMode:        createWorkspaceMode,
+		WorkspaceName:        createWorkspaceName,
 		PackagesPreInstalled: amiID != "",
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
+		NPMGitHubScopes:      npmGitHubScopes,
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
+	}
+	if attachedWorkspace != nil {
+		bootCfg.EFSFileSystemID = attachedWorkspace.EFSFileSystemID
+		bootCfg.EFSAccessPointID = attachedWorkspace.EFSAccessPointID
 	}
 	var renderErr error
 	userData, renderErr = provision.RenderCloudInit(bootCfg)
@@ -488,7 +584,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("compress cloud-init user-data: %w", err)
 	}
 	stackCfg := pulumi.DesktopConfig(
-		cfg.AWS.Region, desktopID, owner, zone, selectedInstanceType,
+		cfg.AWS.Region, desktopID, createName, owner, zone, selectedInstanceType,
 		subnetID,
 		foundationOutputs[pulumi.OutputSGID],
 		foundationOutputs[pulumi.OutputInstanceProfile],
@@ -502,10 +598,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		nestedVirt,
 		marketType,
 		createSpotMaxPrice,
+		pulumi.WorkspaceConfig{
+			Mode:             createWorkspaceMode,
+			Name:             createWorkspaceName,
+			EFSFileSystemID:  workspaceEFSFileSystemID(attachedWorkspace),
+			EFSAccessPointID: workspaceEFSAccessPointID(attachedWorkspace),
+		},
 	)
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
+		if createName != "" {
+			fmt.Printf("Desktop name  : %s\n", createName)
+		}
 		fmt.Printf("Zone          : %s\n", zone)
 		fmt.Printf("Hostname      : %s\n", hostname)
 		fmt.Printf("Instance type : %s\n", selectedInstanceType)
@@ -527,6 +632,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("step-ca       : %s\n", stepCAServer)
 		}
 		fmt.Printf("Repos         : %v\n", createRepos)
+		fmt.Printf("Workspace mode: %s\n", createWorkspaceMode)
+		if createWorkspaceName != "" {
+			fmt.Printf("Workspace     : %s\n", createWorkspaceName)
+		}
 		if len(req.AVDNames) > 0 {
 			fmt.Printf("AVDs          : %s\n", strings.Join(req.AVDNames, ", "))
 		}
@@ -538,13 +647,35 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return runner.Preview(ctx, desktopRef, stackCfg, os.Stderr)
 	}
 
-	s, err := openStore(ctx)
-	if err != nil {
-		return err
+	if s == nil {
+		s, err = openStore(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if ws == nil {
+		ws, _ = s.(store.WorkspaceStore)
 	}
 	mgr := desktop.NewManager(s)
 
+	workspaceReserved := false
+	if createWorkspaceMode == workspaceModeEFS {
+		if ws == nil {
+			return fmt.Errorf("configured store does not support workspaces")
+		}
+		if err := ws.AttachWorkspace(ctx, env, createWorkspaceName, desktopID, createName); err != nil {
+			if errors.Is(err, store.ErrWorkspaceAttached) {
+				return fmt.Errorf("workspace %q is already attached", createWorkspaceName)
+			}
+			return fmt.Errorf("attach workspace: %w", err)
+		}
+		workspaceReserved = true
+	}
+
 	if err := mgr.CreateRecord(ctx, desktopID, req); err != nil {
+		if workspaceReserved {
+			_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
+		}
 		return fmt.Errorf("create fleet record: %w", err)
 	}
 
@@ -619,6 +750,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
 		_ = s.Delete(ctx, desktopID)
+		if workspaceReserved {
+			_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
+		}
 		return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
 	}
 
@@ -636,6 +770,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	result := map[string]string{
 		"desktop_id":            desktopID,
+		"desktop_name":          createName,
 		"hostname":              hostname,
 		"novnc_url":             desktop.NoVNCURL(hostname),
 		"ssh_target":            desktop.SSHTarget(hostname),
@@ -651,6 +786,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"avd_names":             strings.Join(req.AVDNames, ", "),
 		"tailscale_network":     tailscaleNetwork,
 		"step_ca_server":        stepCAServer,
+		"workspace_mode":        createWorkspaceMode,
+		"workspace_name":        createWorkspaceName,
 	}
 
 	if jsonOut {
@@ -658,6 +795,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Desktop ID    : %s\n", result["desktop_id"])
+	if result["desktop_name"] != "" {
+		fmt.Printf("Desktop name  : %s\n", result["desktop_name"])
+	}
 	fmt.Printf("Hostname      : %s\n", result["hostname"])
 	fmt.Printf("Desktop URL   : %s\n", result["novnc_url"])
 	fmt.Printf("SSH target    : %s\n", result["ssh_target"])
@@ -678,6 +818,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if result["step_ca_server"] != "" {
 		fmt.Printf("step-ca       : %s\n", result["step_ca_server"])
+	}
+	fmt.Printf("Workspace mode: %s\n", result["workspace_mode"])
+	if result["workspace_name"] != "" {
+		fmt.Printf("Workspace     : %s\n", result["workspace_name"])
 	}
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
@@ -1231,6 +1375,52 @@ func repoStrings(repos []*repo.Repo) []string {
 		out[i] = r.String()
 	}
 	return out
+}
+
+func validateDesktopName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if !workspaceNameRe.MatchString(name) {
+		return fmt.Errorf("desktop name %q must be 3-64 characters and contain only letters, numbers, dots, underscores, and hyphens", name)
+	}
+	return nil
+}
+
+func ensureDesktopNameAvailable(ctx context.Context, s store.Store, env, name string) error {
+	name = strings.TrimSpace(name)
+	desktops, err := s.List(ctx)
+	if err != nil {
+		return fmt.Errorf("check desktop name availability: %w", err)
+	}
+	for _, d := range desktops {
+		if d.State == store.StateTerminated {
+			continue
+		}
+		dEnv := d.Environment
+		if dEnv == "" {
+			dEnv = env
+		}
+		if dEnv == env && d.DesktopName == name {
+			return fmt.Errorf("desktop name %q is already in use by desktop %q", name, d.DesktopID)
+		}
+	}
+	return nil
+}
+
+func workspaceEFSFileSystemID(w *store.Workspace) string {
+	if w == nil {
+		return ""
+	}
+	return w.EFSFileSystemID
+}
+
+func workspaceEFSAccessPointID(w *store.Workspace) string {
+	if w == nil {
+		return ""
+	}
+	return w.EFSAccessPointID
 }
 
 // avdNameRe allows alphanumerics, underscores, and hyphens — safe for shell args.

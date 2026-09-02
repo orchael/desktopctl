@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const ENV_FILE = process.env.DESKTOP_ENV_FILE ?? '/opt/ai-desktops/desktop.env';
 const NOVNC_HTTPS_PORT = process.env.NOVNC_HTTPS_PORT ?? '8443';
+const DEFAULT_UBUNTU_RUNTIME_DIR = '/run/user/1000';
 
 const MOCK_DATA = {
   desktop_id: 'mock-desktop',
@@ -20,7 +21,7 @@ const MOCK_DATA = {
   repos: ['mock-repo'],
   services: [
     { name: 'docker', active: true, version: '27.0.0' },
-    { name: 'ai-agent-bridge', active: true, version: '1.2.3' },
+    { name: 'bridgectl', active: true, version: '1.0.1' },
     { name: 'novnc-desktop', active: true, version: '20260525-005909' }
   ],
   novnc_url: 'https://localhost:8443/novnc/vnc.html',
@@ -51,15 +52,14 @@ function readEnvFile(filePath: string): Record<string, string> {
 
 function serviceActive(name: string): boolean {
   try {
-    if (name === 'ai-agent-bridge') {
-      // The system ai-agent-bridge service is masked; the actual service runs
-      // as a user-level bridgectl unit under the ubuntu user.
+    if (name === 'bridgectl') {
+      // bridgectl runs as a user-level systemd unit under the ubuntu user.
       // XDG_RUNTIME_DIR must be set explicitly because ai-desktops-web runs as
       // a system service (not a user session), so the env var is absent.
       execSync('systemctl --user is-active bridgectl', {
         stdio: 'pipe',
         timeout: 5000,
-        env: { ...process.env, XDG_RUNTIME_DIR: '/run/user/1000' }
+        env: { ...process.env, XDG_RUNTIME_DIR: ubuntuRuntimeDir() }
       });
     } else {
       execSync(`systemctl is-active ${name}`, { stdio: 'pipe', timeout: 5000 });
@@ -68,6 +68,23 @@ function serviceActive(name: string): boolean {
   } catch {
     return false;
   }
+}
+
+function ubuntuRuntimeDir(): string {
+  try {
+    const uid = execFileSync('id', ['-u', 'ubuntu'], {
+      stdio: 'pipe',
+      timeout: 5000
+    })
+      .toString()
+      .trim();
+    if (/^\d+$/.test(uid)) {
+      return `/run/user/${uid}`;
+    }
+  } catch {
+    // Fall through to the standard Ubuntu AMI uid.
+  }
+  return DEFAULT_UBUNTU_RUNTIME_DIR;
 }
 
 const NOVNC_VERSION_FILE =
@@ -85,7 +102,7 @@ function serviceVersion(name: string): string | undefined {
         const m = out.match(/Docker version ([^\s,]+)/);
         return m?.[1];
       }
-      case 'ai-agent-bridge': {
+      case 'bridgectl': {
         const out = execSync('bridgectl --version', {
           stdio: 'pipe',
           timeout: 5000
@@ -151,7 +168,7 @@ export function buildDesktopInfo(requestHost?: string): object {
   const hostname = rawHost.split(':')[0];
   const novncUrl = `https://${hostname}:${NOVNC_HTTPS_PORT}/novnc/vnc.html`;
 
-  const serviceNames = ['docker', 'ai-agent-bridge', 'novnc-desktop'];
+  const serviceNames = ['docker', 'bridgectl', 'novnc-desktop'];
   const services = serviceNames.map((name) => ({
     name,
     active: serviceActive(name),

@@ -483,12 +483,17 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 }
 
 // WorkspaceCheckers returns checks for workspace integrity.
-func WorkspaceCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
+func WorkspaceCheckers(hostname string, sshPort int, user, keyPath, workspaceMode string) []Checker {
 	t := 20 * time.Second
-	return []Checker{
+	checkers := []Checker{
 		NewSSHChecker("workspace-mounted", hostname, sshPort, user, keyPath,
 			"[ -d /workspace ] && [ -w /workspace ]", t),
 	}
+	if workspaceMode == "efs" {
+		checkers = append(checkers, NewSSHChecker("workspace-efs-mounted", hostname, sshPort, user, keyPath,
+			"mountpoint -q /workspace && findmnt -n -o FSTYPE /workspace | grep -Eq '^(efs|nfs4?)$'", t))
+	}
+	return checkers
 }
 
 // DesktopWebCheckers returns checks for the desktop-web Express server.
@@ -545,6 +550,10 @@ func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, netwo
 		NewSSHOptionalChecker("bridgectl-tailscale-listener", hostname, sshPort, user, keyPath,
 			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", "step-ca not configured",
 			fmt.Sprintf(`TAILSCALE_IP=$(tailscale ip -4 | head -n 1) && test -n "$TAILSCALE_IP" && (grep -qxF "  listen: \"${TAILSCALE_IP}:%[1]d\"" /home/ubuntu/.config/bridgectl/config.yaml || grep -qxF "  listen: ${TAILSCALE_IP}:%[1]d" /home/ubuntu/.config/bridgectl/config.yaml) && (ss -tln | awk '{print $4}' | grep -qx "${TAILSCALE_IP}:%[1]d" || ss -tln | awk '{print $4}' | grep -qx "[::ffff:${TAILSCALE_IP}]:%[1]d")`, bridgePort),
+			t),
+		NewSSHOptionalChecker("bridgectl-tailscale-san", hostname, sshPort, user, keyPath,
+			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", "step-ca not configured",
+			`TAILSCALE_DNS=$(tailscale status --json | python3 -c "import json,sys; print(((json.load(sys.stdin).get('Self') or {}).get('DNSName') or '').rstrip('.'))") && test -n "$TAILSCALE_DNS" && python3 -c "import sys,yaml; cfg=yaml.safe_load(open('/home/ubuntu/.config/bridgectl/config.yaml')) or {}; san=(cfg.get('server') or {}).get('san') or []; sys.exit(0 if sys.argv[1] in san else 1)" "$TAILSCALE_DNS" && openssl x509 -in /home/ubuntu/.config/bridgectl/tls/server.crt -noout -ext subjectAltName | TAILSCALE_DNS="$TAILSCALE_DNS" python3 -c "import os,sys; want='DNS:' + os.environ['TAILSCALE_DNS']; entries=[part.strip() for line in sys.stdin for part in line.split(',')]; sys.exit(0 if want in entries else 1)"`,
 			t),
 	}
 }

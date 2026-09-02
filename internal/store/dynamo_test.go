@@ -98,6 +98,32 @@ func TestDynamoStore_Create_Duplicate(t *testing.T) {
 	}
 }
 
+func TestDynamoStore_CreateWorkspace_AllowsDeletedRecord(t *testing.T) {
+	var input *dynamodb.PutItemInput
+	mock := &mockDynamoClient{
+		putFn: func(params *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
+			input = params
+			return &dynamodb.PutItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	err := s.CreateWorkspace(context.Background(), &Workspace{
+		WorkspaceName:   "factory-dev",
+		WorkspaceMode:   "efs",
+		Environment:     "dev",
+		GitHubOwner:     "acme",
+		EFSFileSystemID: "fs-123",
+		MountPath:       "/workspace",
+		State:           WorkspaceStateAvailable,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if got := aws.ToString(input.ConditionExpression); !contains(got, "workspace_state = :deleted") {
+		t.Fatalf("condition = %q", got)
+	}
+}
+
 func TestDynamoStore_Create_PutError(t *testing.T) {
 	mock := &mockDynamoClient{
 		putFn: func(_ *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
@@ -395,6 +421,141 @@ func TestDynamoStore_RecordFailure_Error(t *testing.T) {
 	s := &DynamoStore{client: mock, tableName: "fleet"}
 	if err := s.RecordFailure(context.Background(), "d-err", "phase", "msg"); err == nil {
 		t.Fatal("expected error from UpdateItem failure")
+	}
+}
+
+func TestDynamoStore_DeleteWorkspace_Success(t *testing.T) {
+	var input *dynamodb.UpdateItemInput
+	mock := &mockDynamoClient{
+		updateFn: func(params *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			input = params
+			return &dynamodb.UpdateItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.DeleteWorkspace(context.Background(), "dev", "factory-dev"); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+	if got := aws.ToString(input.ConditionExpression); !contains(got, "attribute_not_exists(attached_desktop_id)") {
+		t.Fatalf("condition = %q", got)
+	}
+	if got := aws.ToString(input.UpdateExpression); !contains(got, "workspace_state = :deleted") {
+		t.Fatalf("update = %q", got)
+	}
+}
+
+func TestDynamoStore_DeleteWorkspace_Attached(t *testing.T) {
+	item, _ := attributevalue.MarshalMap(&Workspace{
+		WorkspaceName:     "factory-dev",
+		Environment:       "dev",
+		State:             WorkspaceStateAttached,
+		AttachedDesktopID: "d-001",
+	})
+	mock := &mockDynamoClient{
+		updateFn: func(_ *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	err := s.DeleteWorkspace(context.Background(), "dev", "factory-dev")
+	if !errors.Is(err, ErrWorkspaceAttached) {
+		t.Fatalf("error = %v, want ErrWorkspaceAttached", err)
+	}
+}
+
+func TestDynamoStore_DetachWorkspace_SuccessGuardsDeleted(t *testing.T) {
+	var input *dynamodb.UpdateItemInput
+	mock := &mockDynamoClient{
+		updateFn: func(params *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			input = params
+			return &dynamodb.UpdateItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.DetachWorkspace(context.Background(), "dev", "factory-dev", "d-001"); err != nil {
+		t.Fatalf("DetachWorkspace: %v", err)
+	}
+	if input == nil {
+		t.Fatal("expected UpdateItem")
+	}
+	if got := aws.ToString(input.ConditionExpression); !contains(got, "workspace_state <> :deleted") {
+		t.Fatalf("condition = %q", got)
+	}
+	if _, ok := input.ExpressionAttributeValues[":deleted"]; !ok {
+		t.Fatal("missing :deleted expression value")
+	}
+}
+
+func TestDynamoStore_DetachWorkspace_Deleted(t *testing.T) {
+	item, _ := attributevalue.MarshalMap(&Workspace{
+		WorkspaceName: "factory-dev",
+		Environment:   "dev",
+		State:         WorkspaceStateDeleted,
+	})
+	mock := &mockDynamoClient{
+		updateFn: func(_ *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	err := s.DetachWorkspace(context.Background(), "dev", "factory-dev", "")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDynamoStore_UpdateDetachedWorkspaceRepos_Success(t *testing.T) {
+	var input *dynamodb.UpdateItemInput
+	mock := &mockDynamoClient{
+		updateFn: func(params *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			input = params
+			return &dynamodb.UpdateItemOutput{}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	repos := []string{"github.com/acme/app", "github.com/acme/api"}
+	if err := s.UpdateDetachedWorkspaceRepos(context.Background(), "dev", "factory-dev", repos, RepoFingerprint(repos)); err != nil {
+		t.Fatalf("UpdateDetachedWorkspaceRepos: %v", err)
+	}
+	if input == nil {
+		t.Fatal("expected UpdateItem")
+	}
+	if got := aws.ToString(input.ConditionExpression); !contains(got, "attribute_not_exists(attached_desktop_id)") {
+		t.Fatalf("condition = %q", got)
+	}
+	if got := aws.ToString(input.UpdateExpression); !contains(got, "repo_fingerprint") {
+		t.Fatalf("update = %q", got)
+	}
+	if _, ok := input.ExpressionAttributeValues[":repos"].(*types.AttributeValueMemberL); !ok {
+		t.Fatalf(":repos attribute = %#v, want list", input.ExpressionAttributeValues[":repos"])
+	}
+}
+
+func TestDynamoStore_UpdateDetachedWorkspaceRepos_Attached(t *testing.T) {
+	item, _ := attributevalue.MarshalMap(&Workspace{
+		WorkspaceName:     "factory-dev",
+		Environment:       "dev",
+		State:             WorkspaceStateAttached,
+		AttachedDesktopID: "d-001",
+	})
+	mock := &mockDynamoClient{
+		updateFn: func(_ *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+		getFn: func(_ *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	err := s.UpdateDetachedWorkspaceRepos(context.Background(), "dev", "factory-dev", []string{"github.com/acme/app"}, RepoFingerprint([]string{"github.com/acme/app"}))
+	if !errors.Is(err, ErrWorkspaceAttached) {
+		t.Fatalf("error = %v, want ErrWorkspaceAttached", err)
 	}
 }
 

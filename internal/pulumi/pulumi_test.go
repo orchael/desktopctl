@@ -29,16 +29,19 @@ func TestDesktopStackRef(t *testing.T) {
 }
 
 func TestDesktopConfig(t *testing.T) {
-	cfg := DesktopConfig("us-east-1", "d-001", "acme", "desktops.orchael.dev",
+	cfg := DesktopConfig("us-east-1", "d-001", "dev-desktop", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "my-keypair",
 		[]string{"github.com/acme/app"}, 9445, 100,
-		"", "", "dev", false, "on-demand", "")
+		"", "", "dev", false, "on-demand", "", WorkspaceConfig{Mode: "local"})
 
 	if cfg["desktopId"] != "d-001" {
 		t.Errorf("desktopId: got %q", cfg["desktopId"])
 	}
 	if cfg["repos"] != "github.com/acme/app" {
 		t.Errorf("repos: got %q", cfg["repos"])
+	}
+	if cfg["desktopName"] != "dev-desktop" {
+		t.Errorf("desktopName: got %q", cfg["desktopName"])
 	}
 	if cfg["subnetId"] != "subnet-abc" {
 		t.Errorf("subnetId: got %q", cfg["subnetId"])
@@ -52,13 +55,16 @@ func TestDesktopConfig(t *testing.T) {
 	if _, ok := cfg["nestedVirtualization"]; ok {
 		t.Error("nestedVirtualization should not be set when false")
 	}
+	if cfg["workspaceMode"] != "local" {
+		t.Errorf("workspaceMode: got %q", cfg["workspaceMode"])
+	}
 }
 
 func TestDesktopConfig_withAMI(t *testing.T) {
-	cfg := DesktopConfig("us-east-1", "d-ami", "acme", "desktops.orchael.dev",
+	cfg := DesktopConfig("us-east-1", "d-ami", "", "acme", "desktops.orchael.dev",
 		"t3.large", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 0,
-		"ami-0abc123", "my-user-data", "dev", false, "on-demand", "")
+		"ami-0abc123", "my-user-data", "dev", false, "on-demand", "", WorkspaceConfig{})
 
 	if cfg["amiId"] != "ami-0abc123" {
 		t.Errorf("amiId: got %q", cfg["amiId"])
@@ -75,10 +81,10 @@ func TestDesktopConfig_withAMI(t *testing.T) {
 }
 
 func TestDesktopConfig_nestedVirt(t *testing.T) {
-	cfg := DesktopConfig("us-east-1", "d-nv", "acme", "desktops.orchael.dev",
+	cfg := DesktopConfig("us-east-1", "d-nv", "", "acme", "desktops.orchael.dev",
 		"c7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 100,
-		"ami-0abc123", "", "dev", true, "on-demand", "")
+		"ami-0abc123", "", "dev", true, "on-demand", "", WorkspaceConfig{})
 
 	if cfg["nestedVirtualization"] != "true" {
 		t.Errorf("nestedVirtualization: got %q, want \"true\"", cfg["nestedVirtualization"])
@@ -86,10 +92,10 @@ func TestDesktopConfig_nestedVirt(t *testing.T) {
 }
 
 func TestDesktopConfig_spotMarket(t *testing.T) {
-	cfg := DesktopConfig("us-east-1", "d-spot", "acme", "desktops.orchael.dev",
+	cfg := DesktopConfig("us-east-1", "d-spot", "", "acme", "desktops.orchael.dev",
 		"m7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
 		[]string{}, 9445, 100,
-		"ami-0abc123", "", "dev", false, "spot", "0.12")
+		"ami-0abc123", "", "dev", false, "spot", "0.12", WorkspaceConfig{})
 
 	if cfg["marketType"] != "spot" {
 		t.Errorf("marketType: got %q, want \"spot\"", cfg["marketType"])
@@ -99,10 +105,38 @@ func TestDesktopConfig_spotMarket(t *testing.T) {
 	}
 }
 
+func TestDesktopConfig_efsWorkspace(t *testing.T) {
+	cfg := DesktopConfig("us-east-1", "d-efs", "factory-dev", "acme", "desktops.orchael.dev",
+		"m7i.xlarge", "subnet-abc", "sg-abc", "my-profile", "",
+		[]string{}, 9445, 100,
+		"ami-0abc123", "", "dev", false, "on-demand", "", WorkspaceConfig{
+			Mode:             "efs",
+			Name:             "factory-workspace",
+			EFSFileSystemID:  "fs-123",
+			EFSAccessPointID: "fsap-123",
+		})
+
+	if cfg["workspaceMode"] != "efs" {
+		t.Errorf("workspaceMode: got %q, want efs", cfg["workspaceMode"])
+	}
+	if cfg["workspaceName"] != "factory-workspace" {
+		t.Errorf("workspaceName: got %q", cfg["workspaceName"])
+	}
+	if cfg["workspaceEFSFileSystemId"] != "fs-123" {
+		t.Errorf("workspaceEFSFileSystemId: got %q", cfg["workspaceEFSFileSystemId"])
+	}
+	if cfg["workspaceEFSAccessPointId"] != "fsap-123" {
+		t.Errorf("workspaceEFSAccessPointId: got %q", cfg["workspaceEFSAccessPointId"])
+	}
+}
+
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "", "my-state-bucket")
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
+	}
+	if cfg["pulumiBackendBucket"] != "my-state-bucket" {
+		t.Errorf("pulumiBackendBucket: got %q", cfg["pulumiBackendBucket"])
 	}
 }
 

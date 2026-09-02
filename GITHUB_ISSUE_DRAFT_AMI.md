@@ -11,7 +11,7 @@ Update the PRD to include a pre-baked AMI approach for desktop provisioning, rep
 
 ## Current State
 
-The MVP uses cloud-init to install all software (novnc-desktop, ai-agent-bridge, dev tools) at first boot:
+The MVP uses cloud-init to install all software (novnc-desktop, bridgectl, dev tools) at first boot:
 
 - **Pros**: Secrets not baked into images; simple bootstrap logic
 - **Cons**: Slow boot time; Elementary/Pantheon compatibility risk during install; version drift across desktops; cloud-init failures hard to diagnose
@@ -22,7 +22,7 @@ Pre-build AMIs with specific, pinned versions of:
 
 ### Required Components
 - `novnc-desktop` — pinned at release version (e.g., v0.1.5)
-- `ai-agent-bridge` — pinned at release version
+- `bridgectl` — pinned at release version
 - `ai-agent-browser` — pinned at release version
 - `android-emulator-webapp` — pinned at release version
 
