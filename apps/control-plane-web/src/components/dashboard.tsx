@@ -100,10 +100,15 @@ export function Dashboard({
       () => location.reload()
     );
   }
-  function refreshMembers() {
-    fetch('/api/organizations/members')
-      .then((response) => response.json())
-      .then(setMembers);
+  async function refreshMembers() {
+    setError('');
+    const response = await fetch('/api/organizations/members', { cache: 'no-store' });
+    const value = (await response.json()) as Member[] | { error?: string };
+    if (!response.ok) {
+      setError(('error' in value && value.error) || 'Could not load members');
+      return;
+    }
+    setMembers(value as Member[]);
   }
 
   return (
