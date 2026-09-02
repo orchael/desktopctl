@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TYPE "OrganizationRole" AS ENUM ('OWNER', 'MEMBER');
 
 CREATE TABLE "User" ("id" TEXT PRIMARY KEY, "name" TEXT, "email" TEXT, "emailVerified" TIMESTAMP(3), "image" TEXT);

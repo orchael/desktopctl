@@ -33,7 +33,18 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane
           tags: |
             type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=sha
+
+      - name: Docker metadata API
+        id: meta-api
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane
+          tags: |
+            type=ref,event=tag,suffix=-api
+            type=raw,value=latest-api,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=sha,suffix=-api
 
       - name: Build and publish
         uses: docker/build-push-action@v7
@@ -52,6 +63,5 @@ jobs:
           file: Dockerfile.control-plane
           target: api
           push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane:${{ github.ref_name }}-api
-            ghcr.io/${{ github.repository_owner }}/ai-desktops-control-plane:sha-${{ github.sha }}-api
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
