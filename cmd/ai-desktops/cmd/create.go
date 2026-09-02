@@ -33,29 +33,30 @@ import (
 )
 
 var (
-	createOwner         string
-	createRepos         []string
-	createSecrets       []string
-	createPreview       bool
-	createEnv           string
-	createAMI           string
-	createVolumeSize    int
-	createSwapSize      int
-	createAVDs          []string
-	createNestedVirt    bool
-	createNestedVirtSet bool // true when --nested-virtualization was explicitly passed
-	createMobile        bool
-	createInstanceType  string
-	createInstanceTypes []string
-	createSpot          bool
-	createSpotMaxPrice  string
-	createTimeout       time.Duration
-	createTailscale     bool
-	createTailscaleNet  string
-	createStepCA        string
-	createStepCAProv    string
-	createStepCAFP      string
-	createStepCAClients []string
+	createOwner          string
+	createOrganizationID string
+	createRepos          []string
+	createSecrets        []string
+	createPreview        bool
+	createEnv            string
+	createAMI            string
+	createVolumeSize     int
+	createSwapSize       int
+	createAVDs           []string
+	createNestedVirt     bool
+	createNestedVirtSet  bool // true when --nested-virtualization was explicitly passed
+	createMobile         bool
+	createInstanceType   string
+	createInstanceTypes  []string
+	createSpot           bool
+	createSpotMaxPrice   string
+	createTimeout        time.Duration
+	createTailscale      bool
+	createTailscaleNet   string
+	createStepCA         string
+	createStepCAProv     string
+	createStepCAFP       string
+	createStepCAClients  []string
 )
 
 var createCmd = &cobra.Command{
@@ -75,6 +76,7 @@ rejected before any infrastructure is changed.`,
 
 func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
+	createCmd.Flags().StringVar(&createOrganizationID, "organization-id", "", "control-plane organization UUID for the desktop record (overrides fleet.organization_id)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
@@ -162,6 +164,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Fall back to config file owner when --github-owner not explicitly set.
 	if createOwner == "" && cfg.GitHub.Owner != "" {
 		createOwner = cfg.GitHub.Owner
+	}
+	organizationID := strings.TrimSpace(cfg.Fleet.OrganizationID)
+	if cmd.Flags().Changed("organization-id") {
+		organizationID = strings.TrimSpace(createOrganizationID)
 	}
 
 	// Validate repo inputs. Owner may be inferred from repos when createOwner is empty.
@@ -281,22 +287,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	req := &desktop.CreateRequest{
-		GitHubOwner:   owner,
-		Repos:         repoStrings(repos),
-		Secrets:       createSecrets,
-		TailscaleNet:  tailscaleNetwork,
-		StepCAServer:  stepCAServer,
-		InstanceType:  instanceTypes[0],
-		NestedVirt:    nestedVirt,
-		MarketType:    marketType,
-		Zone:          zone,
-		OperatorCIDR:  cfg.Desktop.OperatorCIDR,
-		SSHKeyPath:    cfg.Desktop.SSHKeyPath,
-		GitHubSecret:  gitHubSecret,
-		BackendBucket: cfg.Pulumi.BackendBucket,
-		Region:        cfg.AWS.Region,
-		Profile:       cfg.AWS.Profile,
-		AMIID:         amiID,
+		OrganizationID: organizationID,
+		GitHubOwner:    owner,
+		Repos:          repoStrings(repos),
+		Secrets:        createSecrets,
+		TailscaleNet:   tailscaleNetwork,
+		StepCAServer:   stepCAServer,
+		InstanceType:   instanceTypes[0],
+		NestedVirt:     nestedVirt,
+		MarketType:     marketType,
+		Zone:           zone,
+		OperatorCIDR:   cfg.Desktop.OperatorCIDR,
+		SSHKeyPath:     cfg.Desktop.SSHKeyPath,
+		GitHubSecret:   gitHubSecret,
+		BackendBucket:  cfg.Pulumi.BackendBucket,
+		Region:         cfg.AWS.Region,
+		Profile:        cfg.AWS.Profile,
+		AMIID:          amiID,
 	}
 
 	if err := req.Validate(); err != nil {

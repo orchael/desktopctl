@@ -55,24 +55,25 @@ func SSHTarget(hostname string) string {
 
 // CreateRequest holds the parameters for creating a new desktop.
 type CreateRequest struct {
-	GitHubOwner   string
-	Repos         []string
-	InstanceType  string
-	Zone          string
-	OperatorCIDR  string
-	SSHKeyPath    string
-	SSHKeyName    string // EC2 key pair name (registered in AWS)
-	GitHubSecret  string
-	Secrets       []string // AWS Secrets Manager paths injected into the ubuntu environment
-	TailscaleNet  string   // optional Tailscale tailnet/network name
-	StepCAServer  string   // optional step-ca DNS name used for bridgectl trust/certs
-	AVDNames      []string // Android Virtual Device names created at boot
-	NestedVirt    bool     // true when the instance was launched with AmdSevSnp=disabled (--mobile / --nested-virtualization)
-	MarketType    string   // on-demand or spot
-	BackendBucket string
-	Region        string
-	Profile       string
-	AMIID         string // Pre-baked AMI ID (optional)
+	OrganizationID string
+	GitHubOwner    string
+	Repos          []string
+	InstanceType   string
+	Zone           string
+	OperatorCIDR   string
+	SSHKeyPath     string
+	SSHKeyName     string // EC2 key pair name (registered in AWS)
+	GitHubSecret   string
+	Secrets        []string // AWS Secrets Manager paths injected into the ubuntu environment
+	TailscaleNet   string   // optional Tailscale tailnet/network name
+	StepCAServer   string   // optional step-ca DNS name used for bridgectl trust/certs
+	AVDNames       []string // Android Virtual Device names created at boot
+	NestedVirt     bool     // true when the instance was launched with AmdSevSnp=disabled (--mobile / --nested-virtualization)
+	MarketType     string   // on-demand or spot
+	BackendBucket  string
+	Region         string
+	Profile        string
+	AMIID          string // Pre-baked AMI ID (optional)
 }
 
 // Validate checks that the CreateRequest is well-formed.
@@ -94,24 +95,25 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 	zone := req.Zone
 	hostname := Hostname(id, zone)
 	d := &store.Desktop{
-		DesktopID:     id,
-		StackName:     StackName(id),
-		GitHubOwner:   req.GitHubOwner,
-		Region:        req.Region,
-		State:         store.StateCreating,
-		Hostname:      hostname,
-		NoVNCURL:      NoVNCURL(hostname),
-		SSHTarget:     SSHTarget(hostname),
-		AMIID:         req.AMIID,
-		InstanceType:  req.InstanceType,
-		NestedVirt:    req.NestedVirt,
-		WorkspacePath: "/workspace",
-		Repos:         req.Repos,
-		Secrets:       req.Secrets,
-		TailscaleNet:  req.TailscaleNet,
-		StepCAServer:  req.StepCAServer,
-		AVDNames:      req.AVDNames,
-		MarketType:    normalizeMarketType(req.MarketType),
+		DesktopID:      id,
+		OrganizationID: req.OrganizationID,
+		StackName:      StackName(id),
+		GitHubOwner:    req.GitHubOwner,
+		Region:         req.Region,
+		State:          store.StateCreating,
+		Hostname:       hostname,
+		NoVNCURL:       NoVNCURL(hostname),
+		SSHTarget:      SSHTarget(hostname),
+		AMIID:          req.AMIID,
+		InstanceType:   req.InstanceType,
+		NestedVirt:     req.NestedVirt,
+		WorkspacePath:  "/workspace",
+		Repos:          req.Repos,
+		Secrets:        req.Secrets,
+		TailscaleNet:   req.TailscaleNet,
+		StepCAServer:   req.StepCAServer,
+		AVDNames:       req.AVDNames,
+		MarketType:     normalizeMarketType(req.MarketType),
 	}
 	return m.Store.Create(ctx, d)
 }

@@ -24,6 +24,10 @@ fleet:
   # Created by `ai-desktops bootstrap`.
   table_name: ai-desktops-fleet-dev
 
+  # Default control-plane organization UUID for new desktop records and
+  # organization-scoped list output. Can be overridden with --organization-id.
+  # organization_id: 00000000-0000-4000-8000-000000000001
+
   # Environment tag. Affects DNS zone selection:
   #   prod  → desktops.orchael.com
   #   dev   → desktops.orchael.dev (default)
