@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // packerEnv returns os.Environ() with LANG and LC_ALL set to en_US.UTF-8 when
@@ -177,12 +179,36 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	cmd := exec.CommandContext(ctx, "packer", args...)
 	cmd.Dir = packerDir
 	cmd.Env = packerEnv()
-	cmd.Stdout = w
-	cmd.Stderr = w
+
+	logPath := PackerBuildLogPath(packerDir, region, time.Now().UTC())
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return fmt.Errorf("create packer log dir: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("create packer log %s: %w", logPath, err)
+	}
+	defer logFile.Close()
+
+	_, _ = fmt.Fprintf(w, "Packer build log: %s\n", logPath)
+	out := io.MultiWriter(w, logFile)
+	cmd.Stdout = out
+	cmd.Stderr = out
 	cmd.Stdin = nil
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("packer build failed: %w", err)
 	}
 	return nil
+}
+
+// PackerBuildLogPath returns the per-run log file used to persist Packer and
+// Ansible output, including profile_tasks timing summaries.
+func PackerBuildLogPath(packerDir, region string, t time.Time) string {
+	safeRegion := strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(region)
+	if safeRegion == "" {
+		safeRegion = "default"
+	}
+	name := fmt.Sprintf("packer-%s-%s.log", safeRegion, t.UTC().Format("20060102-150405"))
+	return filepath.Join(packerDir, "build-logs", name)
 }

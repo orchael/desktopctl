@@ -7,7 +7,7 @@
     # go_version, uv_version, bridgectl_version, and tailscale_version must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
-    amazon_efs_utils_version: v3.3.1
+    amazon_efs_utils_installer_url: https://amazon-efs-utils.aws.com/efs-utils-installer.sh
     # Minimum acceptable versions for apt-installed packages.
     min_versions:
       ansible: "2.10"
@@ -96,6 +96,25 @@
           - nfs-common
           - stunnel4
         state: present
+
+    - name: Download Amazon EFS utils installer
+      ansible.builtin.get_url:
+        url: "{{ amazon_efs_utils_installer_url }}"
+        dest: /tmp/efs-utils-installer.sh
+        owner: root
+        group: root
+        mode: "0700"
+        checksum: "{{ amazon_efs_utils_installer_checksum | default(omit) }}"
+
+    - name: Install Amazon EFS mount helper
+      ansible.builtin.command: /bin/bash /tmp/efs-utils-installer.sh --install
+      args:
+        creates: /sbin/mount.efs
+
+    - name: Remove Amazon EFS utils installer
+      ansible.builtin.file:
+        path: /tmp/efs-utils-installer.sh
+        state: absent
 
     - name: Check for Pantheon dock binary
       ansible.builtin.stat:
@@ -438,18 +457,6 @@
           if [ -f "$HOME/.cargo/env" ]; then
             . "$HOME/.cargo/env"
           fi
-
-    - name: Build and install Amazon EFS mount helper
-      ansible.builtin.shell: |
-        set -euo pipefail
-        rm -rf /tmp/efs-utils
-        runuser -l ubuntu -c 'git clone --depth 1 --branch {{ amazon_efs_utils_version }} https://github.com/aws/efs-utils /tmp/efs-utils'
-        runuser -l ubuntu -c 'cd /tmp/efs-utils && PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH ./build-deb.sh'
-        apt-get install -y --no-install-recommends /tmp/efs-utils/build/amazon-efs-utils*.deb
-        rm -rf /tmp/efs-utils
-      args:
-        executable: /bin/bash
-        creates: /sbin/mount.efs
 
     - name: Install pyenv build dependencies
       ansible.builtin.apt:

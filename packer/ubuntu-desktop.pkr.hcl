@@ -90,7 +90,7 @@ variable "subnet_id" {
 source "amazon-ebs" "ubuntu" {
   ami_name        = "ai-desktops-${var.bridgectl_version}-{{timestamp}}"
   ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
-  instance_type   = "t3.medium"
+  instance_type   = "c6i.xlarge"
   region          = var.aws_region
   source_ami      = var.source_ami
 
@@ -109,24 +109,24 @@ source "amazon-ebs" "ubuntu" {
   }
 
   tags = {
-    Name               = "ai-desktops"
-    ManagedBy          = "ai-desktops-packer"
-    AiDesktopsVersion  = var.ai_desktops_version
-    BridgeVersion      = var.bridgectl_version
-    TailscaleVersion   = var.tailscale_version
-    GoVersion          = var.go_version
-    UvVersion          = var.uv_version
-    FlutterVersion            = var.flutter_version
+    Name                       = "ai-desktops"
+    ManagedBy                  = "ai-desktops-packer"
+    AiDesktopsVersion          = var.ai_desktops_version
+    BridgeVersion              = var.bridgectl_version
+    TailscaleVersion           = var.tailscale_version
+    GoVersion                  = var.go_version
+    UvVersion                  = var.uv_version
+    FlutterVersion             = var.flutter_version
     AndroidCmdlineToolsVersion = var.android_cmdline_tools_version
-    DesktopWebVersion         = var.desktop_web_version
-    NovncDesktopVersion = var.novnc_desktop_version
-    BaseAMI            = var.source_ami
-    Environment        = "base"
+    DesktopWebVersion          = var.desktop_web_version
+    NovncDesktopVersion        = var.novnc_desktop_version
+    BaseAMI                    = var.source_ami
+    Environment                = "base"
   }
 
-  ssh_username             = "ubuntu"
-  ssh_timeout              = "10m"
-  ssh_keep_alive_interval  = "10s"
+  ssh_username            = "ubuntu"
+  ssh_timeout             = "10m"
+  ssh_keep_alive_interval = "10s"
 }
 
 build {
@@ -171,6 +171,7 @@ build {
       "ANSIBLE_HOST_KEY_CHECKING=False",
       "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
       "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
+      "ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks",
       "DESKTOP_WEB_NPM_TOKEN=${var.github_npm_token}",
     ]
   }
@@ -179,16 +180,16 @@ build {
     output     = "manifest.json"
     strip_path = true
     custom_data = {
-      ai_desktops_version   = var.ai_desktops_version
-      bridge_version        = var.bridgectl_version
-      tailscale_version     = var.tailscale_version
-      go_version            = var.go_version
-      uv_version            = var.uv_version
-      flutter_version                = var.flutter_version
-      android_cmdline_tools_version  = var.android_cmdline_tools_version
-      base_ami                       = var.source_ami
-      desktop_web_version   = var.desktop_web_version
-      novnc_desktop_version = var.novnc_desktop_version
+      ai_desktops_version           = var.ai_desktops_version
+      bridge_version                = var.bridgectl_version
+      tailscale_version             = var.tailscale_version
+      go_version                    = var.go_version
+      uv_version                    = var.uv_version
+      flutter_version               = var.flutter_version
+      android_cmdline_tools_version = var.android_cmdline_tools_version
+      base_ami                      = var.source_ami
+      desktop_web_version           = var.desktop_web_version
+      novnc_desktop_version         = var.novnc_desktop_version
     }
   }
 }

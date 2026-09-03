@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseManifest_singleRegion(t *testing.T) {
@@ -345,9 +346,20 @@ func TestRun_Success(t *testing.T) {
 	writeFakePacker(t, binDir, 0)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
+	workDir := t.TempDir()
 	var buf bytes.Buffer
-	if err := Run(context.Background(), t.TempDir(), "", "us-east-1", "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf); err != nil {
+	if err := Run(context.Background(), workDir, "", "us-east-1", "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf); err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(buf.String(), filepath.Join(workDir, "build-logs", "packer-us-east-1-")) {
+		t.Errorf("expected output to include packer build log path, got %q", buf.String())
+	}
+	logs, err := filepath.Glob(filepath.Join(workDir, "build-logs", "packer-us-east-1-*.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected one build log, got %d", len(logs))
 	}
 }
 
@@ -380,5 +392,13 @@ func TestRun_WithVarsFileAndPublic(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Run(context.Background(), workDir, varsFile, "us-west-2", "ami-base2", "0.0.0", "0.0.0", "20260101-000000", "", true, &buf); err != nil {
 		t.Fatalf("Run with vars and public: %v", err)
+	}
+}
+
+func TestPackerBuildLogPath(t *testing.T) {
+	got := PackerBuildLogPath("/tmp/packer", "us:east/1", time.Date(2026, 9, 2, 3, 4, 5, 0, time.UTC))
+	want := filepath.Join("/tmp/packer", "build-logs", "packer-us-east-1-20260902-030405.log")
+	if got != want {
+		t.Errorf("PackerBuildLogPath() = %q, want %q", got, want)
 	}
 }
