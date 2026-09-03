@@ -2,7 +2,7 @@ encryptionsalt: v1:IqF78N+M7JY=:v1:I4AaYl6SihT9d5uH:O6J73y5lRKztXaGKMObpIcgk599S
 config:
   aws:region: us-east-2
   foundation:zone: desktops.orchael.dev
-  foundation:fleetTable: ai-desktops-fleet
+  foundation:fleetTable: ai-desktops-fleet-dev
   foundation:operatorCIDR: 0.0.0.0/0
   foundation:environment: dev
   foundation:pulumiBackendBucket: markcallen-ai-desktops-pulumi-state
