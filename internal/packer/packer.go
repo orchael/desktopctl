@@ -190,7 +190,7 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	}
 	defer logFile.Close()
 
-	fmt.Fprintf(w, "Packer build log: %s\n", logPath)
+	_, _ = fmt.Fprintf(w, "Packer build log: %s\n", logPath)
 	out := io.MultiWriter(w, logFile)
 	cmd.Stdout = out
 	cmd.Stderr = out
