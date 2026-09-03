@@ -103,10 +103,11 @@
         dest: /tmp/efs-utils-installer.sh
         owner: root
         group: root
-        mode: "0755"
+        mode: "0700"
+        checksum: "{{ amazon_efs_utils_installer_checksum | default(omit) }}"
 
     - name: Install Amazon EFS mount helper
-      ansible.builtin.command: /bin/sh /tmp/efs-utils-installer.sh --install
+      ansible.builtin.command: /bin/bash /tmp/efs-utils-installer.sh --install
       args:
         creates: /sbin/mount.efs
 
