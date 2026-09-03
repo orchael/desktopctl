@@ -1201,3 +1201,19 @@
       ansible.builtin.apt:
         autoclean: true
         autoremove: true
+
+    - name: Write AMI version marker
+      ansible.builtin.copy:
+        dest: /opt/ai-desktops/ami-version
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          bridgectl_version={{ bridgectl_version }}
+          go_version={{ go_version }}
+          uv_version={{ uv_version }}
+          tailscale_version={{ tailscale_version }}
+          desktop_web_version={{ desktop_web_version }}
+          novnc_desktop_version={{ novnc_desktop_version }}
+          packages_pre_installed=true
+          build_date={{ ansible_date_time.iso8601 }}
