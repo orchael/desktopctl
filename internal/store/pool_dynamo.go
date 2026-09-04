@@ -160,7 +160,6 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 		return nil, errors.New("desktopID must not be empty")
 	}
 
-	ts := now()
 	var exclusiveStartKey map[string]types.AttributeValue
 	for {
 		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
@@ -180,6 +179,10 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 				continue
 			}
 
+			// Capture the timestamp at claim time so it reflects when this
+			// specific candidate was successfully acquired, not when the scan
+			// started.
+			ts := now()
 			_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 				TableName: aws.String(s.tableName),
 				Key: map[string]types.AttributeValue{
