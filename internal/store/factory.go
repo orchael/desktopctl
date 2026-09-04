@@ -31,11 +31,21 @@ func NewAMIStore() AMIStore {
 	return NewInMemoryAMIStore()
 }
 
-// NewDynamoAMIStore returns a DynamoDB-backed AMI store.
+// NewDynamoAMIStoreFn returns a DynamoDB-backed AMI store.
 func NewDynamoAMIStoreFn(awsCfg aws.Config, tableName string) AMIStore {
 	if tableName == "" {
 		return NewInMemoryAMIStore()
 	}
 	client := dynamodb.NewFromConfig(awsCfg)
 	return NewDynamoAMIStore(client, tableName)
+}
+
+// NewPoolStore returns a DynamoDB-backed PoolStore, or an InMemoryPoolStore
+// when tableName is empty (useful in tests and local dev without AWS credentials).
+func NewPoolStore(awsCfg aws.Config, tableName string) PoolStore {
+	if tableName == "" {
+		return NewInMemoryPoolStore()
+	}
+	client := dynamodb.NewFromConfig(awsCfg)
+	return NewDynamoPoolStore(client, tableName)
 }
