@@ -98,8 +98,20 @@ log "nginx reloaded with updated ports"
 # --- Step 2: obtain TLS certificate and wire it into novnc nginx -----------
 # novnc-setup-tls uses the certbot dns-route53 plugin (DNS-01), so port 80
 # does not need to be publicly accessible.
+# Let's Encrypt occasionally returns a transient "Certificate not found" error
+# during the ACME finalization step. Retry up to 3 times with a 30-second
+# back-off before giving up.
 log "Running novnc-setup-tls..."
-/usr/local/bin/novnc-setup-tls
+CERTBOT_ATTEMPTS=0
+CERTBOT_MAX=3
+until /usr/local/bin/novnc-setup-tls; do
+  CERTBOT_ATTEMPTS=$(( CERTBOT_ATTEMPTS + 1 ))
+  if [[ "$CERTBOT_ATTEMPTS" -ge "$CERTBOT_MAX" ]]; then
+    die "novnc-setup-tls failed after $CERTBOT_MAX attempts"
+  fi
+  log "novnc-setup-tls failed (attempt $CERTBOT_ATTEMPTS/$CERTBOT_MAX); retrying in 30s..."
+  sleep 30
+done
 
 # --- Step 3: reconfigure nginx to serve desktop-web and proxy noVNC/API ----
 # The novnc-desktop nginx config has "location / { proxy_pass noVNC; }".
