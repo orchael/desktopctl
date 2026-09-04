@@ -38,7 +38,7 @@ func newPoolWithMember(state store.PoolMemberState) (*EC2WarmPool, *store.InMemo
 	return pool, ps, ec2
 }
 
-func TestEC2WarmPool_Acquire_success(t *testing.T) {
+func TestEC2WarmPool_Acquire_Success(t *testing.T) {
 	p, ps, ec2 := newPoolWithMember(store.PoolStateAvailable)
 	ctx := context.Background()
 
@@ -63,7 +63,7 @@ func TestEC2WarmPool_Acquire_success(t *testing.T) {
 	}
 }
 
-func TestEC2WarmPool_Acquire_noCapacity(t *testing.T) {
+func TestEC2WarmPool_Acquire_NoCapacity(t *testing.T) {
 	ps := store.NewInMemoryPoolStore()
 	p := NewEC2WarmPool(ps, &fakeEC2Ops{})
 	_, err := p.Acquire(context.Background(), DesktopSpec{DesktopID: "d-001"})
@@ -72,7 +72,7 @@ func TestEC2WarmPool_Acquire_noCapacity(t *testing.T) {
 	}
 }
 
-func TestEC2WarmPool_Acquire_startFails(t *testing.T) {
+func TestEC2WarmPool_Acquire_StartFails(t *testing.T) {
 	p, ps, _ := newPoolWithMember(store.PoolStateAvailable)
 	// Inject start error after pool is set up.
 	ec2Fail := &fakeEC2Ops{startErr: errors.New("EC2 throttled")}
@@ -115,7 +115,7 @@ func TestEC2WarmPool_Release_notFound(t *testing.T) {
 	}
 }
 
-func TestEC2WarmPool_Recycle_success(t *testing.T) {
+func TestEC2WarmPool_Recycle_Success(t *testing.T) {
 	p, ps, ec2 := newPoolWithMember(store.PoolStateRecycling)
 	// Set a desktop ID to verify it gets cleared.
 	a, _ := ps.GetPoolMember(context.Background(), "i-001")
@@ -139,7 +139,7 @@ func TestEC2WarmPool_Recycle_success(t *testing.T) {
 	}
 }
 
-func TestEC2WarmPool_Recycle_stopFails(t *testing.T) {
+func TestEC2WarmPool_Recycle_StopFails(t *testing.T) {
 	p, ps, _ := newPoolWithMember(store.PoolStateRecycling)
 	p.ec2 = &fakeEC2Ops{stopErr: errors.New("stop failed")}
 	ctx := context.Background()
