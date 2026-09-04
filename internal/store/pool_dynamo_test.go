@@ -155,14 +155,14 @@ func TestDynamoPoolStore_CountByState(t *testing.T) {
 	}
 	mock := &mockDynamoClient{
 		scanFn: func(in *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
-			// Simulate DynamoDB server-side FilterExpression: only return AVAILABLE members.
-			items := make([]map[string]types.AttributeValue, 0)
+			// Simulate Select=COUNT + server-side FilterExpression: return count only.
+			var count int32
 			for _, a := range members {
 				if a.PoolMemberState == PoolStateAvailable {
-					items = append(items, marshaledAllocation(t, a))
+					count++
 				}
 			}
-			return &dynamodb.ScanOutput{Items: items}, nil
+			return &dynamodb.ScanOutput{Count: count}, nil
 		},
 	}
 	s := &DynamoPoolStore{client: mock, tableName: "pool"}

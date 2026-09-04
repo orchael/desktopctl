@@ -233,17 +233,19 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 	return nil, ErrNoAvailableCapacity
 }
 
-// CountByState counts members with the given state using a narrow
-// ProjectionExpression so only the pool_state attribute is transferred.
+// CountByState counts members with the given state using Select=COUNT so
+// DynamoDB returns only the count — no item payloads are transferred.
+// ConsistentRead avoids undercounting when members were recently marked AVAILABLE.
 func (s *DynamoPoolStore) CountByState(ctx context.Context, state PoolMemberState) (int, error) {
 	n := 0
 	var exclusiveStartKey map[string]types.AttributeValue
 	for {
 		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
-			TableName:            aws.String(s.tableName),
-			ExclusiveStartKey:    exclusiveStartKey,
-			FilterExpression:     aws.String("pool_state = :state"),
-			ProjectionExpression: aws.String("pool_state"),
+			TableName:         aws.String(s.tableName),
+			ExclusiveStartKey: exclusiveStartKey,
+			ConsistentRead:    aws.Bool(true),
+			Select:            types.SelectCount,
+			FilterExpression:  aws.String("pool_state = :state"),
 			ExpressionAttributeValues: map[string]types.AttributeValue{
 				":state": &types.AttributeValueMemberS{Value: string(state)},
 			},
@@ -251,7 +253,7 @@ func (s *DynamoPoolStore) CountByState(ctx context.Context, state PoolMemberStat
 		if err != nil {
 			return 0, fmt.Errorf("count pool members by state: %w", err)
 		}
-		n += len(out.Items)
+		n += int(out.Count)
 		if len(out.LastEvaluatedKey) == 0 {
 			break
 		}
