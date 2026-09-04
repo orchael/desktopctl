@@ -63,6 +63,15 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultVolumeSizes(t *testing.T) {
+	if DefaultVolumeSize != 64 {
+		t.Errorf("DefaultVolumeSize = %d, want 64", DefaultVolumeSize)
+	}
+	if DefaultMobileVolumeSize != 200 {
+		t.Errorf("DefaultMobileVolumeSize = %d, want 200", DefaultMobileVolumeSize)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	c := &Config{Fleet: FleetConfig{Environment: EnvDev}}
 	c.Defaults()

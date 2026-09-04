@@ -90,7 +90,7 @@ func init() {
 	createCmd.Flags().StringVar(&createWorkspaceName, "workspace-name", "", "existing retained EFS workspace to mount at /workspace")
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
-	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: config value, 100 if unset)")
+	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: "+fmt.Sprintf("%d", config.DefaultVolumeSize)+" for normal desktops, "+fmt.Sprintf("%d", config.DefaultMobileVolumeSize)+" for mobile/AVD; overridden by desktop.volume_size in config)")
 	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: min(2× instance memory, 32); 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
@@ -433,13 +433,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
 
-	volumeSize := createVolumeSize
-	if volumeSize <= 0 {
-		volumeSize = cfg.Desktop.VolumeSize
-	}
-	if volumeSize <= 0 {
-		return fmt.Errorf("volume size must be a positive integer (got %d); set --volume-size or desktop.volume_size in config", volumeSize)
-	}
+	volumeSize := resolveVolumeSize(createVolumeSize, cfg.Desktop.VolumeSize, createMobile, createAVDs)
 
 	subnets, err := selectCreateSubnets(ctx, cfg.AWS.Region, cfg.AWS.Profile, instanceTypes, marketType, foundationOutputs)
 	if err != nil {
@@ -475,6 +469,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if costLabel != "" {
 		fmt.Fprintf(os.Stderr, "  Estimated cost        : %s\n", costLabel)
 	}
+	fmt.Fprintf(os.Stderr, "  Volume size           : %d GiB (~$%.2f/month EBS)\n", volumeSize, float64(volumeSize)*0.08)
 
 	swapSizeGB, err := resolveSwapSize(createSwapSize, selectedInstanceType, volumeSize)
 	if err != nil {
@@ -1680,6 +1675,21 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 //
 // An error is returned when the swap would leave fewer than 20 GiB on the root
 // volume for the OS and application data.
+// resolveVolumeSize returns the effective EBS root volume size in GiB.
+// Precedence: explicit CLI flag > config file > mobile/AVD default > normal default.
+func resolveVolumeSize(cliFlag, configValue int, mobile bool, avds []string) int {
+	if cliFlag > 0 {
+		return cliFlag
+	}
+	if configValue > 0 {
+		return configValue
+	}
+	if mobile || len(avds) > 0 {
+		return config.DefaultMobileVolumeSize
+	}
+	return config.DefaultVolumeSize
+}
+
 func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int, error) {
 	if flagValue < -1 {
 		return 0, fmt.Errorf("invalid --swap-size %d: use -1 to disable swap, 0 for auto, or a positive integer for an explicit size in GiB", flagValue)

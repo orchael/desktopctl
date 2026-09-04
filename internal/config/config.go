@@ -23,7 +23,8 @@ const (
 	DefaultBridgePort         = 9445
 	DefaultInstanceType       = "t3.large"
 	DefaultMobileInstanceType = "m8i.xlarge"
-	DefaultVolumeSize         = 100
+	DefaultVolumeSize         = 64
+	DefaultMobileVolumeSize   = 200
 
 	// DefaultMobileAVD is the AVD created by --mobile when no --avd flags are given.
 	DefaultMobileAVDName   = "flutter_dev"
@@ -249,9 +250,6 @@ func (c *Config) Defaults() {
 	}
 	if len(c.Desktop.InstanceTypes) == 0 {
 		c.Desktop.InstanceTypes = append([]string(nil), DefaultSpotInstanceTypes...)
-	}
-	if c.Desktop.VolumeSize <= 0 {
-		c.Desktop.VolumeSize = DefaultVolumeSize
 	}
 	if c.Pulumi.InfraDir == "" {
 		c.Pulumi.InfraDir = "."

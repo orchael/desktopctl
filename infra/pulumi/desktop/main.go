@@ -12,7 +12,7 @@ import (
 const (
 	defaultBridgePort = 9445
 	novncHTTPSPort    = 8443
-	defaultVolumeSize = 100
+	defaultVolumeSize = 64
 )
 
 func main() {
