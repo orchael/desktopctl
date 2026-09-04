@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -40,6 +41,12 @@ func (m *Manager) Replenish(ctx context.Context) error {
 		a, err := m.provisioner.ProvisionPoolMember(ctx)
 		if err != nil {
 			return fmt.Errorf("provision pool member: %w", err)
+		}
+		if a == nil {
+			return errors.New("provisioner returned nil allocation without error")
+		}
+		if a.PoolMemberState != store.PoolStateAvailable {
+			a.PoolMemberState = store.PoolStateAvailable
 		}
 		if err := m.store.CreatePoolMember(ctx, a); err != nil {
 			return fmt.Errorf("store new pool member %q: %w", a.InstanceID, err)

@@ -55,6 +55,9 @@ func (s *DynamoPoolStore) CreatePoolMember(ctx context.Context, a *ComputeAlloca
 }
 
 func (s *DynamoPoolStore) GetPoolMember(ctx context.Context, instanceID string) (*ComputeAllocation, error) {
+	if instanceID == "" {
+		return nil, ErrPoolMemberNotFound
+	}
 	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -132,6 +135,9 @@ func (s *DynamoPoolStore) UpdatePoolMember(ctx context.Context, a *ComputeAlloca
 // DeletePoolMember removes a pool member. Returns ErrPoolMemberNotFound if
 // the instance does not exist in the table.
 func (s *DynamoPoolStore) DeletePoolMember(ctx context.Context, instanceID string) error {
+	if instanceID == "" {
+		return ErrPoolMemberNotFound
+	}
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -175,7 +181,7 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 			if err := attributevalue.UnmarshalMap(item, &a); err != nil {
 				return nil, fmt.Errorf("unmarshal pool member: %w", err)
 			}
-			if a.PoolMemberState != PoolStateAvailable {
+			if a.InstanceID == "" || a.PoolMemberState != PoolStateAvailable {
 				continue
 			}
 
