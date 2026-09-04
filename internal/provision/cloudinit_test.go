@@ -1026,6 +1026,9 @@ func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
 		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
 		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
 		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends openssl",
+		`wget -q --timeout=60 --tries=3 \`,
 	}
 	for _, want := range absent {
 		if strings.Contains(out, want) {
@@ -1033,15 +1036,18 @@ func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
 		}
 	}
 
-	// Validation error messages must replace the install blocks.
+	// Validation messages must replace the install blocks.
 	present := []string{
 		"ERROR: AMI is missing amazon-efs-utils",
 		"ERROR: AMI is missing tailscale",
+		"ERROR: AMI is missing tailscaled",
 		"ERROR: AMI bridgectl version mismatch",
+		"ERROR: AMI is missing step",
+		"WARNING: AMI is missing CloudWatch agent",
 	}
 	for _, want := range present {
 		if !strings.Contains(out, want) {
-			t.Errorf("pre-installed AMI should include validation error %q", want)
+			t.Errorf("pre-installed AMI should include validation message %q", want)
 		}
 	}
 }

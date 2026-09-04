@@ -343,6 +343,10 @@ runcmd:
       echo "ERROR: AMI is missing tailscale; rebuild the AMI" >&2
       exit 1
     fi
+    if ! command -v tailscaled >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing tailscaled; rebuild the AMI" >&2
+      exit 1
+    fi
 {{- else}}
     if ! command -v tailscale >/dev/null 2>&1; then
       TAILSCALE_INSTALL=$(mktemp)
@@ -416,12 +420,14 @@ runcmd:
     done
 
 {{- if .PackagesPreInstalled}}
-    for prereq in step openssl; do
-      if ! command -v "$prereq" >/dev/null 2>&1; then
-        echo "ERROR: AMI is missing $prereq; rebuild the AMI" >&2
-        exit 1
-      fi
-    done
+    if ! command -v step >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing step; rebuild the AMI" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing openssl; rebuild the AMI" >&2
+      exit 1
+    fi
     if ! python3 -c 'import yaml' >/dev/null 2>&1; then
       echo "ERROR: AMI is missing python3-yaml; rebuild the AMI" >&2
       exit 1
@@ -1047,7 +1053,11 @@ runcmd:
     DESKTOP_ID="{{ .DesktopID }}"
     AWS_REGION="{{ .AWSRegion }}"
 
-{{- if not .PackagesPreInstalled}}
+{{- if .PackagesPreInstalled}}
+    if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
+      echo "WARNING: AMI is missing CloudWatch agent; rebuild the AMI to restore metrics collection" >&2
+    fi
+{{- else}}
     # Install agent if not already present (pre-baked AMIs include it)
     if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
       CW_ARCH=$(dpkg --print-architecture)
