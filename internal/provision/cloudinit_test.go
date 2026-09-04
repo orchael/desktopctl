@@ -994,6 +994,97 @@ func TestRenderCloudInit_bootstrapTiming(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-precheck",
+		Hostname:             "d-precheck.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		GitHubSecretPath:     "/ai-desktops/acme/github",
+		WorkspacePath:        "/workspace",
+		WorkspaceMode:        "efs",
+		EFSFileSystemID:      "fs-123",
+		EFSAccessPointID:     "fsap-123",
+		AWSRegion:            "us-east-1",
+		PackagesPreInstalled: true,
+		TailscaleNetwork:     "acme-tailnet",
+		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme-tailnet",
+		StepCAServerDNS:      "ca.tailnet.ts.net",
+		StepCAFingerprint:    "abcdef",
+		StepCAProvisioner:    "ai-desktops",
+		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	// Fallback package installs must be absent when AMI pre-bakes them.
+	absent := []string{
+		"apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils",
+		"curl -fsSL https://tailscale.com/install.sh",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
+		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends",
+	}
+	for _, want := range absent {
+		if strings.Contains(out, want) {
+			t.Errorf("pre-installed AMI should not run fallback install %q", want)
+		}
+	}
+
+	// Validation error messages must replace the install blocks.
+	present := []string{
+		"ERROR: AMI is missing amazon-efs-utils",
+		"ERROR: AMI is missing tailscale",
+		"ERROR: AMI bridgectl version mismatch",
+	}
+	for _, want := range present {
+		if !strings.Contains(out, want) {
+			t.Errorf("pre-installed AMI should include validation error %q", want)
+		}
+	}
+}
+
+func TestRenderCloudInit_nonPreInstalledHasFallbackInstalls(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-noprecheck",
+		Hostname:             "d-noprecheck.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		GitHubSecretPath:     "/ai-desktops/acme/github",
+		WorkspacePath:        "/workspace",
+		WorkspaceMode:        "efs",
+		EFSFileSystemID:      "fs-456",
+		EFSAccessPointID:     "fsap-456",
+		AWSRegion:            "us-east-1",
+		PackagesPreInstalled: false,
+		TailscaleNetwork:     "acme-tailnet",
+		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme-tailnet",
+		StepCAServerDNS:      "ca.tailnet.ts.net",
+		StepCAFingerprint:    "abcdef",
+		StepCAProvisioner:    "ai-desktops",
+		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	// Fallback package installs must be present when AMI does not pre-bake them.
+	present := []string{
+		"apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils",
+		"curl -fsSL https://tailscale.com/install.sh",
+		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
+		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+	}
+	for _, want := range present {
+		if !strings.Contains(out, want) {
+			t.Errorf("non-pre-installed AMI should include fallback install %q", want)
+		}
+	}
+}
+
 func TestRenderCloudInit_dockerEnableGating(t *testing.T) {
 	t.Run("packages_pre_installed", func(t *testing.T) {
 		cfg := &BootstrapConfig{
