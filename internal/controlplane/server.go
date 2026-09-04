@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
@@ -74,10 +75,21 @@ func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	if _, ok := requireOrganization(w, r); !ok {
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
 		return
 	}
-	writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
+	var req CreateDesktopRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decode request: %w", err))
+		return
+	}
+	result, err := s.service.CreateDesktop(r.Context(), organizationID, &req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
@@ -104,13 +116,7 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 	case "stop":
 		s.stopDesktop(w, r, id)
 	case "terminate":
-		if !s.requireMutationAuth(w, r) {
-			return
-		}
-		if _, ok := requireOrganization(w, r); !ok {
-			return
-		}
-		writeError(w, http.StatusNotImplemented, errors.New("this operation requires the shared Pulumi lifecycle service extraction"))
+		s.terminateDesktop(w, r, id)
 	default:
 		writeError(w, http.StatusNotFound, errors.New("unknown action"))
 	}
@@ -173,6 +179,22 @@ func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	result, err := s.service.StopDesktop(r.Context(), organizationID, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) terminateDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	organizationID, ok := requireOrganization(w, r)
+	if !ok {
+		return
+	}
+	result, err := s.service.TerminateDesktop(r.Context(), organizationID, id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
