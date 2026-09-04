@@ -71,6 +71,23 @@ type Config struct {
 	Agent    AgentConfig    `yaml:"agent"`
 	Network  NetworkConfig  `yaml:"network,omitempty"`
 	PKI      PKIConfig      `yaml:"pki,omitempty"`
+	Pool     PoolConfig     `yaml:"pool,omitempty"`
+}
+
+// PoolConfig controls the warm compute pool. Set PoolSize to 0 (the default)
+// to disable the pool entirely; all bookings will use the legacy pulumi-up path.
+type PoolConfig struct {
+	// TableName is the DynamoDB table for pool member state.
+	// Defaults to "ai-desktops-pool-<environment>".
+	TableName string `yaml:"table_name,omitempty"`
+	// PoolSize is the desired number of AVAILABLE pool members to maintain.
+	// Set to 0 to disable the warm pool.
+	PoolSize int `yaml:"pool_size,omitempty"`
+}
+
+// IsEnabled reports whether the warm pool is active (PoolSize > 0).
+func (p *PoolConfig) IsEnabled() bool {
+	return p.PoolSize > 0
 }
 
 // Env returns the configured environment, falling back to dev.
@@ -244,6 +261,9 @@ func (c *Config) Defaults() {
 	}
 	if c.Fleet.AMITableName == "" {
 		c.Fleet.AMITableName = DefaultAMITablePrefix + "-" + c.Fleet.Environment
+	}
+	if c.Pool.TableName == "" {
+		c.Pool.TableName = "ai-desktops-pool-" + c.Fleet.Environment
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
