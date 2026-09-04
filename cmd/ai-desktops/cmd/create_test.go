@@ -47,6 +47,35 @@ func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
 	}
 }
 
+func TestResolveVolumeSize(t *testing.T) {
+	tests := []struct {
+		name        string
+		cliFlag     int
+		configValue int
+		mobile      bool
+		avds        []string
+		want        int
+	}{
+		{name: "default normal", want: config.DefaultVolumeSize},
+		{name: "default mobile flag", mobile: true, want: config.DefaultMobileVolumeSize},
+		{name: "default avd flag", avds: []string{"flutter_dev:system-images;android-35;google_apis;x86_64"}, want: config.DefaultMobileVolumeSize},
+		{name: "config override normal", configValue: 80, want: 80},
+		{name: "config override mobile", configValue: 80, mobile: true, want: 80},
+		{name: "cli override normal", cliFlag: 120, want: 120},
+		{name: "cli override mobile", cliFlag: 120, mobile: true, want: 120},
+		{name: "cli overrides config", cliFlag: 120, configValue: 80, want: 120},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveVolumeSize(tc.cliFlag, tc.configValue, tc.mobile, tc.avds)
+			if got != tc.want {
+				t.Errorf("resolveVolumeSize(%d, %d, %v, %v) = %d, want %d",
+					tc.cliFlag, tc.configValue, tc.mobile, tc.avds, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateCmd_npmGitHubScopeFlagsRegistered(t *testing.T) {
 	if flag := createCmd.Flags().Lookup("npm-github-scope"); flag == nil {
 		t.Fatal("npm-github-scope flag not registered")

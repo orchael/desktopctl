@@ -73,7 +73,7 @@ func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID
 // sshKeyName is the EC2 key pair name (not a local file path); it may be empty
 // if SSH key-pair attachment is not required.
 // bridgePort is the localhost port for bridgectl; 0 means use the stack default (9445).
-// volumeSize is the root EBS volume size in GiB; 0 means use the stack default (100).
+// volumeSize is the root EBS volume size in GiB; 0 means use the stack default (64).
 // amiID is the pre-baked AMI ID.
 // userDataBase64 is gzip-compressed, base64-encoded cloud-init user-data.
 // nestedVirtualization enables KVM by setting CpuOptions.NestedVirtualization=enabled on the EC2 instance.

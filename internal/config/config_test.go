@@ -63,6 +63,15 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultVolumeSizes(t *testing.T) {
+	if DefaultVolumeSize != 64 {
+		t.Errorf("DefaultVolumeSize = %d, want 64", DefaultVolumeSize)
+	}
+	if DefaultMobileVolumeSize != 200 {
+		t.Errorf("DefaultMobileVolumeSize = %d, want 200", DefaultMobileVolumeSize)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	c := &Config{Fleet: FleetConfig{Environment: EnvDev}}
 	c.Defaults()
@@ -287,6 +296,7 @@ func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
 	if strings.Contains(text, "root_volume_size") {
 		t.Fatal("config.example.yaml must use desktop.volume_size, not root_volume_size")
 	}
+	// The field must be documented (even if commented out to show the default is 0/auto).
 	if !strings.Contains(text, "volume_size:") {
 		t.Fatal("config.example.yaml must document desktop.volume_size")
 	}
@@ -295,8 +305,10 @@ func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		t.Fatalf("parse config.example.yaml: %v", err)
 	}
-	if c.Desktop.VolumeSize != DefaultVolumeSize {
-		t.Fatalf("desktop.volume_size = %d, want %d", c.Desktop.VolumeSize, DefaultVolumeSize)
+	// The example intentionally leaves volume_size unset (0) so context-sensitive
+	// defaults apply: 64 GiB for normal desktops, 200 GiB for mobile/AVD.
+	if c.Desktop.VolumeSize != 0 {
+		t.Fatalf("config.example.yaml desktop.volume_size = %d, want 0 (unset/auto)", c.Desktop.VolumeSize)
 	}
 }
 
