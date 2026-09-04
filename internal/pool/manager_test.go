@@ -52,20 +52,12 @@ func TestManager_Replenish_PoolShort(t *testing.T) {
 	ctx := context.Background()
 	_ = ps.CreatePoolMember(ctx, &store.ComputeAllocation{InstanceID: "i-001", PoolMemberState: store.PoolStateAvailable})
 
-	callCount := 0
-	prov := &fakeProvisioner{}
-	// Override provisioner to return unique IDs.
-	origAlloc := prov.allocation
-	_ = origAlloc
-
-	// Use a custom provisioner that returns distinct instance IDs.
 	counter := &countingProvisioner{base: "i-new-"}
 	m := NewManager(ps, counter, 3)
 
 	if err := m.Replenish(ctx); err != nil {
 		t.Fatalf("Replenish: %v", err)
 	}
-	_ = callCount
 	if counter.calls != 2 {
 		t.Errorf("provisioner called %d times, want 2", counter.calls)
 	}

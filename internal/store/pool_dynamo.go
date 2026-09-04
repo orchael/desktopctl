@@ -23,10 +23,17 @@ func NewDynamoPoolStore(client *dynamodb.Client, tableName string) *DynamoPoolSt
 }
 
 func (s *DynamoPoolStore) CreatePoolMember(ctx context.Context, a *ComputeAllocation) error {
-	if a.CreatedAt == "" {
-		a.CreatedAt = now()
+	if a == nil {
+		return errors.New("pool member must not be nil")
 	}
-	a.UpdatedAt = now()
+	if a.InstanceID == "" {
+		return errors.New("pool member InstanceID must not be empty")
+	}
+	ts := now()
+	if a.CreatedAt == "" {
+		a.CreatedAt = ts
+	}
+	a.UpdatedAt = ts
 
 	item, err := attributevalue.MarshalMap(a)
 	if err != nil {
@@ -93,83 +100,120 @@ func (s *DynamoPoolStore) ListPoolMembers(ctx context.Context) ([]*ComputeAlloca
 	return result, nil
 }
 
+// UpdatePoolMember persists changes to an existing pool member. Returns
+// ErrPoolMemberNotFound if the instance does not exist in the table.
 func (s *DynamoPoolStore) UpdatePoolMember(ctx context.Context, a *ComputeAllocation) error {
+	if a == nil {
+		return errors.New("pool member must not be nil")
+	}
+	if a.InstanceID == "" {
+		return errors.New("pool member InstanceID must not be empty")
+	}
 	a.UpdatedAt = now()
 	item, err := attributevalue.MarshalMap(a)
 	if err != nil {
 		return fmt.Errorf("marshal pool member: %w", err)
 	}
 	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(s.tableName),
-		Item:      item,
+		TableName:           aws.String(s.tableName),
+		Item:                item,
+		ConditionExpression: aws.String("attribute_exists(instance_id)"),
 	})
 	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrPoolMemberNotFound
+		}
 		return fmt.Errorf("put pool member (update): %w", err)
 	}
 	return nil
 }
 
+// DeletePoolMember removes a pool member. Returns ErrPoolMemberNotFound if
+// the instance does not exist in the table.
 func (s *DynamoPoolStore) DeletePoolMember(ctx context.Context, instanceID string) error {
 	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
 			"instance_id": &types.AttributeValueMemberS{Value: instanceID},
 		},
+		ConditionExpression: aws.String("attribute_exists(instance_id)"),
 	})
 	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrPoolMemberNotFound
+		}
 		return fmt.Errorf("delete pool member %q: %w", instanceID, err)
 	}
 	return nil
 }
 
 // AcquireAvailable atomically transitions one AVAILABLE member to ALLOCATING
-// using a conditional UpdateItem. If another caller wins the race for a member,
-// the next AVAILABLE candidate is tried. Returns ErrNoAvailableCapacity when no
-// AVAILABLE member can be claimed.
+// using a conditional UpdateItem. Scans the table page-by-page and attempts
+// the claim immediately per candidate, exiting as soon as one succeeds.
+// If another caller wins the race for a candidate, the next AVAILABLE candidate
+// is tried. Returns ErrNoAvailableCapacity when no AVAILABLE member can be
+// claimed.
 func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string) (*ComputeAllocation, error) {
 	if desktopID == "" {
 		return nil, errors.New("desktopID must not be empty")
 	}
 
-	members, err := s.ListPoolMembers(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	ts := now()
-	for _, a := range members {
-		if a.PoolMemberState != PoolStateAvailable {
-			continue
-		}
-
-		_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-			TableName: aws.String(s.tableName),
-			Key: map[string]types.AttributeValue{
-				"instance_id": &types.AttributeValueMemberS{Value: a.InstanceID},
-			},
-			ConditionExpression: aws.String("pool_state = :available"),
-			UpdateExpression:    aws.String("SET pool_state = :allocating, desktop_id = :did, allocated_at = :ts, updated_at = :ts"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":available":  &types.AttributeValueMemberS{Value: string(PoolStateAvailable)},
-				":allocating": &types.AttributeValueMemberS{Value: string(PoolStateAllocating)},
-				":did":        &types.AttributeValueMemberS{Value: desktopID},
-				":ts":         &types.AttributeValueMemberS{Value: ts},
-			},
+	var exclusiveStartKey map[string]types.AttributeValue
+	for {
+		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
+			TableName:         aws.String(s.tableName),
+			ExclusiveStartKey: exclusiveStartKey,
 		})
 		if err != nil {
-			var cce *types.ConditionalCheckFailedException
-			if errors.As(err, &cce) {
-				continue
-			}
-			return nil, fmt.Errorf("acquire pool member %q: %w", a.InstanceID, err)
+			return nil, fmt.Errorf("scan pool table: %w", err)
 		}
 
-		acquired := *a
-		acquired.PoolMemberState = PoolStateAllocating
-		acquired.DesktopID = desktopID
-		acquired.AllocatedAt = ts
-		acquired.UpdatedAt = ts
-		return &acquired, nil
+		for _, item := range out.Items {
+			var a ComputeAllocation
+			if err := attributevalue.UnmarshalMap(item, &a); err != nil {
+				return nil, fmt.Errorf("unmarshal pool member: %w", err)
+			}
+			if a.PoolMemberState != PoolStateAvailable {
+				continue
+			}
+
+			_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+				TableName: aws.String(s.tableName),
+				Key: map[string]types.AttributeValue{
+					"instance_id": &types.AttributeValueMemberS{Value: a.InstanceID},
+				},
+				ConditionExpression: aws.String("pool_state = :available"),
+				UpdateExpression:    aws.String("SET pool_state = :allocating, desktop_id = :did, allocated_at = :ts, updated_at = :ts"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":available":  &types.AttributeValueMemberS{Value: string(PoolStateAvailable)},
+					":allocating": &types.AttributeValueMemberS{Value: string(PoolStateAllocating)},
+					":did":        &types.AttributeValueMemberS{Value: desktopID},
+					":ts":         &types.AttributeValueMemberS{Value: ts},
+				},
+			})
+			if err != nil {
+				var cce *types.ConditionalCheckFailedException
+				if errors.As(err, &cce) {
+					continue
+				}
+				return nil, fmt.Errorf("acquire pool member %q: %w", a.InstanceID, err)
+			}
+
+			acquired := a
+			acquired.PoolMemberState = PoolStateAllocating
+			acquired.DesktopID = desktopID
+			acquired.AllocatedAt = ts
+			acquired.UpdatedAt = ts
+			return &acquired, nil
+		}
+
+		if len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		exclusiveStartKey = out.LastEvaluatedKey
 	}
 
 	return nil, ErrNoAvailableCapacity

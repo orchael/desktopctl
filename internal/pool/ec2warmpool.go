@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/orchael/ai-desktops/internal/store"
@@ -36,8 +37,8 @@ func (p *EC2WarmPool) Acquire(ctx context.Context, spec DesktopSpec) (*Machine, 
 	if startErr := p.ec2.StartInstance(ctx, a.InstanceID); startErr != nil {
 		a.PoolMemberState = store.PoolStateFailed
 		a.FailureMsg = startErr.Error()
-		_ = p.store.UpdatePoolMember(ctx, a)
-		return nil, fmt.Errorf("start instance %s: %w", a.InstanceID, startErr)
+		updateErr := p.store.UpdatePoolMember(ctx, a)
+		return nil, errors.Join(fmt.Errorf("start instance %s: %w", a.InstanceID, startErr), updateErr)
 	}
 
 	a.PoolMemberState = store.PoolStateReady
@@ -48,6 +49,7 @@ func (p *EC2WarmPool) Acquire(ctx context.Context, spec DesktopSpec) (*Machine, 
 	return &Machine{
 		InstanceID: a.InstanceID,
 		AMIID:      a.AMIID,
+		Region:     spec.Region,
 	}, nil
 }
 
@@ -73,8 +75,8 @@ func (p *EC2WarmPool) Recycle(ctx context.Context, instanceID string) error {
 	if stopErr := p.ec2.StopInstance(ctx, instanceID); stopErr != nil {
 		a.PoolMemberState = store.PoolStateFailed
 		a.FailureMsg = stopErr.Error()
-		_ = p.store.UpdatePoolMember(ctx, a)
-		return fmt.Errorf("stop instance %s: %w", instanceID, stopErr)
+		updateErr := p.store.UpdatePoolMember(ctx, a)
+		return errors.Join(fmt.Errorf("stop instance %s: %w", instanceID, stopErr), updateErr)
 	}
 
 	a.PoolMemberState = store.PoolStateAvailable

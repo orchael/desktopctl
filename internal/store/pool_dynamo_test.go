@@ -88,11 +88,38 @@ func TestDynamoPoolStore_UpdatePoolMember_Success(t *testing.T) {
 	}
 }
 
+func TestDynamoPoolStore_UpdatePoolMember_NotFound(t *testing.T) {
+	mock := &mockDynamoClient{
+		putFn: func(_ *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+	}
+	s := &DynamoPoolStore{client: mock, tableName: "pool"}
+	a := &ComputeAllocation{InstanceID: "i-missing", PoolMemberState: PoolStateReady}
+	err := s.UpdatePoolMember(context.Background(), a)
+	if !errors.Is(err, ErrPoolMemberNotFound) {
+		t.Fatalf("UpdatePoolMember missing: got %v, want ErrPoolMemberNotFound", err)
+	}
+}
+
 func TestDynamoPoolStore_DeletePoolMember_Success(t *testing.T) {
 	mock := &mockDynamoClient{}
 	s := &DynamoPoolStore{client: mock, tableName: "pool"}
 	if err := s.DeletePoolMember(context.Background(), "i-001"); err != nil {
 		t.Fatalf("DeletePoolMember: %v", err)
+	}
+}
+
+func TestDynamoPoolStore_DeletePoolMember_NotFound(t *testing.T) {
+	mock := &mockDynamoClient{
+		deleteFn: func(_ *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+			return nil, conditionalCheckErr()
+		},
+	}
+	s := &DynamoPoolStore{client: mock, tableName: "pool"}
+	err := s.DeletePoolMember(context.Background(), "i-missing")
+	if !errors.Is(err, ErrPoolMemberNotFound) {
+		t.Fatalf("DeletePoolMember missing: got %v, want ErrPoolMemberNotFound", err)
 	}
 }
 
