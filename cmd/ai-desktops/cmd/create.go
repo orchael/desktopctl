@@ -433,6 +433,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	desktopWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	desktopRef := pulumi.DesktopStackRef(backendURL, desktopID, desktopWorkDir)
 
+	if createVolumeSize < 0 {
+		return fmt.Errorf("invalid --volume-size %d: must be 0 (auto) or a positive integer in GiB", createVolumeSize)
+	}
 	volumeSize := resolveVolumeSize(createVolumeSize, cfg.Desktop.VolumeSize, createMobile, createAVDs)
 
 	subnets, err := selectCreateSubnets(ctx, cfg.AWS.Region, cfg.AWS.Profile, instanceTypes, marketType, foundationOutputs)
@@ -469,7 +472,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if costLabel != "" {
 		fmt.Fprintf(os.Stderr, "  Estimated cost        : %s\n", costLabel)
 	}
-	fmt.Fprintf(os.Stderr, "  Volume size           : %d GiB (~$%.2f/month EBS)\n", volumeSize, float64(volumeSize)*0.08)
+	fmt.Fprintf(os.Stderr, "  Volume size           : %d GiB (~$%.2f/month EBS gp3 us-east-1)\n", volumeSize, float64(volumeSize)*0.08)
 
 	swapSizeGB, err := resolveSwapSize(createSwapSize, selectedInstanceType, volumeSize)
 	if err != nil {
@@ -1665,16 +1668,6 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	return instanceID, nil
 }
 
-// resolveSwapSize determines the swap file size in GiB.
-//
-// flag values:
-//
-//	-1 — swap disabled (returns 0, no error)
-//	 0 — auto: 2× instance memory, capped at 32 GiB (falls back to 4 GiB for unknown types)
-//	>0 — explicit size in GiB
-//
-// An error is returned when the swap would leave fewer than 20 GiB on the root
-// volume for the OS and application data.
 // resolveVolumeSize returns the effective EBS root volume size in GiB.
 // Precedence: explicit CLI flag > config file > mobile/AVD default > normal default.
 func resolveVolumeSize(cliFlag, configValue int, mobile bool, avds []string) int {
@@ -1690,6 +1683,16 @@ func resolveVolumeSize(cliFlag, configValue int, mobile bool, avds []string) int
 	return config.DefaultVolumeSize
 }
 
+// resolveSwapSize determines the swap file size in GiB.
+//
+// flag values:
+//
+//	-1 — swap disabled (returns 0, no error)
+//	 0 — auto: 2× instance memory, capped at 32 GiB (falls back to 4 GiB for unknown types)
+//	>0 — explicit size in GiB
+//
+// An error is returned when the swap would leave fewer than 20 GiB on the root
+// volume for the OS and application data.
 func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int, error) {
 	if flagValue < -1 {
 		return 0, fmt.Errorf("invalid --swap-size %d: use -1 to disable swap, 0 for auto, or a positive integer for an explicit size in GiB", flagValue)

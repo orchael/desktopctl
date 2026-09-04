@@ -68,9 +68,10 @@ desktop:
   # t3.xlarge (4 vCPU / 16 GiB) is a reasonable starting point.
   instance_type: t3.xlarge
 
-  # Root EBS volume size in GiB. Default: 64 for normal desktops, 200 for mobile/AVD desktops.
-  # Override here to apply a fixed size regardless of desktop type.
-  volume_size: 64
+  # Root EBS volume size in GiB. Leave unset (or set to 0) to use context-sensitive defaults:
+  #   64 GiB for normal desktops, 200 GiB for mobile/AVD desktops.
+  # Setting a value here forces that size for all desktops, disabling the automatic mobile/AVD default.
+  # volume_size: 0
 
   # Pre-baked AMI IDs per region, populated automatically by `ai-desktops ami build`.
   # When present, desktop creation uses these AMIs instead of the default Ubuntu map,
