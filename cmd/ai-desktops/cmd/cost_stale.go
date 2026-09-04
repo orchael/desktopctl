@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -61,22 +62,27 @@ func runCostStale(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DESKTOP ID\tOWNER\tREGION\tINSTANCE ID\tVOL SIZE\tSTOPPED AGE\tEBS/MONTH (est)")
+	fmt.Fprintln(w, "DESKTOP ID\tOWNER\tREGION\tINSTANCE ID\tVOL SIZE\tSTOPPED AGE\tEBS/MONTH (est, us-east-1 gp3)")
 	var totalMonthly float64
 	for _, d := range stale {
 		region := d.Region
 		if region == "" {
 			region = cfg.AWS.Region
 		}
-		volSize := "N/A"
-		monthly := "N/A"
-		totalMonthly += 0
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		// VolumeSize is not stored in the fleet record; use the config default
+		// as a best-effort estimate. The label makes the assumption explicit.
+		volGiB := cfg.Desktop.VolumeSize
+		if volGiB <= 0 {
+			volGiB = config.DefaultVolumeSize
+		}
+		monthly := ebsMonthlyCostGiB(volGiB)
+		totalMonthly += monthly
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t~%d GiB\t%s\t~$%.2f\n",
 			d.DesktopID, d.GitHubOwner, region, d.InstanceID,
-			volSize, formatStoppedAge(d.StoppedAt, now), monthly)
+			volGiB, formatStoppedAge(d.StoppedAt, now), monthly)
 	}
 	_ = w.Flush()
-	fmt.Printf("\n%d stale desktop(s). Estimated total EBS cost: $%.2f/month.\n", len(stale), totalMonthly)
+	fmt.Printf("\n%d stale desktop(s). Estimated total EBS cost: ~$%.2f/month (us-east-1 gp3, volume sizes estimated).\n", len(stale), totalMonthly)
 	return nil
 }
 
@@ -86,13 +92,6 @@ func parseStaleDuration(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, fmt.Errorf("duration must not be empty")
 	}
-	// Try Go standard duration first (handles h, m, s).
-	if d, err := time.ParseDuration(s); err == nil {
-		if d <= 0 {
-			return 0, fmt.Errorf("duration must be positive, got %q", s)
-		}
-		return d, nil
-	}
 	// Handle days suffix (e.g. "7d").
 	if strings.HasSuffix(s, "d") {
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
@@ -100,6 +99,14 @@ func parseStaleDuration(s string) (time.Duration, error) {
 			return 0, fmt.Errorf("invalid duration %q: days value must be a positive integer", s)
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	// Handle hours suffix (e.g. "48h") — accept only plain integer hours.
+	if strings.HasSuffix(s, "h") {
+		n, err := strconv.Atoi(strings.TrimSuffix(s, "h"))
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid duration %q: hours value must be a positive integer", s)
+		}
+		return time.Duration(n) * time.Hour, nil
 	}
 	return 0, fmt.Errorf("invalid duration %q: use a positive integer with suffix d (days) or h (hours), e.g. 7d or 48h", s)
 }
@@ -127,7 +134,8 @@ func filterStaleDesktops(desktops []*store.Desktop, olderThan time.Duration, now
 	return result
 }
 
-// formatStoppedAge returns a human-readable age like "8d 0h" for a stopped desktop.
+// formatStoppedAge returns a human-readable age like "8d 0h" for a stopped
+// desktop. Negative ages (clock skew or bad data) are clamped to "0d 0h".
 func formatStoppedAge(stoppedAt string, now time.Time) string {
 	if stoppedAt == "" {
 		return "unknown"
@@ -137,6 +145,9 @@ func formatStoppedAge(stoppedAt string, now time.Time) string {
 		return "unknown"
 	}
 	dur := now.Sub(t)
+	if dur < 0 {
+		dur = 0
+	}
 	days := int(dur.Hours()) / 24
 	hours := int(dur.Hours()) % 24
 	return fmt.Sprintf("%dd %dh", days, hours)

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,9 +112,40 @@ func runTerminateStopped(cmd *cobra.Command, args []string) error {
 }
 
 func terminateOneStoppedDesktop(ctx context.Context, s store.Store, d *store.Desktop) error {
+	// Re-fetch the current record to guard against races where the desktop was
+	// started between the initial list and this termination attempt.
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("desktop %q no longer exists", d.DesktopID)
+		}
+		return err
+	}
+	if current.State != store.StateStopped {
+		return fmt.Errorf("desktop %q is no longer stopped (state: %s); skipping", d.DesktopID, current.State)
+	}
+
 	mgr := desktop.NewManager(s)
 	if err := mgr.MarkTerminating(ctx, d.DesktopID); err != nil {
 		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "Terminating %s (stopped %s) ...\n", d.DesktopID, formatStoppedAge(d.StoppedAt, time.Now().UTC()))
+	fmt.Fprintln(os.Stderr, terminateWarning(current))
+
+	if current.TailscaleNet != "" {
+		fmt.Fprintf(os.Stderr, "Removing Tailscale machine %s from %s ...\n", d.DesktopID, current.TailscaleNet)
+		tailscaleAPIKey, err := resolveTailscaleAPIKey(ctx, current.GitHubOwner)
+		if err == nil {
+			err = removeTailscaleDesktopDevice(ctx, current.TailscaleNet, d.DesktopID, tailscaleAPIKey)
+		}
+		if err != nil {
+			if errors.Is(err, errTailscaleAPIKeyMissing) {
+				fmt.Fprintf(os.Stderr, "WARNING: TAILSCALE_API_KEY is not set and was not found in the operator secret; skipping Tailscale machine cleanup for %s.\n", d.DesktopID)
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: could not remove Tailscale machine %s: %v\n", d.DesktopID, err)
+			}
+		}
 	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
@@ -121,12 +153,28 @@ func terminateOneStoppedDesktop(ctx context.Context, s store.Store, d *store.Des
 	ref := pulumi.DesktopStackRef(backendURL, d.DesktopID, workDir)
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
 
-	fmt.Fprintf(os.Stderr, "Terminating %s (stopped %s) ...\n", d.DesktopID, formatStoppedAge(d.StoppedAt, time.Now().UTC()))
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		_ = mgr.RecordFailure(ctx, d.DesktopID, "terminate-stopped", err.Error())
 		return fmt.Errorf("pulumi destroy: %w", err)
 	}
-	return s.MarkTerminated(ctx, d.DesktopID)
+
+	if err := s.MarkTerminated(ctx, d.DesktopID); err != nil {
+		return fmt.Errorf("mark terminated: %w", err)
+	}
+
+	if current.WorkspaceMode == workspaceModeEFS && current.WorkspaceName != "" {
+		if ws, ok := s.(store.WorkspaceStore); ok {
+			env := current.Environment
+			if env == "" {
+				env = cfg.Fleet.Environment
+			}
+			if err := ws.DetachWorkspace(ctx, env, current.WorkspaceName, current.DesktopID); err != nil {
+				return fmt.Errorf("desktop terminated, but failed to detach workspace %q: %w; run `%s`", current.WorkspaceName, err, workspaceDetachRecoveryCommand(env, current.WorkspaceName))
+			}
+		}
+	}
+
+	return nil
 }
 
 // buildTerminateStoppedDryRunLines returns the desktop IDs that would be

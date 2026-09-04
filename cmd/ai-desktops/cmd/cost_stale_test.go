@@ -25,6 +25,10 @@ func TestParseStaleDuration(t *testing.T) {
 		{input: "", wantErr: true},
 		{input: "abc", wantErr: true},
 		{input: "7", wantErr: true},
+		// minutes and compound durations are rejected (only d and h accepted)
+		{input: "30m", wantErr: true},
+		{input: "90s", wantErr: true},
+		{input: "1h30m", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -103,6 +107,8 @@ func TestFormatStoppedAge(t *testing.T) {
 		{stoppedAt: now.Add(-2 * time.Hour).UTC().Format(time.RFC3339), want: "0d 2h"},
 		{stoppedAt: "", want: "unknown"},
 		{stoppedAt: "not-a-time", want: "unknown"},
+		// future timestamp (clock skew / bad data) — clamped to 0d 0h
+		{stoppedAt: now.Add(2 * time.Hour).UTC().Format(time.RFC3339), want: "0d 0h"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
