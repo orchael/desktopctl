@@ -155,10 +155,18 @@ func TestDynamoPoolStore_CountByState(t *testing.T) {
 	}
 	mock := &mockDynamoClient{
 		scanFn: func(in *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
-			// Simulate Select=COUNT + server-side FilterExpression: return count only.
+			if in.Select != types.SelectCount {
+				t.Errorf("expected Select=COUNT, got %v", in.Select)
+			}
+			stateVal, ok := in.ExpressionAttributeValues[":state"]
+			if !ok {
+				t.Error("missing :state in ExpressionAttributeValues")
+				return &dynamodb.ScanOutput{}, nil
+			}
+			wantState := stateVal.(*types.AttributeValueMemberS).Value
 			var count int32
 			for _, a := range members {
-				if a.PoolMemberState == PoolStateAvailable {
+				if string(a.PoolMemberState) == wantState {
 					count++
 				}
 			}
