@@ -138,6 +138,12 @@ runcmd:
       echo "ERROR: EFS workspace mode requires file system and access point IDs" >&2
       exit 1
     fi
+{{- if .PackagesPreInstalled}}
+    if ! command -v mount.efs >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing amazon-efs-utils (mount.efs); rebuild the AMI" >&2
+      exit 1
+    fi
+{{- else}}
     if ! command -v mount.efs >/dev/null 2>&1; then
       apt-get -o DPkg::Lock::Timeout=600 update
       apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils
@@ -146,6 +152,7 @@ runcmd:
       echo "ERROR: EFS workspace mode requires amazon-efs-utils mount.efs" >&2
       exit 1
     fi
+{{- end}}
     mkdir -p "$WORKSPACE"
     if ! mountpoint -q "$WORKSPACE"; then
       mount -t efs -o tls,accesspoint="$EFS_ACCESS_POINT_ID" "$EFS_FILE_SYSTEM_ID:/" "$WORKSPACE"
@@ -203,6 +210,10 @@ runcmd:
       exit 0
     fi
 
+{{- if .PackagesPreInstalled}}
+    echo "ERROR: AMI bridgectl version mismatch: expected $EXPECTED_BRIDGE_VERSION, found ${INSTALLED_BRIDGE_VERSION:-missing}; rebuild the AMI" >&2
+    exit 1
+{{- else}}
     echo "Installing bridgectl $EXPECTED_BRIDGE_VERSION (found: ${INSTALLED_BRIDGE_VERSION:-missing})"
     /opt/ai-desktops/apt-with-lock apt-get update
     /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates
@@ -231,16 +242,24 @@ runcmd:
       echo "ERROR: bridgectl version mismatch after install: expected $EXPECTED_BRIDGE_VERSION, got $INSTALLED_BRIDGE_VERSION" >&2
       exit 1
     fi
+{{- end}}
     )
 
   # --- ensure bridgectl config exists and checks certificate renewal frequently ---
   - |
     (
     set -e
+{{- if .PackagesPreInstalled}}
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing python3-yaml; rebuild the AMI" >&2
+      exit 1
+    fi
+{{- else}}
     if ! python3 -c 'import yaml' >/dev/null 2>&1; then
       /opt/ai-desktops/apt-with-lock apt-get update
       /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
     fi
+{{- end}}
     python3 - /home/ubuntu/.config/bridgectl/config.yaml <<'PY'
     import os
     import sys
@@ -319,6 +338,16 @@ runcmd:
     TAILSCALE_SECRET="{{ .TailscaleSecretPath }}"
     TAILSCALE_HOSTNAME="{{ .DesktopID }}"
 
+{{- if .PackagesPreInstalled}}
+    if ! command -v tailscale >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing tailscale; rebuild the AMI" >&2
+      exit 1
+    fi
+    if ! command -v tailscaled >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing tailscaled; rebuild the AMI" >&2
+      exit 1
+    fi
+{{- else}}
     if ! command -v tailscale >/dev/null 2>&1; then
       TAILSCALE_INSTALL=$(mktemp)
       trap 'rm -f "$TAILSCALE_INSTALL"' EXIT
@@ -327,6 +356,7 @@ runcmd:
       rm -f "$TAILSCALE_INSTALL"
       trap - EXIT
     fi
+{{- end}}
 
     systemctl enable tailscaled
     systemctl start tailscaled
@@ -389,6 +419,20 @@ runcmd:
       fi
     done
 
+{{- if .PackagesPreInstalled}}
+    if ! command -v step >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing step; rebuild the AMI" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing openssl; rebuild the AMI" >&2
+      exit 1
+    fi
+    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
+      echo "ERROR: AMI is missing python3-yaml; rebuild the AMI" >&2
+      exit 1
+    fi
+{{- else}}
     if ! command -v step >/dev/null 2>&1; then
       /opt/ai-desktops/apt-with-lock apt-get update
       /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates openssl
@@ -413,6 +457,7 @@ runcmd:
       /opt/ai-desktops/apt-with-lock apt-get update
       /opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml
     fi
+{{- end}}
 
     if ! step ca health --ca-url "https://${STEP_CA}" --root "$STEP_CA_ROOT" >/dev/null 2>&1; then
       if [ -n "$STEP_CA_FINGERPRINT" ]; then
@@ -1008,7 +1053,12 @@ runcmd:
     DESKTOP_ID="{{ .DesktopID }}"
     AWS_REGION="{{ .AWSRegion }}"
 
-    # Install agent if not already present (pre-baked AMIs may include it)
+{{- if .PackagesPreInstalled}}
+    if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
+      echo "WARNING: AMI is missing CloudWatch agent; rebuild the AMI to restore metrics collection" >&2
+    fi
+{{- else}}
+    # Install agent if not already present (pre-baked AMIs include it)
     if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
       CW_ARCH=$(dpkg --print-architecture)
       wget -q --timeout=60 --tries=3 \
@@ -1018,6 +1068,7 @@ runcmd:
         && rm -f /tmp/amazon-cloudwatch-agent.deb \
         || echo "WARNING: CloudWatch agent download/install failed; metrics will not be collected"
     fi
+{{- end}}
 
     if ! [ -f /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent ]; then
       echo "WARNING: CloudWatch agent not available; skipping configuration"
