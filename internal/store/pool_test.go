@@ -39,6 +39,45 @@ func TestInMemoryPoolStore_GetNotFound(t *testing.T) {
 	}
 }
 
+func TestInMemoryPoolStore_CreateValidation(t *testing.T) {
+	s := NewInMemoryPoolStore()
+	ctx := context.Background()
+
+	if err := s.CreatePoolMember(ctx, nil); err == nil {
+		t.Error("CreatePoolMember(nil) should return error")
+	}
+	if err := s.CreatePoolMember(ctx, &ComputeAllocation{}); err == nil {
+		t.Error("CreatePoolMember with empty InstanceID should return error")
+	}
+
+	a := &ComputeAllocation{InstanceID: "i-dup", PoolMemberState: PoolStateAvailable}
+	_ = s.CreatePoolMember(ctx, a)
+	if err := s.CreatePoolMember(ctx, a); err != ErrPoolMemberExists {
+		t.Errorf("duplicate create: got %v, want ErrPoolMemberExists", err)
+	}
+}
+
+func TestInMemoryPoolStore_UpdateValidation(t *testing.T) {
+	s := NewInMemoryPoolStore()
+	ctx := context.Background()
+
+	if err := s.UpdatePoolMember(ctx, nil); err == nil {
+		t.Error("UpdatePoolMember(nil) should return error")
+	}
+	if err := s.UpdatePoolMember(ctx, &ComputeAllocation{}); err == nil {
+		t.Error("UpdatePoolMember with empty InstanceID should return error")
+	}
+}
+
+func TestInMemoryPoolStore_AcquireAvailable_EmptyDesktopID(t *testing.T) {
+	s := NewInMemoryPoolStore()
+	ctx := context.Background()
+	_ = s.CreatePoolMember(ctx, &ComputeAllocation{InstanceID: "i-001", PoolMemberState: PoolStateAvailable})
+	if _, err := s.AcquireAvailable(ctx, ""); err == nil {
+		t.Error("AcquireAvailable with empty desktopID should return error")
+	}
+}
+
 func TestInMemoryPoolStore_List(t *testing.T) {
 	s := NewInMemoryPoolStore()
 	ctx := context.Background()

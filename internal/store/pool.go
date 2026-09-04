@@ -65,9 +65,20 @@ func NewInMemoryPoolStore() *InMemoryPoolStore {
 	return &InMemoryPoolStore{members: make(map[string]*ComputeAllocation)}
 }
 
+var ErrPoolMemberExists = errors.New("pool member already exists")
+
 func (s *InMemoryPoolStore) CreatePoolMember(_ context.Context, a *ComputeAllocation) error {
+	if a == nil {
+		return errors.New("pool member must not be nil")
+	}
+	if a.InstanceID == "" {
+		return errors.New("pool member InstanceID must not be empty")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.members[a.InstanceID]; exists {
+		return ErrPoolMemberExists
+	}
 	ts := now()
 	if a.CreatedAt == "" {
 		a.CreatedAt = ts
@@ -101,6 +112,12 @@ func (s *InMemoryPoolStore) ListPoolMembers(_ context.Context) ([]*ComputeAlloca
 }
 
 func (s *InMemoryPoolStore) UpdatePoolMember(_ context.Context, a *ComputeAllocation) error {
+	if a == nil {
+		return errors.New("pool member must not be nil")
+	}
+	if a.InstanceID == "" {
+		return errors.New("pool member InstanceID must not be empty")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.members[a.InstanceID]; !ok {
@@ -123,6 +140,9 @@ func (s *InMemoryPoolStore) DeletePoolMember(_ context.Context, instanceID strin
 }
 
 func (s *InMemoryPoolStore) AcquireAvailable(_ context.Context, desktopID string) (*ComputeAllocation, error) {
+	if desktopID == "" {
+		return nil, errors.New("desktopID must not be empty")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, a := range s.members {
