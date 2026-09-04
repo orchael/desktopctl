@@ -335,12 +335,15 @@ func (s *Service) TerminateDesktop(ctx context.Context, organizationID, id strin
 	workDir := filepath.Join(s.cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
 
-	if destroyErr := s.pulumiRunner.Destroy(ctx, ref, io.Discard); destroyErr != nil {
+	destroyCtx, destroyCancel := context.WithTimeout(ctx, s.lifecycleTimeout)
+	defer destroyCancel()
+	if destroyErr := s.pulumiRunner.Destroy(destroyCtx, ref, io.Discard); destroyErr != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", destroyErr.Error())
 		return nil, fmt.Errorf("pulumi destroy: %w", destroyErr)
 	}
 
 	if err := s.store.MarkTerminated(ctx, id); err != nil {
+		_ = mgr.RecordFailure(ctx, id, "terminate", fmt.Sprintf("mark terminated after successful destroy: %v", err))
 		return nil, fmt.Errorf("mark terminated: %w", err)
 	}
 	updated, err := s.store.Get(ctx, id)
@@ -392,7 +395,9 @@ func (s *Service) CreateDesktop(ctx context.Context, organizationID string, req 
 	foundationWorkDir := filepath.Join(s.cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	foundationRef := pulumi.FoundationStackRef(backendURL, env, foundationWorkDir)
 
-	foundationOutputs, err := s.pulumiRunner.Outputs(ctx, foundationRef)
+	outputsCtx, outputsCancel := context.WithTimeout(ctx, s.lifecycleTimeout)
+	defer outputsCancel()
+	foundationOutputs, err := s.pulumiRunner.Outputs(outputsCtx, foundationRef)
 	if err != nil {
 		return nil, fmt.Errorf("read foundation stack outputs: %w", err)
 	}
@@ -418,6 +423,9 @@ func (s *Service) CreateDesktop(ctx context.Context, organizationID string, req 
 		Region:         s.cfg.AWS.Region,
 		Environment:    env,
 	}
+	if err := createReq.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid create request: %w", err)
+	}
 	if err := mgr.CreateRecord(ctx, desktopID, createReq); err != nil {
 		return nil, fmt.Errorf("create fleet record: %w", err)
 	}
@@ -439,7 +447,9 @@ func (s *Service) CreateDesktop(ctx context.Context, organizationID string, req 
 		pulumi.WorkspaceConfig{},
 	)
 
-	outputs, upErr := s.pulumiRunner.Up(ctx, desktopRef, stackCfg, io.Discard)
+	upCtx, upCancel := context.WithTimeout(ctx, s.lifecycleTimeout)
+	defer upCancel()
+	outputs, upErr := s.pulumiRunner.Up(upCtx, desktopRef, stackCfg, io.Discard)
 	if upErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", upErr.Error())
 		return nil, fmt.Errorf("pulumi up: %w", upErr)
