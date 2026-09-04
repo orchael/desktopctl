@@ -121,7 +121,7 @@ Summary: implement Plan 16 so the desktop root URL serves the status app, noVNC 
 
 ## Control Plane Follow-Up
 
-- [ ] Extract CLI create/terminate Pulumi lifecycle logic into a shared service and replace the control-plane HTTP `501` responses with real create/terminate operations — https://github.com/markcallen/ai-desktops/issues/157
+- [x] Extract CLI create/terminate Pulumi lifecycle logic into a shared service and replace the control-plane HTTP `501` responses with real create/terminate operations — https://github.com/markcallen/ai-desktops/issues/157
 - [x] Bake `apps/desktop-web` static assets into `/opt/ai-desktops/web/dist/`; add `pnpm run dev:mock` and align the Vite proxy with the mock/backend port.
 
 ### 3. GitHub Developer Tooling
@@ -138,7 +138,7 @@ Summary: align operator docs and the plan index with the implemented setup flow 
 post-MVP plan sequence.
 
 - [x] Update `README.md` to document `ai-desktops setup`, per-owner Secrets Manager JSON credentials, SSH-based clones, and remove stale plain-PAT SSM instructions.
-- [ ] Update `plans/README.md` sequence and completion guidance for Plans 14-17 — https://github.com/markcallen/ai-desktops/issues/158
+- [x] Update `plans/README.md` sequence and completion guidance for Plans 14-17 — https://github.com/markcallen/ai-desktops/issues/158
 
 ### 5. Live Acceptance
 
@@ -166,8 +166,8 @@ AWS because several acceptance criteria cannot be proven by unit tests alone.
 - [x] SSH tunnel: make `StrictHostKeyChecking` configurable — implemented as `agent.trust_host` / `agent --trust-host` — https://github.com/markcallen/ai-desktops/issues/6
 - [x] RFC: Document and complete the pre-baked AMI approach with pinned versions and runtime-only cloud-init — https://github.com/markcallen/ai-desktops/issues/21
 - [x] FEAT: Hide terminated desktops from `list` by default and add `list --all` plus `purge --dry-run` / `purge` — https://github.com/markcallen/ai-desktops/issues/22
-- [ ] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs — https://github.com/markcallen/ai-desktops/issues/33
-- [ ] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI) — https://github.com/markcallen/ai-desktops/issues/34
+- [x] Determine if `--github-owner` flag is actually needed or if it can be inferred from repo URLs — https://github.com/markcallen/ai-desktops/issues/33
+- [x] Fix: `ai-desktops url` output cannot be connected to — novnc-desktop URL connection fails (defer until after novnc-desktop is baked into AMI) — https://github.com/markcallen/ai-desktops/issues/34
 
 ## Copilot review follow-ups (PR #31, commit 48f3e48)
 
