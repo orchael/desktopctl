@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/orchael/ai-desktops/internal/controlplane"
+	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 )
 
@@ -45,7 +46,12 @@ func main() {
 		fleetStore = store.NewInMemoryStore()
 	}
 
-	service := controlplane.NewService(cfg, fleetStore, awsCfg, awsReady, runtime.MockAWS, runtime.RefreshTimeout, runtime.LifecycleTimeout)
+	var runner controlplane.PulumiRunner
+	if awsReady {
+		runner = pulumi.NewRunner()
+	}
+	service := controlplane.NewService(cfg, fleetStore, runner, awsReady, runtime.MockAWS, runtime.RefreshTimeout, runtime.LifecycleTimeout).
+		WithAWSConfig(awsCfg)
 	server := controlplane.NewServer(service, runtime.StaticDir, logger, runtime.APIToken)
 
 	logger.Info("control plane listening", "addr", runtime.Addr)

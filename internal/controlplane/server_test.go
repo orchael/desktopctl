@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	appconfig "github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/store"
 )
@@ -61,18 +61,21 @@ func TestGetDesktopNotFound(t *testing.T) {
 	}
 }
 
-func TestCreateDesktopDeferredReturnsNotImplemented(t *testing.T) {
+func TestCreateDesktopWithoutPulumiRunnerReturnsError(t *testing.T) {
 	t.Parallel()
+	// newTestService passes nil runner; CreateDesktop must return an error.
 	service := newTestService(testConfig(), store.NewInMemoryStore())
 	server := NewServer(service, "", slog.Default(), "").Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
+	body := strings.NewReader(`{"owner":"orchael"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops", body)
 	req.Header.Set("X-Organization-ID", testOrganizationID)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -90,14 +93,17 @@ func TestCreateDesktopRequiresBearerTokenWhenConfigured(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/desktops", nil)
+	body := strings.NewReader(`{"owner":"orchael"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/desktops", body)
 	req.Header.Set("Authorization", "Bearer secret-token")
 	req.Header.Set("X-Organization-ID", testOrganizationID)
+	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotImplemented)
+	// No Pulumi runner configured → service returns an error → 500.
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -124,7 +130,7 @@ func TestAPIPathWithoutTrailingSlashReturnsJSONNotStatic(t *testing.T) {
 
 func TestReadyTreatsMissingProbeRecordAsStorageReady(t *testing.T) {
 	t.Parallel()
-	service := NewService(testConfig(), store.NewInMemoryStore(), aws.Config{}, false, true, time.Second, time.Minute)
+	service := NewService(testConfig(), store.NewInMemoryStore(), nil, false, true, time.Second, time.Minute)
 
 	got := service.Ready(t.Context())
 
@@ -179,8 +185,270 @@ func TestRuntimeConfigParsesLifecycleTimeout(t *testing.T) {
 	}
 }
 
+func TestTerminateDesktopNoPulumiRunnerReturnsError(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-001/terminate", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestTerminateDesktopNotFound(t *testing.T) {
+	t.Parallel()
+	s := store.NewInMemoryStore()
+	service := NewService(testConfig(), s, &mockPulumiRunner{}, false, false, time.Second, time.Minute)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-missing/terminate", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestTerminateDesktopSuccessViaServer(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Format(time.RFC3339)
+	s := store.NewInMemoryStore()
+	if err := s.Create(t.Context(), &store.Desktop{
+		DesktopID:      "d-term",
+		OrganizationID: testOrganizationID,
+		State:          store.StateReady,
+		InstanceID:     "i-term",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(testConfig(), s, &mockPulumiRunner{}, false, false, time.Second, time.Minute)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-term/terminate", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+}
+
+func TestListDesktopsIncludeTerminatedQueryParam(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Format(time.RFC3339)
+	s := store.NewInMemoryStore()
+	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-a", OrganizationID: testOrganizationID, State: store.StateReady, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Create(t.Context(), &store.Desktop{DesktopID: "d-b", OrganizationID: testOrganizationID, State: store.StateTerminated, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	service := newTestService(testConfig(), s)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops?all=true", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var got []store.Desktop
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 desktops (including terminated), got %d", len(got))
+	}
+}
+
+func TestStartDesktopNotFound(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-missing/start", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestStopDesktopNotFound(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-missing/stop", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestRefreshDesktopNotFound(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-missing/refresh", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHealthReturnsOK(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestReadyReturnsMockIdentity(t *testing.T) {
+	t.Parallel()
+	service := NewService(testConfig(), store.NewInMemoryStore(), nil, false, true, time.Second, time.Minute)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestReadyReturnsUnavailableWhenAWSNotReady(t *testing.T) {
+	t.Parallel()
+	service := NewService(testConfig(), store.NewInMemoryStore(), nil, false, false, time.Second, time.Minute)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestCreateDesktopBadJSONReturns400(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops", strings.NewReader("not-json"))
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestListDesktopsMissingOrgIDReturns400(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestDesktopActionUnknownReturns404(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-001/explode", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestDesktopActionMissingIDReturns404(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore())
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	// /api/desktops// with an empty id segment
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops/", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestGetDesktopWithMockAWS(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Format(time.RFC3339)
+	s := store.NewInMemoryStore()
+	if err := s.Create(t.Context(), &store.Desktop{
+		DesktopID:      "d-mock",
+		OrganizationID: testOrganizationID,
+		State:          store.StateReady,
+		InstanceID:     "i-mock",
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// mockAWS=true so liveInstanceState returns "mock" without real EC2 call.
+	service := NewService(testConfig(), s, nil, false, true, time.Second, time.Minute)
+	server := NewServer(service, "", slog.Default(), "").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops/d-mock", nil)
+	req.Header.Set("X-Organization-ID", testOrganizationID)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func newTestService(cfg *appconfig.Config, s store.Store) *Service {
-	return NewService(cfg, s, aws.Config{}, false, false, time.Second, time.Minute)
+	return NewService(cfg, s, nil, false, false, time.Second, time.Minute)
 }
 
 func testConfig() *appconfig.Config {
