@@ -950,3 +950,83 @@ func TestRenderCloudInit_packagesNotPreInstalled(t *testing.T) {
 		t.Error("ballast update should be absent when PackagesPreInstalled is false")
 	}
 }
+
+func TestRenderCloudInit_bootstrapTiming(t *testing.T) {
+	// Enable Tailscale and Step-CA so all 7 timing markers are exercised.
+	cfg := &BootstrapConfig{
+		DesktopID:            "d-timing",
+		Hostname:             "d-timing.desktops.orchael.dev",
+		GitHubOwner:          "acme",
+		GitHubSecretPath:     "/ai-desktops/acme/github",
+		PackagesPreInstalled: true,
+		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme",
+		TailscaleNetwork:     "acme",
+		StepCAServerDNS:      "ca.acme.internal",
+		StepCAFingerprint:    "abc123",
+		StepCAProvisioner:    "desktop",
+		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.acme.internal",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	// All 7 markers must be present, including the optional Tailscale and Step-CA ones.
+	// "start" is invoked unquoted in the script-install block; the rest use quoted args.
+	if !strings.Contains(out, "ai-desktops-ts start") {
+		t.Error("missing bootstrap timing marker: start")
+	}
+	for _, marker := range []string{
+		"workspace_ready", "tailscale_ready",
+		"certs_issued", "repos_cloned", "services_started", "complete",
+	} {
+		want := `ai-desktops-ts "` + marker + `"`
+		if !strings.Contains(out, want) {
+			t.Errorf("missing bootstrap timing marker: %s", marker)
+		}
+	}
+	if !strings.Contains(out, "bootstrap-timing.json") {
+		t.Error("bootstrap timing file path missing from output")
+	}
+	if !strings.Contains(out, "/usr/local/bin/ai-desktops-ts") {
+		t.Error("ai-desktops-ts script installation missing from output")
+	}
+}
+
+func TestRenderCloudInit_dockerEnableGating(t *testing.T) {
+	t.Run("packages_pre_installed", func(t *testing.T) {
+		cfg := &BootstrapConfig{
+			DesktopID:            "d-pre",
+			GitHubOwner:          "acme",
+			PackagesPreInstalled: true,
+		}
+		out, err := RenderCloudInit(cfg)
+		if err != nil {
+			t.Fatalf("RenderCloudInit: %v", err)
+		}
+		if strings.Contains(out, "systemctl enable docker") {
+			t.Error("systemctl enable docker must be absent when PackagesPreInstalled=true (docker is enabled in the AMI)")
+		}
+		if strings.Contains(out, "systemctl start docker") {
+			t.Error("systemctl start docker must be absent when PackagesPreInstalled=true (docker is enabled in the AMI)")
+		}
+	})
+
+	t.Run("packages_not_pre_installed", func(t *testing.T) {
+		cfg := &BootstrapConfig{
+			DesktopID:   "d-fresh",
+			GitHubOwner: "acme",
+		}
+		out, err := RenderCloudInit(cfg)
+		if err != nil {
+			t.Fatalf("RenderCloudInit: %v", err)
+		}
+		if !strings.Contains(out, "systemctl enable docker") {
+			t.Error("systemctl enable docker must be present when PackagesPreInstalled=false")
+		}
+		if !strings.Contains(out, "systemctl start docker") {
+			t.Error("systemctl start docker must be present when PackagesPreInstalled=false")
+		}
+	})
+}

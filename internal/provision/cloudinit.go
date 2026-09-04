@@ -98,9 +98,27 @@ packages:
 {{- end}}
 
 runcmd:
+  # --- bootstrap timing helper ---
+  # Written as an executable script so every subsequent runcmd entry
+  # (each of which runs in its own shell) can invoke it by name.
+  - |
+    mkdir -p /opt/ai-desktops
+    cat >/usr/local/bin/ai-desktops-ts <<'SH'
+    #!/bin/sh
+    phase="$1"
+    mkdir -p /opt/ai-desktops
+    printf '{"phase":"%s","epoch":%d,"iso":"%s"}\n' \
+      "$phase" "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >> /opt/ai-desktops/bootstrap-timing.json
+    SH
+    chmod 0755 /usr/local/bin/ai-desktops-ts
+    ai-desktops-ts start
+
   # --- system setup ---
+{{- if not .PackagesPreInstalled}}
   - systemctl enable docker
   - systemctl start docker
+{{- end}}
   - usermod -aG docker ubuntu
 
 {{- if not .PackagesPreInstalled}}
@@ -141,6 +159,7 @@ runcmd:
   - mkdir -p {{ .WorkspacePath }}
   - chown ubuntu:ubuntu {{ .WorkspacePath }}
 {{- end}}
+  - ai-desktops-ts "workspace_ready"
 
   # --- ai-desktops runtime directory ---
   - mkdir -p /opt/ai-desktops
@@ -339,6 +358,7 @@ runcmd:
     echo "ERROR: Tailscale did not reach Running state" >&2
     exit 1
     )
+  - ai-desktops-ts "tailscale_ready"
 {{- end}}
 
 {{- if .StepCAServerDNS}}
@@ -564,6 +584,7 @@ runcmd:
     chown ubuntu:ubuntu /home/ubuntu/.config/bridgectl/step-ca.env
     chmod 600 /home/ubuntu/.config/bridgectl/step-ca.env
     )
+  - ai-desktops-ts "certs_issued"
 {{- end}}
 
 {{- if .PackagesPreInstalled}}
@@ -875,6 +896,7 @@ runcmd:
     fi
     )
 {{ end }}
+  - ai-desktops-ts "repos_cloned"
 
   # --- enable and start bridgectl user service ---
   - |
@@ -948,6 +970,7 @@ runcmd:
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user enable bridgectl || echo "WARNING: bridgectl enable failed; it will be enabled at next login"
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user start bridgectl || echo "WARNING: bridgectl user service failed to start; it will start at next login"
     )
+  - ai-desktops-ts "services_started"
 
 {{- if gt .SwapSizeGB 0}}
   # --- swap file (prevents OOM crashes under memory pressure) ---
@@ -1097,6 +1120,7 @@ runcmd:
     } > /opt/ai-desktops/desktop.env
     chgrp ubuntu /opt/ai-desktops/desktop.env
     chmod 640 /opt/ai-desktops/desktop.env
+  - ai-desktops-ts "complete"
 
 final_message: "ai-desktops bootstrap complete for {{ .DesktopID }}"
 `
