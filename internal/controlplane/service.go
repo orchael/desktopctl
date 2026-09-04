@@ -303,7 +303,7 @@ func (s *Service) requireAWS() error {
 
 func (s *Service) requirePulumi() error {
 	if s.pulumiRunner == nil {
-		return errors.New("Pulumi lifecycle runner is not configured")
+		return errors.New("pulumi lifecycle runner is not configured")
 	}
 	return nil
 }
