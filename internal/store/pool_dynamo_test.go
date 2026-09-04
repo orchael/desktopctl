@@ -154,10 +154,13 @@ func TestDynamoPoolStore_CountByState(t *testing.T) {
 		{InstanceID: "i-003", PoolMemberState: PoolStateInUse},
 	}
 	mock := &mockDynamoClient{
-		scanFn: func(_ *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
-			items := make([]map[string]types.AttributeValue, 0, len(members))
+		scanFn: func(in *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+			// Simulate DynamoDB server-side FilterExpression: only return AVAILABLE members.
+			items := make([]map[string]types.AttributeValue, 0)
 			for _, a := range members {
-				items = append(items, marshaledAllocation(t, a))
+				if a.PoolMemberState == PoolStateAvailable {
+					items = append(items, marshaledAllocation(t, a))
+				}
 			}
 			return &dynamodb.ScanOutput{Items: items}, nil
 		},
@@ -174,13 +177,12 @@ func TestDynamoPoolStore_CountByState(t *testing.T) {
 
 func TestDynamoPoolStore_AcquireAvailable_Success(t *testing.T) {
 	available := &ComputeAllocation{InstanceID: "i-001", PoolMemberState: PoolStateAvailable}
-	inUse := &ComputeAllocation{InstanceID: "i-002", PoolMemberState: PoolStateInUse}
 	updateCalled := false
 	mock := &mockDynamoClient{
+		// Simulate DynamoDB FilterExpression: only AVAILABLE members returned.
 		scanFn: func(_ *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
 			return &dynamodb.ScanOutput{Items: []map[string]types.AttributeValue{
 				marshaledAllocation(t, available),
-				marshaledAllocation(t, inUse),
 			}}, nil
 		},
 		updateFn: func(_ *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {

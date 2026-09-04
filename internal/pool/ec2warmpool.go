@@ -76,8 +76,14 @@ func (p *EC2WarmPool) Release(ctx context.Context, instanceID string) error {
 	return p.store.UpdatePoolMember(ctx, a)
 }
 
-// Recycle stops the EC2 instance, clears desktop-specific data, and returns
-// the member to AVAILABLE. If the stop call fails the member is marked FAILED.
+// Recycle stops the EC2 instance, clears allocation metadata, and returns the
+// member to AVAILABLE. If the stop call fails the member is marked FAILED.
+//
+// NOTE: stopping an EC2 instance does not wipe EBS volumes. Production use of
+// this method requires a verified scrub step (e.g. SSM run-command to remove
+// user credentials and work files) before the member is re-marked AVAILABLE.
+// Until that scrub is implemented, only use this pool with fresh instances that
+// have not yet held user data, or accept the risk of cross-user data exposure.
 func (p *EC2WarmPool) Recycle(ctx context.Context, instanceID string) error {
 	a, err := p.store.GetPoolMember(ctx, instanceID)
 	if err != nil {

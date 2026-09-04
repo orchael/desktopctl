@@ -171,6 +171,11 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
 			TableName:         aws.String(s.tableName),
 			ExclusiveStartKey: exclusiveStartKey,
+			ConsistentRead:    aws.Bool(true),
+			FilterExpression:  aws.String("pool_state = :available"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":available": &types.AttributeValueMemberS{Value: string(PoolStateAvailable)},
+			},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("scan pool table: %w", err)
@@ -181,7 +186,7 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 			if err := attributevalue.UnmarshalMap(item, &a); err != nil {
 				return nil, fmt.Errorf("unmarshal pool member: %w", err)
 			}
-			if a.InstanceID == "" || a.PoolMemberState != PoolStateAvailable {
+			if a.InstanceID == "" {
 				continue
 			}
 
@@ -228,16 +233,29 @@ func (s *DynamoPoolStore) AcquireAvailable(ctx context.Context, desktopID string
 	return nil, ErrNoAvailableCapacity
 }
 
+// CountByState counts members with the given state using a narrow
+// ProjectionExpression so only the pool_state attribute is transferred.
 func (s *DynamoPoolStore) CountByState(ctx context.Context, state PoolMemberState) (int, error) {
-	members, err := s.ListPoolMembers(ctx)
-	if err != nil {
-		return 0, err
-	}
 	n := 0
-	for _, a := range members {
-		if a.PoolMemberState == state {
-			n++
+	var exclusiveStartKey map[string]types.AttributeValue
+	for {
+		out, err := s.client.Scan(ctx, &dynamodb.ScanInput{
+			TableName:            aws.String(s.tableName),
+			ExclusiveStartKey:    exclusiveStartKey,
+			FilterExpression:     aws.String("pool_state = :state"),
+			ProjectionExpression: aws.String("pool_state"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":state": &types.AttributeValueMemberS{Value: string(state)},
+			},
+		})
+		if err != nil {
+			return 0, fmt.Errorf("count pool members by state: %w", err)
 		}
+		n += len(out.Items)
+		if len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		exclusiveStartKey = out.LastEvaluatedKey
 	}
 	return n, nil
 }
