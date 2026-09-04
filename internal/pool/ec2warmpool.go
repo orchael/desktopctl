@@ -43,13 +43,19 @@ func (p *EC2WarmPool) Acquire(ctx context.Context, spec DesktopSpec) (*Machine, 
 
 	a.PoolMemberState = store.PoolStateReady
 	if err := p.store.UpdatePoolMember(ctx, a); err != nil {
-		// Best-effort cleanup: stop the running instance and mark FAILED so
-		// the member doesn't stay ALLOCATING with a live instance behind it.
+		// Cleanup: stop the running instance and mark FAILED so the member
+		// doesn't stay ALLOCATING with a live instance behind it. Surface all
+		// cleanup errors alongside the primary failure so callers can see the
+		// full state.
 		a.PoolMemberState = store.PoolStateFailed
 		a.FailureMsg = fmt.Sprintf("store update after start: %v", err)
-		_ = p.ec2.StopInstance(ctx, a.InstanceID)
-		_ = p.store.UpdatePoolMember(ctx, a)
-		return nil, fmt.Errorf("update pool member after start: %w", err)
+		stopErr := p.ec2.StopInstance(ctx, a.InstanceID)
+		updateErr := p.store.UpdatePoolMember(ctx, a)
+		return nil, errors.Join(
+			fmt.Errorf("update pool member after start: %w", err),
+			stopErr,
+			updateErr,
+		)
 	}
 
 	return &Machine{
