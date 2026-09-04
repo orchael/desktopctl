@@ -209,6 +209,15 @@ func TestDynamoPoolStore_AcquireAvailable_Success(t *testing.T) {
 	}
 }
 
+func TestDynamoPoolStore_AcquireAvailable_EmptyDesktopID(t *testing.T) {
+	mock := &mockDynamoClient{}
+	s := &DynamoPoolStore{client: mock, tableName: "pool"}
+	_, err := s.AcquireAvailable(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty desktopID, got nil")
+	}
+}
+
 func TestDynamoPoolStore_AcquireAvailable_EmptyPool(t *testing.T) {
 	mock := &mockDynamoClient{
 		scanFn: func(_ *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
