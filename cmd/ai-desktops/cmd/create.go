@@ -259,13 +259,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Verify every --secret path exists in Secrets Manager before provisioning.
-	if len(createSecrets) > 0 {
+	// Track the agent secret too, so reload can rotate the complete snapshot.
+	secretPaths := desktopSecretPaths(cfg.GitHub.AgentSecret, createSecrets)
+	// Verify every configured secret before provisioning.
+	if len(secretPaths) > 0 {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			return fmt.Errorf("load AWS config to validate secrets: %w", err)
 		}
-		for _, secretPath := range createSecrets {
+		for _, secretPath := range secretPaths {
 			fmt.Fprintf(os.Stderr, "Checking secret %s ...\n", secretPath)
 			ok, err := awsx.SecretExists(ctx, awsCfg, secretPath)
 			if err != nil {
@@ -322,7 +324,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		DesktopName:    createName,
 		GitHubOwner:    owner,
 		Repos:          repoStrings(repos),
-		Secrets:        createSecrets,
+		Secrets:        secretPaths,
 		TailscaleNet:   tailscaleNetwork,
 		StepCAServer:   stepCAServer,
 		InstanceType:   instanceTypes[0],
@@ -548,7 +550,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
 		AgentSecretPath:      cfg.GitHub.AgentSecret,
-		DesktopSecretPaths:   createSecrets,
+		DesktopSecretPaths:   secretPaths,
 		TailscaleNetwork:     tailscaleNetwork,
 		TailscaleSecretPath:  tailscaleSecretPath,
 		StepCAServerDNS:      stepCAServer,

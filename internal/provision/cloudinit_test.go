@@ -737,8 +737,8 @@ func TestRenderCloudInit_noDesktopSecretPaths(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	if strings.Contains(out, "desktop-secrets.conf") {
-		t.Error("desktop-secrets.conf should be absent when DesktopSecretPaths is empty")
+	if !strings.Contains(out, "EnvironmentFile=-%%h/.config/environment.d/desktop-secrets.conf") {
+		t.Error("optional service override should support secrets added after creation")
 	}
 	if strings.Contains(out, ".desktop-secrets") {
 		t.Error(".desktop-secrets should be absent when DesktopSecretPaths is empty")

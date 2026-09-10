@@ -513,6 +513,14 @@ The PRD says external-user access must remain possible but does not define v1 au
 
 The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
 
+#### Codex credential lifecycle and end-to-end validation
+
+- AUTH-1: Prefer existing desktop-local Codex account credentials, then bootstrap account credentials from `CODEX_AUTH`, then API-key authentication. Each desktop owns a private mutable auth cache seeded from the configured secret; starting another session or restarting the bridge must not restore an unchanged seed over refreshed credentials. Credentials must not be stored in the shared EFS workspace.
+- AUTH-2: Explicit `secrets reload` re-fetches both the configured agent secret and additional desktop secrets. It replaces the active credential snapshot, invalidates the previous managed Codex auth cache, and restarts the bridge and its provider processes so no active process continues using the old credentials. Reload must report retrieval or restart failures, preserve the previous files on retrieval failure, and never print credential values.
+- AUTH-3: Codex session health checks must validate the effective session environment. Different explicit Codex homes must not share a cached directory accidentally.
+- E2E-1: A reusable opt-in AWS E2E runner creates a uniquely named retained EFS workspace and desktop for this checkout's repository (default from the Git remote; currently `markcallen/ai-desktops`), waits for readiness, and executes selectable scenarios. The Codex auth scenario exercises real bridge authentication and validates credential persistence and explicit reload.
+- E2E-2: Successful runs terminate their desktop before deleting their workspace. Failed runs retain resources and report their identifiers. A keep-resources option also retains successful runs; a reuse option runs scenarios on those same resources for debugging. Cleanup may target only resources recorded as created by the runner.
+
 Operators must also be able to manage per-desktop injected secret references after creation. Adding a secret path should validate that the AWS Secrets Manager secret exists, inject all configured desktop secrets, and persist the updated fleet metadata. Removing a secret path should rewrite the desktop environment files without the removed secret, clear those files when no configured secrets remain, and persist the updated fleet metadata. Reloading should re-fetch the currently configured fleet secret list without changing it.
 
 ### Repository authentication

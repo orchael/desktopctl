@@ -123,11 +123,15 @@ scripts/update-agent-auth.sh \
 
 The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
 
-Existing desktops do not automatically re-fetch `/ai-desktops/<owner>/agents`; recreate the desktop or restart/reload the `bridgectl` user service after updating `/home/ubuntu/.config/bridgectl/agents.env` on the instance.
+New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `ai-desktops secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `ai-desktops secrets add <desktop-id> /ai-desktops/<owner>/agents`.
+
+`github.agent_secret` is an explicit credential source: changing the repository owner with `--github-owner` does not rewrite that configured secret path. This allows the same operator seed to bootstrap desktops for different repository owners while each desktop keeps its own refreshed auth file.
+
+With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an existing account auth file, then the `CODEX_AUTH` bootstrap seed, then API-key credentials. Each desktop owns its refreshed file under its private home directory; ordinary sessions and bridge restarts preserve it. Source selection checks credential structure; a revoked account still requires renewed login or explicit credential rotation, and tasks are not replayed automatically with a different identity. Explicit `CODEX_HOME` values used by desktop secret rotation must be private absolute directories under the desktop user's home, not an EFS workspace.
 
 ### Desktop Secret Management
 
-Secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop.
+The configured `github.agent_secret` and secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop. Additional secret paths override duplicate keys from the base agent secret. Rotation also replaces `/home/ubuntu/.config/bridgectl/agents.env`, so the daemon and new shells use the same snapshot.
 
 Manage those per-desktop secret references after creation with:
 
@@ -138,6 +142,8 @@ ai-desktops secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
 ```
 
 `secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
+
+The opt-in [AWS E2E runner](tests/e2e/README.md) tests Codex auth using this checkout's CLI and a locally built Linux bridgectl binary. It creates a dedicated workspace and desktop for this repository, cleans up after success, and retains failed runs. Use `--keep` to retain a successful run and `--reuse <state.json>` to test the same resources again.
 
 ## Installation
 
