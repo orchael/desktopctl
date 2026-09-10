@@ -36,6 +36,176 @@ func TestCanonicalRepos(t *testing.T) {
 	}
 }
 
+func TestScenarioRejectsSSHKeyDifferentFromConfigBeforeCloudCalls(t *testing.T) {
+	dir := t.TempDir()
+	configuredKey := filepath.Join(dir, "configured-key")
+	overrideKey := filepath.Join(dir, "override-key")
+	configFile := filepath.Join(dir, "config.yaml")
+	for path, data := range map[string]string{configuredKey: "configured", overrideKey: "different", configFile: "desktop:\n  ssh_key_path: " + configuredKey + "\n"} {
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previous := runCommand
+	runCommand = func(context.Context, string, []string, []byte) ([]byte, error) {
+		t.Fatal("mismatched SSH key reached cloud commands")
+		return nil, nil
+	}
+	t.Cleanup(func() { runCommand = previous })
+	err := run(context.Background(), []string{"--repo", "markcallen/ai-desktops", "--config", configFile, "--ssh-key", overrideKey, "--bridgectl-binary", "unused"})
+	if err == nil || !strings.Contains(err.Error(), "ssh-key") {
+		t.Fatalf("expected key mismatch: %v", err)
+	}
+}
+
+func TestFailedCreateNeverRecordsUnrelatedDesktop(t *testing.T) {
+	for _, mutation := range []func(*store.Desktop){
+		func(d *store.Desktop) { d.GitHubOwner = "unrelated" },
+		func(d *store.Desktop) { d.Repos = []string{"github.com/unrelated/ai-desktops"} },
+		func(d *store.Desktop) { d.WorkspaceName = "other" },
+		func(d *store.Desktop) { d.State = store.StateTerminated },
+		func(d *store.Desktop) { d.CreatedAt = "invalid-time" },
+	} {
+		s, owned := fixture(t)
+		s.StartedAt = "2026-01-01T00:00:00Z"
+		d := owned.d
+		d.CreatedAt = "2026-02-01T00:00:00Z"
+		mutation(&d)
+		s.DesktopID = ""
+		s.DesktopCreated = false
+		f := &commandFixture{t: t, w: owned.w, d: d}
+		c := &cli{binary: "test-cli", state: s, exec: func(ctx context.Context, program string, args []string, input []byte) ([]byte, error) {
+			if args[0] == "create" {
+				return nil, errors.New("create failed")
+			}
+			return f.execute(ctx, program, args, input)
+		}}
+		if err := createDesktop(context.Background(), c, s); err == nil {
+			t.Fatal("failed create unexpectedly passed")
+		}
+		if s.DesktopCreated || s.DesktopID != "" {
+			t.Fatalf("unrelated desktop recorded: %+v", s)
+		}
+	}
+}
+
+func TestWorkspaceCreateFailureRecoversOwnedWorkspace(t *testing.T) {
+	s, owned := fixture(t)
+	s.StartedAt = "2026-01-01T00:00:00Z"
+	s.WorkspaceCreated = false
+	s.WorkspaceID = ""
+	s.AccessPointID = ""
+	s.DesktopCreated = false
+	s.DesktopID = ""
+	owned.w.CreatedAt = "2026-02-01T00:00:00Z"
+	owned.w.AttachedDesktopID = ""
+	f := &commandFixture{t: t, w: owned.w}
+	c := &cli{binary: "test-cli", state: s, exec: func(ctx context.Context, program string, args []string, input []byte) ([]byte, error) {
+		if args[0] == "workspace" && args[1] == "create" {
+			return nil, errors.New("lost create response")
+		}
+		return f.execute(ctx, program, args, input)
+	}}
+	if err := provision(context.Background(), c, s); err == nil {
+		t.Fatal("original failure should be reported")
+	}
+	if !s.WorkspaceCreated || s.WorkspaceID != owned.w.WorkspaceID || s.AccessPointID != owned.w.EFSAccessPointID {
+		t.Fatalf("owned resource IDs lost: %+v", s)
+	}
+	if s.DesktopCreated {
+		t.Fatal("created desktop after failed workspace response")
+	}
+	loaded, err := loadState(s.Path)
+	if err != nil || !loaded.WorkspaceCreated {
+		t.Fatalf("resource state not saved: %+v %v", loaded, err)
+	}
+}
+
+func TestWorkspaceRecoveryRetriesAfterFailedStatusRead(t *testing.T) {
+	s, owned := fixture(t)
+	s.StartedAt = "2026-01-01T00:00:00Z"
+	s.WorkspaceCreated = false
+	s.WorkspaceID = ""
+	s.AccessPointID = ""
+	s.DesktopCreated = false
+	s.DesktopID = ""
+	owned.w.CreatedAt = "2026-01-01T00:00:00.001Z"
+	owned.w.AttachedDesktopID = ""
+	owned.w.State = store.WorkspaceStateAvailable
+	f := &commandFixture{t: t, w: owned.w}
+	unavailable := true
+	c := &cli{binary: "test-cli", state: s, exec: func(ctx context.Context, program string, args []string, input []byte) ([]byte, error) {
+		if args[0] == "workspace" && (args[1] == "create" || unavailable) {
+			return nil, errors.New("interrupted response")
+		}
+		return f.execute(ctx, program, args, input)
+	}}
+	if err := provision(context.Background(), c, s); err == nil {
+		t.Fatal("failure not reported")
+	}
+	loaded, err := loadState(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.WorkspaceCreated || !loaded.WorkspaceCreateAttempted {
+		t.Fatalf("lost pending create intent: %+v", loaded)
+	}
+	unavailable = false
+	if err = resume(context.Background(), c, loaded); err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.WorkspaceCreated || !loaded.DesktopCreated {
+		t.Fatalf("recovery did not resume: %+v", loaded)
+	}
+	if !reflect.DeepEqual(f.events, []string{"desktop-create"}) {
+		t.Fatalf("recreated workspace: %v", f.events)
+	}
+}
+
+func TestWorkspaceRecoveryRejectsUnrelatedRecord(t *testing.T) {
+	for _, mutation := range []func(*store.Workspace){
+		func(w *store.Workspace) { w.CreatedAt = "2025-01-01T00:00:00Z" },
+		func(w *store.Workspace) { w.GitHubOwner = "another" },
+		func(w *store.Workspace) { w.Repos = []string{"github.com/another/ai-desktops"} },
+		func(w *store.Workspace) { w.AttachedDesktopID = "d-another" },
+	} {
+		s, owned := fixture(t)
+		s.StartedAt = "2026-01-01T00:00:00Z"
+		s.WorkspaceCreated = false
+		s.WorkspaceCreateAttempted = true
+		s.WorkspaceID = ""
+		s.AccessPointID = ""
+		s.DesktopCreated = false
+		s.DesktopID = ""
+		owned.w.CreatedAt = "2026-02-01T00:00:00Z"
+		owned.w.AttachedDesktopID = ""
+		mutation(&owned.w)
+		if err := rememberWorkspace(s, owned.w); err == nil {
+			t.Fatal("unrelated workspace accepted")
+		}
+		if s.WorkspaceCreated || s.WorkspaceID != "" {
+			t.Fatalf("unrelated ownership persisted: %+v", s)
+		}
+	}
+}
+
+func TestRecoverDesktopRejectsDuplicateNames(t *testing.T) {
+	s, owned := fixture(t)
+	s.StartedAt = "2026-01-01T00:00:00Z"
+	s.DesktopID = ""
+	s.DesktopCreated = false
+	owned.d.CreatedAt = "2026-02-01T00:00:00Z"
+	c := &cli{binary: "test-cli", state: s, exec: func(context.Context, string, []string, []byte) ([]byte, error) {
+		return json.Marshal([]store.Desktop{owned.d, owned.d})
+	}}
+	if err := recoverDesktop(context.Background(), c, s); err == nil {
+		t.Fatal("ambiguous name accepted")
+	}
+	if s.DesktopCreated {
+		t.Fatal("ambiguous ownership recorded")
+	}
+}
+
 func TestResumeWorkspaceOnly(t *testing.T) {
 	s, owned := fixture(t)
 	s.DesktopID = ""
@@ -128,7 +298,7 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 		switch args[1] {
 		case "create":
 			f.events = append(f.events, "workspace-create")
-			f.w = store.Workspace{WorkspaceID: "ws-created", WorkspaceName: argValue(args, "--name"), Environment: "dev", GitHubOwner: argValue(args, "--github-owner"), Repos: []string{"github.com/" + argValue(args, "--repo")}, EFSAccessPointID: "fsap-created"}
+			f.w = store.Workspace{WorkspaceID: "ws-created", WorkspaceName: argValue(args, "--name"), WorkspaceMode: "efs", CreatedAt: "9999-12-31T00:00:00Z", Environment: "dev", GitHubOwner: argValue(args, "--github-owner"), Repos: []string{"github.com/" + argValue(args, "--repo")}, EFSAccessPointID: "fsap-created"}
 			return encode(f.w)
 		case "status":
 			return encode(f.w)
@@ -138,7 +308,7 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 		}
 	case "create":
 		f.events = append(f.events, "desktop-create")
-		f.d = store.Desktop{DesktopID: "d-created", DesktopName: argValue(args, "--name"), WorkspaceID: f.w.WorkspaceID, WorkspaceName: f.w.WorkspaceName, Environment: "dev", GitHubOwner: f.w.GitHubOwner, Repos: f.w.Repos, State: store.StateReady, SSHTarget: "ubuntu@test.example", CreatedAt: "9999-12-31"}
+		f.d = store.Desktop{DesktopID: "d-created", DesktopName: argValue(args, "--name"), WorkspaceID: f.w.WorkspaceID, WorkspaceName: f.w.WorkspaceName, Environment: "dev", GitHubOwner: f.w.GitHubOwner, Repos: f.w.Repos, State: store.StateReady, SSHTarget: "ubuntu@test.example", CreatedAt: "9999-12-31T00:00:00Z"}
 		f.w.AttachedDesktopID = f.d.DesktopID
 		if f.fail == "create" {
 			return nil, errors.New("partial create failure")
@@ -174,7 +344,7 @@ func TestCommandFlow(t *testing.T) {
 			key := filepath.Join(dir, "key")
 			binary := filepath.Join(dir, "bridgectl")
 			stateFile := filepath.Join(dir, "state.json")
-			for path, data := range map[string]string{cfg: "aws:\n  region: us-west-2\n  profile: e2e-profile\n", key: "unused fixture key", binary: "\x7fELFfake"} {
+			for path, data := range map[string]string{cfg: "aws:\n  region: us-west-2\n  profile: e2e-profile\ndesktop:\n  ssh_key_path: " + key + "\n", key: "unused fixture key", binary: "\x7fELFfake"} {
 				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 					t.Fatal(err)
 				}

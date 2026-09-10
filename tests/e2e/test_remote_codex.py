@@ -81,5 +81,62 @@ print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':
             self.assertNotIn("PRIVATE_VALUE", result)
 
 
+class AuthPathTests(unittest.TestCase):
+    def test_innermost_mount_detects_nfs_beneath_local_home(self):
+        mounts = """1 0 8:1 / / rw - ext4 /dev/root rw
+2 1 0:2 / /home/ubuntu/.codex rw - nfs4 fs-test:/ rw
+3 1 0:3 / /home/ubuntu/other\\040dir rw - nfs4 fs-other:/ rw
+"""
+        self.assertEqual(SCENARIO.mount_filesystem(Path("/home/ubuntu/.codex/auth.json"), mounts), "nfs4")
+        self.assertEqual(SCENARIO.mount_filesystem(Path("/home/ubuntu/local/auth.json"), mounts), "ext4")
+        self.assertEqual(SCENARIO.mount_filesystem(Path("/home/ubuntu/other dir/auth.json"), mounts), "nfs4")
+
+    def test_only_private_local_auth_under_home_is_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            auth_home = home / ".codex"
+            auth_home.mkdir(parents=True, mode=0o700)
+            auth_file = auth_home / "auth.json"
+            auth_file.write_text("{}")
+            auth_file.chmod(0o600)
+            with mock.patch.object(Path, "home", return_value=home), mock.patch.object(SCENARIO, "mount_filesystem", return_value="ext4"):
+                self.assertEqual(SCENARIO.private_auth_path(auth_home), auth_file)
+                for candidate in (Path("relative"), Path(directory)):
+                    with self.assertRaises(AssertionError):
+                        SCENARIO.private_auth_path(candidate)
+                auth_home.chmod(0o755)
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+                auth_home.chmod(0o700)
+                auth_file.chmod(0o644)
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+            auth_file.chmod(0o600)
+            with mock.patch.object(Path, "home", return_value=home), mock.patch.object(SCENARIO, "mount_filesystem", return_value="nfs4"):
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+
+    def test_symlink_escape_is_rejected_before_reading_auth(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            workspace = Path(directory) / "workspace"
+            home.mkdir()
+            workspace.mkdir(mode=0o700)
+            shared_auth = workspace / "auth.json"
+            shared_auth.write_text("DO NOT READ OR MODIFY")
+            shared_auth.chmod(0o600)
+            auth_home = home / ".codex"
+            auth_home.symlink_to(workspace, target_is_directory=True)
+            with mock.patch.object(Path, "home", return_value=home):
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+                auth_home.unlink()
+                auth_home.mkdir(mode=0o700)
+                (auth_home / "auth.json").symlink_to(shared_auth)
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+            self.assertEqual(shared_auth.read_text(), "DO NOT READ OR MODIFY")
+
+
 if __name__ == "__main__":
     unittest.main()

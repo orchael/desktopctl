@@ -10,6 +10,9 @@ Requirements: PRD AUTH-1 through AUTH-3 and E2E-1 through E2E-2.
 - [x] Build both branches and run focused and full relevant tests.
 - [x] Run AWS E2E against the branch binaries and record the failure with resources retained.
 - [ ] Complete the live authenticated happy path and automatic cleanup after usable account credentials are available.
+- [x] Open companion PRs with Copilot requested: ai-desktops #223 and orchael/bridgectl #219.
+- [x] Reproduce and fix Copilot's inline tilde-path and legacy secret-precedence findings; also invalidate overridden auth homes from every environment surface and report preserved inactive services explicitly.
+- [x] Harden E2E recovery after partial workspace/desktop creation, reject mismatched SSH keys before provisioning, and validate private non-EFS auth storage. Full Go race tests and five Python regressions pass after review fixes.
 
 Tradeoffs: account refresh state belongs on each desktop root disk, not EFS or the original AWS secret. Credential reload deliberately interrupts old provider processes; no expired credential values are logged. Failed E2E resources remain inspectable and incur AWS cost until cleanup.
 

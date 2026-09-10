@@ -130,7 +130,7 @@ func run(ctx context.Context, args []string) error {
 	profile := flags.String("profile", "", "AWS profile override")
 	region := flags.String("region", "", "AWS region override")
 	repo := flags.String("repo", "", "GitHub owner/ai-desktops (defaults to this checkout's origin)")
-	key := flags.String("ssh-key", "", "SSH private key (defaults to desktop.ssh_key_path in config)")
+	key := flags.String("ssh-key", "", "SSH private key; must identify the same file as desktop.ssh_key_path in config")
 	statePath := flags.String("state", "", "new state file; defaults to a unique directory under /tmp")
 	reuse := flags.String("reuse", "", "reuse resources from this runner's state file")
 	clean := flags.String("cleanup", "", "terminate/delete only resources owned by this runner state file")
@@ -236,6 +236,11 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 	}
+	if *clean == "" {
+		if err = validateScenarioSSHKey(s); err != nil {
+			return err
+		}
+	}
 	logStage("state " + s.Path + "; workspace " + s.Name)
 	c := &cli{binary: *binary, state: s, exec: runCommand}
 	defer func() {
@@ -244,12 +249,17 @@ func run(ctx context.Context, args []string) error {
 	if *clean != "" {
 		cleanupCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
+		if !s.WorkspaceCreated && s.WorkspaceCreateAttempted {
+			if err = recoverWorkspace(cleanupCtx, c, s); err != nil {
+				return err
+			}
+		}
 		return cleanup(cleanupCtx, c, s)
 	}
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 	if *reuse != "" {
-		if !s.WorkspaceCreated || s.DesktopTerminated || s.WorkspaceDeleted {
+		if (!s.WorkspaceCreated && !s.WorkspaceCreateAttempted) || s.DesktopTerminated || s.WorkspaceDeleted {
 			return errors.New("state has no reusable desktop/workspace")
 		}
 		if !s.DesktopCreated && *bridge == "" {
@@ -271,6 +281,27 @@ func run(ctx context.Context, args []string) error {
 	return nil
 }
 
+// Both create and secrets reload use the CLI config's SSH key. The runner must
+// use that same file rather than silently test with an unrelated SSH identity.
+func validateScenarioSSHKey(s *state) error {
+	cfg, err := config.LoadOrDefault(s.Config)
+	if err != nil {
+		return err
+	}
+	configured, err := os.Stat(cfg.Desktop.SSHKeyPath)
+	if err != nil {
+		return fmt.Errorf("desktop.ssh_key_path must identify an existing private key for scenario creation and reload: %w", err)
+	}
+	selected, err := os.Stat(s.SSHKey)
+	if err != nil {
+		return err
+	}
+	if !configured.Mode().IsRegular() || !selected.Mode().IsRegular() || !os.SameFile(configured, selected) {
+		return errors.New("--ssh-key must identify the same private key file as desktop.ssh_key_path; create and secrets reload use the configured key")
+	}
+	return nil
+}
+
 func githubRepo(origin string) (string, error) {
 	origin = strings.TrimSpace(origin)
 	for _, prefix := range []string{"git@github.com:", "https://github.com/", "ssh://git@github.com/"} {
@@ -285,6 +316,10 @@ func githubRepo(origin string) (string, error) {
 }
 
 func provision(ctx context.Context, c *cli, s *state) error {
+	s.WorkspaceCreateAttempted = true
+	if err := s.save(); err != nil {
+		return err
+	}
 	logStage("create EFS workspace " + s.Name)
 	b, err := c.call(ctx, "workspace", "create", "--name", s.Name, "--env", s.Environment, "--github-owner", s.Owner, "--repo", s.Repo, "--json")
 	var w store.Workspace
@@ -292,54 +327,67 @@ func provision(ctx context.Context, c *cli, s *state) error {
 		err = json.Unmarshal(b, &w)
 	}
 	if err != nil {
-		return fmt.Errorf("workspace create failed; inspect exact workspace %s before retrying: %w", s.Name, err)
+		recoveryCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		recoveryErr := recoverWorkspace(recoveryCtx, c, s)
+		return fmt.Errorf("workspace create failed; state retained for reuse/cleanup of exact workspace %s: %w", s.Name, errors.Join(err, recoveryErr))
 	}
-	s.WorkspaceID = w.WorkspaceID
-	s.AccessPointID = w.EFSAccessPointID
-	s.WorkspaceCreated = true
-	if err = s.save(); err != nil {
+	if err = rememberWorkspace(s, w); err != nil {
 		return err
 	}
 	return createDesktop(ctx, c, s)
+}
+
+func createdDuringRun(createdAt, startedAt string) bool {
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return false
+	}
+	started, err := time.Parse(time.RFC3339Nano, startedAt)
+	if err != nil {
+		return false
+	}
+	return !created.Before(started)
+}
+
+func rememberWorkspace(s *state, w store.Workspace) error {
+	if !s.WorkspaceCreateAttempted || w.WorkspaceName != s.Name || w.WorkspaceID == "" || w.EFSAccessPointID == "" || w.WorkspaceMode != "efs" || w.Environment != s.Environment || w.GitHubOwner != s.Owner || !sameRepo(w.Repos, s.Repo) || !createdDuringRun(w.CreatedAt, s.StartedAt) || w.AttachedDesktopID != "" || w.State == store.WorkspaceStateDeleted {
+		return errors.New("workspace recovery cannot prove this run created the exact unattached EFS workspace; ownership unchanged")
+	}
+	tentative := *s
+	tentative.WorkspaceID = w.WorkspaceID
+	tentative.AccessPointID = w.EFSAccessPointID
+	tentative.WorkspaceCreated = true
+	if err := tentative.save(); err != nil {
+		return err
+	}
+	*s = tentative
+	return nil
+}
+
+func recoverWorkspace(ctx context.Context, c *cli, s *state) error {
+	if !s.WorkspaceCreateAttempted {
+		return errors.New("workspace creation was not attempted by this runner")
+	}
+	w, err := c.Workspace(ctx, s.Name)
+	if err != nil {
+		return err
+	}
+	return rememberWorkspace(s, w)
 }
 
 // resume never creates a second workspace. It can recover a desktop whose CLI
 // process exited before its ID reached the manifest, but only when its exact
 // name, creation time, owner, repository, and owned workspace agree.
 func resume(ctx context.Context, c *cli, s *state) error {
+	if !s.WorkspaceCreated {
+		if err := recoverWorkspace(ctx, c, s); err != nil {
+			return err
+		}
+	}
 	if !s.DesktopCreated {
-		all, err := c.call(ctx, "list", "--all", "--json")
-		if err != nil {
+		if err := recoverDesktop(ctx, c, s); err != nil {
 			return err
-		}
-		var candidates []store.Desktop
-		if err = json.Unmarshal(all, &candidates); err != nil {
-			return err
-		}
-		var found *store.Desktop
-		for _, candidate := range candidates {
-			if candidate.DesktopName != s.Name || candidate.Environment != s.Environment {
-				continue
-			}
-			if found != nil || candidate.WorkspaceID != s.WorkspaceID || candidate.WorkspaceName != s.Name || candidate.GitHubOwner != s.Owner || !sameRepo(candidate.Repos, s.Repo) || s.StartedAt == "" || candidate.CreatedAt < s.StartedAt || candidate.State == store.StateTerminated {
-				return errors.New("desktop name collision does not identify one live desktop created for this runner workspace")
-			}
-			copy := candidate
-			found = &copy
-		}
-		if found != nil {
-			// Validate the tentative identity against both live records before
-			// saving ownership or touching resources.
-			tentative := *s
-			tentative.DesktopID = found.DesktopID
-			tentative.DesktopCreated = true
-			if err = validateResources(ctx, c, &tentative); err != nil {
-				return err
-			}
-			*s = tentative
-			if err = s.save(); err != nil {
-				return err
-			}
 		}
 	}
 	if err := validateResources(ctx, c, s); err != nil {
@@ -355,6 +403,43 @@ func resume(ctx context.Context, c *cli, s *state) error {
 		}
 		return createDesktop(ctx, c, s)
 	}
+	return nil
+}
+
+// Both immediate failure recovery and later --reuse use this exact predicate.
+func recoverDesktop(ctx context.Context, c *cli, s *state) error {
+	all, err := c.call(ctx, "list", "--all", "--json")
+	if err != nil {
+		return err
+	}
+	var candidates []store.Desktop
+	if err = json.Unmarshal(all, &candidates); err != nil {
+		return err
+	}
+	var found *store.Desktop
+	for _, candidate := range candidates {
+		if candidate.DesktopName != s.Name || candidate.Environment != s.Environment {
+			continue
+		}
+		if found != nil || candidate.DesktopID == "" || candidate.WorkspaceID != s.WorkspaceID || candidate.WorkspaceName != s.Name || candidate.GitHubOwner != s.Owner || !sameRepo(candidate.Repos, s.Repo) || !createdDuringRun(candidate.CreatedAt, s.StartedAt) || candidate.State == store.StateTerminated {
+			return errors.New("desktop name collision does not identify one live desktop created for this runner workspace")
+		}
+		copy := candidate
+		found = &copy
+	}
+	if found == nil {
+		return nil
+	}
+	tentative := *s
+	tentative.DesktopID = found.DesktopID
+	tentative.DesktopCreated = true
+	if err = validateResources(ctx, c, &tentative); err != nil {
+		return err
+	}
+	if err = tentative.save(); err != nil {
+		return err
+	}
+	*s = tentative
 	return nil
 }
 
@@ -376,17 +461,7 @@ func createDesktop(ctx context.Context, c *cli, s *state) error {
 		// unique name + exact workspace created in this run; never adopt by repo.
 		discoveryCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if all, e := c.call(discoveryCtx, "list", "--all", "--json"); e == nil {
-			var candidates []store.Desktop
-			if json.Unmarshal(all, &candidates) == nil {
-				for _, candidate := range candidates {
-					if candidate.DesktopName == s.Name && candidate.WorkspaceID == s.WorkspaceID && candidate.Environment == s.Environment && candidate.CreatedAt >= s.StartedAt {
-						d = candidate
-						break
-					}
-				}
-			}
-		}
+		return fmt.Errorf("desktop create failed; resources retained: %w", errors.Join(err, recoverDesktop(discoveryCtx, c, s)))
 	}
 	if d.DesktopID != "" {
 		s.DesktopID = d.DesktopID
@@ -394,9 +469,6 @@ func createDesktop(ctx context.Context, c *cli, s *state) error {
 		if e := s.save(); e != nil {
 			return errors.Join(err, e)
 		}
-	}
-	if err != nil {
-		return fmt.Errorf("desktop create failed; resources retained: %w", err)
 	}
 	if s.DesktopID == "" {
 		return errors.New("create returned no desktop ID; workspace retained")

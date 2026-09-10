@@ -80,13 +80,16 @@ def main():
     if request["paths"] and not any(values.values()):
         raise RuntimeError("no secret values retrieved; files not updated")
 
-    previous = read_env(agents) | read_env(desktop_env)
+    previous_sources = (read_env(agents), read_env(desktop_env), read_env(shell))
+    previous = previous_sources[0] | previous_sources[1] | previous_sources[2]
     credential_keys = {"CODEX_AUTH", "CODEX_HOME", "CODEX_API_KEY", "OPENAI_API_KEY"}
     rotate_codex = bool(credential_keys & (set(previous) | set(values)))
     auth_dirs = {home / ".config/bridgectl/codex-home", home / ".codex"} if rotate_codex else set()
-    for source in (previous, values) if rotate_codex else ():
+    for source in (*previous_sources, values) if rotate_codex else ():
         if source.get("CODEX_HOME"):
-            directory = pathlib.Path(source["CODEX_HOME"]).expanduser()
+            # Keep validation identical to the value written to EnvironmentFile:
+            # systemd and bridgectl do not expand shell-style ~ paths.
+            directory = pathlib.Path(source["CODEX_HOME"])
             if not directory.is_absolute() or not directory.resolve().is_relative_to(home):
                 raise RuntimeError("CODEX_HOME must be a private absolute directory under the desktop user's home")
             auth_dirs.add(directory)
@@ -127,7 +130,8 @@ def main():
             run("systemctl", "--user", "start", "bridgectl")
             run("systemctl", "--user", "is-active", "--quiet", "bridgectl")
         print("Secrets replaced." + (" Previous Codex auth caches cleared." if rotate_codex else "") +
-              (" Bridge restarted; start or resume sessions to use the new credentials." if active else ""))
+              (" Bridge restarted; start or resume sessions to use the new credentials." if active else
+               " Bridge was inactive and remains stopped; start bridgectl before starting sessions."))
     finally:
         for _, temporary in staged:
             temporary.unlink(missing_ok=True)

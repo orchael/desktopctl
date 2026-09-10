@@ -61,6 +61,24 @@ func TestDesktopSecretPathsTracksAgentAndPreservesOverrideOrder(t *testing.T) {
 	}
 }
 
+func TestTrackedSecretPathsPreservesBasePrecedenceWithoutAddingSecrets(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		paths, want []string
+	}{
+		{"legacy-agent-added-last", []string{"/override", "/agents"}, []string{"/agents", "/override"}},
+		{"agent-not-registered", []string{"/override"}, []string{"/override"}},
+		{"already-ordered", []string{"/agents", "/one", "/two"}, []string{"/agents", "/one", "/two"}},
+		{"no-paths", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trackedSecretPaths("/agents", tc.paths); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("paths = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSecretPathsAfterAdd_ReloadsExistingAndNewSecrets(t *testing.T) {
 	toAdd, reloadPaths := secretPathsAfterAdd(
 		[]string{"/markcallen/smoke"},

@@ -15,26 +15,27 @@ import (
 
 // State deliberately contains resource identifiers and paths only, never auth.
 type state struct {
-	Version           int    `json:"version"`
-	RunID             string `json:"run_id"`
-	Name              string `json:"name"`
-	Environment       string `json:"environment"`
-	Owner             string `json:"owner"`
-	Repo              string `json:"repo"`
-	StartedAt         string `json:"started_at"`
-	Config            string `json:"config"`
-	Profile           string `json:"profile,omitempty"`
-	Region            string `json:"region,omitempty"`
-	SSHKey            string `json:"ssh_key"`
-	DesktopID         string `json:"desktop_id,omitempty"`
-	WorkspaceID       string `json:"workspace_id,omitempty"`
-	AccessPointID     string `json:"access_point_id,omitempty"`
-	WorkspaceCreated  bool   `json:"workspace_created"`
-	DesktopCreated    bool   `json:"desktop_created"`
-	DesktopTerminated bool   `json:"desktop_terminated"`
-	WorkspaceDeleted  bool   `json:"workspace_deleted"`
-	Result            string `json:"result"`
-	Path              string `json:"-"`
+	Version                  int    `json:"version"`
+	RunID                    string `json:"run_id"`
+	Name                     string `json:"name"`
+	Environment              string `json:"environment"`
+	Owner                    string `json:"owner"`
+	Repo                     string `json:"repo"`
+	StartedAt                string `json:"started_at"`
+	Config                   string `json:"config"`
+	Profile                  string `json:"profile,omitempty"`
+	Region                   string `json:"region,omitempty"`
+	SSHKey                   string `json:"ssh_key"`
+	DesktopID                string `json:"desktop_id,omitempty"`
+	WorkspaceID              string `json:"workspace_id,omitempty"`
+	AccessPointID            string `json:"access_point_id,omitempty"`
+	WorkspaceCreated         bool   `json:"workspace_created"`
+	WorkspaceCreateAttempted bool   `json:"workspace_create_attempted,omitempty"`
+	DesktopCreated           bool   `json:"desktop_created"`
+	DesktopTerminated        bool   `json:"desktop_terminated"`
+	WorkspaceDeleted         bool   `json:"workspace_deleted"`
+	Result                   string `json:"result"`
+	Path                     string `json:"-"`
 }
 
 func (s *state) save() error {

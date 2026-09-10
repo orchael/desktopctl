@@ -35,7 +35,7 @@ func (f *fakeCloud) DeleteWorkspace(context.Context, string) error {
 func fixture(t *testing.T) (*state, *fakeCloud) {
 	t.Helper()
 	s := &state{Version: 1, RunID: "0123456789abcdef", Name: "e2e-ai-desktops-0123456789abcdef", Environment: "dev", Owner: "orchael", Repo: "orchael/ai-desktops", DesktopID: "d-test", WorkspaceID: "ws-test", AccessPointID: "fsap-test", WorkspaceCreated: true, DesktopCreated: true, Path: t.TempDir() + "/state.json"}
-	f := &fakeCloud{w: store.Workspace{WorkspaceID: s.WorkspaceID, WorkspaceName: s.Name, Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}, EFSAccessPointID: s.AccessPointID, AttachedDesktopID: s.DesktopID}, d: store.Desktop{DesktopID: s.DesktopID, DesktopName: s.Name, WorkspaceName: s.Name, WorkspaceID: s.WorkspaceID, Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}}}
+	f := &fakeCloud{w: store.Workspace{WorkspaceID: s.WorkspaceID, WorkspaceName: s.Name, WorkspaceMode: "efs", Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}, EFSAccessPointID: s.AccessPointID, AttachedDesktopID: s.DesktopID}, d: store.Desktop{DesktopID: s.DesktopID, DesktopName: s.Name, WorkspaceName: s.Name, WorkspaceID: s.WorkspaceID, Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}}}
 	return s, f
 }
 

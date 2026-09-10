@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import stat
 import subprocess
 import sys
 import time
@@ -74,6 +75,40 @@ def daemon_environment():
                 .decode().split("\0") if "=" in item)
 
 
+def mount_filesystem(path, mountinfo=None):
+    """Identify the innermost mount, including NFS mounted below a local home."""
+    if mountinfo is None:
+        mountinfo = Path("/proc/self/mountinfo").read_text()
+    matches = []
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        separator = fields.index("-")
+        mount = Path(re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4]))
+        if path == mount or mount in path.parents:
+            matches.append((len(mount.parts), fields[separator + 1]))
+    assert matches, "cannot identify auth storage filesystem"
+    return max(matches)[1]
+
+
+def private_auth_path(auth_home, require_file=True):
+    """Validate storage before reading credentials or adding a refresh marker."""
+    assert auth_home.is_absolute(), "Codex auth home must be absolute"
+    real_home = Path.home().resolve(strict=True)
+    resolved = auth_home.resolve(strict=True)
+    assert real_home in resolved.parents, "Codex auth must remain beneath the desktop user's home"
+    workspace = Path("/workspace").resolve()
+    assert resolved != workspace and workspace not in resolved.parents, "Codex auth must not use shared workspace storage"
+    assert mount_filesystem(resolved) not in ("nfs", "nfs4", "efs"), "Codex auth must not use EFS or NFS storage"
+    info = resolved.stat()
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid() and info.st_mode & 0o077 == 0, "Codex auth directory must be private and owned by this user"
+    auth = resolved / "auth.json"
+    assert not auth.is_symlink(), "Codex auth file must not be a symlink"
+    if require_file or auth.exists():
+        info = auth.stat()
+        assert stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid() and info.st_mode & 0o077 == 0 and info.st_nlink == 1, "Codex auth file must be private and owned by this user"
+    return auth
+
+
 def prepare():
     BASE.mkdir(mode=0o700, parents=True, exist_ok=True)
     if BACKUP.exists():
@@ -105,10 +140,11 @@ def prepare():
 def provider():
     metadata = read(META)
     auth_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    auth_file = private_auth_path(auth_home)
     # Only booleans, paths, and process identity leave this process; no values.
     record = {"pid": os.getpid(), "start": process_start(os.getpid()),
-              "auth_path": str(auth_home / "auth.json"),
-              "marker_present": read(auth_home / "auth.json").get(MARKER) == metadata["sentinel"],
+              "auth_path": str(auth_file),
+              "marker_present": read(auth_file).get(MARKER) == metadata["sentinel"],
               "api_key_present": "OPENAI_API_KEY" in os.environ or "CODEX_API_KEY" in os.environ,
               "seed_env_present": "CODEX_AUTH" in os.environ}
     save(BASE / f"provider-{os.getpid()}.json", record)
@@ -221,7 +257,7 @@ def session(label):
         raise ScenarioFailure("response_timeout")
     assert not record["api_key_present"], "API keys leaked into account-authenticated provider environment"
     assert not record["seed_env_present"], "account seed leaked into provider environment after materializing auth.json"
-    auth = Path(record["auth_path"])
+    auth = private_auth_path(Path(record["auth_path"]).parent)
     account = read(auth)
     assert account.get("tokens", {}).get("access_token"), "provider did not persist account auth"
     assert auth.stat().st_mode & 0o077 == 0, "auth file permissions are too broad"
@@ -248,7 +284,7 @@ def reloaded():
     assert len(metadata["sessions"]) == 2, "missing live sessions for reload assertion"
     for record in metadata["sessions"]:
         assert process_start(record["pid"]) != record["start"], "old provider process survived secrets reload"
-        auth = Path(record["auth_path"])
+        auth = private_auth_path(Path(record["auth_path"]).parent, require_file=False)
         assert not auth.exists() or MARKER not in read(auth), "old auth cache survived reload"
     # Re-reading actual daemon environment confirms service is back with a seed.
     assert json.loads(daemon_environment()["CODEX_AUTH"])["tokens"]["access_token"], "reload lost account seed"

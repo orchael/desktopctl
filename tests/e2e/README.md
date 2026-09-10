@@ -23,7 +23,11 @@ Prerequisites are the normal configured CLI/AWS/Pulumi access, access to
 this repository with the configured GitHub secret, an SSH key authorized on
 new desktops, and a configured agent secret containing usable `CODEX_AUTH`
 account credentials. The runner uses the operator's normal CLI config by default;
-`--config`, `--profile`, `--region`, and `--ssh-key` allow explicit choices.
+`--config`, `--profile`, and `--region` allow explicit choices. `--ssh-key` must
+identify the same private key file as `desktop.ssh_key_path` in the config:
+desktop creation and `secrets reload` both use that configured key. Mismatched
+overrides are rejected before cloud commands, including on reuse; choose the
+intended key in the CLI config before starting a run.
 Desktop defaults are `--env dev --instance-type m7i.large --workspace-mode efs`.
 `--timeout 30m` bounds provisioning and scenarios. Cleanup has its own 15-minute
 deadline.
@@ -54,7 +58,12 @@ bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
 
 If initial creation stopped after creating the workspace, `--reuse` validates
 that workspace and creates its missing desktop without making another workspace.
-Supply `--bridgectl-binary` for this resumed creation. An interrupted create that
+Supply `--bridgectl-binary` for this resumed creation. A failed workspace-create
+response retains its creation intent; the runner attempts to recover the exact
+new workspace's IDs immediately, and `--reuse` or `--cleanup` can retry that
+discovery if the initial status lookup also failed. Discovery requires matching
+name, owner, repo, EFS mode, and a creation time at or after the run started.
+An interrupted desktop create that
 already saved a desktop fleet record can be recovered only when its exact name,
 creation time, owner, repository, and workspace identity match this manifest.
 Conflicting names or attached/unavailable workspaces stop the runner.
@@ -85,7 +94,10 @@ bridgectl run --provider codex --no-tty /workspace/ai-desktops
 The first session must return the expected JSON assistant message. The prompt
 contains two fragments to concatenate, so merely echoing input cannot pass.
 The provider must use account auth with both API-key environment variables absent
-and persist a mode-0600 auth file. A harmless metadata field added to that file
+and persist a mode-0600 auth file in a private desktop-local directory beneath
+the user's home. Auth files outside that home, symlink escapes, and NFS/EFS mounts
+are rejected before credentials are read or a refresh marker is written.
+A harmless metadata field added to that file
 simulates Codex refreshing credentials; a second authenticated session must
 preserve it. Two wrapper processes hold the real bridge-owned provider process
 groups alive after the answers. `ai-desktops secrets reload` must kill both

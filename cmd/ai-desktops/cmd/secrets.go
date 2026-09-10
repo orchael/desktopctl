@@ -105,7 +105,7 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
-	script := buildSecretsReloadScript(d.Secrets, region)
+	script := buildSecretsReloadScript(trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets), region)
 	if err := runRemote(d, script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
@@ -162,6 +162,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	toAdd, reloadPaths := secretPathsAfterAdd(d.Secrets, newPaths)
+	reloadPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
 	for _, p := range newPaths {
 		if !containsString(toAdd, p) {
 			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
@@ -181,8 +182,14 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Persist the updated secret list in the fleet record.
-	mgr := desktop.NewManager(s)
-	if err := mgr.AddSecrets(ctx, id, toAdd); err != nil {
+	// Preserve the same base-before-overrides order used for injection. Re-read
+	// the record so this update does not restore stale lifecycle fields.
+	d, err = s.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("read fleet record after injection: %w", err)
+	}
+	d.Secrets = reloadPaths
+	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("update fleet record: %w", err)
 	}
 
@@ -219,6 +226,7 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	toRemove, remainingPaths := secretPathsAfterRemove(d.Secrets, removePaths)
+	remainingPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, remainingPaths)
 	for _, p := range removePaths {
 		if !containsString(toRemove, p) {
 			fmt.Printf("Secret %s is not configured on %s, skipping\n", p, id)
@@ -281,6 +289,15 @@ func desktopSecretPaths(agentPath string, additional []string) []string {
 	}
 	_, paths = secretPathsAfterAdd(paths, additional)
 	return paths
+}
+
+// trackedSecretPaths orders only explicitly registered paths. It never opts a
+// legacy desktop into an agent secret merely because the local config has one.
+func trackedSecretPaths(agentPath string, paths []string) []string {
+	if agentPath != "" && containsString(paths, agentPath) {
+		return desktopSecretPaths(agentPath, paths)
+	}
+	return append([]string(nil), paths...)
 }
 
 func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []string) {
