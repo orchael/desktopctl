@@ -17,6 +17,7 @@ func TestSecretsOutputPreflight(t *testing.T) {
 		name, target, kind string
 	}{
 		{"safe-readable-directories", "", "readable"},
+		{"safe-private-bashrc", "", "private-bashrc"},
 		{"missing-directories", "", "missing"},
 		{"writable-home", ".", "writable"},
 		{"writable-config", ".config", "writable"},
@@ -68,8 +69,12 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then echo loaded; fi\n", 0700)
 			script := buildSecretsReloadScript([]string{"/test/application"}, "us-east-2")
 			target := filepath.Join(home, tc.target)
-			success := tc.kind == "readable" || tc.kind == "missing"
+			success := tc.kind == "readable" || tc.kind == "missing" || tc.kind == "private-bashrc"
 			switch tc.kind {
+			case "private-bashrc":
+				if err := os.Chmod(filepath.Join(home, ".bashrc"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			case "readable":
 				for _, dir := range []string{home, filepath.Join(home, ".config"), filepath.Join(home, ".config/bridgectl"), filepath.Join(home, ".config/environment.d")} {
 					if err := os.Chmod(dir, 0755); err != nil {
@@ -155,13 +160,21 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			}
 			for _, dir := range []string{filepath.Join(home, ".config"), filepath.Join(home, ".config/bridgectl"), filepath.Join(home, ".config/environment.d")} {
 				info, err := os.Stat(dir)
-				want := os.FileMode(0755)
-				if tc.kind == "missing" {
-					want = 0700
+				want := os.FileMode(0700)
+				if tc.kind == "readable" {
+					want = 0755
 				}
 				if err != nil || info.Mode().Perm() != want {
 					t.Fatalf("unexpected directory mode for %s: %v", dir, err)
 				}
+			}
+			bashrc, err := os.Stat(filepath.Join(home, ".bashrc"))
+			wantMode := os.FileMode(0644)
+			if tc.kind == "private-bashrc" {
+				wantMode = 0600
+			}
+			if err != nil || bashrc.Mode().Perm() != wantMode {
+				t.Fatalf("changed existing bashrc mode: want %o, error %v", wantMode, err)
 			}
 		})
 	}

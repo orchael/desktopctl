@@ -156,6 +156,15 @@ func NewInMemoryStore() *InMemoryStore {
 	}
 }
 
+// cloneDesktop isolates every mutable field at in-memory store boundaries.
+func cloneDesktop(d *Desktop) *Desktop {
+	cp := *d
+	cp.Repos = slices.Clone(d.Repos)
+	cp.Secrets = slices.Clone(d.Secrets)
+	cp.AVDNames = slices.Clone(d.AVDNames)
+	return &cp
+}
+
 func (s *InMemoryStore) Create(ctx context.Context, d *Desktop) error {
 	if _, ok := s.records[d.DesktopID]; ok {
 		return fmt.Errorf("desktop %q already exists", d.DesktopID)
@@ -164,9 +173,7 @@ func (s *InMemoryStore) Create(ctx context.Context, d *Desktop) error {
 		d.CreatedAt = now()
 	}
 	d.UpdatedAt = now()
-	cp := *d
-	cp.Secrets = slices.Clone(d.Secrets)
-	s.records[d.DesktopID] = &cp
+	s.records[d.DesktopID] = cloneDesktop(d)
 	return nil
 }
 
@@ -175,9 +182,7 @@ func (s *InMemoryStore) Get(ctx context.Context, id string) (*Desktop, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	cp := *d
-	cp.Secrets = slices.Clone(d.Secrets)
-	return &cp, nil
+	return cloneDesktop(d), nil
 }
 
 func (s *InMemoryStore) List(ctx context.Context) ([]*Desktop, error) {
@@ -186,9 +191,7 @@ func (s *InMemoryStore) List(ctx context.Context) ([]*Desktop, error) {
 		if IsWorkspaceRecordID(id) {
 			continue
 		}
-		cp := *d
-		cp.Secrets = slices.Clone(d.Secrets)
-		out = append(out, &cp)
+		out = append(out, cloneDesktop(d))
 	}
 	return out, nil
 }
@@ -203,9 +206,7 @@ func (s *InMemoryStore) Update(ctx context.Context, d *Desktop) error {
 		return ErrSecretOperationChanged
 	}
 	d.UpdatedAt = now()
-	cp := *d
-	cp.Secrets = slices.Clone(d.Secrets)
-	s.records[d.DesktopID] = &cp
+	s.records[d.DesktopID] = cloneDesktop(d)
 	return nil
 }
 

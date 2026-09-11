@@ -135,6 +135,8 @@ Before rotation changes files or stops sessions, it validates the replacement `C
 
 Reload also preflights all credential-output paths (`agents.env`, `desktop-secrets.conf`, `.desktop-secrets`) and `.bashrc` before reading or staging them. From the desktop home downward, existing parent directories must be real, owned by the desktop user, and not writable by group/others. Safe `0755` directories are allowed and left unchanged; new directories are created with `0700`. Existing credential files must be private, user-owned regular files. Symlinks, shared NFS/EFS directories or file-level mounts, and unsafe ownership/permissions are rejected without automatically chmodding or moving anything. Correct the unsafe path explicitly, then retry reload.
 
+When adding the shell-source hook, reload preserves the existing safe permissions of `.bashrc` (for example, `0644`); a newly created `.bashrc` and all credential snapshots remain `0600`.
+
 ### Desktop Secret Management
 
 The configured `github.agent_secret` and secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop. Additional secret paths override duplicate keys from the base agent secret. Rotation also replaces `/home/ubuntu/.config/bridgectl/agents.env`, so the daemon and new shells use the same snapshot.

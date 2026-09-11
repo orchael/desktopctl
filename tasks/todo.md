@@ -6,13 +6,21 @@ Requirements: PRD AUTH-1 through AUTH-4 and E2E-1 through E2E-2.
 
 ## Approved review follow-up
 
+### Snapshot and shell-mode follow-up (AUTH-4b)
+
+Mode: autonomous, localized correctness fixes within the ongoing review cycle. Fix desktop slice aliasing consistently and preserve existing safe `.bashrc` modes; keep all credential files private. The second bashrc comment is a duplicate; the anonymous strings-only JSON request cannot fail to marshal, so no error-path redesign is needed. Rollback: revert these localized fixes without changing credential sources.
+
+- [x] Reproduce caller slice aliasing across Create/Get/List/Update and `.bashrc` 0644-to-0600 replacement through failing regression tests.
+- [x] Implement isolated snapshots and preserved shell mode; run full Go/race tests, focused lint, and existing Python regressions.
+- [ ] Push, reply/resolve all four comments with evidence, verify CI, and request the next bounded review.
+
 ### Credential-output preflight (AUTH-4a)
 
 User approved fixing review comment discussion_r3992199828. Scope: output-path validation only; leave `rand.Text()` and unrelated slice cloning unchanged. Preserve safe `0755` ancestors, fail on unsafe ownership/write access, symlinks, or shared mounts; no automatic chmod. Rollback is reverting this guard, not restoring old credentials.
 
 - [x] Reproduce output-directory/symlink/mount failures and prove preflight preserves the entire snapshot; test safe readable and missing directories.
 - [x] Validate all output paths before any credential read/staging or service change, then run focused/full tests and lint.
-- [ ] Push the fix, reply/resolve its review thread, and verify CI. Track follow-up review status on the PR.
+- [x] Push the fix, reply/resolve its review thread, and verify CI. All seven checks passed on `47a12c9`; follow-up review arrived with the findings tracked above.
 
 Mode: approval-required; operator approved fail-fast cross-machine secret coordination. Keep changes on PR #223.
 
@@ -38,6 +46,8 @@ Tradeoffs: account refresh state belongs on each desktop root disk, not EFS or t
 Rollback: revert branch changes and reinstall the previous bridge binary; recreate an E2E desktop using the previous CLI if bootstrap behavior needs comparison. Never roll credentials back to an older snapshot during rollback.
 
 ## Validation
+
+- AUTH-4b: regression tests reproduced aliasing in Create/Get/List/Update and 0644 shell-mode loss before the fixes. All five snapshot-boundary cases and all 31 output-preflight scenarios now pass. Full Go tests, full race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python regressions passed. Store coverage is 81.8%; whole-repository coverage remains 44.2% (the pre-existing broader coverage gap is unchanged).
 
 - AUTH-4a: all 30 output-preflight scenarios pass, alongside existing auth-preservation/coordinator regressions. Before the fix, 26 of the initial 27 scenarios failed (unsafe paths accepted and missing parent directories not private). Full Go tests, full race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python E2E regressions pass. No live cloud operation or credential change was needed for this regression fix.
 

@@ -338,6 +338,8 @@ func buildSecretsReloadScript(secretPaths []string, region string) string {
 	if secretPaths == nil {
 		secretPaths = []string{}
 	}
+	// This anonymous request contains only strings and string slices, which
+	// cannot fail JSON encoding. Revisit error handling if its shape changes.
 	request, _ := json.Marshal(struct {
 		Paths  []string `json:"paths"`
 		Region string   `json:"region"`

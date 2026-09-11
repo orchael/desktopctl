@@ -115,11 +115,7 @@ func (s *InMemoryStore) BeginSecretOperation(_ context.Context, id, token string
 		return nil, ErrNotFound
 	}
 	d.SecretOperationToken = token
-	copy := *d
-	copy.Secrets = slices.Clone(d.Secrets)
-	copy.Repos = slices.Clone(d.Repos)
-	copy.AVDNames = slices.Clone(d.AVDNames)
-	return &copy, nil
+	return cloneDesktop(d), nil
 }
 
 func (s *InMemoryStore) CommitSecretOperation(_ context.Context, id, token string, paths []string) error {

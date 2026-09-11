@@ -53,7 +53,7 @@ def surface_directories(path, home):
                      if directory.is_relative_to(home)])
 
 
-def stage(path, text, home):
+def stage(path, text, home, mode=None):
     # All outputs were preflighted before staging begins. Create each missing
     # component explicitly: mkdir(parents=True) only applies mode to the leaf.
     for directory in surface_directories(path, home):
@@ -61,6 +61,8 @@ def stage(path, text, home):
     fd, name = tempfile.mkstemp(prefix=".credentials-", dir=path.parent)
     with os.fdopen(fd, "w") as handle:
         handle.write(text)
+        if mode is not None:
+            os.fchmod(handle.fileno(), mode)
     return pathlib.Path(name)
 
 
@@ -224,8 +226,11 @@ def main():
             staged.append((target, stage(target, content, home)))
         bashrc_text = bashrc.read_text() if bashrc.exists() else ""
         if ".desktop-secrets" not in bashrc_text:
+            # Preserve existing safe shell-config permissions, not the default
+            # private mode used for credential snapshots. New files stay 0600.
+            bashrc_mode = stat.S_IMODE(bashrc.lstat().st_mode) if bashrc.exists() else None
             staged.append((bashrc, stage(bashrc, bashrc_text +
-                '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n', home)))
+                '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n', home, mode=bashrc_mode)))
         if active:
             # The systemd service's control group owns every provider process.
             run("systemctl", "--user", "stop", "bridgectl")
