@@ -67,8 +67,6 @@ def stage(path, text, home, mode=None):
 
 
 def validate_codex_seed(value):
-    if not value or not value.strip():
-        return
     try:
         auth = json.loads(value)
         if not isinstance(auth, dict):
@@ -184,7 +182,10 @@ def main():
             raise RuntimeError(f"could not retrieve/validate secret {secret}; files not updated") from None
     if request["paths"] and not any(values.values()):
         raise RuntimeError("no secret values retrieved; files not updated")
-    validate_codex_seed(values.get("CODEX_AUTH", ""))
+    # Missing means unconfigured; a present blank seed must not authorize
+    # deleting working account credentials or silently falling back to an API key.
+    if "CODEX_AUTH" in values:
+        validate_codex_seed(values["CODEX_AUTH"])
 
     previous_sources = (read_env(agents), read_env(desktop_env), read_env(shell))
     previous = previous_sources[0] | previous_sources[1] | previous_sources[2]

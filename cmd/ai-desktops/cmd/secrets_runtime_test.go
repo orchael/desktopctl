@@ -25,6 +25,7 @@ func TestSecretsReloadRuntime(t *testing.T) {
 		{name: "rotates-all-surfaces"},
 		{name: "accepts-native-api-seed", aws: `printf '%s' '{"CODEX_AUTH":{"auth_mode":"apikey","OPENAI_API_KEY":"new-key"},"NEW_KEY":"new"}'`},
 		{name: "accepts-legacy-account-seed", aws: `printf '%s' '{"CODEX_AUTH":{"tokens":{"access_token":"new-access","refresh_token":"new-refresh"}},"NEW_KEY":"new"}'`},
+		{name: "accepts-api-key-without-seed", aws: `printf '%s' '{"OPENAI_API_KEY":"new-api-key","NEW_KEY":"new"}'`},
 		{name: "reports-preserved-inactive-service", inactive: true},
 		{name: "interactive-shell-preserves-literal-secret", aws: "printf '%s' '{\"NEW_KEY\":\"wow!missing_event$literal\"}'", shellValue: "wow!missing_event$literal"},
 		{name: "rotates-overridden-homes-from-every-surface", splitHomes: true},
@@ -120,6 +121,9 @@ func TestSecretsReloadRuntime(t *testing.T) {
 				if e != nil || !strings.Contains(string(b), "NEW_KEY") || strings.Contains(string(b), "REMOVED_KEY") {
 					t.Fatalf("credential surface not rotated: %s", path)
 				}
+				if tc.name == "accepts-api-key-without-seed" && (strings.Contains(string(b), "CODEX_AUTH=") || !strings.Contains(string(b), `OPENAI_API_KEY="new-api-key"`)) {
+					t.Fatalf("API-key-only snapshot must omit the old seed: %s", path)
+				}
 				info, _ := os.Stat(path)
 				if info.Mode().Perm() != 0o600 {
 					t.Fatalf("unsafe permissions: %s", path)
@@ -197,6 +201,7 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 		"nfs-auth-directory", "nfs-bind-mounted-auth-file", "unknown-auth-filesystem",
 		"foreign-owner", "unknown-unit", "unit-query-failed", "loaded-unit-unknown-active-state",
 		"malformed-auth-seed", "incomplete-auth-seed", "empty-auth-object", "invalid-token-type",
+		"empty-auth-seed", "whitespace-auth-seed", "multiline-whitespace-auth-seed",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			home, bin := t.TempDir(), t.TempDir()
@@ -285,6 +290,12 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				activeExit = "4"
 			case "malformed-auth-seed":
 				secret = `{"CODEX_AUTH":"invalid-secret-marker","OPENAI_API_KEY":"fallback-does-not-authorize-cache-deletion"}`
+			case "empty-auth-seed":
+				secret = `{"CODEX_AUTH":"","NEW_KEY":"preserve-secret-marker"}`
+			case "whitespace-auth-seed":
+				secret = `{"CODEX_AUTH":" \t ","OPENAI_API_KEY":"preserve-secret-marker"}`
+			case "multiline-whitespace-auth-seed":
+				secret = `{"CODEX_AUTH":" \n\r\t ","OPENAI_API_KEY":"preserve-secret-marker"}`
 			case "incomplete-auth-seed":
 				secret = `{"CODEX_AUTH":{"auth_mode":"chatgpt","tokens":{"access_token":"incomplete-secret-marker"}}}`
 			case "empty-auth-object":
@@ -316,6 +327,11 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				t.Fatal("preflight failure modified credential files, caches, permissions, or shell config")
 			}
 			calls, _ := os.ReadFile(filepath.Join(home, "service-calls"))
+			if strings.HasSuffix(scenario, "whitespace-auth-seed") || scenario == "empty-auth-seed" {
+				if len(calls) != 0 {
+					t.Fatalf("blank seed validation must precede all service calls: %s", calls)
+				}
+			}
 			for _, mutation := range []string{"stop bridgectl", "start bridgectl", "unset-environment", "daemon-reload"} {
 				if strings.Contains(string(calls), mutation) {
 					t.Fatalf("preflight failure mutated service: %s", calls)

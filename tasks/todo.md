@@ -6,13 +6,21 @@ Requirements: PRD AUTH-1 through AUTH-4 and E2E-1 through E2E-2.
 
 ## Approved review follow-up
 
+### Blank Codex seed preflight (AUTH-4c)
+
+Mode: approval-required; user approved rejecting a present blank seed while preserving absent-key support. Scope: validate the merged replacement snapshot, without changing secret precedence, null-value handling, or systemd configuration. Risk: operators currently blanking a seed must remove that key instead. Rollback: revert this validation guard and its tests; do not restore old credentials or alter remote secrets.
+
+- [x] Reproduce empty/whitespace seeds with another nonempty secret/API key; assert failure preserves the full runtime snapshot and makes no service calls. Cover absent-seed API-key rotation positively.
+- [x] Implement the minimum guard, update operator docs, and run targeted/full Go tests, race/coverage, build, lint, and Python regressions.
+- [ ] Push, reply/resolve the three reviewed threads, check CI, and request one fresh Copilot review. Blank seed: score 2 after approval (`PRRT_kwDOSYxwmc6hpEJE`); Python 3.8 compatibility and repeated systemd directives: score 0 (`PRRT_kwDOSYxwmc6hpEIw`, `PRRT_kwDOSYxwmc6hpEJY`).
+
 ### Snapshot and shell-mode follow-up (AUTH-4b)
 
 Mode: autonomous, localized correctness fixes within the ongoing review cycle. Fix desktop slice aliasing consistently and preserve existing safe `.bashrc` modes; keep all credential files private. The second bashrc comment is a duplicate; the anonymous strings-only JSON request cannot fail to marshal, so no error-path redesign is needed. Rollback: revert these localized fixes without changing credential sources.
 
 - [x] Reproduce caller slice aliasing across Create/Get/List/Update and `.bashrc` 0644-to-0600 replacement through failing regression tests.
 - [x] Implement isolated snapshots and preserved shell mode; run full Go/race tests, focused lint, and existing Python regressions.
-- [ ] Push, reply/resolve all four comments with evidence, verify CI, and request the next bounded review.
+- [x] Push, reply/resolve all four comments with evidence, verify CI, and request the next bounded review. All seven checks passed on `7395a72`; the next three findings are tracked above.
 
 ### Credential-output preflight (AUTH-4a)
 
@@ -46,6 +54,8 @@ Tradeoffs: account refresh state belongs on each desktop root disk, not EFS or t
 Rollback: revert branch changes and reinstall the previous bridge binary; recreate an E2E desktop using the previous CLI if bootstrap behavior needs comparison. Never roll credentials back to an older snapshot during rollback.
 
 ## Validation
+
+- AUTH-4c: empty and space/tab-only seeds reproduced destructive success before the fix; multiline whitespace was already rejected during normalization. All three preservation regressions and absent-seed API-key rotation now pass. `go test ./cmd/ai-desktops/cmd -run TestSecrets -count=1`, `go test ./...`, full Go race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python regressions passed. Whole-repository Go coverage remains 44.2% (pre-existing gap; no gate lowered). Tests use dummy secrets and local service stubs; no cloud resources or real credentials were changed.
 
 - AUTH-4b: regression tests reproduced aliasing in Create/Get/List/Update and 0644 shell-mode loss before the fixes. All five snapshot-boundary cases and all 31 output-preflight scenarios now pass. Full Go tests, full race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python regressions passed. Store coverage is 81.8%; whole-repository coverage remains 44.2% (the pre-existing broader coverage gap is unchanged).
 

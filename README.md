@@ -133,6 +133,8 @@ With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an ex
 
 Before rotation changes files or stops sessions, it validates the replacement `CODEX_AUTH` structure, existing auth-directory/file ownership and private permissions, and that the bridge systemd unit is loaded. Invalid credentials or unsafe cache paths leave the previous snapshot untouched. A failure after mutation has begun may leave a partial snapshot; fix the reported preconditions and use `secrets reload` to reconcile. Credential values and child-process diagnostics are not printed.
 
+A present empty or whitespace-only `CODEX_AUTH` string is invalid, even when an API key is also configured. To intentionally switch to API-key-only credentials, remove `CODEX_AUTH` from the configured secret sources instead of setting it to a blank string, then reload. An absent seed remains supported.
+
 Reload also preflights all credential-output paths (`agents.env`, `desktop-secrets.conf`, `.desktop-secrets`) and `.bashrc` before reading or staging them. From the desktop home downward, existing parent directories must be real, owned by the desktop user, and not writable by group/others. Safe `0755` directories are allowed and left unchanged; new directories are created with `0700`. Existing credential files must be private, user-owned regular files. Symlinks, shared NFS/EFS directories or file-level mounts, and unsafe ownership/permissions are rejected without automatically chmodding or moving anything. Correct the unsafe path explicitly, then retry reload.
 
 When adding the shell-source hook, reload preserves the existing safe permissions of `.bashrc` (for example, `0644`); a newly created `.bashrc` and all credential snapshots remain `0600`.
