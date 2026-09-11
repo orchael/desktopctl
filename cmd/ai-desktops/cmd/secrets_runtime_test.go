@@ -38,6 +38,9 @@ func TestSecretsReloadRuntime(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
+			if err := os.Chmod(home, 0700); err != nil {
+				t.Fatal(err)
+			}
 			bin := t.TempDir()
 			write := func(path, contents string, mode os.FileMode) {
 				t.Helper()
@@ -197,6 +200,9 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			home, bin := t.TempDir(), t.TempDir()
+			if err := os.Chmod(home, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(path, contents string, mode os.FileMode) {
 				t.Helper()
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

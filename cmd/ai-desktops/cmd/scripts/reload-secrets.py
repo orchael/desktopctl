@@ -48,8 +48,16 @@ def quote(value):
     return '"' + re.sub(r'([\\"$`])', r'\\\1', value) + '"'
 
 
-def stage(path, text):
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+def surface_directories(path, home):
+    return reversed([directory for directory in (path.parent, *path.parent.parents)
+                     if directory.is_relative_to(home)])
+
+
+def stage(path, text, home):
+    # All outputs were preflighted before staging begins. Create each missing
+    # component explicitly: mkdir(parents=True) only applies mode to the leaf.
+    for directory in surface_directories(path, home):
+        directory.mkdir(mode=0o700, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".credentials-", dir=path.parent)
     with os.fdopen(fd, "w") as handle:
         handle.write(text)
@@ -119,12 +127,43 @@ def auth_filesystem(path, mountinfo):
     return max(matches)[2]
 
 
+def validate_surface_path(path, home, mountinfo, credential=True):
+    if not home.is_absolute() or not path.is_relative_to(home):
+        raise RuntimeError("credential output must be under an absolute desktop home; files not updated")
+    # Do not resolve first: doing so would hide symlinks in the home or parents.
+    for directory in surface_directories(path, home):
+        try:
+            info = directory.lstat()
+        except FileNotFoundError:
+            continue
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or
+                info.st_mode & 0o022):
+            raise RuntimeError("credential output directories must be real, user-owned and not group/other writable; files not updated")
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None and (not stat.S_ISREG(info.st_mode) or
+            info.st_uid != os.getuid() or info.st_nlink != 1 or
+            info.st_mode & (0o077 if credential else 0o022)):
+        raise RuntimeError("credential output files must be safe, user-owned regular files; files not updated")
+    # Include the file itself: a local directory can hold an NFS file bind-mount.
+    for candidate in (*surface_directories(path, home), path):
+        if auth_filesystem(candidate.resolve(), mountinfo) in ("nfs", "nfs4", "efs"):
+            raise RuntimeError("refusing credential output on EFS or NFS storage; files not updated")
+
+
 def main():
     request = json.loads(base64.b64decode(sys.argv[1]))
-    home = pathlib.Path.home().resolve()
+    home = pathlib.Path.home()
     agents = home / ".config/bridgectl/agents.env"
     desktop_env = home / ".config/environment.d/desktop-secrets.conf"
     shell = home / ".desktop-secrets"
+    bashrc = home / ".bashrc"
+    mountinfo = pathlib.Path("/proc/self/mountinfo").read_text()
+    for target in (agents, desktop_env, shell):
+        validate_surface_path(target, home, mountinfo)
+    validate_surface_path(bashrc, home, mountinfo, credential=False)
     values = {}
     for secret in request["paths"]:
         try:
@@ -158,7 +197,6 @@ def main():
             if not directory.is_absolute() or not directory.resolve().is_relative_to(home):
                 raise RuntimeError("CODEX_HOME must be a private absolute directory under the desktop user's home")
             auth_dirs.add(directory)
-    mountinfo = pathlib.Path("/proc/self/mountinfo").read_text() if auth_dirs else ""
     for directory in auth_dirs:
         if not directory.resolve().is_relative_to(home):
             raise RuntimeError("refusing to rotate Codex auth in a shared or external directory")
@@ -183,12 +221,11 @@ def main():
     staged = []
     try:
         for target, content in ((agents, text), (desktop_env, text), (shell, shell_text)):
-            staged.append((target, stage(target, content)))
-        bashrc = home / ".bashrc"
+            staged.append((target, stage(target, content, home)))
         bashrc_text = bashrc.read_text() if bashrc.exists() else ""
         if ".desktop-secrets" not in bashrc_text:
             staged.append((bashrc, stage(bashrc, bashrc_text +
-                '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n')))
+                '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n', home)))
         if active:
             # The systemd service's control group owns every provider process.
             run("systemctl", "--user", "stop", "bridgectl")
