@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,69 @@ def stage(path, text):
     return pathlib.Path(name)
 
 
+def validate_codex_seed(value):
+    if not value or not value.strip():
+        return
+    try:
+        auth = json.loads(value)
+        if not isinstance(auth, dict):
+            raise ValueError("expected object")
+        mode = auth.get("auth_mode")
+        api_key = auth.get("OPENAI_API_KEY")
+        tokens = auth.get("tokens")
+        # Match bridgectl's native JSON field types and supported auth shapes.
+        if mode is not None and not isinstance(mode, str):
+            raise ValueError("invalid mode")
+        if api_key is not None and not isinstance(api_key, str):
+            raise ValueError("invalid key")
+        if tokens is not None and not isinstance(tokens, dict):
+            raise ValueError("invalid tokens")
+        tokens = tokens or {}
+        for key in ("access_token", "refresh_token"):
+            if tokens.get(key) is not None and not isinstance(tokens[key], str):
+                raise ValueError("invalid token")
+        account = (mode in (None, "", "chatgpt") and
+                   bool((tokens.get("access_token") or "").strip()) and
+                   bool((tokens.get("refresh_token") or "").strip()))
+        api = mode in (None, "", "apikey") and bool((api_key or "").strip())
+        if not (account or api):
+            raise ValueError("unsupported credentials")
+    except (ValueError, TypeError):
+        raise RuntimeError("invalid CODEX_AUTH credentials; files not updated") from None
+
+
+def validate_private_auth_path(path, directory=False):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not expected_type(info.st_mode) or info.st_uid != os.getuid() or
+            (not directory and info.st_nlink != 1) or
+            stat.S_IMODE(info.st_mode) & 0o077):
+        # lstat rejects symlinks as well as incorrect file types. Do not print
+        # supplied path strings or credential contents in diagnostics.
+        raise RuntimeError("Codex auth paths must be private, user-owned directories and regular files; files not updated")
+
+
+def auth_filesystem(path, mountinfo):
+    # A local home may contain a nested NFS mount or an NFS file bind-mount.
+    # Match the innermost mount rather than only checking the home filesystem.
+    matches = []
+    try:
+        for index, line in enumerate(mountinfo.splitlines()):
+            fields = line.split()
+            separator = fields.index("-")
+            mount = pathlib.Path(re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), fields[4]))
+            if path == mount or mount in path.parents:
+                matches.append((len(mount.parts), index, fields[separator + 1]))
+    except (IndexError, ValueError):
+        raise RuntimeError("could not verify Codex auth filesystem; files not updated") from None
+    if not matches:
+        raise RuntimeError("could not verify Codex auth filesystem; files not updated")
+    return max(matches)[2]
+
+
 def main():
     request = json.loads(base64.b64decode(sys.argv[1]))
     home = pathlib.Path.home().resolve()
@@ -79,6 +143,7 @@ def main():
             raise RuntimeError(f"could not retrieve/validate secret {secret}; files not updated") from None
     if request["paths"] and not any(values.values()):
         raise RuntimeError("no secret values retrieved; files not updated")
+    validate_codex_seed(values.get("CODEX_AUTH", ""))
 
     previous_sources = (read_env(agents), read_env(desktop_env), read_env(shell))
     previous = previous_sources[0] | previous_sources[1] | previous_sources[2]
@@ -93,9 +158,24 @@ def main():
             if not directory.is_absolute() or not directory.resolve().is_relative_to(home):
                 raise RuntimeError("CODEX_HOME must be a private absolute directory under the desktop user's home")
             auth_dirs.add(directory)
+    mountinfo = pathlib.Path("/proc/self/mountinfo").read_text() if auth_dirs else ""
     for directory in auth_dirs:
         if not directory.resolve().is_relative_to(home):
             raise RuntimeError("refusing to rotate Codex auth in a shared or external directory")
+        validate_private_auth_path(directory, directory=True)
+        validate_private_auth_path(directory / "auth.json")
+        for path in (directory.resolve(), (directory / "auth.json").resolve()):
+            if auth_filesystem(path, mountinfo) in ("nfs", "nfs4", "efs"):
+                raise RuntimeError("refusing to rotate Codex auth on EFS or NFS storage; files not updated")
+
+    load_state = run("systemctl", "--user", "show", "bridgectl",
+                     "--property=LoadState", "--value").stdout.strip()
+    if load_state != "loaded":
+        raise RuntimeError("bridge service is not loaded; files not updated")
+    service_status = run("systemctl", "--user", "is-active", "--quiet", "bridgectl", check=False).returncode
+    if service_status not in (0, 3):
+        raise RuntimeError("could not determine bridge service state; files not updated")
+    active = service_status == 0
 
     # Prepare every replacement before touching credentials or running sessions.
     text = "".join(f"{key}={quote(value)}\n" for key, value in sorted(values.items()))
@@ -109,10 +189,6 @@ def main():
         if ".desktop-secrets" not in bashrc_text:
             staged.append((bashrc, stage(bashrc, bashrc_text +
                 '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n')))
-        service_status = run("systemctl", "--user", "is-active", "--quiet", "bridgectl", check=False).returncode
-        if service_status not in (0, 3, 4):
-            raise RuntimeError("could not determine bridge service state; files not updated")
-        active = service_status == 0
         if active:
             # The systemd service's control group owns every provider process.
             run("systemctl", "--user", "stop", "bridgectl")

@@ -104,6 +104,7 @@ def private_auth_path(auth_home, require_file=True):
     auth = resolved / "auth.json"
     assert not auth.is_symlink(), "Codex auth file must not be a symlink"
     if require_file or auth.exists():
+        assert mount_filesystem(auth) not in ("nfs", "nfs4", "efs"), "Codex auth file must not be bind-mounted from EFS or NFS storage"
         info = auth.stat()
         assert stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid() and info.st_mode & 0o077 == 0 and info.st_nlink == 1, "Codex auth file must be private and owned by this user"
     return auth
@@ -117,15 +118,17 @@ def prepare():
     seed = json.loads(env.get("CODEX_AUTH", "null"))
     assert isinstance(seed, dict) and isinstance(seed.get("tokens"), dict), "CODEX_AUTH account seed is missing"
     assert seed["tokens"].get("access_token") and seed["tokens"].get("refresh_token"), "account seed incomplete"
-    config = yaml.safe_load(CONFIG.read_text())
+    original_config = CONFIG.read_bytes()
+    config = yaml.safe_load(original_config)
     provider = config["providers"]["codex"]
     assert "binary" in provider, "codex provider missing"
-    metadata = {"command": [provider["binary"]] + provider.get("args", []),
-                "sentinel": "CODEX_E2E_" + uuid.uuid4().hex,
+    metadata = {"sentinel": "CODEX_E2E_" + uuid.uuid4().hex,
                 "sessions": []}
     save(META, metadata)
-    BACKUP.write_bytes(CONFIG.read_bytes())
-    BACKUP.chmod(0o600)
+    # Original command arguments may contain credentials. Keep them only in the
+    # protected restoration copy, never in JSON scenario metadata.
+    with os.fdopen(os.open(BACKUP, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as backup:
+        backup.write(original_config)
     provider["binary"] = sys.executable
     provider["args"] = [str(Path(__file__).resolve()), "provider"]
     provider["startup_probe"] = "none"
@@ -150,7 +153,8 @@ def provider():
     save(BASE / f"provider-{os.getpid()}.json", record)
     prompt = ('Do not use tools or change files. Reply only with the concatenation '
               'of "CODEX_" and "' + metadata["sentinel"][6:] + '".')
-    command = metadata["command"] + ["exec", "--json", "--sandbox", "read-only", prompt]
+    original_provider = yaml.safe_load(BACKUP.read_text())["providers"]["codex"]
+    command = [original_provider["binary"]] + original_provider.get("args", []) + ["exec", "--json", "--sandbox", "read-only", prompt]
     completed = subprocess.run(command, check=False)
     record["native_complete"] = True
     save(BASE / f"provider-{os.getpid()}.json", record)

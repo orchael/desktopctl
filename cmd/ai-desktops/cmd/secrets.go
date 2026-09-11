@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
@@ -10,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -23,12 +21,16 @@ var secretsCmd = &cobra.Command{
 var secretsReloadCmd = &cobra.Command{
 	Use:   "reload <desktop-id>",
 	Short: "Reload AWS Secrets Manager values on a running desktop",
-	Long: `reload re-fetches every secret path that was configured at desktop creation time
+	Long: `reload re-fetches every currently configured secret path from the fleet record
 and rewrites both the systemd user environment file and the shell-sourceable env
 file and bridgectl agents.env on the running desktop. The bridge and active
 provider processes are stopped, local Codex auth caches are cleared, and the
 bridge is restarted. Start or resume sessions afterward. Retrieval failures
 leave existing credentials and sessions untouched.
+
+Secret operations on the same desktop fail fast if another operation is active.
+After an interrupted operation, run reload to reconcile the desktop with the
+authoritative fleet secret list before adding or removing paths.
 
 The desktop must be running and reachable via SSH. Use "ai-desktops ssh" to
 verify connectivity before running this command.`,
@@ -76,7 +78,7 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 
 	s, err := openStore(ctx)
@@ -94,7 +96,12 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	if d.Hostname == "" {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
-	if len(d.Secrets) == 0 {
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, true)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
+	if len(d.Secrets) == 0 && !op.pending {
 		return fmt.Errorf("desktop %q has no secrets configured", id)
 	}
 
@@ -106,10 +113,10 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
 	script := buildSecretsReloadScript(trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets), region)
-	if err := runRemote(d, script); err != nil {
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
-	return nil
+	return commitDesktopSecrets(ctx, s, d.DesktopID, token, trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets), op)
 }
 
 func runSecretsAdd(cmd *cobra.Command, args []string) error {
@@ -120,7 +127,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 	newPaths := args[1:]
 
@@ -139,6 +146,12 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	if d.Hostname == "" {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
+
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, false)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
 
 	region := d.Region
 	if region == "" {
@@ -177,20 +190,12 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	// desktop env files atomically instead of appending to them.
 	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
 	script := buildSecretsReloadScript(reloadPaths, region)
-	if err := runRemote(d, script); err != nil {
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
 	}
 
-	// Persist the updated secret list in the fleet record.
-	// Preserve the same base-before-overrides order used for injection. Re-read
-	// the record so this update does not restore stale lifecycle fields.
-	d, err = s.Get(ctx, id)
-	if err != nil {
-		return fmt.Errorf("read fleet record after injection: %w", err)
-	}
-	d.Secrets = reloadPaths
-	if err := s.Update(ctx, d); err != nil {
-		return fmt.Errorf("update fleet record: %w", err)
+	if err := commitDesktopSecrets(ctx, s, id, token, reloadPaths, op); err != nil {
+		return err
 	}
 
 	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
@@ -205,7 +210,7 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 	removePaths := args[1:]
 
@@ -225,6 +230,11 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
 
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, false)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
 	toRemove, remainingPaths := secretPathsAfterRemove(d.Secrets, removePaths)
 	remainingPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, remainingPaths)
 	for _, p := range removePaths {
@@ -249,13 +259,12 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
 		script = buildSecretsRemoveReloadScript(remainingPaths, region)
 	}
-	if err := runRemote(d, script); err != nil {
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets remove failed: %w", err)
 	}
 
-	mgr := desktop.NewManager(s)
-	if err := mgr.RemoveSecrets(ctx, id, toRemove); err != nil {
-		return fmt.Errorf("update fleet record: %w", err)
+	if err := commitDesktopSecrets(ctx, s, id, token, remainingPaths, op); err != nil {
+		return err
 	}
 
 	fmt.Printf("Removed %d secret(s) from %s: %s\n", len(toRemove), id, strings.Join(toRemove, ", "))

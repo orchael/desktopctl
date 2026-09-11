@@ -177,5 +177,9 @@ func finish(ctx context.Context, c resources, s *state, keep bool, scenarioErr e
 	if scenarioErr != nil || keep {
 		return scenarioErr
 	}
-	return cleanup(ctx, c, s)
+	if err := cleanup(ctx, c, s); err != nil {
+		s.Result = "failed"
+		return errors.Join(err, s.save())
+	}
+	return nil
 }

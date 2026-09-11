@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -63,6 +65,49 @@ func TestFinish(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+type failingCleanup struct {
+	*fakeCloud
+	err           error
+	beforeFailure func()
+}
+
+func (f *failingCleanup) Terminate(context.Context, string) error {
+	if f.beforeFailure != nil {
+		f.beforeFailure()
+	}
+	return f.err
+}
+
+func TestFinishPersistsCleanupFailure(t *testing.T) {
+	s, f := fixture(t)
+	cleanupErr := errors.New("cleanup unavailable")
+	err := finish(context.Background(), &failingCleanup{fakeCloud: f, err: cleanupErr}, s, false, nil)
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("cleanup error lost: %v", err)
+	}
+	loaded, err := loadState(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Result != "failed" {
+		t.Fatalf("cleanup failure persisted as %q", loaded.Result)
+	}
+}
+
+func TestFinishPreservesCleanupAndStateWriteErrors(t *testing.T) {
+	s, f := fixture(t)
+	cleanupErr := errors.New("cleanup unavailable")
+	c := &failingCleanup{fakeCloud: f, err: cleanupErr, beforeFailure: func() { s.Path = filepath.Join(t.TempDir(), "missing", "state.json") }}
+	err := finish(context.Background(), c, s, false, nil)
+	var pathErr *os.PathError
+	if !errors.Is(err, cleanupErr) || !errors.As(err, &pathErr) {
+		t.Fatalf("must retain cleanup and write errors: %v", err)
+	}
+	if s.Result != "failed" {
+		t.Fatalf("in-memory result %q", s.Result)
 	}
 }
 

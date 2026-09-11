@@ -32,10 +32,12 @@ Desktop defaults are `--env dev --instance-type m7i.large --workspace-mode efs`.
 `--timeout 30m` bounds provisioning and scenarios. Cleanup has its own 15-minute
 deadline.
 
-The state-file path is printed **before provisioning**. State and scenario
-artifacts contain resource IDs, paths, booleans, and process IDs, never tokens or
-raw provider output. The runner retains resources on any failure and reports
-the desktop ID and workspace name. Creation failures can leave partial resources;
+The state-file path is printed **before provisioning**. JSON state and scenario
+metadata contain resource IDs, paths, booleans, and process IDs, never tokens,
+provider command arguments, or raw provider output. Provisioning and scenario
+failures retain resources and report the desktop ID and workspace name. A cleanup
+failure marks the overall run failed and preserves remaining resource IDs.
+Creation failures can leave partial resources;
 inspect the exact printed workspace name if creation failed before its IDs were
 returned. Raw CLI output is withheld because errors can contain secrets.
 
@@ -111,8 +113,10 @@ AWS secret. A successful test demonstrates local refresh-state preservation;
 it cannot prove that duplicating one account refresh token across many desktops
 produces independently refreshable upstream credentials.
 
-Desktop helper artifacts are under `~/.local/share/ai-desktops-e2e/`. They record
-only safe metadata. If an interrupted SSH session leaves temporary provider
+Desktop helper files are under `~/.local/share/ai-desktops-e2e/`. JSON files record
+only safe metadata. The original bridge configuration is kept separately in a
+mode-0600 restoration copy; provider arguments are read from that protected copy
+at execution and the copy is removed after restoration. If an interrupted SSH session leaves temporary provider
 configuration installed, restore it before rerunning:
 
 ```bash

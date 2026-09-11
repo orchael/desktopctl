@@ -346,14 +346,38 @@ func (s *DynamoStore) Update(ctx context.Context, d *Desktop) error {
 	if err != nil {
 		return fmt.Errorf("marshal desktop record: %w", err)
 	}
+	// A full-record update must never restore an earlier fencing token or secret
+	// list. Once secret coordination starts, only CommitSecretOperation may
+	// change paths; ordinary updates may still change unrelated desktop fields.
+	condition := "attribute_exists(desktop_id) AND attribute_not_exists(secret_operation_token)"
+	var values map[string]types.AttributeValue
+	if d.SecretOperationToken != "" {
+		paths := make([]types.AttributeValue, len(d.Secrets))
+		for i, path := range d.Secrets {
+			paths[i] = &types.AttributeValueMemberS{Value: path}
+		}
+		values = map[string]types.AttributeValue{
+			":token":   &types.AttributeValueMemberS{Value: d.SecretOperationToken},
+			":secrets": &types.AttributeValueMemberL{Value: paths},
+		}
+		condition = "attribute_exists(desktop_id) AND secret_operation_token = :token AND secrets = :secrets"
+		if len(d.Secrets) == 0 {
+			condition = "attribute_exists(desktop_id) AND secret_operation_token = :token AND (attribute_not_exists(secrets) OR secrets = :secrets)"
+		}
+	}
 	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName:           aws.String(s.tableName),
-		Item:                item,
-		ConditionExpression: aws.String("attribute_exists(desktop_id)"),
+		TableName:                           aws.String(s.tableName),
+		Item:                                item,
+		ConditionExpression:                 aws.String(condition),
+		ExpressionAttributeValues:           values,
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailureAllOld,
 	})
 	if err != nil {
 		var cce *types.ConditionalCheckFailedException
 		if errors.As(err, &cce) {
+			if len(cce.Item) != 0 {
+				return ErrSecretOperationChanged
+			}
 			return ErrNotFound
 		}
 		return fmt.Errorf("update desktop record: %w", err)

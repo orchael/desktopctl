@@ -82,6 +82,20 @@ print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':
 
 
 class AuthPathTests(unittest.TestCase):
+    def test_file_bind_mounted_from_nfs_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            auth_home = home / ".codex"
+            auth_home.mkdir(parents=True, mode=0o700)
+            auth_file = auth_home / "auth.json"
+            auth_file.write_text("DO NOT READ")
+            auth_file.chmod(0o600)
+            def filesystem(path):
+                return "nfs4" if path == auth_file else "ext4"
+            with mock.patch.object(Path, "home", return_value=home), mock.patch.object(SCENARIO, "mount_filesystem", side_effect=filesystem):
+                with self.assertRaises(AssertionError):
+                    SCENARIO.private_auth_path(auth_home)
+
     def test_innermost_mount_detects_nfs_beneath_local_home(self):
         mounts = """1 0 8:1 / / rw - ext4 /dev/root rw
 2 1 0:2 / /home/ubuntu/.codex rw - nfs4 fs-test:/ rw
@@ -136,6 +150,31 @@ class AuthPathTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     SCENARIO.private_auth_path(auth_home)
             self.assertEqual(shared_auth.read_text(), "DO NOT READ OR MODIFY")
+
+
+class MetadataTests(unittest.TestCase):
+    def test_provider_arguments_stay_in_protected_config_not_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = base / "config.yaml"
+            backup = base / "original-config.yaml"
+            metadata = base / "codex-scenario.json"
+            auth = base / "auth.json"
+            auth.write_text("{}")
+            dummy_secret = "DUMMY_SECRET_IN_PROVIDER_ARG"
+            native_command = ["/usr/bin/node", "codex.js", "--credential=" + dummy_secret]
+            config.write_text(SCENARIO.yaml.safe_dump({"providers": {"codex": {"binary": native_command[0], "args": native_command[1:]}}}))
+            seed = json.dumps({"tokens": {"access_token": "dummy-access", "refresh_token": "dummy-refresh"}})
+            with mock.patch.object(SCENARIO, "BASE", base), mock.patch.object(SCENARIO, "CONFIG", config), mock.patch.object(SCENARIO, "BACKUP", backup), mock.patch.object(SCENARIO, "META", metadata), mock.patch.object(SCENARIO, "daemon_environment", return_value={"CODEX_AUTH": seed}), mock.patch.object(SCENARIO, "service"):
+                SCENARIO.prepare()
+                self.assertNotIn(dummy_secret, metadata.read_text())
+                self.assertNotIn("command", json.loads(metadata.read_text()))
+                self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+                with mock.patch.object(SCENARIO, "private_auth_path", return_value=auth), mock.patch.object(SCENARIO.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)) as native:
+                    self.assertEqual(SCENARIO.provider(), 1)
+                    self.assertEqual(native.call_args.args[0][:len(native_command)], native_command)
+                for artifact in base.glob("*.json"):
+                    self.assertNotIn(dummy_secret, artifact.read_text())
 
 
 if __name__ == "__main__":

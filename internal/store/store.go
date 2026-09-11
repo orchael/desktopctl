@@ -86,6 +86,8 @@ type Desktop struct {
 	WorkspaceID    string         `dynamodbav:"workspace_id,omitempty"    json:"workspace_id,omitempty"`
 	CreatedAt      string         `dynamodbav:"created_at"       json:"created_at"`
 	UpdatedAt      string         `dynamodbav:"updated_at"       json:"updated_at"`
+
+	SecretOperationToken string `dynamodbav:"secret_operation_token,omitempty" json:"-"`
 }
 
 type Workspace struct {
@@ -163,6 +165,7 @@ func (s *InMemoryStore) Create(ctx context.Context, d *Desktop) error {
 	}
 	d.UpdatedAt = now()
 	cp := *d
+	cp.Secrets = slices.Clone(d.Secrets)
 	s.records[d.DesktopID] = &cp
 	return nil
 }
@@ -173,6 +176,7 @@ func (s *InMemoryStore) Get(ctx context.Context, id string) (*Desktop, error) {
 		return nil, ErrNotFound
 	}
 	cp := *d
+	cp.Secrets = slices.Clone(d.Secrets)
 	return &cp, nil
 }
 
@@ -183,17 +187,24 @@ func (s *InMemoryStore) List(ctx context.Context) ([]*Desktop, error) {
 			continue
 		}
 		cp := *d
+		cp.Secrets = slices.Clone(d.Secrets)
 		out = append(out, &cp)
 	}
 	return out, nil
 }
 
 func (s *InMemoryStore) Update(ctx context.Context, d *Desktop) error {
-	if _, ok := s.records[d.DesktopID]; !ok {
+	current, ok := s.records[d.DesktopID]
+	if !ok {
 		return ErrNotFound
+	}
+	if current.SecretOperationToken != d.SecretOperationToken ||
+		(current.SecretOperationToken != "" && !slices.Equal(current.Secrets, d.Secrets)) {
+		return ErrSecretOperationChanged
 	}
 	d.UpdatedAt = now()
 	cp := *d
+	cp.Secrets = slices.Clone(d.Secrets)
 	s.records[d.DesktopID] = &cp
 	return nil
 }
