@@ -1,5 +1,8 @@
 # Execution lessons
 
+- Before reporting a branch commit complete, compare the intended file set with both `git show --stat HEAD` and the live worktree; a clean commit message does not prove every requested file was included.
+- Integration suites with provisioning in `TestMain` still perform setup under `go test -run '^$'`; use `go test -c` when the goal is compile-only validation with no cloud side effects.
+
 - For tests targeting "this repository", verify Git origin before provisioning. Repository catalogs can retain an older organization name; bind cleanup to the exact recorded resource identities regardless of the remote name.
 - Credential-source selection and remote credential validity are separate checks. Preserve provider-owned refresh state; do not replay an in-progress task under a different identity after a remote auth failure.
 - A resumable E2E runner must support partial provisioning (workspace created, desktop not yet created), retain exact resource IDs, and report useful error categories without exposing provider output or credentials.
@@ -12,3 +15,8 @@
 - Atomic replacement must preserve unrelated file metadata intentionally: test successful `.bashrc` updates for mode preservation separately from private credential snapshots. In-memory record isolation must clone every slice consistently at all read/write boundaries, not only the field involved in the current bug.
 - Credential preflight must distinguish an absent source from a present blank source before destructive rotation. Test empty and whitespace values alongside another nonempty secret/API key so aggregate nonempty checks cannot hide the gap; also prove absent-source fallback still works.
 - A companion fix being merged or released does not change the consuming repository's package pins. Test the required release in both Packer variables and rendered cloud-init, and document the matching-AMI rollout separately from E2E branch-binary overrides.
+- Credential rotation must distinguish an explicitly absent secret from a secret that could not be read. Treat only the provider's stable not-found code as authorization to create; network, access, empty/non-string, and parse failures must stop before any write.
+- If runtime security checks require a private tool home, create it with explicit ownership and mode in both image and fallback provisioning before the tool inherits a permissive login umask. Keep reload validation fail-closed and surface the invariant through health checks.
+- Do not choose between actionable errors and secret-safe output. Have the credential child return fixed exit categories, map those through the coordinator, and keep arbitrary stdout/stderr suppressed.
+- Permission checks built on `stat` follow symlinks by default; reject the link itself before validating a security-sensitive directory's target ownership and mode. Match provider error codes only in their structured error position, and pair mutable package-manager installs with an expected-version gate when images are built independently across regions.
+- Do not derive allowlisted failure categories from exception text that contains caller-controlled identifiers. Carry the category as typed internal state, keep the public message generic, and make security preconditions exit the parent provisioning script before later steps can mask or build on the failure.

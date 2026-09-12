@@ -59,7 +59,16 @@ def main():
                     pass_fds=(lock.fileno(),), check=False,
                 )
                 if result.returncode:
-                    reply("rotation_failed")
+                    reasons = {
+                        20: "invalid_credentials",
+                        21: "codex_auth_permissions",
+                        22: "credential_output_permissions",
+                        23: "shared_credential_storage",
+                        24: "bridge_service",
+                        25: "secret_retrieval",
+                        26: "codex_home",
+                    }
+                    reply("rotation_failed", reason=reasons.get(result.returncode, "unknown"))
                     return
                 rotated = True
                 reply("rotated")

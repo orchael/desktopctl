@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    # go_version, uv_version, bridgectl_version, and tailscale_version must be injected via --extra-vars
+    # Tool versions must be injected via --extra-vars
     # from packer (variables.pkrvars.hcl). The playbook will fail if any are missing.
     ansible_python_interpreter: auto_silent
     amazon_efs_utils_installer_url: https://amazon-efs-utils.aws.com/efs-utils-installer.sh
@@ -49,6 +49,11 @@
       ansible.builtin.assert:
         that: tailscale_version is defined and tailscale_version | length > 0
         fail_msg: "tailscale_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
+    - name: Require helm_version
+      ansible.builtin.assert:
+        that: helm_version is defined and helm_version | length > 0
+        fail_msg: "helm_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
     - name: Require novnc_desktop_version
       ansible.builtin.assert:
@@ -193,6 +198,14 @@
         name: ubuntu
         groups: kvm
         append: true
+
+    - name: Create private native Codex home for ubuntu
+      ansible.builtin.file:
+        path: /home/ubuntu/.codex
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
 
     - name: Install Go
       ansible.builtin.shell: |
@@ -410,6 +423,12 @@
         /home/linuxbrew/.linuxbrew/bin/brew install everydaydevopsio/ballast/ballast
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/ballast
+      become: false
+
+    - name: Install Helm via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install helm
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/helm
       become: false
 
     - name: Get latest nvm release version
@@ -1175,6 +1194,21 @@
       ansible.builtin.debug:
         msg: "Ballast version: {{ ballast_ver_out.stdout }}"
 
+    - name: Verify Helm is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/helm version --short
+      register: helm_ver_out
+      changed_when: false
+      become: false
+
+    - name: Require the pinned Helm version
+      ansible.builtin.assert:
+        that: (helm_ver_out.stdout | regex_replace('[+].*$', '')) == helm_version
+        fail_msg: "Helm version mismatch — expected {{ helm_version }}, got {{ helm_ver_out.stdout }}"
+
+    - name: Show Helm version
+      ansible.builtin.debug:
+        msg: "Helm version: {{ helm_ver_out.stdout }}"
+
     - name: Unmask unattended-upgrades timers before re-enabling
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -1213,6 +1247,7 @@
           go_version={{ go_version }}
           uv_version={{ uv_version }}
           tailscale_version={{ tailscale_version }}
+          helm_version={{ helm_version }}
           desktop_web_version={{ desktop_web_version }}
           novnc_desktop_version={{ novnc_desktop_version }}
           packages_pre_installed=true

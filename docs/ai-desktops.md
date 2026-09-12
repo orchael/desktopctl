@@ -286,7 +286,7 @@ Run the included readiness check to confirm the host is correctly configured as 
 sudo /usr/local/bin/ai-desktops-doctor
 ```
 
-The script checks ten items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
+The script checks eleven items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 
 | Check | What it verifies |
 |---|---|
@@ -297,6 +297,7 @@ The script checks ten items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 | Provider runtime | `/opt/bridgectl/node_modules/` is present |
 | Configured providers | One or more providers are enabled in `bridge.yaml` |
 | Credentials | Required env variables are present in `agents.env` (names only, not values) |
+| Native Codex home | `/home/ubuntu/.codex` is a real, non-symlinked directory owned by `ubuntu:ubuntu` with mode `0700` |
 | `/workspace` policy | Bridge `allowed_paths` includes `/workspace` |
 | systemd user service | `bridgectl.service` is installed for the `ubuntu` user |
 | Bridge health | Bridge responds on `127.0.0.1:9445` |
@@ -315,11 +316,12 @@ ai-desktops bridge doctor
 [OK]   Configured providers: claude
        CLAUDE_CODE_OAUTH_TOKEN: set
 [OK]   Credentials: all required variables present
+[OK]   Codex home: /home/ubuntu/.codex is private
 [OK]   /workspace: listed in bridge allowed_paths
 [OK]   systemd user service: /home/ubuntu/.config/systemd/user/bridgectl.service
 [OK]   Bridge health: healthy (127.0.0.1:9445)
 
-Result: 10 OK, 0 FAIL
+Result: 11 OK, 0 FAIL
 ```
 
 ---

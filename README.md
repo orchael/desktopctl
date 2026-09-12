@@ -133,6 +133,10 @@ With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an ex
 
 Before rotation changes files or stops sessions, it validates the replacement `CODEX_AUTH` structure, existing auth-directory/file ownership and private permissions, and that the bridge systemd unit is loaded. Invalid credentials or unsafe cache paths leave the previous snapshot untouched. A failure after mutation has begun may leave a partial snapshot; fix the reported preconditions and use `secrets reload` to reconcile. Credential values and child-process diagnostics are not printed.
 
+The auth update script fails closed if an existing Secrets Manager value cannot be read; only an explicit AWS `ResourceNotFoundException` permits creating a new secret. To update Codex auth and immediately reload one desktop while preserving every other provider key, run `scripts/update-agent-auth.sh --skip-claude --reload-desktop <desktop-id> --yes`. Before reload, the CLI verifies that the exact updated secret path is tracked for the desktop and that its resolved AWS region matches the desktop. Older desktops must register the path with `ai-desktops secrets add` first. A reload failure is returned to the caller and must be reconciled before sessions resume.
+
+Known reload failures are reported through allowlisted non-secret categories, while raw child output remains suppressed. New AMIs and fallback cloud-init create `/home/ubuntu/.codex` as an ubuntu-owned `0700` directory; `ai-desktops doctor` checks that invariant. Existing desktops with a more permissive directory must be corrected explicitly before credential rotation.
+
 A present empty or whitespace-only `CODEX_AUTH` string is invalid, even when an API key is also configured. To intentionally switch to API-key-only credentials, remove `CODEX_AUTH` from the configured secret sources instead of setting it to a blank string, then reload. An absent seed remains supported.
 
 Reload also preflights all credential-output paths (`agents.env`, `desktop-secrets.conf`, `.desktop-secrets`) and `.bashrc` before reading or staging them. From the desktop home downward, existing parent directories must be real, owned by the desktop user, and not writable by group/others. Safe `0755` directories are allowed and left unchanged; new directories are created with `0700`. Existing credential files must be private, user-owned regular files. Symlinks, shared NFS/EFS directories or file-level mounts, and unsafe ownership/permissions are rejected without automatically chmodding or moving anything. Correct the unsafe path explicitly, then retry reload.
@@ -401,6 +405,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
 bridgectl_version       = "v1.1.1"
 tailscale_version       = "1.98.9"
+helm_version            = "v4.3.0"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
 ```
@@ -459,6 +464,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
+- Helm (via Homebrew; version from `helm_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
@@ -715,7 +721,7 @@ ai-desktops doctor d-a1b2c3d4
 ai-desktops doctor d-a1b2c3d4 --json
 ```
 
-Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
+Checks include EC2 state, SSH and noVNC reachability, Docker and bridge health, and private native Codex-home ownership and permissions.
 
 ### 13. Debug with SSM (if diagnostics fail)
 

@@ -1,3 +1,58 @@
+# Harden agent-auth rotation and Codex-home provisioning
+
+Mode: approval-required; the user explicitly requested credential workflow, AMI, and cloud-init changes after the live `d-effdf24d` rotation exposed the gaps. Governing requirements: FR-9.8/AC-9.6 and AUTH-2a/AUTH-4d. Scope: fail closed on ambiguous AWS errors, add an optional update-and-reload path, propagate only allowlisted reload failure categories, and pre-create the native Codex home privately in both image and fallback provisioning. Preserve the strict reload validator and all unrelated branch edits. Rollout: bake and activate a new AMI for future desktops; cloud-init covers non-prebaked/fallback creates. Existing desktops require an explicit permission correction before reload. Rollback: restore the previous script/coordinator behavior and prior AMI, without rolling credentials back or weakening existing path validation.
+
+- [x] Update the governing PRD before implementation.
+- [x] Add failing tests for AWS read failures, optional reload propagation, safe coordinator errors, and both provisioning paths.
+- [x] Implement the minimum script, coordinator, AMI, cloud-init, doctor, and documentation changes.
+- [x] Run focused tests, full Go/race/coverage validation, script regressions, Ansible/Packer checks, and diff hygiene.
+- [x] Build and activate the updated AMI if the live build prerequisites are available; otherwise record the exact blocker and rollout command.
+
+Validation: all new focused regressions failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), Bash syntax, focused ShellCheck, Ansible syntax, Packer formatting/syntax, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning; neither the private Codex-home task nor the existing Helm tasks add a violation. The live us-east-2 Packer build completed with `failed=0`, executed the private Codex-home task, verified Helm v4.3.0, created `ami-012e6494e8afc836b` backed by `snap-0bf69c6c4cc227080`, activated it in operator config, and cleaned up its temporary instance, keypair, security group, and volumes. Build log: `packer/build-logs/packer-us-east-2-20260912-043057.log`.
+
+### PR #224 Copilot cycle 1
+
+- [x] Reject symlinked native Codex homes in both Go health checks and the AMI doctor.
+- [x] Pin Helm `v4.3.0`, propagate the pin through Packer/Ansible metadata, and fail provisioning on version drift.
+- [x] Skip Helm AMI validation for adopted integration fixtures.
+- [x] Reject whitespace-only existing `SecretString` values and recognize not-found only from the structured AWS `DescribeSecret` error prefix.
+- [x] Run full local validation for cycle 1.
+- [x] Push, reply to and resolve all cycle-1 threads, and check CI.
+
+Cycle-1 validation: the five focused regressions failed against commit `6d62125` for the expected reasons, then passed after the fixes. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed tasks. The previously built AMI already verified Helm v4.3.0; no additional cloud build was needed for the validation-only pin and review corrections.
+
+### PR #224 Copilot cycle 2
+
+- [x] Make fallback cloud-init reject a symlinked native Codex home and exit before later provisioning commands.
+- [x] Carry an explicit `secret_retrieval` exit category without printing or classifying on an untrusted secret path.
+- [x] Compare the live AMI's Helm version to the configured pin and correct stale FR-9 acceptance references.
+- [x] Update both doctor guides and the README diagnostic summary for the private Codex-home check.
+- [x] Run full local validation for cycle 2.
+- [x] Push, reply to and resolve the cycle-2 thread, and check CI.
+
+Cycle-2 validation: the cloud-init symlink/fatality regression and secret-path diagnostic regression failed first for the intended reasons, then passed. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass.
+
+### PR #224 Copilot cycle 3
+
+- [x] Require `update-agent-auth.sh --reload-desktop` to validate the exact updated secret path and resolved AWS region against the desktop before reload.
+- [x] Carry every known reload failure as a typed category and leave unexpected exceptions uncategorized.
+- [x] Make fallback cloud-init exit explicitly when native Codex-home creation fails.
+- [x] Correct the doctor help and FR-9 acceptance-test mapping.
+- [x] Run full local validation, push, reply to and resolve cycle-3 threads, and verify CI.
+
+Cycle-3 validation: the exact-target, unknown-error classification, and fatal Codex-home provisioning regressions failed against `3328072`, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite binary compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed cloud-init or credential files.
+
+# Install Helm in the AMI with Homebrew
+
+Mode: approval-required; the user explicitly requested this AMI/runtime change. Governing requirement: FR-9.5 and AC-9.5. Scope: install Helm through the existing Linuxbrew installation during Packer provisioning, verify it in the playbook and AMI integration suite, and document the toolchain. Do not build an AMI or alter existing desktops. Rollout: rebuild and activate an AMI containing this change. Rollback: reactivate the prior AMI or revert the Helm provisioning tasks and rebuild.
+
+- [x] Update FR-9.5 and add AC-9.5 before implementation.
+- [x] Add a failing regression for Linuxbrew-based Helm installation and verification.
+- [x] Implement the minimum playbook, integration-test, and operator-doc changes.
+- [x] Run focused tests, Go tests, Ansible lint, and Packer syntax validation; record evidence.
+
+Validation: `TestAMIPlaybookInstallsHelmWithHomebrew` failed first because both Helm tasks were absent, then passed after implementation. `go test ./...`, integration-suite compilation with the `integration` build tag, Ansible syntax check, Packer format check, Packer syntax-only validation, and `git diff --check` pass. The live `TestFR9_HelmInstalled` requires a built AMI and SSH fixture and was not executed. `ansible-lint packer/playbook.yml` reports 26 existing failures and one existing task-count warning at unchanged lines; it reports no violation on either new Helm task. No AMI was built and no running desktop was changed.
+
 # Codex auth lifecycle and reusable AWS E2E
 
 Authorized scope: implement the reviewed auth fixes in branches in ai-desktops and bridgectl, test on a dedicated workspace/desktop for this repository, and clean up successful test resources unless retention was requested.

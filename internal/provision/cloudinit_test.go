@@ -124,6 +124,30 @@ func TestRenderCloudInit_defaults(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_createsPrivateCodexHome(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID:   "d-codex-home",
+		Hostname:    "d-codex-home.desktops.orchael.dev",
+		GitHubOwner: "acme",
+	}
+
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	for _, want := range []string{
+		"if [ -L /home/ubuntu/.codex ]; then",
+		"ERROR: /home/ubuntu/.codex must not be a symlink",
+		"exit 1",
+		"install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex || exit 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered cloud-init does not secure the native Codex home with %q", want)
+		}
+	}
+}
+
 func TestRenderCloudInit_efsWorkspace(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-efs",

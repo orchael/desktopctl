@@ -79,6 +79,28 @@ func TestTrackedSecretPathsPreservesBasePrecedenceWithoutAddingSecrets(t *testin
 	}
 }
 
+func TestValidateSecretsReloadRequirements(t *testing.T) {
+	paths := []string{"/agents", "/override"}
+	for _, tc := range []struct {
+		name, requiredPath, requiredRegion, desktopRegion, wantError string
+	}{
+		{name: "exact-target", requiredPath: "/override", requiredRegion: "us-east-2", desktopRegion: "us-east-2"},
+		{name: "untracked-path", requiredPath: "/other", requiredRegion: "us-east-2", desktopRegion: "us-east-2", wantError: "not configured"},
+		{name: "wrong-region", requiredPath: "/override", requiredRegion: "us-west-2", desktopRegion: "us-east-2", wantError: "region mismatch"},
+		{name: "ordinary-reload"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSecretsReloadRequirements(paths, tc.desktopRegion, tc.requiredPath, tc.requiredRegion)
+			if tc.wantError == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) {
+				t.Fatalf("error = %v, want containing %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestSecretPathsAfterAdd_ReloadsExistingAndNewSecrets(t *testing.T) {
 	toAdd, reloadPaths := secretPathsAfterAdd(
 		[]string{"/markcallen/smoke"},
