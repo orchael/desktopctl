@@ -11,10 +11,14 @@ runtime-only work: TLS certificates, secret injection, workspace setup, and repo
 Review `packer/variables.pkrvars.hcl` before building:
 
 ```hcl
-bridgectl_version = "v1.0.1"
+bridgectl_version = "v1.1.1"
 go_version        = "1.24.0"
 uv_version        = "0.12.3"
 ```
+
+Keep the bridge pin in sync with `BridgectlVersion` in `internal/provision/cloudinit.go`.
+Rebuild the CLI and AMI together; cloud-init reports a version mismatch for a pre-baked
+image with a different installed package. This does not upgrade existing desktops.
 
 The Packer build starts from the latest public `novnc-desktop-ubuntu-24.04-elementary-*` AMI in
 each requested region. The resulting image adds Docker, GitHub CLI, Python, Go, uv, Homebrew,

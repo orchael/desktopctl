@@ -6,13 +6,21 @@ Requirements: PRD AUTH-1 through AUTH-4 and E2E-1 through E2E-2.
 
 ## Approved review follow-up
 
+### Release pin and retained fixture cleanup (AUTH-5, E2E-2)
+
+Mode: approval-required; user explicitly approved deleting desktop `d-b27e224e` and workspace `e2e-ai-desktops-b0c78d2b7d8b2ccb`, then pinning `bridgectl` to `v1.1.1` and pushing. Use the saved manifest and identity-validating cleanup runner; leave underlying EFS directory contents intact. Update the CLI/Packer pins and current build documentation, without changing branch-binary E2E overrides. Rollout requires a matching rebuilt AMI; no image build or existing-fleet upgrade is authorized here. Rollback: revert both pins together and use the matching prior image; deleted compute/access points cannot be restored by reverting code.
+
+- [x] Clean up the exact recorded desktop/workspace and verify the manifest and live state. EC2 `i-0b1919f534f344fc6` is terminated; workspace state is `deleted` (audit record retained); AWS confirms access point `fsap-05c1e35a55cfa07b6` no longer exists. Manifest records both cleanup flags true. Underlying EFS directory contents were not erased.
+- [x] Add a failing regression for release `v1.1.1` and CLI/Packer pin consistency, then update both pins and docs.
+- [ ] Run targeted/full tests, race/coverage, build, lint and Packer validation; push and check CI/Copilot status.
+
 ### Blank Codex seed preflight (AUTH-4c)
 
 Mode: approval-required; user approved rejecting a present blank seed while preserving absent-key support. Scope: validate the merged replacement snapshot, without changing secret precedence, null-value handling, or systemd configuration. Risk: operators currently blanking a seed must remove that key instead. Rollback: revert this validation guard and its tests; do not restore old credentials or alter remote secrets.
 
 - [x] Reproduce empty/whitespace seeds with another nonempty secret/API key; assert failure preserves the full runtime snapshot and makes no service calls. Cover absent-seed API-key rotation positively.
 - [x] Implement the minimum guard, update operator docs, and run targeted/full Go tests, race/coverage, build, lint, and Python regressions.
-- [ ] Push, reply/resolve the three reviewed threads, check CI, and request one fresh Copilot review. Blank seed: score 2 after approval (`PRRT_kwDOSYxwmc6hpEJE`); Python 3.8 compatibility and repeated systemd directives: score 0 (`PRRT_kwDOSYxwmc6hpEIw`, `PRRT_kwDOSYxwmc6hpEJY`).
+- [x] Push, reply/resolve the three reviewed threads, check CI, and request one fresh Copilot review. All seven checks passed on `8a2271d`. Blank seed: score 2 after approval (`PRRT_kwDOSYxwmc6hpEJE`); Python 3.8 compatibility and repeated systemd directives: score 0 (`PRRT_kwDOSYxwmc6hpEIw`, `PRRT_kwDOSYxwmc6hpEJY`).
 
 ### Snapshot and shell-mode follow-up (AUTH-4b)
 
@@ -55,6 +63,8 @@ Rollback: revert branch changes and reinstall the previous bridge binary; recrea
 
 ## Validation
 
+- AUTH-5 / explicit E2E cleanup: the new release-pin test failed against both `v1.0.1` pins and both cloud-init modes before the update; the full provisioning tests now pass with `v1.1.1`. Full Go race/coverage suite, CLI build, focused lint (0 issues), all 7 Python regressions, Packer formatting and syntax-only validation passed. Provision coverage remains 83.8%; the existing whole-repository coverage gap is unchanged. The identity-validating cleanup command succeeded and AWS confirmed compute termination/access-point deletion. No new AMI was built and no running desktop was upgraded.
+
 - AUTH-4c: empty and space/tab-only seeds reproduced destructive success before the fix; multiline whitespace was already rejected during normalization. All three preservation regressions and absent-seed API-key rotation now pass. `go test ./cmd/ai-desktops/cmd -run TestSecrets -count=1`, `go test ./...`, full Go race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python regressions passed. Whole-repository Go coverage remains 44.2% (pre-existing gap; no gate lowered). Tests use dummy secrets and local service stubs; no cloud resources or real credentials were changed.
 
 - AUTH-4b: regression tests reproduced aliasing in Create/Get/List/Update and 0644 shell-mode loss before the fixes. All five snapshot-boundary cases and all 31 output-preflight scenarios now pass. Full Go tests, full race/coverage suite, CLI build, focused lint (0 issues), and all 7 Python regressions passed. Store coverage is 81.8%; whole-repository coverage remains 44.2% (the pre-existing broader coverage gap is unchanged).
@@ -66,5 +76,5 @@ Rollback: revert branch changes and reinstall the previous bridge binary; recrea
 - ai-desktops: full `go test ./...` and `go test -race ./...` passed; focused golangci-lint passed. Runtime reload tests cover all environment surfaces, partial/failed fetch preservation, private permissions, cache invalidation, and preservation of unrelated manual login state.
 - bridgectl: companion branch `fix/codex-auth-lifecycle`, commits `e3ed1f7` and `c87e32b`; full race suite passed, provider coverage 81.2%. Follow-up provider regressions passed after removing credential environment entries entirely.
 - E2E harness: offline Go tests passed with 81.2% coverage; two Python subprocess regressions passed, including transient-401 recovery. Keep/reuse/cleanup and partial-provision resume are covered offline.
-- Live AWS run: workspace `e2e-ai-desktops-b0c78d2b7d8b2ccb`, desktop `d-b27e224e`, state `/tmp/ai-desktops-e2e-3333895904/state.json`. Provisioning, EFS mount, repository clone, service readiness, and branch binary installation succeeded. The first Codex account request returned a terminal authentication failure, including after fixing the test to permit transient-401 recovery. `codex login status` reports ChatGPT; the account cache retains the uploaded `2026-08-27` refresh timestamp. Resources remain available for `--reuse`; no successful live reload/cleanup assertion is claimed.
+- Live AWS run: workspace `e2e-ai-desktops-b0c78d2b7d8b2ccb`, desktop `d-b27e224e`, state `/tmp/ai-desktops-e2e-3333895904/state.json`. Provisioning, EFS mount, repository clone, service readiness, and branch binary installation succeeded. The first Codex account request returned a terminal authentication failure, including after fixing the test to permit transient-401 recovery. At failure, `codex login status` reported ChatGPT and the account cache retained the uploaded `2026-08-27` refresh timestamp. On explicit operator request, the desktop and workspace access point were cleaned up on 2026-09-11 at 23:55 UTC; they are no longer reusable. The live authenticated reload and automatic success-cleanup path still need a fresh run; explicit cleanup has now been verified.
 - Isolation check: a direct native Codex request with the same auth file and all API/seed environment overrides removed also exited 1 with HTTP 401, refresh failure, and the ChatGPT backend (not the API backend). The remaining live blocker is the current account credential snapshot; the check did not print tokens or replace the shared AWS secret.

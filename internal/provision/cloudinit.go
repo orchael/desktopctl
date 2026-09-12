@@ -12,7 +12,7 @@ import (
 
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.0.1"
+	BridgectlVersion      = "v1.1.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )

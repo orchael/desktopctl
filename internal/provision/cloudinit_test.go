@@ -2,6 +2,7 @@ package provision
 
 import (
 	"encoding/base64"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -536,6 +537,34 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 			default:
 				t.Errorf("runcmd[%d] is %T, not a string or array (preInstalled=%v); value: %v", i, entry, preInstalled, entry)
 			}
+		}
+	}
+}
+
+func TestBridgectlReleasePin(t *testing.T) {
+	// AUTH-5: image builds and boot-time validation must target the same release.
+	const want = "v1.1.1"
+	if BridgectlVersion != want {
+		t.Errorf("CLI bridge pin = %q, want %q", BridgectlVersion, want)
+	}
+	variables, err := os.ReadFile("../../packer/variables.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^bridgectl_version\s*=\s*"([^"]+)"\s*$`).FindSubmatch(variables)
+	if len(match) != 2 {
+		t.Fatal("Packer variables must contain one bridgectl_version pin")
+	}
+	if got := string(match[1]); got != want {
+		t.Errorf("Packer bridge pin = %q, want %q", got, want)
+	}
+	for _, preinstalled := range []bool{false, true} {
+		out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-version", PackagesPreInstalled: preinstalled})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.1.1"`) {
+			t.Errorf("cloud-init must require package 1.1.1 (preinstalled=%v)", preinstalled)
 		}
 	}
 }
