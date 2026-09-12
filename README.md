@@ -405,6 +405,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
 bridgectl_version       = "v1.1.1"
 tailscale_version       = "1.98.9"
+helm_version            = "v4.3.0"
 go_version              = "1.24.0"
 uv_version              = "0.12.3"
 ```
@@ -463,7 +464,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
-- Helm (via Homebrew)
+- Helm (via Homebrew; version from `helm_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)

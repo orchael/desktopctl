@@ -341,8 +341,8 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 			t.Errorf("BridgectlCheckers missing expected checker %q", n)
 		}
 	}
-	if !checkerCommandContains(checkers, "codex-home-private", `test "$(stat -c '%U:%G:%a' /home/ubuntu/.codex)" = "ubuntu:ubuntu:700"`) {
-		t.Error("codex-home-private should require ubuntu ownership and mode 0700")
+	if !checkerCommandContains(checkers, "codex-home-private", `test ! -L /home/ubuntu/.codex && test -d /home/ubuntu/.codex && test "$(stat -c '%U:%G:%a' /home/ubuntu/.codex)" = "ubuntu:ubuntu:700"`) {
+		t.Error("codex-home-private should reject symlinks and require a directory with ubuntu ownership and mode 0700")
 	}
 }
 

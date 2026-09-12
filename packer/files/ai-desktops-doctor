@@ -190,7 +190,7 @@ fi
 
 # ── 8. Native Codex home permissions ─────────────────────────────────────────
 
-if [ -d "$CODEX_HOME_DIR" ] && [ "$(stat -c '%U:%G:%a' "$CODEX_HOME_DIR" 2>/dev/null || true)" = "ubuntu:ubuntu:700" ]; then
+if [ ! -L "$CODEX_HOME_DIR" ] && [ -d "$CODEX_HOME_DIR" ] && [ "$(stat -c '%U:%G:%a' "$CODEX_HOME_DIR" 2>/dev/null || true)" = "ubuntu:ubuntu:700" ]; then
   _ok "Codex home: ${CODEX_HOME_DIR} is private"
 else
   _fail "Codex home: ${CODEX_HOME_DIR} must be owned by ubuntu:ubuntu with mode 0700"

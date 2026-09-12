@@ -284,7 +284,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew), `bridgectl` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
@@ -297,7 +297,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
 | AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateUsesAMIFromConfig` |
 | AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
-| AC-9.5 | The AMI playbook installs Helm with Linuxbrew and verifies the installed binary | `TestAMIPlaybookInstallsHelmWithHomebrew` |
+| AC-9.5 | The AMI playbook installs Helm with Linuxbrew and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsHelmWithHomebrew`, `TestAMIConfigurationPinsHelmVersion` |
 | AC-9.6 | The AMI playbook and rendered cloud-init both enforce a private native Codex home | `TestAMIPlaybookCreatesPrivateCodexHome`, `TestRenderCloudInit_createsPrivateCodexHome` |
 
 ### FR-11 — GitHub developer tooling

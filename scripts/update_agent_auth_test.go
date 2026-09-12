@@ -105,6 +105,41 @@ esac
 	}
 }
 
+func TestUpdateAgentAuthFailsClosedWhenExistingSecretStringIsWhitespace(t *testing.T) {
+	aws := `#!/bin/sh
+printf '%s\n' "$*" >> "$AWS_CALLS"
+case "$2" in
+  describe-secret) exit 0 ;;
+  get-secret-value) printf '   \n\t' ;;
+  *) exit 0 ;;
+esac
+`
+	out, calls, err := runUpdateAgentAuth(t, aws)
+	if err == nil {
+		t.Fatalf("whitespace SecretString succeeded; output=%s calls=%s", out, calls)
+	}
+	if strings.Contains(calls, "put-secret-value") || strings.Contains(calls, "create-secret") {
+		t.Fatalf("whitespace SecretString attempted a write: %s", calls)
+	}
+}
+
+func TestUpdateAgentAuthDoesNotTrustNotFoundTextOutsideAWSErrorCode(t *testing.T) {
+	aws := `#!/bin/sh
+printf '%s\n' "$*" >> "$AWS_CALLS"
+case "$2" in
+  describe-secret) printf '%s\n' 'An error occurred (AccessDeniedException) when calling the DescribeSecret operation: denied for /test/ResourceNotFoundException' >&2; exit 254 ;;
+  *) exit 0 ;;
+esac
+`
+	out, calls, err := runUpdateAgentAuth(t, aws, "--secret-id", "/test/ResourceNotFoundException")
+	if err == nil {
+		t.Fatalf("misleading AccessDenied error succeeded; output=%s calls=%s", out, calls)
+	}
+	if strings.Contains(calls, "create-secret") || strings.Contains(calls, "put-secret-value") {
+		t.Fatalf("misleading AccessDenied error attempted a write: %s", calls)
+	}
+}
+
 func TestUpdateAgentAuthPreservesUnmodifiedKeys(t *testing.T) {
 	home := t.TempDir()
 	captured := filepath.Join(home, "captured.json")
@@ -156,7 +191,7 @@ func TestUpdateAgentAuthCanCreateAndReloadDesktop(t *testing.T) {
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
 case "$2" in
-  get-secret-value|describe-secret) printf '%s\n' 'ResourceNotFoundException' >&2; exit 254 ;;
+  get-secret-value|describe-secret) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
   create-secret) exit 0 ;;
   *) exit 1 ;;
 esac
@@ -182,7 +217,7 @@ func TestUpdateAgentAuthPropagatesReloadFailure(t *testing.T) {
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
 case "$2" in
-  get-secret-value|describe-secret) printf '%s\n' 'ResourceNotFoundException' >&2; exit 254 ;;
+  get-secret-value|describe-secret) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
   create-secret) exit 0 ;;
   *) exit 1 ;;
 esac

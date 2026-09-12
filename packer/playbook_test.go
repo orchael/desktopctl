@@ -14,6 +14,9 @@ func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 
 	contents := string(playbook)
 	requiredBlocks := []string{
+		`    - name: Require helm_version
+      ansible.builtin.assert:
+        that: helm_version is defined and helm_version | length > 0`,
 		`    - name: Install Helm via Homebrew
       ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install helm
       args:
@@ -24,10 +27,38 @@ func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
       register: helm_ver_out
       changed_when: false
       become: false`,
+		`    - name: Require the pinned Helm version
+      ansible.builtin.assert:
+        that: (helm_ver_out.stdout | regex_replace('[+].*$', '')) == helm_version`,
 	}
 	for _, want := range requiredBlocks {
 		if !strings.Contains(contents, want) {
 			t.Errorf("AMI playbook does not contain required task:\n%s", want)
+		}
+	}
+}
+
+func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
+	vars, err := os.ReadFile("variables.pkrvars.hcl")
+	if err != nil {
+		t.Fatalf("read Packer variables: %v", err)
+	}
+	template, err := os.ReadFile("ubuntu-desktop.pkr.hcl")
+	if err != nil {
+		t.Fatalf("read Packer template: %v", err)
+	}
+
+	if !strings.Contains(string(vars), `helm_version                  = "v4.3.0"`) {
+		t.Fatal("Packer variables must pin Helm v4.3.0")
+	}
+	for _, want := range []string{
+		`variable "helm_version"`,
+		`HelmVersion                = var.helm_version`,
+		`helm_version=${var.helm_version}`,
+		`helm_version                  = var.helm_version`,
+	} {
+		if !strings.Contains(string(template), want) {
+			t.Errorf("Packer template does not propagate Helm pin %q", want)
 		}
 	}
 }

@@ -50,6 +50,9 @@ func TestFR9_AMIListCommandExists(t *testing.T) {
 // TestFR9_HelmInstalled verifies that Helm is present at the Linuxbrew path in
 // the built AMI and can report its version (AC-9.5).
 func TestFR9_HelmInstalled(t *testing.T) {
+	if !fx.ownedByTest {
+		t.Skip("Helm AMI validation requires a desktop created from this test run's AMI")
+	}
 	if fx.SSHKey == "" {
 		t.Skip("no SSH key — cannot verify Helm")
 	}

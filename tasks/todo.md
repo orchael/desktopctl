@@ -10,6 +10,17 @@ Mode: approval-required; the user explicitly requested credential workflow, AMI,
 
 Validation: all new focused regressions failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), Bash syntax, focused ShellCheck, Ansible syntax, Packer formatting/syntax, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning; neither the private Codex-home task nor the existing Helm tasks add a violation. The live us-east-2 Packer build completed with `failed=0`, executed the private Codex-home task, verified Helm v4.3.0, created `ami-012e6494e8afc836b` backed by `snap-0bf69c6c4cc227080`, activated it in operator config, and cleaned up its temporary instance, keypair, security group, and volumes. Build log: `packer/build-logs/packer-us-east-2-20260912-043057.log`.
 
+### PR #224 Copilot cycle 1
+
+- [x] Reject symlinked native Codex homes in both Go health checks and the AMI doctor.
+- [x] Pin Helm `v4.3.0`, propagate the pin through Packer/Ansible metadata, and fail provisioning on version drift.
+- [x] Skip Helm AMI validation for adopted integration fixtures.
+- [x] Reject whitespace-only existing `SecretString` values and recognize not-found only from the structured AWS `DescribeSecret` error prefix.
+- [x] Run full local validation for cycle 1.
+- [ ] Push, reply to and resolve all cycle-1 threads, and check CI.
+
+Cycle-1 validation: the five focused regressions failed against commit `6d62125` for the expected reasons, then passed after the fixes. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed tasks. The previously built AMI already verified Helm v4.3.0; no additional cloud build was needed for the validation-only pin and review corrections.
+
 # Install Helm in the AMI with Homebrew
 
 Mode: approval-required; the user explicitly requested this AMI/runtime change. Governing requirement: FR-9.5 and AC-9.5. Scope: install Helm through the existing Linuxbrew installation during Packer provisioning, verify it in the playbook and AMI integration suite, and document the toolchain. Do not build an AMI or alter existing desktops. Rollout: rebuild and activate an AMI containing this change. Rollback: reactivate the prior AMI or revert the Helm provisioning tasks and rebuild.

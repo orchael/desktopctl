@@ -274,12 +274,12 @@ if aws secretsmanager describe-secret "${aws_args[@]}" \
     echo "ERROR: could not read existing secret; no changes written" >&2
     exit 1
   fi
-  if [ ! -s "$existing_json" ] || [ "$(cat "$existing_json")" = "None" ]; then
+  if [ ! -s "$existing_json" ] || ! grep -q '[^[:space:]]' "$existing_json" || [ "$(cat "$existing_json")" = "None" ]; then
     echo "ERROR: existing secret does not contain a readable JSON SecretString; no changes written" >&2
     exit 1
   fi
 else
-  if grep -q 'ResourceNotFoundException' "$aws_error_file"; then
+  if grep -qE '^An error occurred \(ResourceNotFoundException\) when calling the DescribeSecret operation:' "$aws_error_file"; then
     printf '{}' > "$existing_json"
   else
     echo "ERROR: could not determine whether secret exists; no changes written" >&2

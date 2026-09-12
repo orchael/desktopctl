@@ -14,6 +14,8 @@ func TestAMIDoctorChecksPrivateCodexHome(t *testing.T) {
 	contents := string(doctor)
 	for _, want := range []string{
 		`CODEX_HOME_DIR="${CODEX_HOME_DIR:-/home/ubuntu/.codex}"`,
+		`[ ! -L "$CODEX_HOME_DIR" ]`,
+		`[ -d "$CODEX_HOME_DIR" ]`,
 		`stat -c '%U:%G:%a' "$CODEX_HOME_DIR"`,
 		`"ubuntu:ubuntu:700"`,
 	} {
