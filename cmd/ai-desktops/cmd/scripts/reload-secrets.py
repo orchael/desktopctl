@@ -264,4 +264,21 @@ except (RuntimeError, OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
     else:
         print("ERROR: credential rotation failed; inspect file permissions and service state", file=sys.stderr)
-    sys.exit(1)
+    message = str(error)
+    if "invalid CODEX_AUTH credentials" in message:
+        code = 20
+    elif "Codex auth paths must be private" in message:
+        code = 21
+    elif "EFS or NFS" in message or "filesystem" in message:
+        code = 23
+    elif "credential output" in message:
+        code = 22
+    elif "bridge service" in message or "systemctl" in message:
+        code = 24
+    elif "secret" in message:
+        code = 25
+    elif "CODEX_HOME" in message or "Codex auth in a shared or external directory" in message:
+        code = 26
+    else:
+        code = 1
+    sys.exit(code)

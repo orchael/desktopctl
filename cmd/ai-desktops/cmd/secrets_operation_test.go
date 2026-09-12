@@ -85,6 +85,34 @@ func TestSecretOperationFailureRetainsRecoveryWithoutOutput(t *testing.T) {
 	}
 }
 
+func TestSecretOperationReturnsAllowlistedFailureReason(t *testing.T) {
+	home := t.TempDir()
+	op, err := localSecretOperation(t, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer op.Close()
+
+	err = op.Run("exit 21")
+	if err == nil || !strings.Contains(err.Error(), "Codex auth paths must be private") {
+		t.Fatalf("missing safe actionable reason: %v", err)
+	}
+}
+
+func TestSecretOperationDoesNotReturnUnknownChildOutput(t *testing.T) {
+	home := t.TempDir()
+	op, err := localSecretOperation(t, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer op.Close()
+
+	err = op.Run("echo dummy-secret >&2; exit 73")
+	if err == nil || strings.Contains(err.Error(), "dummy-secret") || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("unsafe or unclassified result: %v", err)
+	}
+}
+
 func TestSecretOperationRejectsSymlinkLock(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".ai-desktops-secret-operation")

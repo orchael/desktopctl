@@ -108,12 +108,29 @@ func (op *secretOperation) receive(want string) error {
 	var result struct {
 		Status  string `json:"status"`
 		Pending bool   `json:"pending"`
+		Reason  string `json:"reason"`
 	}
 	if err := op.decoder.Decode(&result); err != nil {
 		return fmt.Errorf("secret coordinator disconnected; retry secrets reload to reconcile")
 	}
 	if result.Status == "busy" {
 		return fmt.Errorf("desktop secrets are busy; another operation is active")
+	}
+	if result.Status == "rotation_failed" {
+		message := map[string]string{
+			"invalid_credentials":           "replacement credentials are invalid",
+			"codex_auth_permissions":        "Codex auth paths must be private, user-owned directories and regular files",
+			"credential_output_permissions": "credential output paths must be safe and user-owned",
+			"shared_credential_storage":     "credential paths must not use EFS or NFS storage",
+			"bridge_service":                "bridgectl service state could not be validated or changed",
+			"secret_retrieval":              "configured secrets could not be retrieved or validated",
+			"codex_home":                    "CODEX_HOME must be a private absolute directory under the desktop user's home",
+			"unknown":                       "unknown failure category",
+		}[result.Reason]
+		if message == "" {
+			message = "unknown failure category"
+		}
+		return fmt.Errorf("secret operation failed: %s; run secrets reload to reconcile", message)
 	}
 	if result.Status != want {
 		return fmt.Errorf("secret operation failed; run secrets reload to reconcile (check credential structure, private auth paths, and bridgectl service)")

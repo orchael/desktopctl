@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -319,6 +320,18 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 			output, err := command.CombinedOutput()
 			if err == nil {
 				t.Fatalf("unsafe preflight succeeded: %s", output)
+			}
+			expectedExit := map[string]int{
+				"public-native-directory": 21,
+				"nfs-auth-directory":      23,
+				"unknown-unit":            24,
+				"malformed-auth-seed":     20,
+			}[scenario]
+			if expectedExit != 0 {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) || exitErr.ExitCode() != expectedExit {
+					t.Fatalf("exit code = %v, want %d", err, expectedExit)
+				}
 			}
 			if strings.Contains(string(output), "secret-marker") {
 				t.Fatal("credential appeared in diagnostics")

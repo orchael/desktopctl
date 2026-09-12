@@ -194,6 +194,14 @@
         groups: kvm
         append: true
 
+    - name: Create private native Codex home for ubuntu
+      ansible.builtin.file:
+        path: /home/ubuntu/.codex
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+
     - name: Install Go
       ansible.builtin.shell: |
         curl -fsSL https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz | \
@@ -410,6 +418,12 @@
         /home/linuxbrew/.linuxbrew/bin/brew install everydaydevopsio/ballast/ballast
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/ballast
+      become: false
+
+    - name: Install Helm via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install helm
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/helm
       become: false
 
     - name: Get latest nvm release version
@@ -1174,6 +1188,16 @@
     - name: Show ballast version
       ansible.builtin.debug:
         msg: "Ballast version: {{ ballast_ver_out.stdout }}"
+
+    - name: Verify Helm is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/helm version --short
+      register: helm_ver_out
+      changed_when: false
+      become: false
+
+    - name: Show Helm version
+      ansible.builtin.debug:
+        msg: "Helm version: {{ helm_ver_out.stdout }}"
 
     - name: Unmask unattended-upgrades timers before re-enabling
       ansible.builtin.systemd:

@@ -120,6 +120,7 @@ runcmd:
   - systemctl start docker
 {{- end}}
   - usermod -aG docker ubuntu
+  - install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex
 
 {{- if not .PackagesPreInstalled}}
   # --- nvim (via snap) ---

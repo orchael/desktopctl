@@ -330,6 +330,7 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 		"bridgectl-installed",
 		"bridgectl-config-exists",
 		"bridgectl-credentials-env",
+		"codex-home-private",
 		"bridgectl-claude-configured",
 		"bridgectl-codex-configured",
 		"bridgectl-display-env",
@@ -339,6 +340,9 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 		if !names[n] {
 			t.Errorf("BridgectlCheckers missing expected checker %q", n)
 		}
+	}
+	if !checkerCommandContains(checkers, "codex-home-private", `test "$(stat -c '%U:%G:%a' /home/ubuntu/.codex)" = "ubuntu:ubuntu:700"`) {
+		t.Error("codex-home-private should require ubuntu ownership and mode 0700")
 	}
 }
 

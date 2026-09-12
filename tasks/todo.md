@@ -1,3 +1,26 @@
+# Harden agent-auth rotation and Codex-home provisioning
+
+Mode: approval-required; the user explicitly requested credential workflow, AMI, and cloud-init changes after the live `d-effdf24d` rotation exposed the gaps. Governing requirements: FR-9.8/AC-9.6 and AUTH-2a/AUTH-4d. Scope: fail closed on ambiguous AWS errors, add an optional update-and-reload path, propagate only allowlisted reload failure categories, and pre-create the native Codex home privately in both image and fallback provisioning. Preserve the strict reload validator and all unrelated branch edits. Rollout: bake and activate a new AMI for future desktops; cloud-init covers non-prebaked/fallback creates. Existing desktops require an explicit permission correction before reload. Rollback: restore the previous script/coordinator behavior and prior AMI, without rolling credentials back or weakening existing path validation.
+
+- [x] Update the governing PRD before implementation.
+- [x] Add failing tests for AWS read failures, optional reload propagation, safe coordinator errors, and both provisioning paths.
+- [x] Implement the minimum script, coordinator, AMI, cloud-init, doctor, and documentation changes.
+- [x] Run focused tests, full Go/race/coverage validation, script regressions, Ansible/Packer checks, and diff hygiene.
+- [x] Build and activate the updated AMI if the live build prerequisites are available; otherwise record the exact blocker and rollout command.
+
+Validation: all new focused regressions failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), Bash syntax, focused ShellCheck, Ansible syntax, Packer formatting/syntax, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning; neither the private Codex-home task nor the existing Helm tasks add a violation. The live us-east-2 Packer build completed with `failed=0`, executed the private Codex-home task, verified Helm v4.3.0, created `ami-012e6494e8afc836b` backed by `snap-0bf69c6c4cc227080`, activated it in operator config, and cleaned up its temporary instance, keypair, security group, and volumes. Build log: `packer/build-logs/packer-us-east-2-20260912-043057.log`.
+
+# Install Helm in the AMI with Homebrew
+
+Mode: approval-required; the user explicitly requested this AMI/runtime change. Governing requirement: FR-9.5 and AC-9.5. Scope: install Helm through the existing Linuxbrew installation during Packer provisioning, verify it in the playbook and AMI integration suite, and document the toolchain. Do not build an AMI or alter existing desktops. Rollout: rebuild and activate an AMI containing this change. Rollback: reactivate the prior AMI or revert the Helm provisioning tasks and rebuild.
+
+- [x] Update FR-9.5 and add AC-9.5 before implementation.
+- [x] Add a failing regression for Linuxbrew-based Helm installation and verification.
+- [x] Implement the minimum playbook, integration-test, and operator-doc changes.
+- [x] Run focused tests, Go tests, Ansible lint, and Packer syntax validation; record evidence.
+
+Validation: `TestAMIPlaybookInstallsHelmWithHomebrew` failed first because both Helm tasks were absent, then passed after implementation. `go test ./...`, integration-suite compilation with the `integration` build tag, Ansible syntax check, Packer format check, Packer syntax-only validation, and `git diff --check` pass. The live `TestFR9_HelmInstalled` requires a built AMI and SSH fixture and was not executed. `ansible-lint packer/playbook.yml` reports 26 existing failures and one existing task-count warning at unchanged lines; it reports no violation on either new Helm task. No AMI was built and no running desktop was changed.
+
 # Codex auth lifecycle and reusable AWS E2E
 
 Authorized scope: implement the reviewed auth fixes in branches in ai-desktops and bridgectl, test on a dedicated workspace/desktop for this repository, and clean up successful test resources unless retention was requested.
