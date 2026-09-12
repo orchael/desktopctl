@@ -8,7 +8,9 @@ WorkingDirectory=/workspace
 ExecStartPre=/usr/local/bin/bridgectl-detect-display
 ExecStart=bridgectl server start --config %h/.config/bridgectl/config.yaml
 EnvironmentFile=-%h/.config/bridgectl/agents.env
+EnvironmentFile=-%h/.config/environment.d/desktop-secrets.conf
 EnvironmentFile=-%h/.config/bridgectl/display.env
+KillMode=control-group
 Restart=on-failure
 RestartSec=10s
 

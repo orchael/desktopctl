@@ -2,6 +2,7 @@ package provision
 
 import (
 	"encoding/base64"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -540,6 +541,34 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 	}
 }
 
+func TestBridgectlReleasePin(t *testing.T) {
+	// AUTH-5: image builds and boot-time validation must target the same release.
+	const want = "v1.1.1"
+	if BridgectlVersion != want {
+		t.Errorf("CLI bridge pin = %q, want %q", BridgectlVersion, want)
+	}
+	variables, err := os.ReadFile("../../packer/variables.pkrvars.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^bridgectl_version\s*=\s*"([^"]+)"\s*$`).FindSubmatch(variables)
+	if len(match) != 2 {
+		t.Fatal("Packer variables must contain one bridgectl_version pin")
+	}
+	if got := string(match[1]); got != want {
+		t.Errorf("Packer bridge pin = %q, want %q", got, want)
+	}
+	for _, preinstalled := range []bool{false, true} {
+		out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-version", PackagesPreInstalled: preinstalled})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.1.1"`) {
+			t.Errorf("cloud-init must require package 1.1.1 (preinstalled=%v)", preinstalled)
+		}
+	}
+}
+
 func TestRenderCloudInit_versionPins(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:   "d-004",
@@ -737,8 +766,8 @@ func TestRenderCloudInit_noDesktopSecretPaths(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	if strings.Contains(out, "desktop-secrets.conf") {
-		t.Error("desktop-secrets.conf should be absent when DesktopSecretPaths is empty")
+	if !strings.Contains(out, "EnvironmentFile=-%%h/.config/environment.d/desktop-secrets.conf") {
+		t.Error("optional service override should support secrets added after creation")
 	}
 	if strings.Contains(out, ".desktop-secrets") {
 		t.Error(".desktop-secrets should be absent when DesktopSecretPaths is empty")

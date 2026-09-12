@@ -311,7 +311,8 @@ PY
 
 cat <<'EOF'
 
-Existing desktops do not automatically reload this secret. For a running desktop,
-restart the bridgectl user service after cloud-init has written agents.env, or
-recreate the desktop so boot-time cloud-init fetches the new secret.
+Existing desktops do not automatically reload this secret. Run:
+  ai-desktops secrets reload <desktop-id>
+Older desktops must first register this secret with `ai-desktops secrets add`.
+Reload interrupts active sessions and replaces the desktop's auth snapshot.
 EOF

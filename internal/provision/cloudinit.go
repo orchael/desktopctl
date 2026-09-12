@@ -12,7 +12,7 @@ import (
 
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.0.1"
+	BridgectlVersion      = "v1.1.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -961,6 +961,12 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Additional secrets override the base agent snapshot, including on older AMIs.
+    printf '[Service]\nEnvironmentFile=-%%h/.config/environment.d/desktop-secrets.conf\nKillMode=control-group\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
 
     # Prevent stale GitHub token overrides from shadowing the persisted gh login
     # that cloud-init writes to /home/ubuntu/.config/gh/hosts.yml.
