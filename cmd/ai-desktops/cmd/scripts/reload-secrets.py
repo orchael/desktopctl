@@ -11,6 +11,12 @@ import sys
 import tempfile
 
 
+class CategorizedError(RuntimeError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def run(*args, check=True):
     result = subprocess.run(args, capture_output=True, text=True)
     if check and result.returncode:
@@ -179,7 +185,7 @@ def main():
                 if value is not None:
                     values[key] = normalize(value)
         except (RuntimeError, ValueError, TypeError):
-            raise RuntimeError(f"could not retrieve/validate secret {secret}; files not updated") from None
+            raise CategorizedError(25, "could not retrieve or validate a configured secret; files not updated") from None
     if request["paths"] and not any(values.values()):
         raise RuntimeError("no secret values retrieved; files not updated")
     # Missing means unconfigured; a present blank seed must not authorize
@@ -265,7 +271,9 @@ except (RuntimeError, OSError, ValueError) as error:
     else:
         print("ERROR: credential rotation failed; inspect file permissions and service state", file=sys.stderr)
     message = str(error)
-    if "invalid CODEX_AUTH credentials" in message:
+    if isinstance(error, CategorizedError):
+        code = error.code
+    elif "invalid CODEX_AUTH credentials" in message:
         code = 20
     elif "Codex auth paths must be private" in message:
         code = 21

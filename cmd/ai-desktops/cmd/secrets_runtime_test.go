@@ -203,6 +203,7 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 		"foreign-owner", "unknown-unit", "unit-query-failed", "loaded-unit-unknown-active-state",
 		"malformed-auth-seed", "incomplete-auth-seed", "empty-auth-object", "invalid-token-type",
 		"empty-auth-seed", "whitespace-auth-seed", "multiline-whitespace-auth-seed",
+		"secret-path-mimics-codex-home-category",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			home, bin := t.TempDir(), t.TempDir()
@@ -226,6 +227,8 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 			write(filepath.Join(home, ".desktop-secrets"), "export CODEX_AUTH='old'\n", 0o600)
 			write(filepath.Join(home, ".bashrc"), "# preserve shell configuration\n", 0o600)
 			secret := `{"CODEX_AUTH":{"auth_mode":"chatgpt","tokens":{"access_token":"new-access","refresh_token":"new-refresh"}}}`
+			secretPath := "/test/agents"
+			awsScript := "#!/bin/sh\nprintf '%s' '" + secret + "'\n"
 			loadState, serviceExit := "loaded", "0"
 			activeExit := "0"
 			mountInfoPath := ""
@@ -303,11 +306,17 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				secret = `{"CODEX_AUTH":{}}`
 			case "invalid-token-type":
 				secret = `{"CODEX_AUTH":{"tokens":{"access_token":123,"refresh_token":"refresh"}}}`
+			case "secret-path-mimics-codex-home-category":
+				secretPath = "/test/CODEX_HOME"
+				awsScript = "#!/bin/sh\nexit 1\n"
 			}
-			write(filepath.Join(bin, "aws"), "#!/bin/sh\nprintf '%s' '"+secret+"'\n", 0o700)
+			if scenario != "secret-path-mimics-codex-home-category" {
+				awsScript = "#!/bin/sh\nprintf '%s' '" + secret + "'\n"
+			}
+			write(filepath.Join(bin, "aws"), awsScript, 0o700)
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then printf '"+loadState+"\\n'; exit "+serviceExit+"; fi\nif [ \"$2\" = is-active ]; then exit "+activeExit+"; fi\n", 0o700)
 			before := reloadRuntimeSnapshot(t, home)
-			script := buildSecretsReloadScript([]string{"/test/agents"}, "us-east-2")
+			script := buildSecretsReloadScript([]string{secretPath}, "us-east-2")
 			if scenario == "foreign-owner" {
 				// Model another desktop UID without chown/root requirements.
 				script = strings.Replace(script, "import os\n", "import os\nos.getuid = lambda: -1\n", 1)
@@ -322,10 +331,11 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				t.Fatalf("unsafe preflight succeeded: %s", output)
 			}
 			expectedExit := map[string]int{
-				"public-native-directory": 21,
-				"nfs-auth-directory":      23,
-				"unknown-unit":            24,
-				"malformed-auth-seed":     20,
+				"public-native-directory":                21,
+				"nfs-auth-directory":                     23,
+				"unknown-unit":                           24,
+				"malformed-auth-seed":                    20,
+				"secret-path-mimics-codex-home-category": 25,
 			}[scenario]
 			if expectedExit != 0 {
 				var exitErr *exec.ExitError
@@ -335,6 +345,9 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 			}
 			if strings.Contains(string(output), "secret-marker") {
 				t.Fatal("credential appeared in diagnostics")
+			}
+			if scenario == "secret-path-mimics-codex-home-category" && strings.Contains(string(output), secretPath) {
+				t.Fatal("untrusted secret path appeared in categorized diagnostics")
 			}
 			if after := reloadRuntimeSnapshot(t, home); !reflect.DeepEqual(before, after) {
 				t.Fatal("preflight failure modified credential files, caches, permissions, or shell config")

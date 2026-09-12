@@ -34,6 +34,7 @@ Require SSH key configured in `config.yaml`; skipped otherwise.
 - **bridgectl-installed** — bridgectl CLI is on PATH
 - **bridgectl-config-exists** — bridgectl config exists
 - **bridgectl-credentials-env** — provider credentials env file exists
+- **codex-home-private** — `/home/ubuntu/.codex` is a real, non-symlinked directory owned by `ubuntu:ubuntu` with mode `0700`
 - **bridgectl-service-active** — bridgectl user service is active
 
 ### System Resources (SSH-Based)

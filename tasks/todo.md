@@ -21,6 +21,17 @@ Validation: all new focused regressions failed against the prior behavior, then 
 
 Cycle-1 validation: the five focused regressions failed against commit `6d62125` for the expected reasons, then passed after the fixes. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed tasks. The previously built AMI already verified Helm v4.3.0; no additional cloud build was needed for the validation-only pin and review corrections.
 
+### PR #224 Copilot cycle 2
+
+- [x] Make fallback cloud-init reject a symlinked native Codex home and exit before later provisioning commands.
+- [x] Carry an explicit `secret_retrieval` exit category without printing or classifying on an untrusted secret path.
+- [x] Compare the live AMI's Helm version to the configured pin and correct stale FR-9 acceptance references.
+- [x] Update both doctor guides and the README diagnostic summary for the private Codex-home check.
+- [x] Run full local validation for cycle 2.
+- [ ] Push, reply to and resolve the cycle-2 thread, and check CI.
+
+Cycle-2 validation: the cloud-init symlink/fatality regression and secret-path diagnostic regression failed first for the intended reasons, then passed. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass.
+
 # Install Helm in the AMI with Homebrew
 
 Mode: approval-required; the user explicitly requested this AMI/runtime change. Governing requirement: FR-9.5 and AC-9.5. Scope: install Helm through the existing Linuxbrew installation during Packer provisioning, verify it in the playbook and AMI integration suite, and document the toolchain. Do not build an AMI or alter existing desktops. Rollout: rebuild and activate an AMI containing this change. Rollback: reactivate the prior AMI or revert the Helm provisioning tasks and rebuild.

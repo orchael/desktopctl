@@ -721,7 +721,7 @@ ai-desktops doctor d-a1b2c3d4
 ai-desktops doctor d-a1b2c3d4 --json
 ```
 
-Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
+Checks include EC2 state, SSH and noVNC reachability, Docker and bridge health, and private native Codex-home ownership and permissions.
 
 ### 13. Debug with SSM (if diagnostics fail)
 

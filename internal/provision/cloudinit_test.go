@@ -136,9 +136,15 @@ func TestRenderCloudInit_createsPrivateCodexHome(t *testing.T) {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
 
-	want := "install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex"
-	if !strings.Contains(out, want) {
-		t.Fatalf("rendered cloud-init does not secure the native Codex home with %q", want)
+	for _, want := range []string{
+		"if [ -L /home/ubuntu/.codex ]; then",
+		"ERROR: /home/ubuntu/.codex must not be a symlink",
+		"exit 1",
+		"install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered cloud-init does not secure the native Codex home with %q", want)
+		}
 	}
 }
 
