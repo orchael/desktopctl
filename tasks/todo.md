@@ -1,11 +1,16 @@
 # Upgrade the repository to Go 1.26
 
-Mode: approval-required; the user explicitly requested this repository-wide toolchain and CI update. Governing requirement: FR-5.6/AC-5.7. Scope: update all first-party Go modules, the control-plane builder image, developer prerequisites, and verify that GitHub Actions continues to derive Go from the root module. Do not update unrelated example snippets in generated agent-rule files. Rollout: merge the PR so CI, release builds, and subsequent container builds adopt Go 1.26. Rollback: revert the version-only commit to restore Go 1.25 pins.
+Mode: approval-required; the user explicitly requested this repository-wide toolchain and CI update. Governing requirement: FR-5.6/AC-5.8. Scope: update all first-party Go modules, the control-plane and AMI builder versions, developer prerequisites, and verify that GitHub Actions continues to derive Go from the root module. Do not update historical review evidence or unrelated example snippets in generated agent-rule files. Rollout: merge the PR so CI, release builds, and subsequent container/AMI builds adopt Go 1.26. Rollback: revert the version-only commits to restore the prior Go pins.
 
 - [x] Update the PRD before implementation.
 - [x] Update every authoritative Go version reference to Go 1.26.
 - [x] Run module, build, test, coverage, lint, and static version validation.
 - [ ] Create the PR, request Copilot, monitor CI, and resolve review feedback.
+
+### PR #227 Copilot cycle 1
+
+- [x] Score 2: update the Packer AMI Go pin and its active documentation to 1.26.0; validate with Go tests, Packer formatting/syntax checks, and Ansible syntax check.
+- [x] Score 1: rename the new toolchain criterion to the unused AC-5.8 identifier.
 
 # Harden agent-auth rotation and Codex-home provisioning
 

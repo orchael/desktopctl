@@ -406,7 +406,7 @@ aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us
 bridgectl_version       = "v1.1.1"
 tailscale_version       = "1.98.9"
 helm_version            = "v4.3.0"
-go_version              = "1.24.0"
+go_version              = "1.26.0"
 uv_version              = "0.12.3"
 ```
 
