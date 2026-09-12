@@ -13,7 +13,7 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 
 ### Tools
 
-- Go 1.22+
+- Go 1.26+
 - [Pulumi CLI](https://www.pulumi.com/docs/install/) — `curl -fsSL https://get.pulumi.com | sh`
 - AWS CLI v2 — configured with a profile that has the permissions listed below
 - `pnpm` — for the desktop webapp (`apps/desktop-web`) and Kubernetes control plane webapp (`apps/control-plane-web`)

@@ -1,3 +1,12 @@
+# Upgrade the repository to Go 1.26
+
+Mode: approval-required; the user explicitly requested this repository-wide toolchain and CI update. Governing requirement: FR-5.6/AC-5.7. Scope: update all first-party Go modules, the control-plane builder image, developer prerequisites, and verify that GitHub Actions continues to derive Go from the root module. Do not update unrelated example snippets in generated agent-rule files. Rollout: merge the PR so CI, release builds, and subsequent container builds adopt Go 1.26. Rollback: revert the version-only commit to restore Go 1.25 pins.
+
+- [x] Update the PRD before implementation.
+- [x] Update every authoritative Go version reference to Go 1.26.
+- [x] Run module, build, test, coverage, lint, and static version validation.
+- [ ] Create the PR, request Copilot, monitor CI, and resolve review feedback.
+
 # Harden agent-auth rotation and Codex-home provisioning
 
 Mode: approval-required; the user explicitly requested credential workflow, AMI, and cloud-init changes after the live `d-effdf24d` rotation exposed the gaps. Governing requirements: FR-9.8/AC-9.6 and AUTH-2a/AUTH-4d. Scope: fail closed on ambiguous AWS errors, add an optional update-and-reload path, propagate only allowlisted reload failure categories, and pre-create the native Codex home privately in both image and fallback provisioning. Preserve the strict reload validator and all unrelated branch edits. Rollout: bake and activate a new AMI for future desktops; cloud-init covers non-prebaked/fallback creates. Existing desktops require an explicit permission correction before reload. Rollback: restore the previous script/coordinator behavior and prior AMI, without rolling credentials back or weakening existing path validation.

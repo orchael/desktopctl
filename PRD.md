@@ -201,6 +201,7 @@ its own lifecycle and may survive desktop termination.
 | FR-5.3 | Every desktop must include `nvim`. |
 | FR-5.4 | Every desktop must include `tmux`. |
 | FR-5.5 | The base toolchain must be present before a desktop is reported ready. |
+| FR-5.6 | Repository Go modules, CI/release builds, and container builds must use Go 1.26. |
 
 **Acceptance criteria:**
 
@@ -212,6 +213,7 @@ its own lifecycle and may survive desktop termination.
 | AC-5.4 | `which tmux && tmux -V` exits 0 via SSH | `TestFR5_TmuxInstalled` |
 | AC-5.5 | All four tools resolve via `which git docker nvim tmux` in a single SSH call | `TestFR5_AllToolsOnPath` |
 | AC-5.6 | Desktop is in state `ready` only after all tools are confirmed present (desktop tested is already ready) | Implied by all AC-5.x tests running against a ready fixture |
+| AC-5.7 | Every first-party `go.mod` requires Go 1.26, GitHub Actions derives its Go version from the root module, and the control-plane builder uses a Go 1.26 image | Static configuration validation |
 
 ### FR-6 — Workspace and repository policy
 
