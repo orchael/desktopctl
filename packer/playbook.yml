@@ -207,13 +207,16 @@
         group: ubuntu
         mode: "0700"
 
-    - name: Install Go
+    - name: Remove any existing Go installation
+      ansible.builtin.file:
+        path: /usr/local/go
+        state: absent
+
+    - name: Install pinned Go version
       ansible.builtin.shell: |
         curl -fsSL https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz | \
           tar -xzf - -C /usr/local/
         echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/golang.sh
-      args:
-        creates: /usr/local/go/bin/go
 
     - name: Install uv (Python package manager) at pinned version
       ansible.builtin.shell: |
@@ -1008,12 +1011,12 @@
       register: go_ver_out
       changed_when: false
 
-    - name: Warn if Go version does not match expected
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: Go version mismatch — expected go{{ go_version }},
+    - name: Require the pinned Go version
+      ansible.builtin.assert:
+        that: go_ver_out.stdout == 'go version go' ~ go_version ~ ' linux/amd64'
+        fail_msg: >-
+          Go version mismatch — expected go{{ go_version }},
           got {{ go_ver_out.stdout }}
-      when: "'go' + go_version not in go_ver_out.stdout"
 
     - name: Verify uv is installed
       ansible.builtin.command: /home/ubuntu/.local/bin/uv --version
