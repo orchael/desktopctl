@@ -295,7 +295,7 @@ its own lifecycle and may survive desktop termination.
 | --- | --- | --- |
 | AC-9.1 | `ai-desktops ami build --help` exits 0 and mentions packer or ami | `TestFR9_AMIBuildCommandExists` |
 | AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
-| AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateUsesAMIFromConfig` |
+| AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateAMIFlagOverride` |
 | AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
 | AC-9.5 | The AMI playbook installs Helm with Linuxbrew and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsHelmWithHomebrew`, `TestAMIConfigurationPinsHelmVersion` |
 | AC-9.6 | The AMI playbook and rendered cloud-init both enforce a private native Codex home | `TestAMIPlaybookCreatesPrivateCodexHome`, `TestRenderCloudInit_createsPrivateCodexHome` |

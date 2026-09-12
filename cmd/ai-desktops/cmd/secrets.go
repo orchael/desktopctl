@@ -18,6 +18,11 @@ var secretsCmd = &cobra.Command{
 	Short: "Manage desktop secrets",
 }
 
+var (
+	secretsReloadRequiredSecret string
+	secretsReloadRequiredRegion string
+)
+
 var secretsReloadCmd = &cobra.Command{
 	Use:   "reload <desktop-id>",
 	Short: "Reload AWS Secrets Manager values on a running desktop",
@@ -31,6 +36,10 @@ leave existing credentials and sessions untouched.
 Secret operations on the same desktop fail fast if another operation is active.
 After an interrupted operation, run reload to reconcile the desktop with the
 authoritative fleet secret list before adding or removing paths.
+
+Automation that has just updated one secret can pass --require-secret and
+--require-region. Reload then fails before credential mutation unless that
+exact path is tracked for the desktop and its recorded AWS region matches.
 
 The desktop must be running and reachable via SSH. Use "ai-desktops ssh" to
 verify connectivity before running this command.`,
@@ -64,6 +73,8 @@ The desktop must be running and reachable via SSH.`,
 }
 
 func init() {
+	secretsReloadCmd.Flags().StringVar(&secretsReloadRequiredSecret, "require-secret", "", "fail unless this exact secret path is configured")
+	secretsReloadCmd.Flags().StringVar(&secretsReloadRequiredRegion, "require-region", "", "fail unless the desktop uses this exact AWS region")
 	secretsCmd.AddCommand(secretsReloadCmd)
 	secretsCmd.AddCommand(secretsAddCmd)
 	secretsCmd.AddCommand(secretsRemoveCmd)
@@ -96,27 +107,50 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	if d.Hostname == "" {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	paths := trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets)
+	if err := validateSecretsReloadRequirements(paths, region, secretsReloadRequiredSecret, secretsReloadRequiredRegion); err != nil {
+		return err
+	}
 	d, op, token, err := beginDesktopSecrets(ctx, s, d, true)
 	if err != nil {
 		return err
 	}
 	defer op.Close()
+	// BeginSecretOperation returns a fresh, fenced fleet snapshot. Recheck the
+	// guard against it so a concurrent metadata update cannot redirect reload.
+	region = d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	paths = trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets)
+	if err := validateSecretsReloadRequirements(paths, region, secretsReloadRequiredSecret, secretsReloadRequiredRegion); err != nil {
+		return err
+	}
 	if len(d.Secrets) == 0 && !op.pending {
 		return fmt.Errorf("desktop %q has no secrets configured", id)
 	}
 
-	region := d.Region
-	if region == "" {
-		region = cfg.AWS.Region
-	}
-
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
-	script := buildSecretsReloadScript(trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets), region)
+	script := buildSecretsReloadScript(paths, region)
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
-	return commitDesktopSecrets(ctx, s, d.DesktopID, token, trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets), op)
+	return commitDesktopSecrets(ctx, s, d.DesktopID, token, paths, op)
+}
+
+func validateSecretsReloadRequirements(paths []string, desktopRegion, requiredSecret, requiredRegion string) error {
+	if requiredSecret != "" && !containsString(paths, requiredSecret) {
+		return fmt.Errorf("required secret %q is not configured for this desktop; run `ai-desktops secrets add <desktop-id> %s` first", requiredSecret, requiredSecret)
+	}
+	if requiredRegion != "" && desktopRegion != requiredRegion {
+		return fmt.Errorf("required secret region mismatch: desktop uses %q, updated secret uses %q", desktopRegion, requiredRegion)
+	}
+	return nil
 }
 
 func runSecretsAdd(cmd *cobra.Command, args []string) error {

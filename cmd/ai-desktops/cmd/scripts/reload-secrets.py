@@ -17,11 +17,14 @@ class CategorizedError(RuntimeError):
         self.code = code
 
 
-def run(*args, check=True):
-    result = subprocess.run(args, capture_output=True, text=True)
+def run(*args, check=True, error_code=1):
+    try:
+        result = subprocess.run(args, capture_output=True, text=True)
+    except OSError:
+        raise CategorizedError(error_code, f"{args[0]} could not be started") from None
     if check and result.returncode:
         # Child diagnostics may include secret values. Never forward them.
-        raise RuntimeError(f"{args[0]} {args[1]} failed (exit {result.returncode})")
+        raise CategorizedError(error_code, f"{args[0]} {args[1]} failed (exit {result.returncode})")
     return result
 
 
@@ -38,14 +41,17 @@ def normalize(value):
 
 def read_env(path):
     values = {}
-    if path.exists():
-        for line in path.read_text().splitlines():
-            parts = shlex.split(line, comments=True)
-            if parts and parts[0] == "export":
-                parts = parts[1:]
-            if len(parts) == 1 and "=" in parts[0]:
-                key, value = parts[0].split("=", 1)
-                values[key] = value
+    try:
+        if path.exists():
+            for line in path.read_text().splitlines():
+                parts = shlex.split(line, comments=True)
+                if parts and parts[0] == "export":
+                    parts = parts[1:]
+                if len(parts) == 1 and "=" in parts[0]:
+                    key, value = parts[0].split("=", 1)
+                    values[key] = value
+    except (OSError, ValueError):
+        raise CategorizedError(22, "could not safely read an existing credential output; files not updated") from None
     return values
 
 
@@ -98,7 +104,7 @@ def validate_codex_seed(value):
         if not (account or api):
             raise ValueError("unsupported credentials")
     except (ValueError, TypeError):
-        raise RuntimeError("invalid CODEX_AUTH credentials; files not updated") from None
+        raise CategorizedError(20, "invalid CODEX_AUTH credentials; files not updated") from None
 
 
 def validate_private_auth_path(path, directory=False):
@@ -112,7 +118,7 @@ def validate_private_auth_path(path, directory=False):
             stat.S_IMODE(info.st_mode) & 0o077):
         # lstat rejects symlinks as well as incorrect file types. Do not print
         # supplied path strings or credential contents in diagnostics.
-        raise RuntimeError("Codex auth paths must be private, user-owned directories and regular files; files not updated")
+        raise CategorizedError(21, "Codex auth paths must be private, user-owned directories and regular files; files not updated")
 
 
 def auth_filesystem(path, mountinfo):
@@ -127,15 +133,15 @@ def auth_filesystem(path, mountinfo):
             if path == mount or mount in path.parents:
                 matches.append((len(mount.parts), index, fields[separator + 1]))
     except (IndexError, ValueError):
-        raise RuntimeError("could not verify Codex auth filesystem; files not updated") from None
+        raise CategorizedError(23, "could not verify Codex auth filesystem; files not updated") from None
     if not matches:
-        raise RuntimeError("could not verify Codex auth filesystem; files not updated")
+        raise CategorizedError(23, "could not verify Codex auth filesystem; files not updated")
     return max(matches)[2]
 
 
 def validate_surface_path(path, home, mountinfo, credential=True):
     if not home.is_absolute() or not path.is_relative_to(home):
-        raise RuntimeError("credential output must be under an absolute desktop home; files not updated")
+        raise CategorizedError(22, "credential output must be under an absolute desktop home; files not updated")
     # Do not resolve first: doing so would hide symlinks in the home or parents.
     for directory in surface_directories(path, home):
         try:
@@ -144,7 +150,7 @@ def validate_surface_path(path, home, mountinfo, credential=True):
             continue
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or
                 info.st_mode & 0o022):
-            raise RuntimeError("credential output directories must be real, user-owned and not group/other writable; files not updated")
+            raise CategorizedError(22, "credential output directories must be real, user-owned and not group/other writable; files not updated")
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -152,11 +158,11 @@ def validate_surface_path(path, home, mountinfo, credential=True):
     if info is not None and (not stat.S_ISREG(info.st_mode) or
             info.st_uid != os.getuid() or info.st_nlink != 1 or
             info.st_mode & (0o077 if credential else 0o022)):
-        raise RuntimeError("credential output files must be safe, user-owned regular files; files not updated")
+        raise CategorizedError(22, "credential output files must be safe, user-owned regular files; files not updated")
     # Include the file itself: a local directory can hold an NFS file bind-mount.
     for candidate in (*surface_directories(path, home), path):
         if auth_filesystem(candidate.resolve(), mountinfo) in ("nfs", "nfs4", "efs"):
-            raise RuntimeError("refusing credential output on EFS or NFS storage; files not updated")
+            raise CategorizedError(23, "refusing credential output on EFS or NFS storage; files not updated")
 
 
 def main():
@@ -166,7 +172,10 @@ def main():
     desktop_env = home / ".config/environment.d/desktop-secrets.conf"
     shell = home / ".desktop-secrets"
     bashrc = home / ".bashrc"
-    mountinfo = pathlib.Path("/proc/self/mountinfo").read_text()
+    try:
+        mountinfo = pathlib.Path("/proc/self/mountinfo").read_text()
+    except OSError:
+        raise CategorizedError(23, "could not verify credential filesystems; files not updated") from None
     for target in (agents, desktop_env, shell):
         validate_surface_path(target, home, mountinfo)
     validate_surface_path(bashrc, home, mountinfo, credential=False)
@@ -187,7 +196,7 @@ def main():
         except (RuntimeError, ValueError, TypeError):
             raise CategorizedError(25, "could not retrieve or validate a configured secret; files not updated") from None
     if request["paths"] and not any(values.values()):
-        raise RuntimeError("no secret values retrieved; files not updated")
+        raise CategorizedError(25, "no secret values retrieved; files not updated")
     # Missing means unconfigured; a present blank seed must not authorize
     # deleting working account credentials or silently falling back to an API key.
     if "CODEX_AUTH" in values:
@@ -204,24 +213,24 @@ def main():
             # systemd and bridgectl do not expand shell-style ~ paths.
             directory = pathlib.Path(source["CODEX_HOME"])
             if not directory.is_absolute() or not directory.resolve().is_relative_to(home):
-                raise RuntimeError("CODEX_HOME must be a private absolute directory under the desktop user's home")
+                raise CategorizedError(26, "CODEX_HOME must be a private absolute directory under the desktop user's home")
             auth_dirs.add(directory)
     for directory in auth_dirs:
         if not directory.resolve().is_relative_to(home):
-            raise RuntimeError("refusing to rotate Codex auth in a shared or external directory")
+            raise CategorizedError(26, "refusing to rotate Codex auth in a shared or external directory")
         validate_private_auth_path(directory, directory=True)
         validate_private_auth_path(directory / "auth.json")
         for path in (directory.resolve(), (directory / "auth.json").resolve()):
             if auth_filesystem(path, mountinfo) in ("nfs", "nfs4", "efs"):
-                raise RuntimeError("refusing to rotate Codex auth on EFS or NFS storage; files not updated")
+                raise CategorizedError(23, "refusing to rotate Codex auth on EFS or NFS storage; files not updated")
 
     load_state = run("systemctl", "--user", "show", "bridgectl",
-                     "--property=LoadState", "--value").stdout.strip()
+                     "--property=LoadState", "--value", error_code=24).stdout.strip()
     if load_state != "loaded":
-        raise RuntimeError("bridge service is not loaded; files not updated")
+        raise CategorizedError(24, "bridge service is not loaded; files not updated")
     service_status = run("systemctl", "--user", "is-active", "--quiet", "bridgectl", check=False).returncode
     if service_status not in (0, 3):
-        raise RuntimeError("could not determine bridge service state; files not updated")
+        raise CategorizedError(24, "could not determine bridge service state; files not updated")
     active = service_status == 0
 
     # Prepare every replacement before touching credentials or running sessions.
@@ -240,7 +249,7 @@ def main():
                 '\n[ -f ~/.desktop-secrets ] && . ~/.desktop-secrets\n', home, mode=bashrc_mode)))
         if active:
             # The systemd service's control group owns every provider process.
-            run("systemctl", "--user", "stop", "bridgectl")
+            run("systemctl", "--user", "stop", "bridgectl", error_code=24)
         for target, temporary in staged:
             os.replace(temporary, target)
         for directory in auth_dirs:
@@ -249,11 +258,11 @@ def main():
         removed_keys = set(previous) | (credential_keys if rotate_codex else set())
         old_keys = sorted(key for key in removed_keys if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key))
         if old_keys:
-            run("systemctl", "--user", "unset-environment", *old_keys)
-        run("systemctl", "--user", "daemon-reload")
+            run("systemctl", "--user", "unset-environment", *old_keys, error_code=24)
+        run("systemctl", "--user", "daemon-reload", error_code=24)
         if active:
-            run("systemctl", "--user", "start", "bridgectl")
-            run("systemctl", "--user", "is-active", "--quiet", "bridgectl")
+            run("systemctl", "--user", "start", "bridgectl", error_code=24)
+            run("systemctl", "--user", "is-active", "--quiet", "bridgectl", error_code=24)
         print("Secrets replaced." + (" Previous Codex auth caches cleared." if rotate_codex else "") +
               (" Bridge restarted; start or resume sessions to use the new credentials." if active else
                " Bridge was inactive and remains stopped; start bridgectl before starting sessions."))
@@ -270,23 +279,8 @@ except (RuntimeError, OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
     else:
         print("ERROR: credential rotation failed; inspect file permissions and service state", file=sys.stderr)
-    message = str(error)
     if isinstance(error, CategorizedError):
         code = error.code
-    elif "invalid CODEX_AUTH credentials" in message:
-        code = 20
-    elif "Codex auth paths must be private" in message:
-        code = 21
-    elif "EFS or NFS" in message or "filesystem" in message:
-        code = 23
-    elif "credential output" in message:
-        code = 22
-    elif "bridge service" in message or "systemctl" in message:
-        code = 24
-    elif "secret" in message:
-        code = 25
-    elif "CODEX_HOME" in message or "Codex auth in a shared or external directory" in message:
-        code = 26
     else:
         code = 1
     sys.exit(code)

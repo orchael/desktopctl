@@ -191,7 +191,13 @@ func TestUpdateAgentAuthCanCreateAndReloadDesktop(t *testing.T) {
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
 case "$2" in
-  get-secret-value|describe-secret) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+  get-secret-value) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+  describe-secret)
+    case "$*" in
+      *"--query ARN"*) printf '%s\n' 'arn:aws:secretsmanager:us-west-1:123456789012:secret:test' ;;
+      *) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+    esac
+    ;;
   create-secret) exit 0 ;;
   *) exit 1 ;;
 esac
@@ -205,7 +211,7 @@ esac
 		t.Fatalf("missing create call: %s", calls)
 	}
 	aiCallBytes, _ := os.ReadFile(aiCalls)
-	if got := strings.TrimSpace(string(aiCallBytes)); got != "secrets reload d-test" {
+	if got := strings.TrimSpace(string(aiCallBytes)); got != "secrets reload d-test --require-secret /test/agents --require-region us-west-1" {
 		t.Fatalf("reload call = %q", got)
 	}
 }
@@ -217,7 +223,13 @@ func TestUpdateAgentAuthPropagatesReloadFailure(t *testing.T) {
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
 case "$2" in
-  get-secret-value|describe-secret) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+  get-secret-value) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+  describe-secret)
+    case "$*" in
+      *"--query ARN"*) printf '%s\n' 'arn:aws:secretsmanager:us-east-2:123456789012:secret:test' ;;
+      *) printf '%s\n' 'An error occurred (ResourceNotFoundException) when calling the DescribeSecret operation: secret not found' >&2; exit 254 ;;
+    esac
+    ;;
   create-secret) exit 0 ;;
   *) exit 1 ;;
 esac

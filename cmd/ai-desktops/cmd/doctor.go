@@ -75,7 +75,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - bridgectl-version           — bridgectl --version exits successfully
     - bridgectl-config-exists     — ~/.config/bridgectl/config.yaml is present
     - bridgectl-credentials-env   — ~/.config/bridgectl/agents.env exists
-    - codex-home-private          — ~/.codex is owned by ubuntu with mode 0700
+    - codex-home-private          — ~/.codex is a real, non-symlinked directory owned by ubuntu with mode 0700
     - bridgectl-claude-configured — claude provider defined in config.yaml
     - bridgectl-codex-configured  — codex provider defined in config.yaml
     - bridgectl-service-active    — bridgectl systemd user service is active (ubuntu)

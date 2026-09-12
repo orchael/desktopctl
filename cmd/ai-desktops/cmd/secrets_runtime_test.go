@@ -331,10 +331,28 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				t.Fatalf("unsafe preflight succeeded: %s", output)
 			}
 			expectedExit := map[string]int{
+				"public-managed-directory":               21,
 				"public-native-directory":                21,
+				"public-explicit-directory":              21,
+				"public-auth-file":                       21,
+				"auth-file-symlink":                      21,
+				"auth-file-hardlink":                     21,
+				"auth-file-directory":                    21,
+				"auth-home-file":                         21,
 				"nfs-auth-directory":                     23,
+				"nfs-bind-mounted-auth-file":             23,
+				"unknown-auth-filesystem":                23,
+				"foreign-owner":                          22,
 				"unknown-unit":                           24,
+				"unit-query-failed":                      24,
+				"loaded-unit-unknown-active-state":       24,
 				"malformed-auth-seed":                    20,
+				"incomplete-auth-seed":                   20,
+				"empty-auth-object":                      20,
+				"invalid-token-type":                     20,
+				"empty-auth-seed":                        20,
+				"whitespace-auth-seed":                   20,
+				"multiline-whitespace-auth-seed":         25,
 				"secret-path-mimics-codex-home-category": 25,
 			}[scenario]
 			if expectedExit != 0 {
@@ -364,5 +382,24 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSecretsReloadUnexpectedOSErrorUsesUnknownCategory(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "CODEX_HOME")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := buildSecretsReloadScript([]string{"/test/agents"}, "us-east-2")
+	script = strings.Replace(script, "try:\n    main()", "try:\n    raise OSError('/missing/CODEX_HOME')", 1)
+	command := exec.Command("bash", "-c", script)
+	command.Env = append(os.Environ(), "HOME="+home)
+	output, err := command.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("exit = %v, want unknown category 1; output=%s", err, output)
+	}
+	if strings.Contains(string(output), "/missing/CODEX_HOME") {
+		t.Fatalf("unexpected exception details leaked: %s", output)
 	}
 }

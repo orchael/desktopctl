@@ -125,7 +125,7 @@ runcmd:
       echo 'ERROR: /home/ubuntu/.codex must not be a symlink' >&2
       exit 1
     fi
-    install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex
+    install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex || exit 1
 
 {{- if not .PackagesPreInstalled}}
   # --- nvim (via snap) ---

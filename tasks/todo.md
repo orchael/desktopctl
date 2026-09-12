@@ -17,7 +17,7 @@ Validation: all new focused regressions failed against the prior behavior, then 
 - [x] Skip Helm AMI validation for adopted integration fixtures.
 - [x] Reject whitespace-only existing `SecretString` values and recognize not-found only from the structured AWS `DescribeSecret` error prefix.
 - [x] Run full local validation for cycle 1.
-- [ ] Push, reply to and resolve all cycle-1 threads, and check CI.
+- [x] Push, reply to and resolve all cycle-1 threads, and check CI.
 
 Cycle-1 validation: the five focused regressions failed against commit `6d62125` for the expected reasons, then passed after the fixes. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed tasks. The previously built AMI already verified Helm v4.3.0; no additional cloud build was needed for the validation-only pin and review corrections.
 
@@ -28,9 +28,19 @@ Cycle-1 validation: the five focused regressions failed against commit `6d62125`
 - [x] Compare the live AMI's Helm version to the configured pin and correct stale FR-9 acceptance references.
 - [x] Update both doctor guides and the README diagnostic summary for the private Codex-home check.
 - [x] Run full local validation for cycle 2.
-- [ ] Push, reply to and resolve the cycle-2 thread, and check CI.
+- [x] Push, reply to and resolve the cycle-2 thread, and check CI.
 
 Cycle-2 validation: the cloud-init symlink/fatality regression and secret-path diagnostic regression failed first for the intended reasons, then passed. `go test ./...`, `go test -race ./...`, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite compilation, and `git diff --check` pass.
+
+### PR #224 Copilot cycle 3
+
+- [x] Require `update-agent-auth.sh --reload-desktop` to validate the exact updated secret path and resolved AWS region against the desktop before reload.
+- [x] Carry every known reload failure as a typed category and leave unexpected exceptions uncategorized.
+- [x] Make fallback cloud-init exit explicitly when native Codex-home creation fails.
+- [x] Correct the doctor help and FR-9 acceptance-test mapping.
+- [ ] Run full local validation, push, reply to and resolve cycle-3 threads, and verify CI.
+
+Cycle-3 validation: the exact-target, unknown-error classification, and fatal Codex-home provisioning regressions failed against `3328072`, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite binary compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed cloud-init or credential files.
 
 # Install Helm in the AMI with Homebrew
 

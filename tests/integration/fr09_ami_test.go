@@ -7,7 +7,6 @@
 //	AC-9.1  `ai-desktops ami build` command exists and can be invoked
 //	AC-9.1  `ai-desktops ami build --help` succeeds (confirms command registration)
 //	AC-9.3  `create --preview --ami <id>` references the supplied AMI in output
-//	         (partial: flag-override path only; config-based selection requires a separate test)
 //	AC-9.5  Helm is installed in the AMI through Linuxbrew
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
@@ -79,10 +78,6 @@ func TestFR9_HelmInstalled(t *testing.T) {
 
 // TestFR9_CreateAMIFlagOverride verifies that `create --preview --ami <id>`
 // references the explicitly supplied AMI ID in its output.
-//
-// Note: this test exercises the --ami flag override path, not config-based
-// AMI selection (AC-9.7). A separate test wiring the AMI into config.yaml
-// is needed to cover AC-9.3 end-to-end.
 //
 // This test requires that AI_DESKTOPS_AMI_ID is set to a known AMI ID for
 // the test region. If not set, the test is skipped.

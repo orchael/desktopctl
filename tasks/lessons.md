@@ -1,5 +1,8 @@
 # Execution lessons
 
+- Before reporting a branch commit complete, compare the intended file set with both `git show --stat HEAD` and the live worktree; a clean commit message does not prove every requested file was included.
+- Integration suites with provisioning in `TestMain` still perform setup under `go test -run '^$'`; use `go test -c` when the goal is compile-only validation with no cloud side effects.
+
 - For tests targeting "this repository", verify Git origin before provisioning. Repository catalogs can retain an older organization name; bind cleanup to the exact recorded resource identities regardless of the remote name.
 - Credential-source selection and remote credential validity are separate checks. Preserve provider-owned refresh state; do not replay an in-progress task under a different identity after a remote auth failure.
 - A resumable E2E runner must support partial provisioning (workspace created, desktop not yet created), retain exact resource IDs, and report useful error categories without exposing provider output or credentials.

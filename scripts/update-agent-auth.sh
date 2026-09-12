@@ -363,10 +363,25 @@ Reload interrupts active sessions and replaces the desktop's auth snapshot.
 EOF
 
 if [ -n "$reload_desktop" ]; then
+	if ! secret_arn="$(aws secretsmanager describe-secret "${aws_args[@]}" \
+		--secret-id "$secret_id" --query ARN --output text 2>"$aws_error_file")"; then
+		echo "ERROR: secret was updated, but its AWS region could not be resolved; desktop was not reloaded" >&2
+		exit 1
+	fi
+	resolved_region="$(python3 - "$secret_arn" <<'PY'
+import sys
+
+parts = sys.argv[1].split(":", 5)
+if len(parts) != 6 or parts[0] != "arn" or parts[2] != "secretsmanager" or not parts[3]:
+    raise SystemExit("AWS returned an invalid Secrets Manager ARN")
+print(parts[3])
+PY
+)"
   echo
   echo "Reloading updated credentials on $reload_desktop..."
-  if ! "$ai_desktops_bin" secrets reload "$reload_desktop"; then
-    echo "ERROR: secret was updated, but desktop reload failed; rerun secrets reload $reload_desktop to reconcile" >&2
+  if ! "$ai_desktops_bin" secrets reload "$reload_desktop" \
+		--require-secret "$secret_id" --require-region "$resolved_region"; then
+    echo "ERROR: secret was updated, but guarded desktop reload failed; follow the CLI error and reconcile before resuming sessions" >&2
     exit 1
   fi
 fi
