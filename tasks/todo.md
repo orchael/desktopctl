@@ -38,7 +38,7 @@ Cycle-2 validation: the cloud-init symlink/fatality regression and secret-path d
 - [x] Carry every known reload failure as a typed category and leave unexpected exceptions uncategorized.
 - [x] Make fallback cloud-init exit explicitly when native Codex-home creation fails.
 - [x] Correct the doctor help and FR-9 acceptance-test mapping.
-- [ ] Run full local validation, push, reply to and resolve cycle-3 threads, and verify CI.
+- [x] Run full local validation, push, reply to and resolve cycle-3 threads, and verify CI.
 
 Cycle-3 validation: the exact-target, unknown-error classification, and fatal Codex-home provisioning regressions failed against `3328072`, then passed after implementation. `go test ./...`, `go test -race ./...`, scoped internal coverage (76.4%), CLI build, `golangci-lint run ./...` (0 issues), ShellCheck, all seven Python regressions, Ansible syntax, Packer formatting/syntax, integration-suite binary compilation, and `git diff --check` pass. Full `ansible-lint packer/playbook.yml` retains the same 26 pre-existing failures and one task-count warning, with no finding on the changed cloud-init or credential files.
 
