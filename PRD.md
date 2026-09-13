@@ -201,6 +201,7 @@ its own lifecycle and may survive desktop termination.
 | FR-5.3 | Every desktop must include `nvim`. |
 | FR-5.4 | Every desktop must include `tmux`. |
 | FR-5.5 | The base toolchain must be present before a desktop is reported ready. |
+| FR-5.6 | Repository Go modules, CI/release builds, and container builds must use Go 1.26. |
 
 **Acceptance criteria:**
 
@@ -212,6 +213,7 @@ its own lifecycle and may survive desktop termination.
 | AC-5.4 | `which tmux && tmux -V` exits 0 via SSH | `TestFR5_TmuxInstalled` |
 | AC-5.5 | All four tools resolve via `which git docker nvim tmux` in a single SSH call | `TestFR5_AllToolsOnPath` |
 | AC-5.6 | Desktop is in state `ready` only after all tools are confirmed present (desktop tested is already ready) | Implied by all AC-5.x tests running against a ready fixture |
+| AC-5.8 | Every first-party `go.mod` requires Go 1.26, GitHub Actions derives its Go version from the root module, and container/AMI builds use Go 1.26 | Static configuration validation |
 
 ### FR-6 — Workspace and repository policy
 
@@ -284,9 +286,10 @@ its own lifecycle and may survive desktop termination.
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (linuxbrew), `bridgectl` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
+| FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 
 **Acceptance criteria:**
 
@@ -294,8 +297,10 @@ its own lifecycle and may survive desktop termination.
 | --- | --- | --- |
 | AC-9.1 | `ai-desktops ami build --help` exits 0 and mentions packer or ami | `TestFR9_AMIBuildCommandExists` |
 | AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
-| AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateUsesAMIFromConfig` |
+| AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateAMIFlagOverride` |
 | AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
+| AC-9.5 | The AMI playbook installs Helm with Linuxbrew and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsHelmWithHomebrew`, `TestAMIConfigurationPinsHelmVersion` |
+| AC-9.6 | The AMI playbook and rendered cloud-init both enforce a private native Codex home | `TestAMIPlaybookCreatesPrivateCodexHome`, `TestRenderCloudInit_createsPrivateCodexHome` |
 
 ### FR-11 — GitHub developer tooling
 
@@ -512,6 +517,21 @@ The PRD says external-user access must remain possible but does not define v1 au
 `bridgectl` needs provider credentials for Codex, Claude, and Gemini. The PRD intentionally forbids baking secrets into images, but the implementation still needs a delivery path. v1 should use AWS SSM Parameter Store or Secrets Manager references passed during provisioning, then render local bridge environment files on the desktop with restrictive permissions.
 
 The operator workflow must support updating the owner-scoped agent credential secret after initial setup without overwriting unrelated provider keys. In addition to API keys, the agent secret may carry Codex ChatGPT auth as `CODEX_AUTH` from a local Codex `auth.json` file and Claude Code long-lived auth as `CLAUDE_CODE_OAUTH_TOKEN` from the operator-provided setup-token output.
+
+#### Codex credential lifecycle and end-to-end validation
+
+- AUTH-1: Prefer existing desktop-local Codex account credentials, then bootstrap account credentials from `CODEX_AUTH`, then API-key authentication. Each desktop owns a private mutable auth cache seeded from the configured secret; starting another session or restarting the bridge must not restore an unchanged seed over refreshed credentials. Credentials must not be stored in the shared EFS workspace.
+- AUTH-2: Explicit `secrets reload` re-fetches both the configured agent secret and additional desktop secrets. It replaces the active credential snapshot, invalidates the previous managed Codex auth cache, and restarts the bridge and its provider processes so no active process continues using the old credentials. Reload must report retrieval or restart failures, preserve the previous files on retrieval failure, and never print credential values.
+- AUTH-2a: The operator auth-update script must preserve every unmodified secret key and fail closed when an existing JSON `SecretString` cannot be read. Only an explicit Secrets Manager `ResourceNotFoundException` may select secret creation; missing/non-string values, network, authorization, authentication, throttling, and other failures must not write a partial replacement. The script may optionally reload a named desktop after the secret update and must propagate reload failure.
+- AUTH-3: Codex session health checks must validate the effective session environment. Different explicit Codex homes must not share a cached directory accidentally.
+- AUTH-4: Updated `secrets add`, `remove`, and `reload` clients must coordinate across operator machines per desktop and fail fast when another secret operation is active. Coordination spans reading the authoritative path list, remote rotation, and persistence. Interrupted rotations require an explicit `secrets reload` to reconcile the desktop with fleet metadata; stale clients must not commit over a newer operation. Reload validates credential structure, private cache paths, and the loaded bridge service before changing files or stopping sessions.
+- AUTH-4a: Before reading or staging credential surfaces, reload must validate every output path and its ancestors from the desktop home downward. Existing directories must be real, user-owned, and not group/other writable; readable `0755` directories are allowed without changing their modes. Reject symlinks, shared NFS/EFS storage (including file-level mounts), and unsafe existing output files. Missing directories may be created privately only after all preflight checks pass. Rejection must leave files, directory modes, caches, and services unchanged.
+- AUTH-4b: Successful reload must preserve the existing safe mode of `.bashrc` when adding the shell-source hook; credential snapshots remain private. In-memory desktop records must isolate all slice fields from caller mutations on create, read/list, update, and secret-operation snapshots.
+- AUTH-4c: A present empty or whitespace-only `CODEX_AUTH` string in the merged replacement snapshot must fail preflight without changing credential files, caches, shell configuration, or services, even if an API key is also supplied. An absent `CODEX_AUTH` remains valid for API-key-only rotation; operators must remove the seed key rather than blank it to disable that source.
+- AUTH-4d: Coordinated secret operations must return an allowlisted, non-secret failure category for known preflight and runtime failures. Raw child stdout, stderr, commands, paths supplied through secrets, and credential values must remain suppressed.
+- AUTH-5: Pin the managed desktop `bridgectl` package to release `v1.1.1` in both the default Packer variables and CLI cloud-init expectation. Tests must keep these pins synchronized. Pre-baked AMIs must be rebuilt with the matching package; this change does not upgrade existing desktops or remove the E2E runner's explicit branch-binary override.
+- E2E-1: A reusable opt-in AWS E2E runner creates a uniquely named retained EFS workspace and desktop for this checkout's repository (default from the Git remote; currently `markcallen/ai-desktops`), waits for readiness, and executes selectable scenarios. The Codex auth scenario exercises real bridge authentication and validates credential persistence and explicit reload.
+- E2E-2: Successful runs terminate their desktop before deleting their workspace. Failed runs retain resources and report their identifiers. A keep-resources option also retains successful runs; a reuse option runs scenarios on those same resources for debugging. Cleanup may target only resources recorded as created by the runner.
 
 Operators must also be able to manage per-desktop injected secret references after creation. Adding a secret path should validate that the AWS Secrets Manager secret exists, inject all configured desktop secrets, and persist the updated fleet metadata. Removing a secret path should rewrite the desktop environment files without the removed secret, clear those files when no configured secrets remain, and persist the updated fleet metadata. Reloading should re-fetch the currently configured fleet secret list without changing it.
 

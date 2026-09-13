@@ -13,7 +13,7 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 
 ### Tools
 
-- Go 1.22+
+- Go 1.26+
 - [Pulumi CLI](https://www.pulumi.com/docs/install/) — `curl -fsSL https://get.pulumi.com | sh`
 - AWS CLI v2 — configured with a profile that has the permissions listed below
 - `pnpm` — for the desktop webapp (`apps/desktop-web`) and Kubernetes control plane webapp (`apps/control-plane-web`)
@@ -123,11 +123,29 @@ scripts/update-agent-auth.sh \
 
 The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
 
-Existing desktops do not automatically re-fetch `/ai-desktops/<owner>/agents`; recreate the desktop or restart/reload the `bridgectl` user service after updating `/home/ubuntu/.config/bridgectl/agents.env` on the instance.
+New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `ai-desktops secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. An already inactive bridge stays stopped, and the command reports that you need to start it. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `ai-desktops secrets add <desktop-id> /ai-desktops/<owner>/agents`; the configured agent path is loaded first so additional secrets still override it.
+
+`github.agent_secret` is an explicit credential source: changing the repository owner with `--github-owner` does not rewrite that configured secret path. This allows the same operator seed to bootstrap desktops for different repository owners while each desktop keeps its own refreshed auth file.
+
+With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an existing account auth file, then the `CODEX_AUTH` bootstrap seed, then API-key credentials. Each desktop owns its refreshed file under its private home directory; ordinary sessions and bridge restarts preserve it. Source selection checks credential structure; a revoked account still requires renewed login or explicit credential rotation, and tasks are not replayed automatically with a different identity. Explicit `CODEX_HOME` values used by desktop secret rotation must be private absolute directories under the desktop user's home, not an EFS workspace.
+
+`secrets add`, `remove`, and `reload` coordinate across operator machines using a desktop-held lock. Overlapping commands fail immediately with a busy error; they do not queue another rotation. The lock covers the fresh fleet snapshot, remote changes, and a fenced update of only the secret-path metadata. If a command or connection is interrupted, run `ai-desktops secrets reload <desktop-id>` to reconcile against the authoritative fleet list before trying add/remove again. Recovery can clear a partially injected snapshot even when that list is empty. If reload is still busy, the earlier remote operation is still running; wait for it to finish. Do not remove `~/.ai-desktops-secret-operation/lock`: its inode coordinates running processes and records unfinished rotations without storing credentials. Upgrade all CLI and control-plane processes that write fleet records; older versions bypass coordination and metadata guards. An ordinary fleet update whose snapshot became stale during rotation fails safely and can be retried after refreshing the record.
+
+Before rotation changes files or stops sessions, it validates the replacement `CODEX_AUTH` structure, existing auth-directory/file ownership and private permissions, and that the bridge systemd unit is loaded. Invalid credentials or unsafe cache paths leave the previous snapshot untouched. A failure after mutation has begun may leave a partial snapshot; fix the reported preconditions and use `secrets reload` to reconcile. Credential values and child-process diagnostics are not printed.
+
+The auth update script fails closed if an existing Secrets Manager value cannot be read; only an explicit AWS `ResourceNotFoundException` permits creating a new secret. To update Codex auth and immediately reload one desktop while preserving every other provider key, run `scripts/update-agent-auth.sh --skip-claude --reload-desktop <desktop-id> --yes`. Before reload, the CLI verifies that the exact updated secret path is tracked for the desktop and that its resolved AWS region matches the desktop. Older desktops must register the path with `ai-desktops secrets add` first. A reload failure is returned to the caller and must be reconciled before sessions resume.
+
+Known reload failures are reported through allowlisted non-secret categories, while raw child output remains suppressed. New AMIs and fallback cloud-init create `/home/ubuntu/.codex` as an ubuntu-owned `0700` directory; `ai-desktops doctor` checks that invariant. Existing desktops with a more permissive directory must be corrected explicitly before credential rotation.
+
+A present empty or whitespace-only `CODEX_AUTH` string is invalid, even when an API key is also configured. To intentionally switch to API-key-only credentials, remove `CODEX_AUTH` from the configured secret sources instead of setting it to a blank string, then reload. An absent seed remains supported.
+
+Reload also preflights all credential-output paths (`agents.env`, `desktop-secrets.conf`, `.desktop-secrets`) and `.bashrc` before reading or staging them. From the desktop home downward, existing parent directories must be real, owned by the desktop user, and not writable by group/others. Safe `0755` directories are allowed and left unchanged; new directories are created with `0700`. Existing credential files must be private, user-owned regular files. Symlinks, shared NFS/EFS directories or file-level mounts, and unsafe ownership/permissions are rejected without automatically chmodding or moving anything. Correct the unsafe path explicitly, then retry reload.
+
+When adding the shell-source hook, reload preserves the existing safe permissions of `.bashrc` (for example, `0644`); a newly created `.bashrc` and all credential snapshots remain `0600`.
 
 ### Desktop Secret Management
 
-Secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop.
+The configured `github.agent_secret` and secrets passed with `ai-desktops create --secret <path>` are tracked in the fleet record and rendered into `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf` on the desktop. Additional secret paths override duplicate keys from the base agent secret. Rotation also replaces `/home/ubuntu/.config/bridgectl/agents.env`, so the daemon and new shells use the same snapshot.
 
 Manage those per-desktop secret references after creation with:
 
@@ -138,6 +156,8 @@ ai-desktops secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
 ```
 
 `secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
+
+The opt-in [AWS E2E runner](tests/e2e/README.md) tests Codex auth using this checkout's CLI and a locally built Linux bridgectl binary. It creates a dedicated workspace and desktop for this repository, cleans up after success, and retains failed runs. Use `--keep` to retain a successful run and `--reuse <state.json>` to test the same resources again.
 
 ## Installation
 
@@ -383,11 +403,14 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-bridgectl_version       = "v1.0.1"
+bridgectl_version       = "v1.1.1"
 tailscale_version       = "1.98.9"
-go_version              = "1.24.0"
+helm_version            = "v4.3.0"
+go_version              = "1.26.0"
 uv_version              = "0.12.3"
 ```
+
+Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.1.1`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
 
 The following variables are **injected automatically** by the CLI and must not be set in the vars file:
 
@@ -441,6 +464,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
+- Helm (via Homebrew; version from `helm_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
@@ -697,7 +721,7 @@ ai-desktops doctor d-a1b2c3d4
 ai-desktops doctor d-a1b2c3d4 --json
 ```
 
-Checks: EC2 running, SSH reachable, noVNC HTTPS responds, Docker active, bridge active.
+Checks include EC2 state, SSH and noVNC reachability, Docker and bridge health, and private native Codex-home ownership and permissions.
 
 ### 13. Debug with SSM (if diagnostics fail)
 

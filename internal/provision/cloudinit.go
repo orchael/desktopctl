@@ -12,7 +12,7 @@ import (
 
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.0.1"
+	BridgectlVersion      = "v1.1.1"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -120,6 +120,12 @@ runcmd:
   - systemctl start docker
 {{- end}}
   - usermod -aG docker ubuntu
+  - |
+    if [ -L /home/ubuntu/.codex ]; then
+      echo 'ERROR: /home/ubuntu/.codex must not be a symlink' >&2
+      exit 1
+    fi
+    install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex || exit 1
 
 {{- if not .PackagesPreInstalled}}
   # --- nvim (via snap) ---
@@ -961,6 +967,12 @@ runcmd:
       > /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
     chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/workdir.conf
+
+    # Additional secrets override the base agent snapshot, including on older AMIs.
+    printf '[Service]\nEnvironmentFile=-%%h/.config/environment.d/desktop-secrets.conf\nKillMode=control-group\n' \
+      > /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
+    chown ubuntu:ubuntu /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
+    chmod 644 /home/ubuntu/.config/systemd/user/bridgectl.service.d/zz-desktop-secrets.conf
 
     # Prevent stale GitHub token overrides from shadowing the persisted gh login
     # that cloud-init writes to /home/ubuntu/.config/gh/hosts.yml.

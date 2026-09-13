@@ -1,120 +1,103 @@
 package cmd
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestBuildSecretsReloadScript_ContainsRegion(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/myapp/secrets"}, "us-west-2")
-	if !strings.Contains(script, `"us-west-2"`) {
-		t.Errorf("script should contain the region, got:\n%s", script)
+func secretScriptRequest(t *testing.T, script string) []byte {
+	t.Helper()
+	parts := strings.SplitN(script, "'", 3)
+	if len(parts) != 3 {
+		t.Fatal("missing encoded metadata")
+	}
+	data, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestSecretScriptsEncodeMetadataWithoutShellExpansion(t *testing.T) {
+	path := "/test/$(must-not-run)"
+	script := buildSecretsReloadScript([]string{path}, "us-east-2")
+	if strings.Contains(script, path) {
+		t.Fatal("unquoted metadata in shell")
+	}
+	var request struct {
+		Paths  []string
+		Region string
+	}
+	if err := json.Unmarshal(secretScriptRequest(t, script), &request); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(request.Paths, []string{path}) || request.Region != "us-east-2" {
+		t.Fatalf("wrong metadata: %#v", request)
+	}
+	if buildSecretsRemoveReloadScript([]string{path}, "us-east-2") != script {
+		t.Fatal("remove must use the same transactional rotation")
+	}
+	if strings.Contains(string(secretScriptRequest(t, buildSecretsClearScript())), "null") {
+		t.Fatal("clear must encode an empty list")
 	}
 }
 
-func TestBuildSecretsReloadScript_ContainsSecretPaths(t *testing.T) {
-	paths := []string{"/myapp/db", "/myapp/api-key"}
-	script := buildSecretsReloadScript(paths, "us-east-1")
-	for _, p := range paths {
-		if !strings.Contains(script, p) {
-			t.Errorf("script should contain secret path %q, got:\n%s", p, script)
+func TestDesktopSecretPathsTracksAgentAndPreservesOverrideOrder(t *testing.T) {
+	for _, tc := range []struct {
+		agent        string
+		extras, want []string
+	}{
+		{"/agents", nil, []string{"/agents"}},
+		{"/agents", []string{"/override", "/agents", "/override"}, []string{"/agents", "/override"}},
+		{"", []string{"/custom"}, []string{"/custom"}},
+		{"", nil, nil},
+	} {
+		if got := desktopSecretPaths(tc.agent, tc.extras); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("paths = %v, want %v", got, tc.want)
 		}
 	}
 }
 
-func TestBuildSecretsReloadScript_WritesEnvFiles(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
-	checks := []string{
-		"~/.config/environment.d/desktop-secrets.conf",
-		"~/.desktop-secrets",
-		"systemctl --user daemon-reload",
-		"export %s",
-	}
-	for _, want := range checks {
-		if !strings.Contains(script, want) {
-			t.Errorf("script should contain %q, got:\n%s", want, script)
-		}
-	}
-}
-
-func TestBuildSecretsReloadScript_RestartsServices(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
-	if !strings.Contains(script, "bridgectl") {
-		t.Errorf("script should reference bridgectl service, got:\n%s", script)
+func TestTrackedSecretPathsPreservesBasePrecedenceWithoutAddingSecrets(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		paths, want []string
+	}{
+		{"legacy-agent-added-last", []string{"/override", "/agents"}, []string{"/agents", "/override"}},
+		{"agent-not-registered", []string{"/override"}, []string{"/override"}},
+		{"already-ordered", []string{"/agents", "/one", "/two"}, []string{"/agents", "/one", "/two"}},
+		{"no-paths", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trackedSecretPaths("/agents", tc.paths); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("paths = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestBuildSecretsReloadScript_MultipleSecrets(t *testing.T) {
-	paths := []string{"/a/b", "/c/d", "/e/f"}
-	script := buildSecretsReloadScript(paths, "eu-west-1")
-	// Each path should appear multiple times (in the get-secret-value call and in the warnings).
-	for _, p := range paths {
-		count := strings.Count(script, p)
-		if count < 2 {
-			t.Errorf("secret path %q should appear at least twice in script, got %d occurrence(s)", p, count)
-		}
-	}
-}
-
-func TestBuildSecretsReloadScript_HandlesEmptyResult(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	if !strings.Contains(script, "no secret values retrieved") {
-		t.Errorf("script should handle empty result gracefully, got:\n%s", script)
-	}
-}
-
-func TestBuildSecretsReloadScript_ValidatesKeyNames(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	if !strings.Contains(script, "valid_key") || !strings.Contains(script, "not a valid env var name") {
-		t.Errorf("script should validate env var key names, got:\n%s", script)
-	}
-}
-
-func TestBuildSecretsReloadScript_NormalizesJSONValues(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	checks := []string{
-		"json.dumps(v, separators=(',', ':'))",
-		"json.loads(sv)",
-		"value contains newline/NUL or invalid JSON",
-	}
-	for _, want := range checks {
-		if !strings.Contains(script, want) {
-			t.Errorf("script should normalize JSON env values; missing %q in:\n%s", want, script)
-		}
-	}
-}
-
-func TestBuildSecretsReloadScript_AtomicShellFile(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	// Shell file must be written to a temp file then moved atomically via install.
-	if !strings.Contains(script, "SHELL_TMP") {
-		t.Errorf("script should use a temp file for atomic shell file write, got:\n%s", script)
-	}
-	if strings.Contains(script, `>> ~/.desktop-secrets`) {
-		t.Errorf("script must not append directly to ~/.desktop-secrets (non-atomic), got:\n%s", script)
-	}
-}
-
-func TestBuildSecretsReloadScript_EnvDirPermissions(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/secret"}, "us-east-1")
-	// environment.d dir should be created with 700, not 755.
-	if !strings.Contains(script, "install -d -m 700") {
-		t.Errorf("script should create ~/.config/environment.d with mode 700, got:\n%s", script)
-	}
-}
-
-func TestBuildSecretsReloadScript_SafeShell(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
-	if !strings.HasPrefix(script, "set -euo pipefail") {
-		t.Errorf("script should start with 'set -euo pipefail', got: %q", script[:min(30, len(script))])
-	}
-}
-
-func TestBuildSecretsReloadScript_TempFileCleanup(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/s"}, "us-east-1")
-	if !strings.Contains(script, "trap") || !strings.Contains(script, "DESKTOP_ENV_TMP") {
-		t.Errorf("script should set up trap for temp file cleanup, got:\n%s", script)
+func TestValidateSecretsReloadRequirements(t *testing.T) {
+	paths := []string{"/agents", "/override"}
+	for _, tc := range []struct {
+		name, requiredPath, requiredRegion, desktopRegion, wantError string
+	}{
+		{name: "exact-target", requiredPath: "/override", requiredRegion: "us-east-2", desktopRegion: "us-east-2"},
+		{name: "untracked-path", requiredPath: "/other", requiredRegion: "us-east-2", desktopRegion: "us-east-2", wantError: "not configured"},
+		{name: "wrong-region", requiredPath: "/override", requiredRegion: "us-west-2", desktopRegion: "us-east-2", wantError: "region mismatch"},
+		{name: "ordinary-reload"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSecretsReloadRequirements(paths, tc.desktopRegion, tc.requiredPath, tc.requiredRegion)
+			if tc.wantError == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) {
+				t.Fatalf("error = %v, want containing %q", err, tc.wantError)
+			}
+		})
 	}
 }
 
@@ -131,7 +114,7 @@ func TestSecretPathsAfterAdd_ReloadsExistingAndNewSecrets(t *testing.T) {
 		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
 	}
 
-	script := buildSecretsReloadScript(reloadPaths, "us-east-2")
+	script := string(secretScriptRequest(t, buildSecretsReloadScript(reloadPaths, "us-east-2")))
 	for _, want := range reloadPaths {
 		if !strings.Contains(script, want) {
 			t.Fatalf("reload script missing %q:\n%s", want, script)
@@ -177,58 +160,13 @@ func TestSecretPathsAfterRemove_ReloadScriptExcludesRemovedPaths(t *testing.T) {
 		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
 	}
 
-	script := buildSecretsReloadScript(remainingPaths, "us-east-2")
+	script := string(secretScriptRequest(t, buildSecretsReloadScript(remainingPaths, "us-east-2")))
 	if strings.Contains(script, "/ai-desktops/dev/control-plane/aws-operator") {
 		t.Fatalf("reload script includes removed secret:\n%s", script)
 	}
 	for _, want := range []string{"/markcallen/smoke", "/orchael/desktops/local"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("reload script missing remaining secret %q:\n%s", want, script)
-		}
-	}
-}
-
-func TestBuildSecretsRemoveReloadScript_ClearsAndFailsWhenNoRemainingValuesRetrieved(t *testing.T) {
-	script := buildSecretsRemoveReloadScript([]string{"/remaining"}, "us-east-2")
-	checks := []string{
-		"no remaining secret values retrieved; clearing secret files",
-		"install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf",
-		"install -m 600 /dev/null ~/.desktop-secrets",
-		"exit 1",
-	}
-	for _, want := range checks {
-		if !strings.Contains(script, want) {
-			t.Errorf("remove reload script should contain %q, got:\n%s", want, script)
-		}
-	}
-	if strings.Contains(script, "files not updated") {
-		t.Errorf("remove reload script must not preserve stale files when no values are retrieved:\n%s", script)
-	}
-}
-
-func TestBuildSecretsReloadScript_PreservesFilesWhenNoValuesRetrieved(t *testing.T) {
-	script := buildSecretsReloadScript([]string{"/remaining"}, "us-east-2")
-	if !strings.Contains(script, "no secret values retrieved; files not updated") {
-		t.Errorf("reload script should preserve existing files when no values are retrieved, got:\n%s", script)
-	}
-	if strings.Contains(script, "no remaining secret values retrieved; clearing secret files") {
-		t.Errorf("reload script should not use remove-specific clear-on-empty behavior:\n%s", script)
-	}
-}
-
-func TestBuildSecretsClearScript_ClearsEnvFiles(t *testing.T) {
-	script := buildSecretsClearScript()
-	checks := []string{
-		"~/.config/environment.d/desktop-secrets.conf",
-		"~/.desktop-secrets",
-		"install -d -m 700",
-		"install -m 600 /dev/null",
-		"systemctl --user daemon-reload",
-		"bridgectl",
-	}
-	for _, want := range checks {
-		if !strings.Contains(script, want) {
-			t.Errorf("script should contain %q, got:\n%s", want, script)
 		}
 	}
 }

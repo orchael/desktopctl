@@ -13,7 +13,7 @@ packer {
 
 variable "bridgectl_version" {
   type        = string
-  description = "bridgectl release tag (e.g. v1.0.1)"
+  description = "bridgectl release tag (e.g. v1.1.1)"
 }
 
 variable "tailscale_version" {
@@ -21,9 +21,14 @@ variable "tailscale_version" {
   description = "Tailscale apt package version to install (e.g. 1.98.9)"
 }
 
+variable "helm_version" {
+  type        = string
+  description = "Expected Helm release installed through Homebrew (e.g. v4.3.0)"
+}
+
 variable "go_version" {
   type        = string
-  description = "Go version to install (e.g. 1.23.0)"
+  description = "Go version to install (e.g. 1.26.0)"
 }
 
 variable "uv_version" {
@@ -114,6 +119,7 @@ source "amazon-ebs" "ubuntu" {
     AiDesktopsVersion          = var.ai_desktops_version
     BridgeVersion              = var.bridgectl_version
     TailscaleVersion           = var.tailscale_version
+    HelmVersion                = var.helm_version
     GoVersion                  = var.go_version
     UvVersion                  = var.uv_version
     FlutterVersion             = var.flutter_version
@@ -165,7 +171,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
@@ -183,6 +189,7 @@ build {
       ai_desktops_version           = var.ai_desktops_version
       bridge_version                = var.bridgectl_version
       tailscale_version             = var.tailscale_version
+      helm_version                  = var.helm_version
       go_version                    = var.go_version
       uv_version                    = var.uv_version
       flutter_version               = var.flutter_version

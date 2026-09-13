@@ -1,13 +1,14 @@
 package cmd
 
 import (
-	"context"
+	_ "embed"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/desktop"
 	"github.com/orchael/ai-desktops/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -17,13 +18,28 @@ var secretsCmd = &cobra.Command{
 	Short: "Manage desktop secrets",
 }
 
+var (
+	secretsReloadRequiredSecret string
+	secretsReloadRequiredRegion string
+)
+
 var secretsReloadCmd = &cobra.Command{
 	Use:   "reload <desktop-id>",
 	Short: "Reload AWS Secrets Manager values on a running desktop",
-	Long: `reload re-fetches every secret path that was configured at desktop creation time
+	Long: `reload re-fetches every currently configured secret path from the fleet record
 and rewrites both the systemd user environment file and the shell-sourceable env
-file on the running desktop. Affected user services (e.g. bridgectl) are
-restarted automatically.
+file and bridgectl agents.env on the running desktop. The bridge and active
+provider processes are stopped, local Codex auth caches are cleared, and the
+bridge is restarted. Start or resume sessions afterward. Retrieval failures
+leave existing credentials and sessions untouched.
+
+Secret operations on the same desktop fail fast if another operation is active.
+After an interrupted operation, run reload to reconcile the desktop with the
+authoritative fleet secret list before adding or removing paths.
+
+Automation that has just updated one secret can pass --require-secret and
+--require-region. Reload then fails before credential mutation unless that
+exact path is tracked for the desktop and its recorded AWS region matches.
 
 The desktop must be running and reachable via SSH. Use "ai-desktops ssh" to
 verify connectivity before running this command.`,
@@ -57,6 +73,8 @@ The desktop must be running and reachable via SSH.`,
 }
 
 func init() {
+	secretsReloadCmd.Flags().StringVar(&secretsReloadRequiredSecret, "require-secret", "", "fail unless this exact secret path is configured")
+	secretsReloadCmd.Flags().StringVar(&secretsReloadRequiredRegion, "require-region", "", "fail unless the desktop uses this exact AWS region")
 	secretsCmd.AddCommand(secretsReloadCmd)
 	secretsCmd.AddCommand(secretsAddCmd)
 	secretsCmd.AddCommand(secretsRemoveCmd)
@@ -71,7 +89,7 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 
 	s, err := openStore(ctx)
@@ -89,20 +107,48 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	if d.Hostname == "" {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
-	if len(d.Secrets) == 0 {
-		return fmt.Errorf("desktop %q has no secrets configured", id)
-	}
-
 	region := d.Region
 	if region == "" {
 		region = cfg.AWS.Region
 	}
+	paths := trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets)
+	if err := validateSecretsReloadRequirements(paths, region, secretsReloadRequiredSecret, secretsReloadRequiredRegion); err != nil {
+		return err
+	}
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, true)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
+	// BeginSecretOperation returns a fresh, fenced fleet snapshot. Recheck the
+	// guard against it so a concurrent metadata update cannot redirect reload.
+	region = d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	paths = trackedSecretPaths(cfg.GitHub.AgentSecret, d.Secrets)
+	if err := validateSecretsReloadRequirements(paths, region, secretsReloadRequiredSecret, secretsReloadRequiredRegion); err != nil {
+		return err
+	}
+	if len(d.Secrets) == 0 && !op.pending {
+		return fmt.Errorf("desktop %q has no secrets configured", id)
+	}
 
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
-	script := buildSecretsReloadScript(d.Secrets, region)
-	if err := runRemote(d, script); err != nil {
+	script := buildSecretsReloadScript(paths, region)
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
+	}
+	return commitDesktopSecrets(ctx, s, d.DesktopID, token, paths, op)
+}
+
+func validateSecretsReloadRequirements(paths []string, desktopRegion, requiredSecret, requiredRegion string) error {
+	if requiredSecret != "" && !containsString(paths, requiredSecret) {
+		return fmt.Errorf("required secret %q is not configured for this desktop; run `ai-desktops secrets add <desktop-id> %s` first", requiredSecret, requiredSecret)
+	}
+	if requiredRegion != "" && desktopRegion != requiredRegion {
+		return fmt.Errorf("required secret region mismatch: desktop uses %q, updated secret uses %q", desktopRegion, requiredRegion)
 	}
 	return nil
 }
@@ -115,7 +161,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 	newPaths := args[1:]
 
@@ -134,6 +180,12 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	if d.Hostname == "" {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
+
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, false)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
 
 	region := d.Region
 	if region == "" {
@@ -157,6 +209,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	toAdd, reloadPaths := secretPathsAfterAdd(d.Secrets, newPaths)
+	reloadPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
 	for _, p := range newPaths {
 		if !containsString(toAdd, p) {
 			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
@@ -171,14 +224,12 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	// desktop env files atomically instead of appending to them.
 	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
 	script := buildSecretsReloadScript(reloadPaths, region)
-	if err := runRemote(d, script); err != nil {
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
 	}
 
-	// Persist the updated secret list in the fleet record.
-	mgr := desktop.NewManager(s)
-	if err := mgr.AddSecrets(ctx, id, toAdd); err != nil {
-		return fmt.Errorf("update fleet record: %w", err)
+	if err := commitDesktopSecrets(ctx, s, id, token, reloadPaths, op); err != nil {
+		return err
 	}
 
 	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
@@ -193,7 +244,7 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop.ssh_key_path is not set in config; cannot run remote commands")
 	}
 
-	ctx := context.Background()
+	ctx := cmd.Context()
 	id := args[0]
 	removePaths := args[1:]
 
@@ -213,7 +264,13 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop %q has no hostname — is it running?", id)
 	}
 
+	d, op, token, err := beginDesktopSecrets(ctx, s, d, false)
+	if err != nil {
+		return err
+	}
+	defer op.Close()
 	toRemove, remainingPaths := secretPathsAfterRemove(d.Secrets, removePaths)
+	remainingPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, remainingPaths)
 	for _, p := range removePaths {
 		if !containsString(toRemove, p) {
 			fmt.Printf("Secret %s is not configured on %s, skipping\n", p, id)
@@ -236,13 +293,12 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
 		script = buildSecretsRemoveReloadScript(remainingPaths, region)
 	}
-	if err := runRemote(d, script); err != nil {
+	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets remove failed: %w", err)
 	}
 
-	mgr := desktop.NewManager(s)
-	if err := mgr.RemoveSecrets(ctx, id, toRemove); err != nil {
-		return fmt.Errorf("update fleet record: %w", err)
+	if err := commitDesktopSecrets(ctx, s, id, token, remainingPaths, op); err != nil {
+		return err
 	}
 
 	fmt.Printf("Removed %d secret(s) from %s: %s\n", len(toRemove), id, strings.Join(toRemove, ", "))
@@ -269,6 +325,24 @@ func secretPathsAfterAdd(existingPaths, newPaths []string) ([]string, []string) 
 	return toAdd, reloadPaths
 }
 
+func desktopSecretPaths(agentPath string, additional []string) []string {
+	var paths []string
+	if agentPath != "" {
+		paths = append(paths, agentPath)
+	}
+	_, paths = secretPathsAfterAdd(paths, additional)
+	return paths
+}
+
+// trackedSecretPaths orders only explicitly registered paths. It never opts a
+// legacy desktop into an agent secret merely because the local config has one.
+func trackedSecretPaths(agentPath string, paths []string) []string {
+	if agentPath != "" && containsString(paths, agentPath) {
+		return desktopSecretPaths(agentPath, paths)
+	}
+	return append([]string(nil), paths...)
+}
+
 func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []string) {
 	removeRequested := make(map[string]bool, len(removePaths))
 	for _, p := range removePaths {
@@ -292,146 +366,28 @@ func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []st
 	return toRemove, remainingPaths
 }
 
-// buildSecretsReloadScript returns a shell script that re-fetches each secret
-// path from AWS Secrets Manager and rewrites the desktop secret files.
+// buildSecretsReloadScript embeds the same transactional rotation path for
+// reload, add and remove. Only non-secret metadata is included in the command.
 func buildSecretsReloadScript(secretPaths []string, region string) string {
-	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorPreserve)
+	if secretPaths == nil {
+		secretPaths = []string{}
+	}
+	// This anonymous request contains only strings and string slices, which
+	// cannot fail JSON encoding. Revisit error handling if its shape changes.
+	request, _ := json.Marshal(struct {
+		Paths  []string `json:"paths"`
+		Region string   `json:"region"`
+	}{secretPaths, region})
+	return "set -euo pipefail\npython3 - '" + base64.StdEncoding.EncodeToString(request) + "' <<'AI_DESKTOPS_ROTATE_PY'\n" + secretsReloadPython + "\nAI_DESKTOPS_ROTATE_PY\n"
 }
 
-type emptySecretBehavior int
-
-const (
-	emptySecretBehaviorPreserve emptySecretBehavior = iota
-	emptySecretBehaviorClearAndFail
-)
+//go:embed scripts/reload-secrets.py
+var secretsReloadPython string
 
 func buildSecretsRemoveReloadScript(secretPaths []string, region string) string {
-	return buildSecretsReloadScriptWithEmptyBehavior(secretPaths, region, emptySecretBehaviorClearAndFail)
-}
-
-func buildSecretsReloadScriptWithEmptyBehavior(secretPaths []string, region string, emptyBehavior emptySecretBehavior) string {
-	var b strings.Builder
-
-	b.WriteString("set -euo pipefail\n")
-	b.WriteString("DESKTOP_ENV_TMP=$(mktemp)\n")
-	b.WriteString("trap 'rm -f \"$DESKTOP_ENV_TMP\"' EXIT\n")
-	fmt.Fprintf(&b, "REGION=%q\n", region)
-
-	for _, path := range secretPaths {
-		fmt.Fprintf(&b, `
-SECRET_JSON=$(aws secretsmanager get-secret-value \
-  --region "$REGION" \
-  --secret-id %q \
-  --query SecretString \
-  --output text 2>/dev/null) || true
-if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
-  echo "WARNING: could not retrieve desktop secret %s" >&2
-else
-  printf '%%s\n' "$SECRET_JSON" | python3 -c "
-import json, re, sys
-d = json.load(sys.stdin)
-valid_key = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
-sq = lambda v: chr(39) + str(v).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39)) + chr(39)
-def normalize(v):
-    if isinstance(v, (dict, list)):
-        return json.dumps(v, separators=(',', ':'))
-    sv = str(v)
-    if '\0' in sv:
-        return None
-    stripped = sv.strip()
-    if '\n' in sv and stripped[:1] in ('{', '['):
-        try:
-            return json.dumps(json.loads(sv), separators=(',', ':'))
-        except json.JSONDecodeError:
-            return None
-    if '\n' in sv:
-        return None
-    return sv
-for k, v in d.items():
-    if not valid_key.match(k):
-        print(f'WARNING: skipping secret key {k!r} (not a valid env var name)', file=sys.stderr)
-        continue
-    sv = normalize(v)
-    if sv is None:
-        print(f'WARNING: skipping secret key {k!r} (value contains newline/NUL or invalid JSON)', file=sys.stderr)
-        continue
-    if sv:
-        print(f'{k}={sq(sv)}')
-" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret %s" >&2
-fi
-unset SECRET_JSON
-`, path, path, path)
-	}
-
-	if emptyBehavior == emptySecretBehaviorPreserve {
-		b.WriteString(`
-if [ ! -s "$DESKTOP_ENV_TMP" ]; then
-  echo "WARNING: no secret values retrieved; files not updated" >&2
-  exit 0
-fi
-`)
-	} else {
-		b.WriteString(`
-if [ ! -s "$DESKTOP_ENV_TMP" ]; then
-  echo "WARNING: no remaining secret values retrieved; clearing secret files" >&2
-  install -d -m 700 ~/.config/environment.d
-  install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf
-  install -m 600 /dev/null ~/.desktop-secrets
-  systemctl --user daemon-reload
-  exit 1
-fi
-`)
-	}
-
-	b.WriteString(`
-
-# Write the shell-sourceable file to a temp location first, then move it into
-# place atomically so a partial write is never observed by a concurrent shell.
-SHELL_TMP=$(mktemp)
-trap 'rm -f "$DESKTOP_ENV_TMP" "$SHELL_TMP"' EXIT
-while IFS= read -r kv; do
-  printf 'export %s\n' "$kv" >> "$SHELL_TMP"
-done < "$DESKTOP_ENV_TMP"
-
-# systemd user environment (read by user manager; available to bridgectl and other user services)
-install -d -m 700 ~/.config/environment.d
-install -m 600 "$DESKTOP_ENV_TMP" ~/.config/environment.d/desktop-secrets.conf
-
-# shell-sourceable file for interactive sessions (atomic replace)
-install -m 600 "$SHELL_TMP" ~/.desktop-secrets
-
-# reload systemd user daemon so it picks up the new environment
-systemctl --user daemon-reload
-
-# restart affected user services; non-fatal if they are not installed
-for svc in bridgectl; do
-  if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-    systemctl --user restart "$svc" && echo "restarted $svc" || echo "WARNING: failed to restart $svc" >&2
-  fi
-done
-
-echo "secrets reloaded successfully"
-`)
-
-	return b.String()
+	return buildSecretsReloadScript(secretPaths, region)
 }
 
 func buildSecretsClearScript() string {
-	return `set -euo pipefail
-
-# Clear both user environment surfaces when the configured secret list becomes empty.
-install -d -m 700 ~/.config/environment.d
-install -m 600 /dev/null ~/.config/environment.d/desktop-secrets.conf
-install -m 600 /dev/null ~/.desktop-secrets
-
-systemctl --user daemon-reload
-
-for svc in bridgectl; do
-  if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-    systemctl --user restart "$svc" && echo "restarted $svc" || echo "WARNING: failed to restart $svc" >&2
-  fi
-done
-
-echo "secrets cleared successfully"
-`
+	return buildSecretsReloadScript(nil, "")
 }

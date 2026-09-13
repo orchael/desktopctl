@@ -1,6 +1,6 @@
 module github.com/orchael/ai-desktops/infra/pulumi/control-plane-access
 
-go 1.25.8
+go 1.26.0
 
 require (
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.83.3

@@ -28,6 +28,7 @@ Examples:
   scripts/update-agent-auth.sh --owner acme --region us-east-1
   scripts/update-agent-auth.sh --profile my-aws-profile --yes
   scripts/update-agent-auth.sh --codex-auth-json ~/.codex/auth.json --skip-claude
+  scripts/update-agent-auth.sh --skip-claude --reload-desktop d-12345678 --yes
   CLAUDE_CODE_OAUTH_TOKEN="$(pbpaste)" scripts/update-agent-auth.sh --yes
 
 Options:
@@ -40,6 +41,8 @@ Options:
   --claude-token-file PATH  File containing only the Claude Code OAuth token
   --skip-codex              Do not update CODEX_AUTH
   --skip-claude             Do not update CLAUDE_CODE_OAUTH_TOKEN
+  --reload-desktop ID       Reload the updated secret on this desktop
+  --ai-desktops-bin PATH    CLI used by --reload-desktop; defaults to repo binary or PATH
   --yes                     Do not prompt before writing
   -h, --help                Show this help
 EOF
@@ -55,6 +58,8 @@ claude_token_file=""
 skip_codex=false
 skip_claude=false
 assume_yes=false
+reload_desktop=""
+ai_desktops_bin=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -94,6 +99,14 @@ while [ "$#" -gt 0 ]; do
       skip_claude=true
       shift
       ;;
+    --reload-desktop)
+      reload_desktop="${2:?--reload-desktop requires a value}"
+      shift 2
+      ;;
+    --ai-desktops-bin)
+      ai_desktops_bin="${2:?--ai-desktops-bin requires a value}"
+      shift 2
+      ;;
     --yes)
       assume_yes=true
       shift
@@ -109,6 +122,24 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -n "$reload_desktop" ]; then
+  if [ -z "$ai_desktops_bin" ]; then
+    script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+    if [ -x "$script_dir/../ai-desktops" ]; then
+      ai_desktops_bin="$script_dir/../ai-desktops"
+    elif command -v ai-desktops >/dev/null 2>&1; then
+      ai_desktops_bin="$(command -v ai-desktops)"
+    else
+      echo "ERROR: ai-desktops CLI not found; pass --ai-desktops-bin PATH" >&2
+      exit 1
+    fi
+  fi
+  if [ ! -x "$ai_desktops_bin" ]; then
+    echo "ERROR: ai-desktops CLI is not executable: $ai_desktops_bin" >&2
+    exit 1
+  fi
+fi
 
 if [ -z "$secret_id" ]; then
   secret_id="/ai-desktops/${owner}/agents"
@@ -135,6 +166,7 @@ existing_json="$tmp_dir/existing.json"
 merged_json="$tmp_dir/merged.json"
 codex_value_file="$tmp_dir/codex-auth.json"
 claude_value_file="$tmp_dir/claude-token"
+aws_error_file="$tmp_dir/aws-error"
 
 echo "Updating agent auth secret"
 echo "  Secret: $secret_id"
@@ -231,15 +263,28 @@ if [ "$assume_yes" = false ]; then
   esac
 fi
 
-if aws secretsmanager get-secret-value "${aws_args[@]}" \
-  --secret-id "$secret_id" \
-  --query SecretString \
-  --output text > "$existing_json" 2>/dev/null; then
-  if [ ! -s "$existing_json" ] || [ "$(cat "$existing_json")" = "None" ]; then
-    printf '{}' > "$existing_json"
+secret_exists=false
+if aws secretsmanager describe-secret "${aws_args[@]}" \
+  --secret-id "$secret_id" >/dev/null 2>"$aws_error_file"; then
+  secret_exists=true
+  if ! aws secretsmanager get-secret-value "${aws_args[@]}" \
+    --secret-id "$secret_id" \
+    --query SecretString \
+    --output text > "$existing_json" 2>"$aws_error_file"; then
+    echo "ERROR: could not read existing secret; no changes written" >&2
+    exit 1
+  fi
+  if [ ! -s "$existing_json" ] || ! grep -q '[^[:space:]]' "$existing_json" || [ "$(cat "$existing_json")" = "None" ]; then
+    echo "ERROR: existing secret does not contain a readable JSON SecretString; no changes written" >&2
+    exit 1
   fi
 else
-  printf '{}' > "$existing_json"
+  if grep -qE '^An error occurred \(ResourceNotFoundException\) when calling the DescribeSecret operation:' "$aws_error_file"; then
+    printf '{}' > "$existing_json"
+  else
+    echo "ERROR: could not determine whether secret exists; no changes written" >&2
+    exit 1
+  fi
 fi
 
 python3 - "$existing_json" "$merged_json" "$codex_value_file" "$claude_value_file" "$skip_codex" "$skip_claude" <<'PY'
@@ -273,7 +318,7 @@ pathlib.Path(merged_path).write_text(
 PY
 chmod 600 "$merged_json"
 
-if aws secretsmanager describe-secret "${aws_args[@]}" --secret-id "$secret_id" >/dev/null 2>&1; then
+if [ "$secret_exists" = true ]; then
   aws secretsmanager put-secret-value "${aws_args[@]}" \
     --secret-id "$secret_id" \
     --secret-string "file://$merged_json" >/dev/null
@@ -311,7 +356,32 @@ PY
 
 cat <<'EOF'
 
-Existing desktops do not automatically reload this secret. For a running desktop,
-restart the bridgectl user service after cloud-init has written agents.env, or
-recreate the desktop so boot-time cloud-init fetches the new secret.
+Existing desktops do not automatically reload this secret. Run:
+  ai-desktops secrets reload <desktop-id>
+Older desktops must first register this secret with `ai-desktops secrets add`.
+Reload interrupts active sessions and replaces the desktop's auth snapshot.
 EOF
+
+if [ -n "$reload_desktop" ]; then
+	if ! secret_arn="$(aws secretsmanager describe-secret "${aws_args[@]}" \
+		--secret-id "$secret_id" --query ARN --output text 2>"$aws_error_file")"; then
+		echo "ERROR: secret was updated, but its AWS region could not be resolved; desktop was not reloaded" >&2
+		exit 1
+	fi
+	resolved_region="$(python3 - "$secret_arn" <<'PY'
+import sys
+
+parts = sys.argv[1].split(":", 5)
+if len(parts) != 6 or parts[0] != "arn" or parts[2] != "secretsmanager" or not parts[3]:
+    raise SystemExit("AWS returned an invalid Secrets Manager ARN")
+print(parts[3])
+PY
+)"
+  echo
+  echo "Reloading updated credentials on $reload_desktop..."
+  if ! "$ai_desktops_bin" secrets reload "$reload_desktop" \
+		--require-secret "$secret_id" --require-region "$resolved_region"; then
+    echo "ERROR: secret was updated, but guarded desktop reload failed; follow the CLI error and reconcile before resuming sessions" >&2
+    exit 1
+  fi
+fi
