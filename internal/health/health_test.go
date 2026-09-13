@@ -48,6 +48,45 @@ func TestBuildReport_skippedDoesNotFail(t *testing.T) {
 	}
 }
 
+func TestBuildReport_warningDoesNotFail(t *testing.T) {
+	results := []CheckResult{
+		{Name: "ssh", Status: StatusPass},
+		{Name: "cloudwatch-agent-active", Status: StatusWarning, Message: "inactive"},
+	}
+	r := buildReport("d-warning", results)
+	if !r.Passed {
+		t.Error("warning checks must not cause report to fail")
+	}
+	if r.Summary != "passed with warnings: cloudwatch-agent-active" {
+		t.Errorf("summary: got %q", r.Summary)
+	}
+}
+
+func TestInterpretBootstrapStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        string
+		wantStatus Status
+		wantText   string
+	}{
+		{name: "running", raw: `{"state":"running","started_at":"2026-09-13T10:00:00Z"}`, wantStatus: StatusWarning, wantText: "running since 2026-09-13T10:00:00Z"},
+		{name: "succeeded", raw: `{"state":"succeeded","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:04:00Z"}`, wantStatus: StatusPass, wantText: "succeeded at 2026-09-13T10:04:00Z"},
+		{name: "failed", raw: `{"state":"failed","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:02:00Z","exit_code":17}`, wantStatus: StatusFail, wantText: "failed with exit code 17; inspect /var/log/cloud-init-output.log"},
+		{name: "legacy missing", raw: `{"state":"missing"}`, wantStatus: StatusWarning, wantText: "status artifact missing (desktop may predate lifecycle reporting)"},
+		{name: "malformed", raw: `{`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
+		{name: "unknown", raw: `{"state":"paused"}`, wantStatus: StatusWarning, wantText: `unknown bootstrap state "paused"; inspect /var/log/cloud-init-output.log`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := interpretBootstrapStatus([]byte(tt.raw))
+			if got.Name != "bootstrap-state" || got.Status != tt.wantStatus || got.Message != tt.wantText {
+				t.Fatalf("interpretBootstrapStatus() = %#v, want status %q message %q", got, tt.wantStatus, tt.wantText)
+			}
+		})
+	}
+}
+
 func TestFnChecker_pass(t *testing.T) {
 	c := NewFnChecker("test-pass", func(ctx context.Context) error {
 		return nil
@@ -252,6 +291,42 @@ func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
 			t.Errorf("SystemCheckers missing %q", want)
 		}
 	}
+}
+
+func TestSystemCheckers_cloudWatchIsDiagnosticWarning(t *testing.T) {
+	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "key")
+	for _, checker := range checkers {
+		if checker.Name() != "cloudwatch-agent-active" {
+			continue
+		}
+		sshChecker, ok := checker.(*SSHChecker)
+		if !ok {
+			t.Fatalf("cloudwatch checker type = %T, want *SSHChecker", checker)
+		}
+		if sshChecker.failureStatus != StatusWarning {
+			t.Errorf("cloudwatch failure status = %q, want warning", sshChecker.failureStatus)
+		}
+		for _, field := range []string{"LoadState", "ActiveState", "SubState", "Result", "ExecMainStatus"} {
+			if !strings.Contains(sshChecker.command, field) {
+				t.Errorf("cloudwatch diagnostic command missing %q: %s", field, sshChecker.command)
+			}
+		}
+		return
+	}
+	t.Fatal("cloudwatch-agent-active checker not found")
+}
+
+func TestSystemCheckers_includesBootstrapState(t *testing.T) {
+	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "key")
+	for _, checker := range checkers {
+		if checker.Name() == "bootstrap-state" {
+			if _, ok := checker.(*BootstrapStatusChecker); !ok {
+				t.Fatalf("bootstrap checker type = %T, want *BootstrapStatusChecker", checker)
+			}
+			return
+		}
+	}
+	t.Fatal("bootstrap-state checker not found")
 }
 
 func TestSSHCheckers_returnsExpectedChecks(t *testing.T) {

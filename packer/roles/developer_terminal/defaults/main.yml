@@ -1,0 +1,42 @@
+---
+developer_terminal_user: ubuntu
+developer_terminal_home: /home/ubuntu
+
+# Upstream revisions are immutable and intentionally updated as one reviewed set.
+developer_terminal_nvchad_starter_revision: "e3572e1f5e1c297212c3deeb17b7863139ce663e"
+developer_terminal_nvchad_core_revision: "add44b952d631981614bbb8cfc6f7002f296dfe6"
+developer_terminal_lazy_nvim_revision: "306a05526ada86a7b30af95c5cc81ffba93fef97"
+
+developer_terminal_tmux_plugin_manager_revision: "e261deb1b47614eed3400089ce7197dc68acc4eb"
+developer_terminal_tmux_sensible_revision: "25cb91f42d020f675bb0a2ce3fbd3a5d96119efa"
+developer_terminal_catppuccin_tmux_revision: "d2d25bd3393fe43f19eb4fff6cdd2bdf5578e622"
+developer_terminal_tmux_cpu_revision: "bcb110d754ab2417de824c464730c412a3eb2769"
+developer_terminal_tmux_kubectx_revision: "b1305022d8260995372c4a8dbfa8bf6ca48e496f"
+developer_terminal_tmux_resurrect_revision: "cff343cf9e81983d3da0c8562b01616f12e8d548"
+developer_terminal_tmux_continuum_revision: "0698e8f4b17d6454c71bf5212895ec055c578da0"
+
+developer_terminal_tmux_plugins:
+  - name: tpm
+    repo: https://github.com/tmux-plugins/tpm.git
+    revision: "{{ developer_terminal_tmux_plugin_manager_revision }}"
+  - name: tmux-sensible
+    repo: https://github.com/tmux-plugins/tmux-sensible.git
+    revision: "{{ developer_terminal_tmux_sensible_revision }}"
+  - name: tmux
+    repo: https://github.com/catppuccin/tmux.git
+    revision: "{{ developer_terminal_catppuccin_tmux_revision }}"
+  - name: tmux-cpu
+    repo: https://github.com/tmux-plugins/tmux-cpu.git
+    revision: "{{ developer_terminal_tmux_cpu_revision }}"
+  - name: tmux-kubectx
+    repo: https://github.com/tony-sol/tmux-kubectx.git
+    revision: "{{ developer_terminal_tmux_kubectx_revision }}"
+  - name: tmux-resurrect
+    repo: https://github.com/tmux-plugins/tmux-resurrect.git
+    revision: "{{ developer_terminal_tmux_resurrect_revision }}"
+  - name: tmux-continuum
+    repo: https://github.com/tmux-plugins/tmux-continuum.git
+    revision: "{{ developer_terminal_tmux_continuum_revision }}"
+
+developer_terminal_gitmux_version: "v0.11.5"
+developer_terminal_gitmux_linux_amd64_checksum: "sha256:d46a10f5fe07ab5b8a902ac29c937e4d3c8d7f33ea30fa335d682601697b5a71"

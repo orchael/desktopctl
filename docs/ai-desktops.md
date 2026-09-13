@@ -286,6 +286,18 @@ Run the included readiness check to confirm the host is correctly configured as 
 sudo /usr/local/bin/ai-desktops-doctor
 ```
 
+### Managed terminal workflow
+
+New pre-baked AMIs configure the `ubuntu` user with a ready-to-use terminal environment:
+
+- NvChad starts non-interactively and uses the Catppuccin theme.
+- GitHub CLI uses `vim` as its editor.
+- tmux uses `C-a` as its prefix, `|` and `-` for pane splits, `r` to reload, vi copy-mode keys, login shells, clipboard integration, and automatic window renumbering.
+- TPM loads pinned `tmux-sensible`, Catppuccin, CPU, kubectx, resurrect, and continuum plugins. Continuum restores sessions automatically.
+- `gitmux` is installed from a checksum-verified release and is invoked only when the command is present.
+
+The AMI owns configurations marked with `.ai-desktops-managed`. The build role preserves an existing unmarked `~/.config/nvim` or `~/.tmux.conf` instead of replacing it. This workflow is an AMI capability; fallback cloud-init installs the base `nvim` and `tmux` binaries but does not install these configurations.
+
 The script checks eleven items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 
 | Check | What it verifies |

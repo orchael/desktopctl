@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ type Status string
 const (
 	StatusPass    Status = "pass"
 	StatusFail    Status = "fail"
+	StatusWarning Status = "warning"
 	StatusSkipped Status = "skipped"
 )
 
@@ -31,6 +33,7 @@ type Report struct {
 	DesktopID string        `json:"desktop_id"`
 	Checks    []CheckResult `json:"checks"`
 	Passed    bool          `json:"passed"`
+	Warnings  []string      `json:"warnings,omitempty"`
 	Summary   string        `json:"summary"`
 }
 
@@ -38,20 +41,27 @@ type Report struct {
 func buildReport(id string, results []CheckResult) *Report {
 	passed := true
 	failures := []string{}
+	warnings := []string{}
 	for _, r := range results {
-		if r.Status == StatusFail {
+		switch r.Status {
+		case StatusFail:
 			passed = false
 			failures = append(failures, r.Name)
+		case StatusWarning:
+			warnings = append(warnings, r.Name)
 		}
 	}
 	summary := "all checks passed"
 	if !passed {
 		summary = fmt.Sprintf("failed: %s", strings.Join(failures, ", "))
+	} else if len(warnings) > 0 {
+		summary = fmt.Sprintf("passed with warnings: %s", strings.Join(warnings, ", "))
 	}
 	return &Report{
 		DesktopID: id,
 		Checks:    results,
 		Passed:    passed,
+		Warnings:  warnings,
 		Summary:   summary,
 	}
 }
@@ -220,6 +230,17 @@ type SSHChecker struct {
 	keyPath string
 	command string
 	timeout time.Duration
+	// failureStatus allows optional services to report degraded health without
+	// hiding failures from required checks. The zero value means StatusFail.
+	failureStatus Status
+}
+
+// NewSSHWarningChecker creates an SSH checker whose remote command failures
+// are reported as warnings. It is intended only for optional services.
+func NewSSHWarningChecker(name, host string, port int, user, keyPath, command string, timeout time.Duration) *SSHChecker {
+	checker := NewSSHChecker(name, host, port, user, keyPath, command, timeout)
+	checker.failureStatus = StatusWarning
+	return checker
 }
 
 // NewSSHChecker creates an SSHChecker.
@@ -264,9 +285,105 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return CheckResult{Name: c.name, Status: StatusFail, Message: msg}
+		status := c.failureStatus
+		if status == "" {
+			status = StatusFail
+		}
+		return CheckResult{Name: c.name, Status: status, Message: msg}
 	}
 	return CheckResult{Name: c.name, Status: StatusPass}
+}
+
+const bootstrapStatusPath = "/var/lib/ai-desktops/bootstrap-status.json"
+
+type bootstrapStatus struct {
+	State      string `json:"state"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	ExitCode   int    `json:"exit_code"`
+}
+
+// BootstrapStatusChecker reads and interprets the secret-free lifecycle
+// artifact written by cloud-init. Missing artifacts remain compatible with
+// desktops created before lifecycle reporting was introduced.
+type BootstrapStatusChecker struct {
+	host    string
+	port    int
+	user    string
+	keyPath string
+	timeout time.Duration
+}
+
+func NewBootstrapStatusChecker(host string, port int, user, keyPath string, timeout time.Duration) *BootstrapStatusChecker {
+	return &BootstrapStatusChecker{host: host, port: port, user: user, keyPath: keyPath, timeout: timeout}
+}
+
+func (c *BootstrapStatusChecker) Name() string { return "bootstrap-state" }
+
+func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
+	if c.keyPath == "" {
+		return CheckResult{Name: c.Name(), Status: StatusSkipped, Message: "no SSH key configured"}
+	}
+	user := c.user
+	if user == "" {
+		user = "ubuntu"
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	command := fmt.Sprintf("sudo cat %s 2>/dev/null || printf '{\"state\":\"missing\"}'", bootstrapStatusPath)
+	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ConnectTimeout=10",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
+		"-i", c.keyPath,
+		"-p", fmt.Sprintf("%d", c.port),
+		fmt.Sprintf("%s@%s", user, c.host),
+		command,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(out))
+		if message == "" {
+			message = err.Error()
+		}
+		return CheckResult{Name: c.Name(), Status: StatusFail, Message: message}
+	}
+	return interpretBootstrapStatus(out)
+}
+
+func interpretBootstrapStatus(raw []byte) CheckResult {
+	result := CheckResult{Name: "bootstrap-state"}
+	var status bootstrapStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		result.Status = StatusWarning
+		result.Message = "status artifact is malformed; inspect /var/log/cloud-init-output.log"
+		return result
+	}
+	switch status.State {
+	case "running":
+		result.Status = StatusWarning
+		result.Message = "running"
+		if status.StartedAt != "" {
+			result.Message += " since " + status.StartedAt
+		}
+	case "succeeded":
+		result.Status = StatusPass
+		result.Message = "succeeded"
+		if status.FinishedAt != "" {
+			result.Message += " at " + status.FinishedAt
+		}
+	case "failed":
+		result.Status = StatusFail
+		result.Message = fmt.Sprintf("failed with exit code %d; inspect /var/log/cloud-init-output.log", status.ExitCode)
+	case "missing":
+		result.Status = StatusWarning
+		result.Message = "status artifact missing (desktop may predate lifecycle reporting)"
+	default:
+		result.Status = StatusWarning
+		result.Message = fmt.Sprintf("unknown bootstrap state %q; inspect /var/log/cloud-init-output.log", status.State)
+	}
+	return result
 }
 
 // SSHOptionalChecker runs a prerequisite command first; if the remote host
@@ -427,6 +544,7 @@ func shellQuote(s string) string {
 func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
 	return []Checker{
+		NewBootstrapStatusChecker(hostname, sshPort, user, keyPath, t),
 		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
 			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
@@ -439,9 +557,15 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHOptionalChecker("swap-active", hostname, sshPort, user, keyPath,
 			"test -f /swapfile", "no swap configured",
 			"swapon --show --noheadings | grep -q '^/swapfile'", t),
-		// CloudWatch agent is always installed by cloud-init.
-		NewSSHChecker("cloudwatch-agent-active", hostname, sshPort, user, keyPath,
-			"systemctl is-active amazon-cloudwatch-agent", t),
+		// CloudWatch is installed in the pre-baked AMI and configured at runtime,
+		// but monitoring remains optional. Report inactive state with bounded,
+		// secret-free systemd diagnostics without failing the whole desktop.
+		NewSSHWarningChecker("cloudwatch-agent-active", hostname, sshPort, user, keyPath,
+			"systemctl is-active --quiet amazon-cloudwatch-agent || { "+
+				"systemctl show amazon-cloudwatch-agent --no-pager "+
+				"--property=LoadState --property=ActiveState --property=SubState "+
+				"--property=Result --property=ExecMainStatus | tr '\\n' ' '; "+
+				"printf '; inspect: journalctl -u amazon-cloudwatch-agent --no-pager -n 200'; exit 1; }", t),
 	}
 }
 

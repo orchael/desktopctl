@@ -1,0 +1,284 @@
+---
+- name: Inspect existing Neovim configuration
+  ansible.builtin.stat:
+    path: "{{ developer_terminal_home }}/.config/nvim"
+  register: developer_terminal_nvim_config
+
+- name: Inspect managed Neovim marker
+  ansible.builtin.stat:
+    path: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
+  register: developer_terminal_nvim_marker
+
+- name: Decide whether Neovim configuration is managed
+  ansible.builtin.set_fact:
+    developer_terminal_manage_nvim: >-
+      {{
+        (not developer_terminal_nvim_config.stat.exists)
+        or (
+          not (developer_terminal_nvim_config.stat.islnk | default(false))
+          and developer_terminal_nvim_marker.stat.exists
+        )
+      }}
+
+- name: Refuse to replace an unmanaged Neovim configuration
+  ansible.builtin.debug:
+    msg: >-
+      Existing {{ developer_terminal_home }}/.config/nvim has no ai-desktops marker;
+      preserving the user-managed configuration.
+  when: not developer_terminal_manage_nvim
+
+- name: Fetch pinned NvChad starter
+  ansible.builtin.git:
+    repo: https://github.com/NvChad/starter.git
+    dest: /opt/ai-desktops/nvchad-starter
+    version: "{{ developer_terminal_nvchad_starter_revision }}"
+    update: true
+    force: false
+
+- name: Create managed Neovim configuration directory
+  ansible.builtin.file:
+    path: "{{ developer_terminal_home }}/.config/nvim"
+    state: directory
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0755"
+  when: developer_terminal_manage_nvim
+
+- name: Install pinned NvChad starter files
+  ansible.builtin.copy:
+    src: /opt/ai-desktops/nvchad-starter/
+    dest: "{{ developer_terminal_home }}/.config/nvim/"
+    remote_src: true
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: preserve
+  when: developer_terminal_manage_nvim
+
+- name: Remove starter Git metadata from managed Neovim configuration
+  ansible.builtin.file:
+    path: "{{ developer_terminal_home }}/.config/nvim/.git"
+    state: absent
+  when: developer_terminal_manage_nvim
+
+- name: Configure NvChad with immutable core revision
+  ansible.builtin.template:
+    src: init.lua.j2
+    dest: "{{ developer_terminal_home }}/.config/nvim/init.lua"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_nvim
+
+- name: Configure Catppuccin for NvChad
+  ansible.builtin.template:
+    src: chadrc.lua.j2
+    dest: "{{ developer_terminal_home }}/.config/nvim/lua/chadrc.lua"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_nvim
+
+- name: Install locked NvChad plugin revisions
+  ansible.builtin.copy:
+    src: lazy-lock.json
+    dest: "{{ developer_terminal_home }}/.config/nvim/lazy-lock.json"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_nvim
+
+- name: Mark Neovim configuration as managed
+  ansible.builtin.copy:
+    content: "NvChad starter {{ developer_terminal_nvchad_starter_revision }}\n"
+    dest: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_nvim
+
+- name: Create lazy.nvim parent directory
+  ansible.builtin.file:
+    path: "{{ developer_terminal_home }}/.local/share/nvim/lazy"
+    state: directory
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0755"
+  when: developer_terminal_manage_nvim
+
+- name: Install pinned lazy.nvim bootstrap
+  ansible.builtin.git:
+    repo: https://github.com/folke/lazy.nvim.git
+    dest: "{{ developer_terminal_home }}/.local/share/nvim/lazy/lazy.nvim"
+    version: "{{ developer_terminal_lazy_nvim_revision }}"
+    update: true
+    force: true
+  become_user: "{{ developer_terminal_user }}"
+  become: true
+  when: developer_terminal_manage_nvim
+
+- name: Synchronize locked NvChad plugins
+  ansible.builtin.command: /snap/bin/nvim --headless "+Lazy! restore" +qa
+  become_user: "{{ developer_terminal_user }}"
+  become: true
+  environment:
+    HOME: "{{ developer_terminal_home }}"
+  changed_when: false
+  when: developer_terminal_manage_nvim
+
+- name: Verify NvChad starts without interaction
+  ansible.builtin.command: /snap/bin/nvim --headless +qa
+  become_user: "{{ developer_terminal_user }}"
+  become: true
+  environment:
+    HOME: "{{ developer_terminal_home }}"
+  changed_when: false
+  when: developer_terminal_manage_nvim
+
+- name: Inspect existing tmux configuration
+  ansible.builtin.stat:
+    path: "{{ developer_terminal_home }}/.tmux.conf"
+  register: developer_terminal_tmux_config
+
+- name: Inspect managed tmux marker
+  ansible.builtin.stat:
+    path: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
+  register: developer_terminal_tmux_marker
+
+- name: Decide whether tmux configuration is managed
+  ansible.builtin.set_fact:
+    developer_terminal_manage_tmux: >-
+      {{
+        (not developer_terminal_tmux_config.stat.exists)
+        or (
+          not (developer_terminal_tmux_config.stat.islnk | default(false))
+          and developer_terminal_tmux_marker.stat.exists
+        )
+      }}
+
+- name: Refuse to replace an unmanaged tmux configuration
+  ansible.builtin.debug:
+    msg: >-
+      Existing {{ developer_terminal_home }}/.tmux.conf has no ai-desktops marker;
+      preserving the user-managed configuration.
+  when: not developer_terminal_manage_tmux
+
+- name: Create tmux plugin directory
+  ansible.builtin.file:
+    path: "{{ developer_terminal_home }}/.tmux/plugins"
+    state: directory
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0755"
+  when: developer_terminal_manage_tmux
+
+- name: Install pinned tmux plugins
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ developer_terminal_home }}/.tmux/plugins/{{ item.name }}"
+    version: "{{ item.revision }}"
+    update: true
+    force: true
+  become_user: "{{ developer_terminal_user }}"
+  become: true
+  loop: "{{ developer_terminal_tmux_plugins }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: developer_terminal_manage_tmux
+
+- name: Install managed tmux configuration
+  ansible.builtin.template:
+    src: tmux.conf.j2
+    dest: "{{ developer_terminal_home }}/.tmux.conf"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_tmux
+
+- name: Mark tmux configuration as managed
+  ansible.builtin.copy:
+    content: "ai-desktops managed tmux workflow\n"
+    dest: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_tmux
+
+- name: Download pinned gitmux archive
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/arl/gitmux/releases/download/{{ developer_terminal_gitmux_version }}/gitmux_{{ developer_terminal_gitmux_version }}_linux_amd64.tar.gz
+    dest: "/tmp/gitmux_{{ developer_terminal_gitmux_version }}_linux_amd64.tar.gz"
+    checksum: "{{ developer_terminal_gitmux_linux_amd64_checksum }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create versioned gitmux installation directory
+  ansible.builtin.file:
+    path: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install pinned gitmux binary
+  ansible.builtin.unarchive:
+    src: "/tmp/gitmux_{{ developer_terminal_gitmux_version }}_linux_amd64.tar.gz"
+    dest: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}"
+    remote_src: true
+    include:
+      - gitmux
+    creates: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Activate pinned gitmux binary
+  ansible.builtin.copy:
+    src: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
+    dest: /usr/local/bin/gitmux
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Verify pinned gitmux version
+  ansible.builtin.command: /usr/local/bin/gitmux -V
+  register: developer_terminal_gitmux_version_output
+  changed_when: false
+  failed_when: >-
+    developer_terminal_gitmux_version_output.stdout | trim
+    != (developer_terminal_gitmux_version | regex_replace('^v', ''))
+
+- name: Create gitmux configuration directory
+  ansible.builtin.file:
+    path: "{{ developer_terminal_home }}/.config/gitmux"
+    state: directory
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0755"
+  when: developer_terminal_manage_tmux
+
+- name: Install gitmux configuration
+  ansible.builtin.template:
+    src: gitmux.conf.j2
+    dest: "{{ developer_terminal_home }}/.config/gitmux/gitmux.conf"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_tmux
+
+- name: Verify tmux starts in detached mode
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /usr/bin/tmux -L ai-desktops-build -f {{ developer_terminal_home }}/.tmux.conf new-session -d -s ai-desktops-build
+    trap '/usr/bin/tmux -L ai-desktops-build kill-server >/dev/null 2>&1 || true' EXIT
+    test "$(/usr/bin/tmux -L ai-desktops-build show-options -gv prefix)" = C-a
+  args:
+    executable: /bin/bash
+  become_user: "{{ developer_terminal_user }}"
+  become: true
+  environment:
+    HOME: "{{ developer_terminal_home }}"
+  changed_when: false
+  when: developer_terminal_manage_tmux

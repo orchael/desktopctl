@@ -61,6 +61,51 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Verify NvChad starts without interaction
+      ansible.builtin.command: /snap/bin/nvim --headless +qa
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      changed_when: false
+
+    - name: Verify GitHub CLI editor configuration
+      ansible.builtin.command: gh config get editor
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      register: github_editor
+      changed_when: false
+      failed_when: github_editor.stdout | trim != 'vim'
+
+    - name: Verify managed tmux configuration and plugins
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(stat -c '%U:%G' /home/ubuntu/.tmux.conf)" = ubuntu:ubuntu
+        test "$(stat -c '%U:%G' /home/ubuntu/.config/nvim)" = ubuntu:ubuntu
+        for plugin in tpm tmux-sensible tmux tmux-cpu tmux-kubectx tmux-resurrect tmux-continuum; do
+          test -d "/home/ubuntu/.tmux/plugins/${plugin}/.git"
+          test "$(stat -c '%U:%G' "/home/ubuntu/.tmux/plugins/${plugin}")" = ubuntu:ubuntu
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify tmux starts in detached mode
+      ansible.builtin.shell: |
+        set -euo pipefail
+        tmux -L ai-desktops-postboot -f /home/ubuntu/.tmux.conf new-session -d -s ai-desktops-postboot
+        trap 'tmux -L ai-desktops-postboot kill-server >/dev/null 2>&1 || true' EXIT
+        test "$(tmux -L ai-desktops-postboot show-options -gv prefix)" = C-a
+      args:
+        executable: /bin/bash
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      changed_when: false
+
     - name: Check novnc-desktop service
       ansible.builtin.shell: systemctl list-unit-files | grep -q novnc-desktop && echo "novnc-desktop service installed"
       args:

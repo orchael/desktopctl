@@ -161,6 +161,9 @@ its own lifecycle and may survive desktop termination.
 | FR-3.1 | Every managed desktop must use `novnc-desktop` as the browser desktop substrate. |
 | FR-3.2 | `novnc-desktop` must be configured to use the `elementary` desktop environment for `ai-desktops` managed hosts. |
 | FR-3.3 | Failure to provision the required desktop substrate must fail desktop creation clearly rather than producing a partially usable desktop. |
+| FR-3.4 | Runtime cloud-init must persist a secret-free bootstrap lifecycle artifact with `running`, `succeeded`, or `failed` state and useful timestamps. |
+| FR-3.5 | `ai-desktops doctor` must report the persisted bootstrap state and remain backward compatible with desktops created before the artifact existed. |
+| FR-3.6 | CloudWatch monitoring is optional: an inactive agent must be reported as a non-blocking warning with actionable service diagnostics rather than making an otherwise healthy desktop fail doctor. |
 
 **Acceptance criteria:**
 
@@ -171,6 +174,10 @@ its own lifecycle and may survive desktop termination.
 | AC-3.3 | Port 8443 has a listening process (confirmed by `ss -tlnp`) | `TestFR3_NoVNCListening` |
 | AC-3.4 | Pantheon greeter package or xsession desktop file for elementary is present | `TestFR3_ElementaryDesktopEnvironment` |
 | AC-3.5 | A desktop that fails provisioning enters `failed` state, not `ready` | TestMain: `waitForState` fails cleanly |
+| AC-3.6 | Rendered cloud-init writes `running` before runtime setup and atomically records `succeeded` or `failed` from a lifecycle watcher | Unit and static cloud-init validation |
+| AC-3.7 | Doctor reports bootstrap `running` as a warning, `succeeded` as passing, and `failed` as failing with the cloud-init log location | Unit and live desktop validation |
+| AC-3.8 | A missing or malformed bootstrap lifecycle artifact is a non-blocking warning for backward compatibility | Unit tests |
+| AC-3.9 | An inactive CloudWatch agent reports `LoadState`, `ActiveState`, `SubState`, `Result`, and `ExecMainStatus` as a warning; SSH transport and other required checks still determine overall health | Unit and live desktop validation |
 
 ### FR-4 — Agent runtime
 
@@ -290,6 +297,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
+| FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI editor `vim`, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
 
 **Acceptance criteria:**
 
@@ -301,6 +309,11 @@ its own lifecycle and may survive desktop termination.
 | AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
 | AC-9.5 | The AMI playbook installs Helm with Linuxbrew and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsHelmWithHomebrew`, `TestAMIConfigurationPinsHelmVersion` |
 | AC-9.6 | The AMI playbook and rendered cloud-init both enforce a private native Codex home | `TestAMIPlaybookCreatesPrivateCodexHome`, `TestRenderCloudInit_createsPrivateCodexHome` |
+| AC-9.7 | `sudo -u ubuntu -H nvim --headless '+qa'` exits successfully without an interactive bootstrap prompt and the effective NvChad theme is Catppuccin | Static role validation and live AMI integration test |
+| AC-9.8 | `sudo -u ubuntu -H gh config get editor` prints `vim`; managed terminal files and plugin directories are owned by `ubuntu:ubuntu` | Static role validation and live AMI integration test |
+| AC-9.9 | A detached tmux session starts with the approved `C-a`, split, reload, login-shell, clipboard, renumbering, UTF-8, vi-copy, Catppuccin, CPU, application, session, resurrect, continuum, and gitmux behavior, while intentionally disabled options remain disabled | Static role validation and live AMI integration test |
+| AC-9.10 | Re-running the terminal-workflow role is idempotent for managed files and skips pre-existing unmarked Neovim or tmux configuration without replacing it | Role task tests and Ansible idempotence validation |
+| AC-9.11 | The AMI bake trusts the non-official Ballast Homebrew tap before Homebrew loads its formulae, so current Homebrew trust enforcement does not block image creation | Static task-order test and live AMI build |
 
 ### FR-11 — GitHub developer tooling
 

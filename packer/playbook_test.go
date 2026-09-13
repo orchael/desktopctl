@@ -144,3 +144,79 @@ func TestAMIPlaybookCreatesPrivateCodexHome(t *testing.T) {
 		t.Fatalf("AMI playbook does not create the native Codex home privately:\n%s", want)
 	}
 }
+
+func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
+	assertFileContains(t, "playbook.yml", `    - name: Configure pinned developer terminal workflow
+      ansible.builtin.include_role:
+        name: developer_terminal`)
+
+	for _, want := range []string{
+		`developer_terminal_nvchad_starter_revision: "e3572e1f5e1c297212c3deeb17b7863139ce663e"`,
+		`developer_terminal_tmux_plugin_manager_revision: "e261deb1b47614eed3400089ce7197dc68acc4eb"`,
+		`developer_terminal_catppuccin_tmux_revision: "d2d25bd3393fe43f19eb4fff6cdd2bdf5578e622"`,
+		`developer_terminal_gitmux_version: "v0.11.5"`,
+		`developer_terminal_gitmux_linux_amd64_checksum: "sha256:d46a10f5fe07ab5b8a902ac29c937e4d3c8d7f33ea30fa335d682601697b5a71"`,
+	} {
+		assertFileContains(t, filepath.Join("roles", "developer_terminal", "defaults", "main.yml"), want)
+	}
+
+	for name, wants := range map[string][]string{
+		"chadrc.lua.j2": {`theme = "catppuccin"`},
+		"tmux.conf.j2": {
+			"set-option -g prefix C-a", "bind | split-window -h", "bind - split-window -v",
+			"set-option -g automatic-rename off", "# set -g mouse on",
+			"set -g @continuum-restore 'on'", "@catppuccin_window_status_style \"rounded\"",
+			"catppuccin_status_application", "catppuccin_status_session", "catppuccin_status_cpu",
+			"command -v gitmux", "run -b '~/.tmux/plugins/tpm/tpm'",
+		},
+		"gitmux.conf.j2": {"layout: [branch, remote-branch, divergence, \" - \", flags]"},
+	} {
+		for _, want := range wants {
+			assertFileContains(t, filepath.Join("roles", "developer_terminal", "templates", name), want)
+		}
+	}
+
+	tasksPath := filepath.Join("roles", "developer_terminal", "tasks", "main.yml")
+	for _, want := range []string{
+		"Refuse to replace an unmanaged Neovim configuration",
+		"Refuse to replace an unmanaged tmux configuration",
+		"Install pinned tmux plugins",
+		"Verify NvChad starts without interaction",
+		"Verify tmux starts in detached mode",
+		"developer_terminal_gitmux_version_output.stdout | trim\n    != (developer_terminal_gitmux_version | regex_replace('^v', ''))",
+	} {
+		assertFileContains(t, tasksPath, want)
+	}
+
+	assertFileContains(t, "playbook.yml", `    - name: Configure GitHub CLI editor for ubuntu
+      ansible.builtin.command: /usr/bin/gh config set editor vim`)
+}
+
+func TestAMIPlaybookTrustsBallastTapBeforeLoadingIt(t *testing.T) {
+	playbook, err := os.ReadFile("playbook.yml")
+	if err != nil {
+		t.Fatalf("read AMI playbook: %v", err)
+	}
+
+	contents := string(playbook)
+	trust := strings.Index(contents, "brew trust --tap everydaydevopsio/ballast")
+	tap := strings.Index(contents, "brew tap everydaydevopsio/ballast")
+	if trust < 0 || tap < 0 {
+		t.Fatal("AMI playbook must explicitly trust and tap everydaydevopsio/ballast")
+	}
+	if trust > tap {
+		t.Fatal("AMI playbook must trust everydaydevopsio/ballast before Homebrew loads the tap")
+	}
+}
+
+func TestDesktopSetupVerifiesDeveloperTerminalWorkflow(t *testing.T) {
+	setup := filepath.Join("..", "ansible", "desktop-setup", "playbook.yml")
+	for _, want := range []string{
+		"Verify NvChad starts without interaction",
+		"Verify GitHub CLI editor configuration",
+		"Verify managed tmux configuration and plugins",
+		"Verify tmux starts in detached mode",
+	} {
+		assertFileContains(t, setup, want)
+	}
+}

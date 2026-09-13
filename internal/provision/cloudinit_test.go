@@ -882,6 +882,31 @@ func TestRenderCloudInit_cloudWatch(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_persistsBootstrapLifecycle(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-lifecycle"})
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+
+	for _, want := range []string{
+		"/var/lib/ai-desktops/bootstrap-status.json",
+		`ai-desktops-bootstrap-status start`,
+		`cloud-init status --wait`,
+		`systemd-run --unit=ai-desktops-bootstrap-status`,
+		`write_status succeeded`,
+		`write_status failed`,
+		`mv -f "$tmp" "$status_file"`,
+		`/var/log/cloud-init-output.log`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered cloud-init lifecycle reporting missing %q", want)
+		}
+	}
+	if strings.Contains(out, "NvChad") || strings.Contains(out, "tmux-plugins/tpm") {
+		t.Error("runtime cloud-init must not install the AMI-only terminal workflow")
+	}
+}
+
 func TestRenderCloudInit_withAVDs(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:            "d-avd",
