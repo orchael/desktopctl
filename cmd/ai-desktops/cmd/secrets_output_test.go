@@ -67,7 +67,7 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			write(filepath.Join(home, ".bashrc"), "# existing shell settings\n", 0644)
 			write(filepath.Join(bin, "aws"), "#!/bin/sh\nprintf '%s' '{\"APP_KEY\":\"dummy-secret-marker\"}'\n", 0700)
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then echo loaded; fi\n", 0700)
-			script := buildSecretsReloadScript("", []string{"/test/application"}, "us-east-2")
+			script := buildSecretsReloadScript("", []string{"/test/application"}, "us-east-2", false)
 			target := filepath.Join(home, tc.target)
 			success := tc.kind == "readable" || tc.kind == "missing" || tc.kind == "private-bashrc"
 			switch tc.kind {
@@ -150,9 +150,22 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			}
 			for _, path := range outputs {
 				data, err := os.ReadFile(filepath.Join(home, path))
+				if path == ".config/bridgectl/agents.env" && tc.kind == "missing" {
+					if !os.IsNotExist(err) {
+						t.Fatalf("untracked missing agent surface was created: %s", path)
+					}
+					preserved, preservedErr := os.ReadFile(filepath.Join(root, "previous-config/bridgectl/agents.env"))
+					if preservedErr != nil || !strings.Contains(string(preserved), "APP_KEY='old'") {
+						t.Fatalf("displaced agent surface was not preserved: %v", preservedErr)
+					}
+					continue
+				}
 				wantSecret := path != ".config/bridgectl/agents.env"
 				if err != nil || strings.Contains(string(data), "dummy-secret-marker") != wantSecret {
 					t.Fatalf("missing replacement: %s: %v", path, err)
+				}
+				if path == ".config/bridgectl/agents.env" && !strings.Contains(string(data), "APP_KEY='old'") {
+					t.Fatalf("untracked agent surface was not preserved: %s", path)
 				}
 				info, err := os.Stat(filepath.Join(home, path))
 				if err != nil || info.Mode().Perm() != 0600 {
@@ -160,6 +173,12 @@ func TestSecretsOutputPreflight(t *testing.T) {
 				}
 			}
 			for _, dir := range []string{filepath.Join(home, ".config"), filepath.Join(home, ".config/bridgectl"), filepath.Join(home, ".config/environment.d")} {
+				if tc.kind == "missing" && dir == filepath.Join(home, ".config/bridgectl") {
+					if _, err := os.Stat(dir); !os.IsNotExist(err) {
+						t.Fatalf("untracked agent directory was created: %v", err)
+					}
+					continue
+				}
 				info, err := os.Stat(dir)
 				want := os.FileMode(0700)
 				if tc.kind == "readable" {

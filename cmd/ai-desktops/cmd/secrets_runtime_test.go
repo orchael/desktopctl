@@ -15,16 +15,18 @@ import (
 // no AWS requests or real user services are involved.
 func TestSecretsReloadRuntime(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		aws        string
-		fail       bool
-		manualAuth bool
-		splitHomes bool
-		inactive   bool
-		separated  bool
-		shellValue string
+		name          string
+		aws           string
+		fail          bool
+		manualAuth    bool
+		splitHomes    bool
+		inactive      bool
+		separated     bool
+		preserveAgent bool
+		shellValue    string
 	}{
 		{name: "rotates-all-surfaces"},
+		{name: "preserves-untracked-agent-surface", preserveAgent: true, aws: `printf '%s' '{"NEW_KEY":"new"}'`},
 		{name: "separates-agent-and-desktop-secrets", separated: true, aws: `if [ "$6" = /test/agents ]; then
   printf '%s' '{"CODEX_AUTH":{"auth_mode":"chatgpt","tokens":{"access_token":"new-access","refresh_token":"new-refresh"}},"OPENAI_API_KEY":"agent-value","AGENT_ONLY":"agent"}'
 else
@@ -90,7 +92,11 @@ fi`},
 				systemctl += "if [ \"$2\" = is-active ]; then exit 3; fi\n"
 			}
 			write(filepath.Join(bin, "systemctl"), systemctl, 0o700)
-			c := exec.Command("bash", "-c", buildSecretsReloadScript("/test/agents", []string{"/test/second"}, "us-east-2"))
+			agentPath := "/test/agents"
+			if tc.preserveAgent {
+				agentPath = ""
+			}
+			c := exec.Command("bash", "-c", buildSecretsReloadScript(agentPath, []string{"/test/second"}, "us-east-2", !tc.preserveAgent))
 			c.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
 			out, err := c.CombinedOutput()
 			if tc.fail {
@@ -125,6 +131,12 @@ fi`},
 			}
 			for _, path := range []string{agents, shell, filepath.Join(home, ".config/environment.d/desktop-secrets.conf")} {
 				b, e := os.ReadFile(path)
+				if tc.preserveAgent && path == agents {
+					if e != nil || !strings.Contains(string(b), "CODEX_AUTH='old'") || !strings.Contains(string(b), "REMOVED_KEY='old'") || strings.Contains(string(b), "NEW_KEY") {
+						t.Fatalf("untracked agent surface was not preserved: %s", path)
+					}
+					continue
+				}
 				if tc.separated {
 					contents := string(b)
 					if path == agents {
@@ -333,7 +345,7 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 			write(filepath.Join(bin, "aws"), awsScript, 0o700)
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then printf '"+loadState+"\\n'; exit "+serviceExit+"; fi\nif [ \"$2\" = is-active ]; then exit "+activeExit+"; fi\n", 0o700)
 			before := reloadRuntimeSnapshot(t, home)
-			script := buildSecretsReloadScript(secretPath, nil, "us-east-2")
+			script := buildSecretsReloadScript(secretPath, nil, "us-east-2", true)
 			if scenario == "foreign-owner" {
 				// Model another desktop UID without chown/root requirements.
 				script = strings.Replace(script, "import os\n", "import os\nos.getuid = lambda: -1\n", 1)
@@ -407,7 +419,7 @@ func TestSecretsReloadUnexpectedOSErrorUsesUnknownCategory(t *testing.T) {
 	if err := os.Mkdir(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := buildSecretsReloadScript("/test/agents", nil, "us-east-2")
+	script := buildSecretsReloadScript("/test/agents", nil, "us-east-2", true)
 	script = strings.Replace(script, "try:\n    main()", "try:\n    raise OSError('/missing/CODEX_HOME')", 1)
 	command := exec.Command("bash", "-c", script)
 	command.Env = append(os.Environ(), "HOME="+home)

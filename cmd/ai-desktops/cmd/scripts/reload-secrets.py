@@ -245,7 +245,10 @@ def main():
     shell_text = "".join("export " + line + "\n" for line in desktop_text.splitlines())
     staged = []
     try:
-        for target, content in ((agents, agent_text), (desktop_env, desktop_text), (shell, shell_text)):
+        replacements = [(desktop_env, desktop_text), (shell, shell_text)]
+        if request["replace_agent"]:
+            replacements.insert(0, (agents, agent_text))
+        for target, content in replacements:
             staged.append((target, stage(target, content, home)))
         bashrc_text = bashrc.read_text() if bashrc.exists() else ""
         if ".desktop-secrets" not in bashrc_text:

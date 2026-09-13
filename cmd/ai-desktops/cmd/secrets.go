@@ -137,7 +137,7 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
 	agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, paths)
-	script := buildSecretsReloadScript(agentPath, desktopPaths, region)
+	script := buildSecretsReloadScript(agentPath, desktopPaths, region, agentPath != "")
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
@@ -225,7 +225,7 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	// desktop env files atomically instead of appending to them.
 	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
 	agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
-	script := buildSecretsReloadScript(agentPath, desktopPaths, region)
+	script := buildSecretsReloadScript(agentPath, desktopPaths, region, agentPath != "")
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
 	}
@@ -284,9 +284,10 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	var script string
+	replaceAgent := cfg.GitHub.AgentSecret != "" && containsString(toRemove, cfg.GitHub.AgentSecret)
 	if len(remainingPaths) == 0 {
 		fmt.Printf("Clearing desktop secret files on %s (%s); removing %d secret(s)...\n", id, d.Hostname, len(toRemove))
-		script = buildSecretsClearScript()
+		script = buildSecretsClearScript(replaceAgent)
 	} else {
 		region := d.Region
 		if region == "" {
@@ -294,7 +295,7 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
 		agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, remainingPaths)
-		script = buildSecretsRemoveReloadScript(agentPath, desktopPaths, region)
+		script = buildSecretsRemoveReloadScript(agentPath, desktopPaths, region, replaceAgent || agentPath != "")
 	}
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets remove failed: %w", err)
@@ -393,27 +394,28 @@ func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []st
 
 // buildSecretsReloadScript embeds the same transactional rotation path for
 // reload, add and remove. Only non-secret metadata is included in the command.
-func buildSecretsReloadScript(agentSecretPath string, desktopSecretPaths []string, region string) string {
+func buildSecretsReloadScript(agentSecretPath string, desktopSecretPaths []string, region string, replaceAgent bool) string {
 	if desktopSecretPaths == nil {
 		desktopSecretPaths = []string{}
 	}
 	// This anonymous request contains only strings and string slices, which
 	// cannot fail JSON encoding. Revisit error handling if its shape changes.
 	request, _ := json.Marshal(struct {
-		AgentPath string   `json:"agent_path"`
-		Paths     []string `json:"paths"`
-		Region    string   `json:"region"`
-	}{agentSecretPath, desktopSecretPaths, region})
+		AgentPath    string   `json:"agent_path"`
+		Paths        []string `json:"paths"`
+		Region       string   `json:"region"`
+		ReplaceAgent bool     `json:"replace_agent"`
+	}{agentSecretPath, desktopSecretPaths, region, replaceAgent})
 	return "set -euo pipefail\npython3 - '" + base64.StdEncoding.EncodeToString(request) + "' <<'AI_DESKTOPS_ROTATE_PY'\n" + secretsReloadPython + "\nAI_DESKTOPS_ROTATE_PY\n"
 }
 
 //go:embed scripts/reload-secrets.py
 var secretsReloadPython string
 
-func buildSecretsRemoveReloadScript(agentSecretPath string, desktopSecretPaths []string, region string) string {
-	return buildSecretsReloadScript(agentSecretPath, desktopSecretPaths, region)
+func buildSecretsRemoveReloadScript(agentSecretPath string, desktopSecretPaths []string, region string, replaceAgent bool) string {
+	return buildSecretsReloadScript(agentSecretPath, desktopSecretPaths, region, replaceAgent)
 }
 
-func buildSecretsClearScript() string {
-	return buildSecretsReloadScript("", nil, "")
+func buildSecretsClearScript(replaceAgent bool) string {
+	return buildSecretsReloadScript("", nil, "", replaceAgent)
 }
