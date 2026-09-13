@@ -549,8 +549,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
-		AgentSecretPath:      cfg.GitHub.AgentSecret,
-		DesktopSecretPaths:   runtimeDesktopSecretPaths(cfg.GitHub.AgentSecret, secretPaths),
 		TailscaleNetwork:     tailscaleNetwork,
 		TailscaleSecretPath:  tailscaleSecretPath,
 		StepCAServerDNS:      stepCAServer,
@@ -570,6 +568,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
 	}
+	applyBootstrapSecretSources(bootCfg, cfg.GitHub.AgentSecret, secretPaths)
 	if attachedWorkspace != nil {
 		bootCfg.EFSFileSystemID = attachedWorkspace.EFSFileSystemID
 		bootCfg.EFSAccessPointID = attachedWorkspace.EFSAccessPointID
@@ -826,6 +825,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+func applyBootstrapSecretSources(bootCfg *provision.BootstrapConfig, agentPath string, trackedPaths []string) {
+	bootCfg.AgentSecretPath = agentPath
+	bootCfg.DesktopSecretPaths = runtimeDesktopSecretPaths(agentPath, trackedPaths)
 }
 
 var secretPathSlugRe = regexp.MustCompile(`[^A-Za-z0-9_+=.@-]+`)

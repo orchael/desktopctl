@@ -164,6 +164,11 @@ Mode: approval-required; the user explicitly requested the secret-boundary corre
 - [x] Implement typed agent and desktop secret inputs without changing fleet persistence.
 - [x] Split human-readable status into `Agent secret` and desktop-wide `Secrets` lines.
 - [x] Make doctor omit desktop-wide secret-file checks for agent-only desktops after Copilot cycle 1.
+- [x] Add create-to-cloud-init source-boundary coverage after Copilot cycle 2.
 - [x] Run focused and full tests, coverage/lint where practical, and diff hygiene.
 
 Validation: the metadata/source-separation regression failed to compile against the prior single-list reload API, then passed after implementation. Dummy runtime tests prove an overlapping `OPENAI_API_KEY` remains agent-scoped in `agents.env` and desktop-scoped in both desktop environment files. Status regressions prove the tracked agent path is shown separately and an untracked configured path is not falsely reported. The cycle-1 doctor regression failed against the combined health-check input, then passed for agent-only, mixed, and untracked-agent desktops after filtering. Focused tests and race tests, the full Go suite, CLI build, command-package coverage (25.5%, with `cmd/` excluded from the repository's configured threshold), and `git diff --check` pass. Repository-wide lint reports one unrelated finding on the base branch at `internal/health/health.go:46`; no changed secret or status file is reported.
+
+### PR #239 Copilot cycle 2
+
+- [x] Score 2: route create-time secret scope through one bootstrap helper and render cloud-init with both a tracked agent path and an additional desktop path, proving neither source appears in the other's retrieval block. The existing reload runtime regression covers overlapping key values.
