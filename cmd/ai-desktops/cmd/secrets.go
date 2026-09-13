@@ -136,7 +136,8 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Reloading %d secret(s) on %s (%s)...\n", len(d.Secrets), id, d.Hostname)
 
-	script := buildSecretsReloadScript(paths, region)
+	agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, paths)
+	script := buildSecretsReloadScript(agentPath, desktopPaths, region, agentPath != "")
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets reload failed: %w", err)
 	}
@@ -223,7 +224,8 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	// Inject all configured secrets because the remote script rewrites the
 	// desktop env files atomically instead of appending to them.
 	fmt.Printf("Reloading %d configured secret(s) on %s (%s), including %d new...\n", len(reloadPaths), id, d.Hostname, len(toAdd))
-	script := buildSecretsReloadScript(reloadPaths, region)
+	agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
+	script := buildSecretsReloadScript(agentPath, desktopPaths, region, agentPath != "")
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets inject failed: %w", err)
 	}
@@ -282,16 +284,18 @@ func runSecretsRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	var script string
+	replaceAgent := cfg.GitHub.AgentSecret != "" && containsString(toRemove, cfg.GitHub.AgentSecret)
 	if len(remainingPaths) == 0 {
 		fmt.Printf("Clearing desktop secret files on %s (%s); removing %d secret(s)...\n", id, d.Hostname, len(toRemove))
-		script = buildSecretsClearScript()
+		script = buildSecretsClearScript(replaceAgent)
 	} else {
 		region := d.Region
 		if region == "" {
 			region = cfg.AWS.Region
 		}
 		fmt.Printf("Reloading %d remaining secret(s) on %s (%s); removing %d...\n", len(remainingPaths), id, d.Hostname, len(toRemove))
-		script = buildSecretsRemoveReloadScript(remainingPaths, region)
+		agentPath, desktopPaths := runtimeSecretPaths(cfg.GitHub.AgentSecret, remainingPaths)
+		script = buildSecretsRemoveReloadScript(agentPath, desktopPaths, region, replaceAgent || agentPath != "")
 	}
 	if err := op.Run(script); err != nil {
 		return fmt.Errorf("secrets remove failed: %w", err)
@@ -343,6 +347,28 @@ func trackedSecretPaths(agentPath string, paths []string) []string {
 	return append([]string(nil), paths...)
 }
 
+// runtimeSecretPaths preserves the fleet's single tracked path list while
+// separating the bridge-only agent source from desktop-wide environment
+// sources. The configured agent secret is active only when the desktop already
+// tracks it, so reload does not opt legacy desktops into new credentials.
+func runtimeSecretPaths(agentPath string, paths []string) (string, []string) {
+	desktopPaths := make([]string, 0, len(paths))
+	trackedAgentPath := ""
+	for _, path := range paths {
+		if agentPath != "" && path == agentPath {
+			trackedAgentPath = agentPath
+			continue
+		}
+		desktopPaths = append(desktopPaths, path)
+	}
+	return trackedAgentPath, desktopPaths
+}
+
+func runtimeDesktopSecretPaths(agentPath string, paths []string) []string {
+	_, desktopPaths := runtimeSecretPaths(agentPath, paths)
+	return desktopPaths
+}
+
 func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []string) {
 	removeRequested := make(map[string]bool, len(removePaths))
 	for _, p := range removePaths {
@@ -368,26 +394,28 @@ func secretPathsAfterRemove(existingPaths, removePaths []string) ([]string, []st
 
 // buildSecretsReloadScript embeds the same transactional rotation path for
 // reload, add and remove. Only non-secret metadata is included in the command.
-func buildSecretsReloadScript(secretPaths []string, region string) string {
-	if secretPaths == nil {
-		secretPaths = []string{}
+func buildSecretsReloadScript(agentSecretPath string, desktopSecretPaths []string, region string, replaceAgent bool) string {
+	if desktopSecretPaths == nil {
+		desktopSecretPaths = []string{}
 	}
 	// This anonymous request contains only strings and string slices, which
 	// cannot fail JSON encoding. Revisit error handling if its shape changes.
 	request, _ := json.Marshal(struct {
-		Paths  []string `json:"paths"`
-		Region string   `json:"region"`
-	}{secretPaths, region})
+		AgentPath    string   `json:"agent_path"`
+		Paths        []string `json:"paths"`
+		Region       string   `json:"region"`
+		ReplaceAgent bool     `json:"replace_agent"`
+	}{agentSecretPath, desktopSecretPaths, region, replaceAgent})
 	return "set -euo pipefail\npython3 - '" + base64.StdEncoding.EncodeToString(request) + "' <<'AI_DESKTOPS_ROTATE_PY'\n" + secretsReloadPython + "\nAI_DESKTOPS_ROTATE_PY\n"
 }
 
 //go:embed scripts/reload-secrets.py
 var secretsReloadPython string
 
-func buildSecretsRemoveReloadScript(secretPaths []string, region string) string {
-	return buildSecretsReloadScript(secretPaths, region)
+func buildSecretsRemoveReloadScript(agentSecretPath string, desktopSecretPaths []string, region string, replaceAgent bool) string {
+	return buildSecretsReloadScript(agentSecretPath, desktopSecretPaths, region, replaceAgent)
 }
 
-func buildSecretsClearScript() string {
-	return buildSecretsReloadScript(nil, "")
+func buildSecretsClearScript(replaceAgent bool) string {
+	return buildSecretsReloadScript("", nil, "", replaceAgent)
 }

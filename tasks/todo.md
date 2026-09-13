@@ -156,3 +156,24 @@ Rollback: revert branch changes and reinstall the previous bridge binary; recrea
 - E2E harness: offline Go tests passed with 81.2% coverage; two Python subprocess regressions passed, including transient-401 recovery. Keep/reuse/cleanup and partial-provision resume are covered offline.
 - Live AWS run: workspace `e2e-ai-desktops-b0c78d2b7d8b2ccb`, desktop `d-b27e224e`, state `/tmp/ai-desktops-e2e-3333895904/state.json`. Provisioning, EFS mount, repository clone, service readiness, and branch binary installation succeeded. The first Codex account request returned a terminal authentication failure, including after fixing the test to permit transient-401 recovery. At failure, `codex login status` reported ChatGPT and the account cache retained the uploaded `2026-08-27` refresh timestamp. On explicit operator request, the desktop and workspace access point were cleaned up on 2026-09-11 at 23:55 UTC; they are no longer reusable. The live authenticated reload and automatic success-cleanup path still need a fresh run; explicit cleanup has now been verified.
 - Isolation check: a direct native Codex request with the same auth file and all API/seed environment overrides removed also exited 1 with HTTP 401, refresh failure, and the ChatGPT backend (not the API backend). The remaining live blocker is the current account credential snapshot; the check did not print tokens or replace the shared AWS secret.
+# Isolate the agent secret from desktop-wide environment variables
+
+Mode: approval-required; the user explicitly requested the secret-boundary correction after desktop `d-36c62e9b` exposed an overlapping `OPENAI_API_KEY`. Governing requirement: AUTH-2b. Scope: keep the configured agent secret tracked for rotation but write it only to `agents.env`; write additional desktop secrets only to the desktop environment and shell files during create and reload. Preserve transactional reload, credential-cache invalidation, secret-safe diagnostics, and show the two scopes separately in human-readable status. Rollout: install the updated CLI, reload the affected desktop, and use a newly rendered cloud-init configuration for future desktops. Rollback: restore the prior CLI/cloud-init behavior and explicitly reload; no AWS secret values are changed by this code change.
+
+- [x] Add failing regressions for create-time source separation and reload-time output separation with an overlapping key.
+- [x] Implement typed agent and desktop secret inputs without changing fleet persistence.
+- [x] Split human-readable status into `Agent secret` and desktop-wide `Secrets` lines.
+- [x] Make doctor omit desktop-wide secret-file checks for agent-only desktops after Copilot cycle 1.
+- [x] Add create-to-cloud-init source-boundary coverage after Copilot cycle 2.
+- [x] Preserve legacy untracked `agents.env` during application-secret operations after Copilot cycle 3.
+- [x] Run focused and full tests, coverage/lint where practical, and diff hygiene.
+
+Validation: the metadata/source-separation regression failed to compile against the prior single-list reload API, then passed after implementation. Dummy runtime tests prove an overlapping `OPENAI_API_KEY` remains agent-scoped in `agents.env` and desktop-scoped in both desktop environment files. Status regressions prove the tracked agent path is shown separately and an untracked configured path is not falsely reported. The cycle-1 doctor regression failed against the combined health-check input, then passed for agent-only, mixed, and untracked-agent desktops after filtering. Focused tests and race tests, the full Go suite, CLI build, command-package coverage (25.5%, with `cmd/` excluded from the repository's configured threshold), and `git diff --check` pass. Repository-wide lint reports one unrelated finding on the base branch at `internal/health/health.go:46`; no changed secret or status file is reported.
+
+### PR #239 Copilot cycle 2
+
+- [x] Score 2: route create-time secret scope through one bootstrap helper and render cloud-init with both a tracked agent path and an additional desktop path, proving neither source appears in the other's retrieval block. The existing reload runtime regression covers overlapping key values.
+
+### PR #239 Copilot cycle 3
+
+- [x] Score 2: carry explicit agent-surface replacement intent so legacy application-secret reload/add/remove operations preserve an untracked `agents.env`, while tracked agent rotation and removal still replace or clear it. Validate existing, missing, and unsafe output surfaces plus focused race and full-suite coverage.
