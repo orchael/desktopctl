@@ -179,8 +179,13 @@ def main():
     for target in (agents, desktop_env, shell):
         validate_surface_path(target, home, mountinfo)
     validate_surface_path(bashrc, home, mountinfo, credential=False)
-    values = {}
-    for secret in request["paths"]:
+    agent_values = {}
+    desktop_values = {}
+    sources = []
+    if request["agent_path"]:
+        sources.append((request["agent_path"], agent_values))
+    sources.extend((secret, desktop_values) for secret in request["paths"])
+    for secret, destination in sources:
         try:
             response = run("aws", "secretsmanager", "get-secret-value", "--region",
                            request["region"], "--secret-id", secret,
@@ -192,11 +197,12 @@ def main():
                 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
                     raise ValueError("invalid environment key")
                 if value is not None:
-                    values[key] = normalize(value)
+                    destination[key] = normalize(value)
         except (RuntimeError, ValueError, TypeError):
             raise CategorizedError(25, "could not retrieve or validate a configured secret; files not updated") from None
-    if request["paths"] and not any(values.values()):
+    if sources and not any((agent_values | desktop_values).values()):
         raise CategorizedError(25, "no secret values retrieved; files not updated")
+    values = agent_values | desktop_values
     # Missing means unconfigured; a present blank seed must not authorize
     # deleting working account credentials or silently falling back to an API key.
     if "CODEX_AUTH" in values:
@@ -234,11 +240,12 @@ def main():
     active = service_status == 0
 
     # Prepare every replacement before touching credentials or running sessions.
-    text = "".join(f"{key}={quote(value)}\n" for key, value in sorted(values.items()))
-    shell_text = "".join("export " + line + "\n" for line in text.splitlines())
+    agent_text = "".join(f"{key}={quote(value)}\n" for key, value in sorted(agent_values.items()))
+    desktop_text = "".join(f"{key}={quote(value)}\n" for key, value in sorted(desktop_values.items()))
+    shell_text = "".join("export " + line + "\n" for line in desktop_text.splitlines())
     staged = []
     try:
-        for target, content in ((agents, text), (desktop_env, text), (shell, shell_text)):
+        for target, content in ((agents, agent_text), (desktop_env, desktop_text), (shell, shell_text)):
             staged.append((target, stage(target, content, home)))
         bashrc_text = bashrc.read_text() if bashrc.exists() else ""
         if ".desktop-secrets" not in bashrc_text:

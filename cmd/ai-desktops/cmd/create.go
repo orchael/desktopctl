@@ -550,7 +550,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
 		AgentSecretPath:      cfg.GitHub.AgentSecret,
-		DesktopSecretPaths:   secretPaths,
+		DesktopSecretPaths:   runtimeDesktopSecretPaths(cfg.GitHub.AgentSecret, secretPaths),
 		TailscaleNetwork:     tailscaleNetwork,
 		TailscaleSecretPath:  tailscaleSecretPath,
 		StepCAServerDNS:      stepCAServer,

@@ -233,11 +233,11 @@ func TestPrintDesktopStatus_reposAndSecrets(t *testing.T) {
 		DesktopID: "d-1",
 		State:     store.StateReady,
 		Repos:     []string{"github.com/acme/app", "github.com/acme/lib"},
-		Secrets:   []string{"prod/db-password", "prod/api-key"},
+		Secrets:   []string{"/agents", "prod/db-password", "prod/api-key"},
 	}
 
 	var buf bytes.Buffer
-	printDesktopStatus(&buf, d, "us-east-1", "", "")
+	printDesktopStatusWithAgentSecret(&buf, d, "us-east-1", "", "", "/agents")
 	out := buf.String()
 
 	if !strings.Contains(out, "Repos        : github.com/acme/app, github.com/acme/lib") {
@@ -245,6 +245,26 @@ func TestPrintDesktopStatus_reposAndSecrets(t *testing.T) {
 	}
 	if !strings.Contains(out, "Secrets      : prod/db-password, prod/api-key") {
 		t.Errorf("Secrets line missing or incorrect\nfull output:\n%s", out)
+	}
+	if !strings.Contains(out, "Agent secret : /agents") {
+		t.Errorf("Agent secret line missing or incorrect\nfull output:\n%s", out)
+	}
+	if strings.Contains(out, "Secrets      : /agents") {
+		t.Errorf("Agent secret leaked into desktop Secrets line\nfull output:\n%s", out)
+	}
+}
+
+func TestPrintDesktopStatus_doesNotShowUntrackedConfiguredAgentSecret(t *testing.T) {
+	d := &store.Desktop{DesktopID: "d-1", State: store.StateReady, Secrets: []string{"prod/api-key"}}
+
+	var buf bytes.Buffer
+	printDesktopStatusWithAgentSecret(&buf, d, "us-east-1", "", "", "/agents")
+	out := buf.String()
+	if strings.Contains(out, "Agent secret") {
+		t.Errorf("untracked agent secret shown as active\nfull output:\n%s", out)
+	}
+	if !strings.Contains(out, "Secrets      : prod/api-key") {
+		t.Errorf("desktop Secrets line missing\nfull output:\n%s", out)
 	}
 }
 

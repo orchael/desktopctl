@@ -72,7 +72,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(desktopStatusJSON(d, costLabel))
 	}
 
-	printDesktopStatus(os.Stdout, d, region, fetchNoVNCDesktopURL(d), costLabel)
+	printDesktopStatusWithAgentSecret(os.Stdout, d, region, fetchNoVNCDesktopURL(d), costLabel, cfg.GitHub.AgentSecret)
 	return nil
 }
 
@@ -144,6 +144,10 @@ func canRefreshDNSForInstanceState(state string) bool {
 
 // printDesktopStatus writes the human-readable status block to w.
 func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL, costLabel string) {
+	printDesktopStatusWithAgentSecret(w, d, region, liveURL, costLabel, "")
+}
+
+func printDesktopStatusWithAgentSecret(w io.Writer, d *store.Desktop, region, liveURL, costLabel, configuredAgentPath string) {
 	fmt.Fprintf(w, "Desktop ID   : %s\n", d.DesktopID)
 	if d.DesktopName != "" {
 		fmt.Fprintf(w, "Desktop name : %s\n", d.DesktopName)
@@ -190,8 +194,12 @@ func printDesktopStatus(w io.Writer, d *store.Desktop, region, liveURL, costLabe
 	if len(d.Repos) > 0 {
 		fmt.Fprintf(w, "Repos        : %s\n", strings.Join(d.Repos, ", "))
 	}
-	if len(d.Secrets) > 0 {
-		fmt.Fprintf(w, "Secrets      : %s\n", strings.Join(d.Secrets, ", "))
+	agentPath, desktopPaths := runtimeSecretPaths(configuredAgentPath, d.Secrets)
+	if agentPath != "" {
+		fmt.Fprintf(w, "Agent secret : %s\n", agentPath)
+	}
+	if len(desktopPaths) > 0 {
+		fmt.Fprintf(w, "Secrets      : %s\n", strings.Join(desktopPaths, ", "))
 	}
 	if d.TailscaleNet != "" {
 		fmt.Fprintf(w, "Tailscale    : %s\n", d.TailscaleNet)

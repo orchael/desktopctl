@@ -21,9 +21,15 @@ func TestSecretsReloadRuntime(t *testing.T) {
 		manualAuth bool
 		splitHomes bool
 		inactive   bool
+		separated  bool
 		shellValue string
 	}{
 		{name: "rotates-all-surfaces"},
+		{name: "separates-agent-and-desktop-secrets", separated: true, aws: `if [ "$6" = /test/agents ]; then
+  printf '%s' '{"CODEX_AUTH":{"auth_mode":"chatgpt","tokens":{"access_token":"new-access","refresh_token":"new-refresh"}},"OPENAI_API_KEY":"agent-value","AGENT_ONLY":"agent"}'
+else
+  printf '%s' '{"OPENAI_API_KEY":"desktop-value","DESKTOP_ONLY":"desktop","NEW_KEY":"new"}'
+fi`},
 		{name: "accepts-native-api-seed", aws: `printf '%s' '{"CODEX_AUTH":{"auth_mode":"apikey","OPENAI_API_KEY":"new-key"},"NEW_KEY":"new"}'`},
 		{name: "accepts-legacy-account-seed", aws: `printf '%s' '{"CODEX_AUTH":{"tokens":{"access_token":"new-access","refresh_token":"new-refresh"}},"NEW_KEY":"new"}'`},
 		{name: "accepts-api-key-without-seed", aws: `printf '%s' '{"OPENAI_API_KEY":"new-api-key","NEW_KEY":"new"}'`},
@@ -84,7 +90,7 @@ func TestSecretsReloadRuntime(t *testing.T) {
 				systemctl += "if [ \"$2\" = is-active ]; then exit 3; fi\n"
 			}
 			write(filepath.Join(bin, "systemctl"), systemctl, 0o700)
-			c := exec.Command("bash", "-c", buildSecretsReloadScript([]string{"/test/agents", "/test/second"}, "us-east-2"))
+			c := exec.Command("bash", "-c", buildSecretsReloadScript("/test/agents", []string{"/test/second"}, "us-east-2"))
 			c.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
 			out, err := c.CombinedOutput()
 			if tc.fail {
@@ -119,6 +125,17 @@ func TestSecretsReloadRuntime(t *testing.T) {
 			}
 			for _, path := range []string{agents, shell, filepath.Join(home, ".config/environment.d/desktop-secrets.conf")} {
 				b, e := os.ReadFile(path)
+				if tc.separated {
+					contents := string(b)
+					if path == agents {
+						if e != nil || !strings.Contains(contents, `AGENT_ONLY="agent"`) || !strings.Contains(contents, `OPENAI_API_KEY="agent-value"`) || strings.Contains(contents, "DESKTOP_ONLY") || strings.Contains(contents, "desktop-value") {
+							t.Fatalf("agent credentials crossed source boundary: %s", path)
+						}
+					} else if e != nil || !strings.Contains(contents, `DESKTOP_ONLY="desktop"`) || !strings.Contains(contents, `OPENAI_API_KEY="desktop-value"`) || strings.Contains(contents, "AGENT_ONLY") || strings.Contains(contents, "agent-value") {
+						t.Fatalf("desktop credentials crossed source boundary: %s", path)
+					}
+					continue
+				}
 				if e != nil || !strings.Contains(string(b), "NEW_KEY") || strings.Contains(string(b), "REMOVED_KEY") {
 					t.Fatalf("credential surface not rotated: %s", path)
 				}
@@ -316,7 +333,7 @@ func TestSecretsReloadPreflightPreservesRuntime(t *testing.T) {
 			write(filepath.Join(bin, "aws"), awsScript, 0o700)
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then printf '"+loadState+"\\n'; exit "+serviceExit+"; fi\nif [ \"$2\" = is-active ]; then exit "+activeExit+"; fi\n", 0o700)
 			before := reloadRuntimeSnapshot(t, home)
-			script := buildSecretsReloadScript([]string{secretPath}, "us-east-2")
+			script := buildSecretsReloadScript(secretPath, nil, "us-east-2")
 			if scenario == "foreign-owner" {
 				// Model another desktop UID without chown/root requirements.
 				script = strings.Replace(script, "import os\n", "import os\nos.getuid = lambda: -1\n", 1)
@@ -390,7 +407,7 @@ func TestSecretsReloadUnexpectedOSErrorUsesUnknownCategory(t *testing.T) {
 	if err := os.Mkdir(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	script := buildSecretsReloadScript([]string{"/test/agents"}, "us-east-2")
+	script := buildSecretsReloadScript("/test/agents", nil, "us-east-2")
 	script = strings.Replace(script, "try:\n    main()", "try:\n    raise OSError('/missing/CODEX_HOME')", 1)
 	command := exec.Command("bash", "-c", script)
 	command.Env = append(os.Environ(), "HOME="+home)

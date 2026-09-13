@@ -67,7 +67,7 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			write(filepath.Join(home, ".bashrc"), "# existing shell settings\n", 0644)
 			write(filepath.Join(bin, "aws"), "#!/bin/sh\nprintf '%s' '{\"APP_KEY\":\"dummy-secret-marker\"}'\n", 0700)
 			write(filepath.Join(bin, "systemctl"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/service-calls\"\nif [ \"$2\" = show ]; then echo loaded; fi\n", 0700)
-			script := buildSecretsReloadScript([]string{"/test/application"}, "us-east-2")
+			script := buildSecretsReloadScript("", []string{"/test/application"}, "us-east-2")
 			target := filepath.Join(home, tc.target)
 			success := tc.kind == "readable" || tc.kind == "missing" || tc.kind == "private-bashrc"
 			switch tc.kind {
@@ -150,7 +150,8 @@ func TestSecretsOutputPreflight(t *testing.T) {
 			}
 			for _, path := range outputs {
 				data, err := os.ReadFile(filepath.Join(home, path))
-				if err != nil || !strings.Contains(string(data), "dummy-secret-marker") {
+				wantSecret := path != ".config/bridgectl/agents.env"
+				if err != nil || strings.Contains(string(data), "dummy-secret-marker") != wantSecret {
 					t.Fatalf("missing replacement: %s: %v", path, err)
 				}
 				info, err := os.Stat(filepath.Join(home, path))
