@@ -23,25 +23,51 @@ func secretScriptRequest(t *testing.T, script string) []byte {
 
 func TestSecretScriptsEncodeMetadataWithoutShellExpansion(t *testing.T) {
 	path := "/test/$(must-not-run)"
-	script := buildSecretsReloadScript([]string{path}, "us-east-2")
+	script := buildSecretsReloadScript("/test/agents", []string{path}, "us-east-2", true)
 	if strings.Contains(script, path) {
 		t.Fatal("unquoted metadata in shell")
 	}
 	var request struct {
-		Paths  []string
-		Region string
+		AgentPath    string   `json:"agent_path"`
+		Paths        []string `json:"paths"`
+		Region       string   `json:"region"`
+		ReplaceAgent bool     `json:"replace_agent"`
 	}
 	if err := json.Unmarshal(secretScriptRequest(t, script), &request); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(request.Paths, []string{path}) || request.Region != "us-east-2" {
+	if request.AgentPath != "/test/agents" || !reflect.DeepEqual(request.Paths, []string{path}) || request.Region != "us-east-2" || !request.ReplaceAgent {
 		t.Fatalf("wrong metadata: %#v", request)
 	}
-	if buildSecretsRemoveReloadScript([]string{path}, "us-east-2") != script {
+	if buildSecretsRemoveReloadScript("/test/agents", []string{path}, "us-east-2", true) != script {
 		t.Fatal("remove must use the same transactional rotation")
 	}
-	if strings.Contains(string(secretScriptRequest(t, buildSecretsClearScript())), "null") {
+	if strings.Contains(string(secretScriptRequest(t, buildSecretsClearScript(false))), "null") {
 		t.Fatal("clear must encode an empty list")
+	}
+}
+
+func TestRuntimeSecretPathsSeparatesTrackedAgentSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name, configuredAgent, wantAgent string
+		tracked, wantDesktop             []string
+	}{
+		{name: "tracked-agent", configuredAgent: "/agents", tracked: []string{"/override", "/agents", "/application"}, wantAgent: "/agents", wantDesktop: []string{"/override", "/application"}},
+		{name: "legacy-agent-not-tracked", configuredAgent: "/agents", tracked: []string{"/application"}, wantDesktop: []string{"/application"}},
+		{name: "create-filters-explicit-duplicate", configuredAgent: "/agents", tracked: desktopSecretPaths("/agents", []string{"/agents", "/application"}), wantAgent: "/agents", wantDesktop: []string{"/application"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agent, desktop := runtimeSecretPaths(tc.configuredAgent, tc.tracked)
+			if agent != tc.wantAgent {
+				t.Fatalf("agent path = %q, want %q", agent, tc.wantAgent)
+			}
+			if !reflect.DeepEqual(desktop, tc.wantDesktop) {
+				t.Fatalf("desktop paths = %v, want %v", desktop, tc.wantDesktop)
+			}
+			if got := runtimeDesktopSecretPaths(tc.configuredAgent, tc.tracked); !reflect.DeepEqual(got, tc.wantDesktop) {
+				t.Fatalf("create-time desktop paths = %v, want %v", got, tc.wantDesktop)
+			}
+		})
 	}
 }
 
@@ -114,7 +140,8 @@ func TestSecretPathsAfterAdd_ReloadsExistingAndNewSecrets(t *testing.T) {
 		t.Fatalf("reloadPaths = %#v, want %#v", reloadPaths, want)
 	}
 
-	script := string(secretScriptRequest(t, buildSecretsReloadScript(reloadPaths, "us-east-2")))
+	agent, desktop := runtimeSecretPaths("", reloadPaths)
+	script := string(secretScriptRequest(t, buildSecretsReloadScript(agent, desktop, "us-east-2", agent != "")))
 	for _, want := range reloadPaths {
 		if !strings.Contains(script, want) {
 			t.Fatalf("reload script missing %q:\n%s", want, script)
@@ -160,7 +187,8 @@ func TestSecretPathsAfterRemove_ReloadScriptExcludesRemovedPaths(t *testing.T) {
 		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
 	}
 
-	script := string(secretScriptRequest(t, buildSecretsReloadScript(remainingPaths, "us-east-2")))
+	agent, desktop := runtimeSecretPaths("", remainingPaths)
+	script := string(secretScriptRequest(t, buildSecretsReloadScript(agent, desktop, "us-east-2", agent != "")))
 	if strings.Contains(script, "/ai-desktops/dev/control-plane/aws-operator") {
 		t.Fatalf("reload script includes removed secret:\n%s", script)
 	}

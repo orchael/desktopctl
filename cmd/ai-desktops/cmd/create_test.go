@@ -18,9 +18,35 @@ import (
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/ai-desktops/internal/provision"
 	"github.com/orchael/ai-desktops/internal/pulumi"
 	"github.com/orchael/ai-desktops/internal/store"
 )
+
+func TestCreateBootstrapSecretsRenderSeparateSources(t *testing.T) {
+	const agentPath = "/ai-desktops/acme/agents"
+	const desktopPath = "/application/local"
+	bootCfg := &provision.BootstrapConfig{DesktopID: "d-secrets", AWSRegion: "us-east-2"}
+	tracked := desktopSecretPaths(agentPath, []string{desktopPath, agentPath})
+	applyBootstrapSecretSources(bootCfg, agentPath, tracked)
+
+	out, err := provision.RenderCloudInit(bootCfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	agentStart := strings.Index(out, "# --- retrieve AI provider API keys and write bridgectl agents.env ---")
+	desktopStart := strings.Index(out, "# --- retrieve desktop secrets and inject into ubuntu environment ---")
+	if agentStart < 0 || desktopStart <= agentStart {
+		t.Fatalf("rendered cloud-init missing ordered secret sections")
+	}
+	agentBlock, desktopBlock := out[agentStart:desktopStart], out[desktopStart:]
+	if !strings.Contains(agentBlock, agentPath) || strings.Contains(agentBlock, desktopPath) {
+		t.Fatalf("agent block has incorrect sources")
+	}
+	if !strings.Contains(desktopBlock, desktopPath) || strings.Contains(desktopBlock, agentPath) {
+		t.Fatalf("desktop block has incorrect sources")
+	}
+}
 
 func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	flag := createCmd.Flags().Lookup("step-ca-provisioner")
