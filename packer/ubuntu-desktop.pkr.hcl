@@ -28,7 +28,7 @@ variable "helm_version" {
 
 variable "go_version" {
   type        = string
-  description = "Go version to install (e.g. 1.23.0)"
+  description = "Go version to install (e.g. 1.26.0)"
 }
 
 variable "uv_version" {
