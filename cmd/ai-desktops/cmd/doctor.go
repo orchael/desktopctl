@@ -147,7 +147,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		{Label: "System", Checkers: health.SystemCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "bridgectl Agent Server", Checkers: health.BridgectlCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath)},
 		{Label: "Workspace", Checkers: health.WorkspaceCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.WorkspaceMode)},
-		{Label: "Secrets", Checkers: health.SecretsCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Secrets)},
+		{Label: "Secrets", Checkers: desktopSecretsCheckers(d, cfg.Desktop.SSHKeyPath, cfg.GitHub.AgentSecret)},
 		{Label: "Tailscale", Checkers: health.TailscaleCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.TailscaleNet, cfg.Agent.BridgePort)},
 		{Label: "step-ca", Checkers: health.StepCACheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.StepCAServer)},
 		{Label: "Nested Virtualization", Checkers: health.NestedVirtCheckers(d.Hostname, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.NestedVirt)},
@@ -164,6 +164,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		return runDoctorTUI(ctx, id, runner, createdAt)
 	}
 	return runDoctorStatic(ctx, runner, createdAt)
+}
+
+func desktopSecretsCheckers(d *store.Desktop, keyPath, configuredAgentPath string) []health.Checker {
+	return health.SecretsCheckers(d.Hostname, 22, "ubuntu", keyPath, runtimeDesktopSecretPaths(configuredAgentPath, d.Secrets))
 }
 
 func runDoctorJSON(ctx context.Context, runner *health.Runner) error {
