@@ -79,6 +79,7 @@ func TestInterpretBootstrapStatus(t *testing.T) {
 		{name: "unknown", raw: `{"state":"paused"}`, wantStatus: StatusWarning, wantText: `unknown bootstrap state "paused"; inspect /var/log/cloud-init-output.log`},
 		{name: "running without start", raw: `{"state":"running"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 		{name: "succeeded without finish", raw: `{"state":"succeeded","started_at":"2026-09-13T10:00:00Z"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
+		{name: "succeeded with nonzero exit", raw: `{"state":"succeeded","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:04:00Z","exit_code":17}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 		{name: "failed without timestamps", raw: `{"state":"failed","exit_code":17}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 		{name: "failed without exit code", raw: `{"state":"failed","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:02:00Z"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 	}

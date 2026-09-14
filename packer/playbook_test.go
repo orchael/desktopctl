@@ -187,6 +187,8 @@ func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
 		"developer_terminal_gitmux_version_output.stdout | trim\n    != (developer_terminal_gitmux_version | regex_replace('^v', ''))",
 		"Mark Neovim configuration as managed before installation",
 		"Mark tmux configuration as managed before installation",
+		"not (developer_terminal_nvim_config.stat.islnk | default(false))\n        and (",
+		"not (developer_terminal_tmux_config.stat.islnk | default(false))\n        and (",
 	} {
 		assertFileContains(t, tasksPath, want)
 	}

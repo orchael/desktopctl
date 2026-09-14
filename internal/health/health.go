@@ -378,7 +378,7 @@ func interpretBootstrapStatus(raw []byte) CheckResult {
 		result.Status = StatusWarning
 		result.Message = "running since " + status.StartedAt
 	case "succeeded":
-		if status.StartedAt == "" || status.FinishedAt == "" {
+		if status.StartedAt == "" || status.FinishedAt == "" || status.ExitCode != 0 {
 			return malformedBootstrapStatusResult()
 		}
 		result.Status = StatusPass

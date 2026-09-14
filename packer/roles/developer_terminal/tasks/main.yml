@@ -13,10 +13,10 @@
   ansible.builtin.set_fact:
     developer_terminal_manage_nvim: >-
       {{
-        (not developer_terminal_nvim_config.stat.exists)
-        or (
-          not (developer_terminal_nvim_config.stat.islnk | default(false))
-          and developer_terminal_nvim_marker.stat.exists
+        not (developer_terminal_nvim_config.stat.islnk | default(false))
+        and (
+          (not developer_terminal_nvim_config.stat.exists)
+          or developer_terminal_nvim_marker.stat.exists
         )
       }}
 
@@ -148,10 +148,10 @@
   ansible.builtin.set_fact:
     developer_terminal_manage_tmux: >-
       {{
-        (not developer_terminal_tmux_config.stat.exists)
-        or (
-          not (developer_terminal_tmux_config.stat.islnk | default(false))
-          and developer_terminal_tmux_marker.stat.exists
+        not (developer_terminal_tmux_config.stat.islnk | default(false))
+        and (
+          (not developer_terminal_tmux_config.stat.exists)
+          or developer_terminal_tmux_marker.stat.exists
         )
       }}
 
