@@ -288,7 +288,7 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 		}
 		status := StatusFail
 		var exitErr *exec.ExitError
-		if c.failureStatus != "" && errors.As(err, &exitErr) && exitErr.ExitCode() != 255 {
+		if c.failureStatus != "" && ctx.Err() == nil && errors.As(err, &exitErr) && exitErr.ExitCode() != 255 {
 			status = c.failureStatus
 		}
 		return CheckResult{Name: c.name, Status: status, Message: msg}
@@ -372,18 +372,21 @@ func interpretBootstrapStatus(raw []byte) CheckResult {
 	}
 	switch status.State {
 	case "running":
+		if status.StartedAt == "" {
+			return malformedBootstrapStatusResult()
+		}
 		result.Status = StatusWarning
-		result.Message = "running"
-		if status.StartedAt != "" {
-			result.Message += " since " + status.StartedAt
-		}
+		result.Message = "running since " + status.StartedAt
 	case "succeeded":
-		result.Status = StatusPass
-		result.Message = "succeeded"
-		if status.FinishedAt != "" {
-			result.Message += " at " + status.FinishedAt
+		if status.StartedAt == "" || status.FinishedAt == "" {
+			return malformedBootstrapStatusResult()
 		}
+		result.Status = StatusPass
+		result.Message = "succeeded at " + status.FinishedAt
 	case "failed":
+		if status.StartedAt == "" || status.FinishedAt == "" || status.ExitCode == 0 {
+			return malformedBootstrapStatusResult()
+		}
 		result.Status = StatusFail
 		result.Message = fmt.Sprintf("failed with exit code %d; inspect /var/log/cloud-init-output.log", status.ExitCode)
 	case "missing":
@@ -394,6 +397,14 @@ func interpretBootstrapStatus(raw []byte) CheckResult {
 		result.Message = fmt.Sprintf("unknown bootstrap state %q; inspect /var/log/cloud-init-output.log", status.State)
 	}
 	return result
+}
+
+func malformedBootstrapStatusResult() CheckResult {
+	return CheckResult{
+		Name:    "bootstrap-state",
+		Status:  StatusWarning,
+		Message: "status artifact is malformed; inspect /var/log/cloud-init-output.log",
+	}
 }
 
 // SSHOptionalChecker runs a prerequisite command first; if the remote host

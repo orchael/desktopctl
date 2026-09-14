@@ -215,15 +215,38 @@ func TestAMIPlaybookTrustsBallastTapBeforeLoadingIt(t *testing.T) {
 func TestDesktopSetupVerifiesDeveloperTerminalWorkflow(t *testing.T) {
 	setup := filepath.Join("..", "ansible", "desktop-setup", "playbook.yml")
 	for _, want := range []string{
+		"Inspect AMI developer terminal workflow capability",
+		"when: developer_terminal_ami_workflow.stat.exists",
 		"Inspect managed Neovim workflow",
 		"when: developer_terminal_nvim_workflow.stat.exists",
 		"Inspect managed tmux workflow",
 		"when: developer_terminal_tmux_workflow.stat.exists",
 		"Verify NvChad starts without interaction",
+		"Verify managed Neovim ownership",
 		"Verify GitHub CLI editor configuration",
 		"Verify managed tmux configuration and plugins",
 		"Verify tmux starts in detached mode",
+		"install_plugins",
+		"status-right",
 	} {
 		assertFileContains(t, setup, want)
+	}
+
+	assertFileContains(t, "playbook.yml", "Write developer terminal workflow capability marker")
+	for _, want := range []string{"install_plugins", "status-right"} {
+		assertFileContains(t, filepath.Join("..", "tests", "integration", "fr05_toolchain_test.go"), want)
+	}
+
+	contents, err := os.ReadFile(setup)
+	if err != nil {
+		t.Fatalf("read desktop setup: %v", err)
+	}
+	tmuxStart := strings.Index(string(contents), "- name: Verify managed tmux configuration and plugins")
+	tmuxEnd := strings.Index(string(contents), "- name: Verify tmux starts in detached mode")
+	if tmuxStart < 0 || tmuxEnd <= tmuxStart {
+		t.Fatal("desktop setup is missing the managed tmux verification block")
+	}
+	if strings.Contains(string(contents)[tmuxStart:tmuxEnd], ".config/nvim") {
+		t.Fatal("tmux-marker-gated verification must not assert Neovim state")
 	}
 }

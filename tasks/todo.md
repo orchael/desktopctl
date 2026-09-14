@@ -17,6 +17,11 @@ Mode: approval-required; the user explicitly approved implementing the three sel
 - [x] Score 2: shell-quote the tmux pane path, write managed markers before terminal configuration mutations, start lifecycle observation before package modules, and gate postboot verification on the corresponding managed markers.
 - [x] Re-run full Go/race/coverage, lint, Ansible syntax/role lint, Packer format/syntax, pre-commit, and a malicious-directory tmux smoke check.
 
+### PR #240 Copilot cycle 2
+
+- [x] Score 2: keep SSH context timeouts as hard failures and reject terminal lifecycle artifacts missing required timestamps or a nonzero failure code.
+- [x] Score 2: separate image capability, Neovim, and tmux markers so editor and ownership checks run only for managed state; wait for TPM and verify its binding and gitmux status before integration teardown.
+
 Validation: the new focused tests failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, internal-package coverage (76.0%), integration compile-only validation, `golangci-lint run ./...`, the production-profile terminal-role lint, Ansible syntax, Packer formatting/syntax, a locked NvChad restore/headless launch, and isolated tmux startup all pass. Full desktop-setup lint retains 30 pre-existing findings outside the new clean role/tasks. Live Packer validation exposed and fixed gitmux output, GitHub CLI ordering, and current Homebrew tap-trust ordering; the final bake completed 187 tasks with zero failures and activated `ami-00c40d089d33d9b7c`. Disposable desktop `d-a0cc4a75` recorded bootstrap `running` at 21:52:07Z and atomically transitioned to `succeeded` at 21:53:14Z; the terminal workflow passed live, inactive CloudWatch produced a warning with actionable systemd fields, and the restored agent returned active. The disposable instance, DNS record, root disk, and stack resources were then deleted. Existing desktop timing showed the reported CloudWatch failure came from a roughly three-minute startup window rather than a persistent agent fault.
 
 # Upgrade the repository to Go 1.26

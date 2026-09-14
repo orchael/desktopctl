@@ -552,6 +552,14 @@
         HOME: /home/ubuntu
       changed_when: false
 
+    - name: Write developer terminal workflow capability marker
+      ansible.builtin.copy:
+        content: "ai-desktops managed developer terminal workflow\n"
+        dest: /opt/ai-desktops/developer-terminal-workflow
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Add NodeSource Node.js 24 apt repository
       ansible.builtin.shell: |
         set -eo pipefail

@@ -3,6 +3,8 @@ package health
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +77,10 @@ func TestInterpretBootstrapStatus(t *testing.T) {
 		{name: "legacy missing", raw: `{"state":"missing"}`, wantStatus: StatusWarning, wantText: "status artifact missing (desktop may predate lifecycle reporting)"},
 		{name: "malformed", raw: `{`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 		{name: "unknown", raw: `{"state":"paused"}`, wantStatus: StatusWarning, wantText: `unknown bootstrap state "paused"; inspect /var/log/cloud-init-output.log`},
+		{name: "running without start", raw: `{"state":"running"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
+		{name: "succeeded without finish", raw: `{"state":"succeeded","started_at":"2026-09-13T10:00:00Z"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
+		{name: "failed without timestamps", raw: `{"state":"failed","exit_code":17}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
+		{name: "failed without exit code", raw: `{"state":"failed","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:02:00Z"}`, wantStatus: StatusWarning, wantText: "status artifact is malformed; inspect /var/log/cloud-init-output.log"},
 	}
 
 	for _, tt := range tests {
@@ -288,6 +294,22 @@ func TestSSHWarningChecker_failsOnTransportError(t *testing.T) {
 	result := c.Run(context.Background())
 	if result.Status != StatusFail {
 		t.Errorf("expected fail on SSH transport error, got %q (msg: %s)", result.Status, result.Message)
+	}
+}
+
+func TestSSHWarningChecker_failsOnTimeout(t *testing.T) {
+	binDir := t.TempDir()
+	sshPath := filepath.Join(binDir, "ssh")
+	if err := os.WriteFile(sshPath, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	c := NewSSHWarningChecker("cloudwatch-agent-active", "host", 22, "ubuntu", "/dev/null",
+		"systemctl is-active amazon-cloudwatch-agent", 10*time.Millisecond)
+	result := c.Run(context.Background())
+	if result.Status != StatusFail {
+		t.Errorf("expected fail on SSH timeout, got %q (msg: %s)", result.Status, result.Message)
 	}
 }
 

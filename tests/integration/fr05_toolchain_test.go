@@ -103,6 +103,15 @@ for plugin in tpm tmux-sensible tmux tmux-cpu tmux-kubectx tmux-resurrect tmux-c
   test "$(stat -c '%U:%G' "/home/ubuntu/.tmux/plugins/$plugin")" = ubuntu:ubuntu
 done
 sudo -u ubuntu -H tmux -L ai-desktops-test -f /home/ubuntu/.tmux.conf new-session -d -s ai-desktops-test
+trap 'sudo -u ubuntu -H tmux -L ai-desktops-test kill-server >/dev/null 2>&1 || true' EXIT
+for attempt in $(seq 1 15); do
+  if sudo -u ubuntu -H tmux -L ai-desktops-test list-keys | grep -q install_plugins; then
+    break
+  fi
+  sleep 1
+done
+sudo -u ubuntu -H tmux -L ai-desktops-test list-keys | grep -q install_plugins
+sudo -u ubuntu -H tmux -L ai-desktops-test show-options -gv status-right | grep -q gitmux
 test "$(sudo -u ubuntu -H tmux -L ai-desktops-test show-options -gv prefix)" = C-a
 sudo -u ubuntu -H tmux -L ai-desktops-test kill-server`
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey, script)
