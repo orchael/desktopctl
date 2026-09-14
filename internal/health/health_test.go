@@ -280,6 +280,29 @@ func TestSSHOptionalChecker_failsOnTransportError(t *testing.T) {
 	}
 }
 
+func TestSSHWarningChecker_failsOnTransportError(t *testing.T) {
+	// Optional services may be degraded, but a transport failure means doctor
+	// could not inspect the desktop and must remain a hard failure.
+	c := NewSSHWarningChecker("cloudwatch-agent-active", "127.0.0.1", 1, "ubuntu", "/dev/null",
+		"systemctl is-active amazon-cloudwatch-agent", 10*time.Second)
+	result := c.Run(context.Background())
+	if result.Status != StatusFail {
+		t.Errorf("expected fail on SSH transport error, got %q (msg: %s)", result.Status, result.Message)
+	}
+}
+
+func TestBootstrapStatusCommand_propagatesReadErrors(t *testing.T) {
+	command := bootstrapStatusCommand()
+	if strings.Contains(command, "cat "+bootstrapStatusPath+" 2>/dev/null ||") {
+		t.Fatalf("bootstrap status command masks read failures: %s", command)
+	}
+	for _, want := range []string{"sudo sh -c", "if [ -e", "cat", `state\":\"missing`} {
+		if !strings.Contains(command, want) {
+			t.Errorf("bootstrap status command missing %q: %s", want, command)
+		}
+	}
+}
+
 func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
 	checkers := SystemCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "key")
 	names := make(map[string]bool, len(checkers))

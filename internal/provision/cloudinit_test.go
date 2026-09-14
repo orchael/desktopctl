@@ -889,8 +889,8 @@ func TestRenderCloudInit_persistsBootstrapLifecycle(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		"bootcmd:",
 		"/var/lib/ai-desktops/bootstrap-status.json",
-		`ai-desktops-bootstrap-status start`,
 		`cloud-init status --wait`,
 		`systemd-run --unit=ai-desktops-bootstrap-status`,
 		`write_status succeeded`,
@@ -901,6 +901,12 @@ func TestRenderCloudInit_persistsBootstrapLifecycle(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered cloud-init lifecycle reporting missing %q", want)
 		}
+	}
+	if strings.Index(out, "bootcmd:") > strings.Index(out, "package_update:") {
+		t.Error("bootstrap lifecycle watcher must start before package modules can fail")
+	}
+	if strings.Index(out, "systemd-run --unit=ai-desktops-bootstrap-status") > strings.Index(out, "runcmd:") {
+		t.Error("bootstrap lifecycle watcher must start before runcmd")
 	}
 	if strings.Contains(out, "NvChad") || strings.Contains(out, "tmux-plugins/tpm") {
 		t.Error("runtime cloud-init must not install the AMI-only terminal workflow")

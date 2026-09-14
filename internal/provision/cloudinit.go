@@ -73,48 +73,10 @@ ssh_authorized_keys:
   - {{ .SSHPublicKey }}
 {{- end}}
 
-{{- if not .PackagesPreInstalled}}
-package_update: true
-package_upgrade: false
-
-packages:
-  - git
-  - docker.io
-  - tmux
-  - curl
-  - wget
-  - unzip
-  - ca-certificates
-  - apt-transport-https
-  - gnupg
-  - lsb-release
-  - software-properties-common
-  - snapd
-  - awscli
-  - certbot
-  - python3-certbot-dns-route53
-  - ansible
-  - gh
-{{- end}}
-
-runcmd:
-  # --- bootstrap lifecycle and timing helpers ---
-  # The lifecycle watcher runs as a transient systemd unit because cloud-init
-  # renders each runcmd entry in a separate shell. It therefore observes every
-  # terminal cloud-init path rather than relying on a shell-local EXIT trap.
+# Start lifecycle reporting in cloud-init's network stage, before package
+# installation or any final-stage runtime command can fail.
+bootcmd:
   - |
-    mkdir -p /opt/ai-desktops
-    cat >/usr/local/bin/ai-desktops-ts <<'SH'
-    #!/bin/sh
-    phase="$1"
-    mkdir -p /opt/ai-desktops
-    printf '{"phase":"%s","epoch":%d,"iso":"%s"}\n' \
-      "$phase" "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      >> /opt/ai-desktops/bootstrap-timing.json
-    SH
-    chmod 0755 /usr/local/bin/ai-desktops-ts
-    ai-desktops-ts start
-
     cat >/usr/local/bin/ai-desktops-bootstrap-status <<'SH'
     #!/bin/sh
     set -eu
@@ -144,7 +106,9 @@ runcmd:
 
     case "${1:-}" in
       start)
-        write_status running
+        if [ ! -e "$status_file" ]; then
+          write_status running
+        fi
         if ! systemd-run --unit=ai-desktops-bootstrap-status --collect --no-block \
           /usr/local/bin/ai-desktops-bootstrap-status watch >/dev/null; then
           write_status failed 125
@@ -169,7 +133,48 @@ runcmd:
     esac
     SH
     chmod 0755 /usr/local/bin/ai-desktops-bootstrap-status
-    ai-desktops-bootstrap-status start
+    if ! grep -Eq '"state":"(succeeded|failed)"' /var/lib/ai-desktops/bootstrap-status.json 2>/dev/null; then
+      ai-desktops-bootstrap-status start
+    fi
+
+{{- if not .PackagesPreInstalled}}
+package_update: true
+package_upgrade: false
+
+packages:
+  - git
+  - docker.io
+  - tmux
+  - curl
+  - wget
+  - unzip
+  - ca-certificates
+  - apt-transport-https
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - snapd
+  - awscli
+  - certbot
+  - python3-certbot-dns-route53
+  - ansible
+  - gh
+{{- end}}
+
+runcmd:
+  # --- bootstrap timing helper ---
+  - |
+    mkdir -p /opt/ai-desktops
+    cat >/usr/local/bin/ai-desktops-ts <<'SH'
+    #!/bin/sh
+    phase="$1"
+    mkdir -p /opt/ai-desktops
+    printf '{"phase":"%s","epoch":%d,"iso":"%s"}\n' \
+      "$phase" "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >> /opt/ai-desktops/bootstrap-timing.json
+    SH
+    chmod 0755 /usr/local/bin/ai-desktops-ts
+    ai-desktops-ts start
 
   # --- system setup ---
 {{- if not .PackagesPreInstalled}}

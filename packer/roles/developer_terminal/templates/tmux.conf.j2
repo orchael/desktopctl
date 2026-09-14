@@ -48,6 +48,6 @@ set -g status-right "#{E:@catppuccin_status_application}#{E:@catppuccin_status_s
 set -agF status-right "#{E:@catppuccin_status_cpu}"
 # set -agF status-right "#{E:@catppuccin_status_kube}"
 if-shell 'command -v gitmux >/dev/null 2>&1' \
-  'set -ag status-right '\''#(gitmux -cfg $HOME/.config/gitmux/gitmux.conf "#{pane_current_path}")'\'''
+  'set -ag status-right '\''#(gitmux -cfg "$HOME/.config/gitmux/gitmux.conf" #{q:pane_current_path})'\'''
 
 run -b '~/.tmux/plugins/tpm/tpm'

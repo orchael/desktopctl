@@ -11,6 +11,12 @@ Mode: approval-required; the user explicitly approved implementing the three sel
 - [x] Build and activate a new AMI, launch a dedicated desktop, and collect live evidence for #225, #146, and #149.
 - [x] Prepare an isolated commit and PR handoff that closes all three issues and enters the bounded Copilot/CI cycle.
 
+### PR #240 Copilot cycle 1
+
+- [x] Score 2: preserve SSH exit 255 as a hard failure for the optional CloudWatch diagnostic and distinguish a missing lifecycle artifact from remote read errors.
+- [x] Score 2: shell-quote the tmux pane path, write managed markers before terminal configuration mutations, start lifecycle observation before package modules, and gate postboot verification on the corresponding managed markers.
+- [x] Re-run full Go/race/coverage, lint, Ansible syntax/role lint, Packer format/syntax, pre-commit, and a malicious-directory tmux smoke check.
+
 Validation: the new focused tests failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, internal-package coverage (76.0%), integration compile-only validation, `golangci-lint run ./...`, the production-profile terminal-role lint, Ansible syntax, Packer formatting/syntax, a locked NvChad restore/headless launch, and isolated tmux startup all pass. Full desktop-setup lint retains 30 pre-existing findings outside the new clean role/tasks. Live Packer validation exposed and fixed gitmux output, GitHub CLI ordering, and current Homebrew tap-trust ordering; the final bake completed 187 tasks with zero failures and activated `ami-00c40d089d33d9b7c`. Disposable desktop `d-a0cc4a75` recorded bootstrap `running` at 21:52:07Z and atomically transitioned to `succeeded` at 21:53:14Z; the terminal workflow passed live, inactive CloudWatch produced a warning with actionable systemd fields, and the restored agent returned active. The disposable instance, DNS record, root disk, and stack resources were then deleted. Existing desktop timing showed the reported CloudWatch failure came from a roughly three-minute startup window rather than a persistent agent fault.
 
 # Upgrade the repository to Go 1.26

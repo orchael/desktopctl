@@ -61,6 +61,11 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Inspect managed Neovim workflow
+      ansible.builtin.stat:
+        path: /home/ubuntu/.config/nvim/.ai-desktops-managed
+      register: developer_terminal_nvim_workflow
+
     - name: Verify NvChad starts without interaction
       ansible.builtin.command: /snap/bin/nvim --headless +qa
       become_user: ubuntu
@@ -68,6 +73,7 @@
       environment:
         HOME: /home/ubuntu
       changed_when: false
+      when: developer_terminal_nvim_workflow.stat.exists
 
     - name: Verify GitHub CLI editor configuration
       ansible.builtin.command: gh config get editor
@@ -78,6 +84,11 @@
       register: github_editor
       changed_when: false
       failed_when: github_editor.stdout | trim != 'vim'
+
+    - name: Inspect managed tmux workflow
+      ansible.builtin.stat:
+        path: /home/ubuntu/.tmux.conf.ai-desktops-managed
+      register: developer_terminal_tmux_workflow
 
     - name: Verify managed tmux configuration and plugins
       ansible.builtin.shell: |
@@ -91,6 +102,7 @@
       args:
         executable: /bin/bash
       changed_when: false
+      when: developer_terminal_tmux_workflow.stat.exists
 
     - name: Verify tmux starts in detached mode
       ansible.builtin.shell: |
@@ -105,6 +117,7 @@
       environment:
         HOME: /home/ubuntu
       changed_when: false
+      when: developer_terminal_tmux_workflow.stat.exists
 
     - name: Check novnc-desktop service
       ansible.builtin.shell: systemctl list-unit-files | grep -q novnc-desktop && echo "novnc-desktop service installed"

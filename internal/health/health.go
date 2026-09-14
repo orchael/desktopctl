@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -285,9 +286,10 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 		if msg == "" {
 			msg = err.Error()
 		}
-		status := c.failureStatus
-		if status == "" {
-			status = StatusFail
+		status := StatusFail
+		var exitErr *exec.ExitError
+		if c.failureStatus != "" && errors.As(err, &exitErr) && exitErr.ExitCode() != 255 {
+			status = c.failureStatus
 		}
 		return CheckResult{Name: c.name, Status: status, Message: msg}
 	}
@@ -330,7 +332,7 @@ func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	command := fmt.Sprintf("sudo cat %s 2>/dev/null || printf '{\"state\":\"missing\"}'", bootstrapStatusPath)
+	command := bootstrapStatusCommand()
 	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
@@ -350,6 +352,14 @@ func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
 		return CheckResult{Name: c.Name(), Status: StatusFail, Message: message}
 	}
 	return interpretBootstrapStatus(out)
+}
+
+func bootstrapStatusCommand() string {
+	return fmt.Sprintf(
+		`sudo sh -c 'if [ -e %s ]; then cat %s; else printf "%%s\n" "{\"state\":\"missing\"}"; fi'`,
+		bootstrapStatusPath,
+		bootstrapStatusPath,
+	)
 }
 
 func interpretBootstrapStatus(raw []byte) CheckResult {

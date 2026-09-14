@@ -167,7 +167,8 @@ func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
 			"set-option -g automatic-rename off", "# set -g mouse on",
 			"set -g @continuum-restore 'on'", "@catppuccin_window_status_style \"rounded\"",
 			"catppuccin_status_application", "catppuccin_status_session", "catppuccin_status_cpu",
-			"command -v gitmux", "run -b '~/.tmux/plugins/tpm/tpm'",
+			"command -v gitmux", `"$HOME/.config/gitmux/gitmux.conf" #{q:pane_current_path}`,
+			"run -b '~/.tmux/plugins/tpm/tpm'",
 		},
 		"gitmux.conf.j2": {"layout: [branch, remote-branch, divergence, \" - \", flags]"},
 	} {
@@ -184,6 +185,8 @@ func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
 		"Verify NvChad starts without interaction",
 		"Verify tmux starts in detached mode",
 		"developer_terminal_gitmux_version_output.stdout | trim\n    != (developer_terminal_gitmux_version | regex_replace('^v', ''))",
+		"Mark Neovim configuration as managed before installation",
+		"Mark tmux configuration as managed before installation",
 	} {
 		assertFileContains(t, tasksPath, want)
 	}
@@ -212,6 +215,10 @@ func TestAMIPlaybookTrustsBallastTapBeforeLoadingIt(t *testing.T) {
 func TestDesktopSetupVerifiesDeveloperTerminalWorkflow(t *testing.T) {
 	setup := filepath.Join("..", "ansible", "desktop-setup", "playbook.yml")
 	for _, want := range []string{
+		"Inspect managed Neovim workflow",
+		"when: developer_terminal_nvim_workflow.stat.exists",
+		"Inspect managed tmux workflow",
+		"when: developer_terminal_tmux_workflow.stat.exists",
 		"Verify NvChad starts without interaction",
 		"Verify GitHub CLI editor configuration",
 		"Verify managed tmux configuration and plugins",

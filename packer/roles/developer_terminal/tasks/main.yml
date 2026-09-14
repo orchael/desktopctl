@@ -44,6 +44,15 @@
     mode: "0755"
   when: developer_terminal_manage_nvim
 
+- name: Mark Neovim configuration as managed before installation
+  ansible.builtin.copy:
+    content: "NvChad starter {{ developer_terminal_nvchad_starter_revision }}\n"
+    dest: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_nvim
+
 - name: Install pinned NvChad starter files
   ansible.builtin.copy:
     src: /opt/ai-desktops/nvchad-starter/
@@ -82,15 +91,6 @@
   ansible.builtin.copy:
     src: lazy-lock.json
     dest: "{{ developer_terminal_home }}/.config/nvim/lazy-lock.json"
-    owner: "{{ developer_terminal_user }}"
-    group: "{{ developer_terminal_user }}"
-    mode: "0644"
-  when: developer_terminal_manage_nvim
-
-- name: Mark Neovim configuration as managed
-  ansible.builtin.copy:
-    content: "NvChad starter {{ developer_terminal_nvchad_starter_revision }}\n"
-    dest: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
     owner: "{{ developer_terminal_user }}"
     group: "{{ developer_terminal_user }}"
     mode: "0644"
@@ -162,6 +162,15 @@
       preserving the user-managed configuration.
   when: not developer_terminal_manage_tmux
 
+- name: Mark tmux configuration as managed before installation
+  ansible.builtin.copy:
+    content: "ai-desktops managed tmux workflow\n"
+    dest: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
+    owner: "{{ developer_terminal_user }}"
+    group: "{{ developer_terminal_user }}"
+    mode: "0644"
+  when: developer_terminal_manage_tmux
+
 - name: Create tmux plugin directory
   ansible.builtin.file:
     path: "{{ developer_terminal_home }}/.tmux/plugins"
@@ -189,15 +198,6 @@
   ansible.builtin.template:
     src: tmux.conf.j2
     dest: "{{ developer_terminal_home }}/.tmux.conf"
-    owner: "{{ developer_terminal_user }}"
-    group: "{{ developer_terminal_user }}"
-    mode: "0644"
-  when: developer_terminal_manage_tmux
-
-- name: Mark tmux configuration as managed
-  ansible.builtin.copy:
-    content: "ai-desktops managed tmux workflow\n"
-    dest: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
     owner: "{{ developer_terminal_user }}"
     group: "{{ developer_terminal_user }}"
     mode: "0644"

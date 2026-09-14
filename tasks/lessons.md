@@ -3,6 +3,8 @@
 - Cloud-init `runcmd` entries execute as separate processes, so one entry's `EXIT` trap cannot represent the full bootstrap lifecycle. Run a separate watcher for `cloud-init status --wait` and atomically publish its terminal result.
 - Validate image-baked tools in the live Packer sequence, not only in isolation: assert the release binary's actual version format, configure consumers only after installation, and establish third-party package-manager trust before loading their metadata.
 - Do not model secrets with different exposure scopes as one merged value map. Keep their retrieval paths tracked transactionally, but preserve typed destinations through initial provisioning and reload; test duplicate keys to catch accidental cross-scope copying.
+- Optional remote services may downgrade a confirmed service failure, never an SSH transport failure; preserve exit 255 as a hard failure so an unreachable host cannot appear merely degraded.
+- Lifecycle observers must start before every phase they claim to diagnose, and managed-config markers must precede the first mutation so interrupted provisioning remains safely repairable. Shell-expanded UI status commands must use the host application's quoting modifier for untrusted paths.
 - Before reporting a branch commit complete, compare the intended file set with both `git show --stat HEAD` and the live worktree; a clean commit message does not prove every requested file was included.
 - Integration suites with provisioning in `TestMain` still perform setup under `go test -run '^$'`; use `go test -c` when the goal is compile-only validation with no cloud side effects.
 
