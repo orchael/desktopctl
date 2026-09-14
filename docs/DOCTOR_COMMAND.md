@@ -1,6 +1,6 @@
 # Doctor Command — Desktop Health Checks
 
-The `doctor` command runs a comprehensive suite of health checks against a deployed desktop to verify it's running correctly.
+The `doctor` command runs a comprehensive suite of health checks against a deployed desktop to verify it's running correctly. Checks can pass, fail, warn, or be skipped. Warnings identify degraded optional behavior and do not produce a non-zero exit by themselves.
 
 ## Usage
 
@@ -16,6 +16,13 @@ ai-desktops doctor d-001
 ## What It Checks
 
 The doctor command performs health checks organized into categories. Optional groups are added only when the desktop was created with matching features such as `--secret`, Tailscale, step-ca, `--nested-virtualization`, `--mobile`, or `--avd`.
+
+The System group includes two provisioning and monitoring signals:
+
+- `bootstrap-state` reads `/var/lib/ai-desktops/bootstrap-status.json`. New desktops report `running`, `succeeded`, or `failed`; older desktops without the artifact receive a compatibility warning. Failed and malformed states point to `/var/log/cloud-init-output.log`.
+- `cloudwatch-agent-active` checks the optional Amazon CloudWatch agent. An inactive agent is a warning rather than a hard failure and includes its systemd `LoadState`, `ActiveState`, `SubState`, `Result`, and `ExecMainStatus`, plus the journal command to run.
+
+The lifecycle artifact contains only state, timestamps, an exit code, and the log path. It does not contain bootstrap command output or secret values.
 
 ### Network Connectivity (Always Run)
 
@@ -112,6 +119,8 @@ Use `--json` flag for machine-readable output:
 ai-desktops doctor d-001 --json
 ```
 
+JSON reports warnings both on their individual checks and in the top-level `warnings` array. A report can therefore have `"passed": true` and a summary such as `passed with warnings: bootstrap-state`.
+
 Output:
 ```json
 {
@@ -132,9 +141,23 @@ Output:
 }
 ```
 
+### CloudWatch startup timing
+
+The CloudWatch package is installed in the Packer image, but its desktop-specific configuration is applied during runtime cloud-init. On a live September 2026 validation desktop, cloud-init began around instance creation and the agent became active roughly three minutes later. Running doctor during that interval can legitimately observe the agent as inactive even while required desktop services are becoming ready. The `bootstrap-state` check now makes that ordering visible, and `doctor --wait` remains available when the operator wants to wait for required checks to settle.
+
+If CloudWatch remains inactive after bootstrap succeeds, inspect it without printing its configuration contents:
+
+```bash
+systemctl show amazon-cloudwatch-agent --no-pager \
+  --property=LoadState --property=ActiveState --property=SubState \
+  --property=Result --property=ExecMainStatus
+journalctl -u amazon-cloudwatch-agent --no-pager -n 200
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status
+```
+
 ## Exit Codes
 
-- **0** — All checks passed
+- **0** — No required check failed; warnings may be present
 - **1** — One or more checks failed
 
 Use exit codes for automation:

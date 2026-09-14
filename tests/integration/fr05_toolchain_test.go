@@ -69,6 +69,57 @@ func TestFR5_TmuxInstalled(t *testing.T) {
 	assertCommandExists(t, fx.SSHTarget, fx.SSHKey, "tmux", "-V")
 }
 
+// TestFR5_NvChadConfigured verifies the AMI-managed editor starts headlessly
+// with Catppuccin selected (AC-9.7).
+func TestFR5_NvChadConfigured(t *testing.T) {
+	if !fx.ownedByTest {
+		t.Skip("NvChad AMI validation requires a desktop created from this test run's AMI")
+	}
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify NvChad")
+	}
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
+		`sudo -u ubuntu -H nvim --headless '+qa' && grep -q 'theme = "catppuccin"' /home/ubuntu/.config/nvim/lua/chadrc.lua`)
+	if err != nil {
+		t.Fatalf("NvChad headless startup or Catppuccin verification failed: %v\noutput: %s", err, out)
+	}
+}
+
+// TestFR5_DeveloperTerminalWorkflow verifies editor choice, managed ownership,
+// plugin installation, and detached tmux startup (AC-9.8, AC-9.9).
+func TestFR5_DeveloperTerminalWorkflow(t *testing.T) {
+	if !fx.ownedByTest {
+		t.Skip("terminal workflow AMI validation requires a desktop created from this test run's AMI")
+	}
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify terminal workflow")
+	}
+	script := `set -eu
+test "$(sudo -u ubuntu -H gh config get editor)" = vim
+test "$(stat -c '%U:%G' /home/ubuntu/.tmux.conf)" = ubuntu:ubuntu
+test "$(stat -c '%U:%G' /home/ubuntu/.config/nvim)" = ubuntu:ubuntu
+for plugin in tpm tmux-sensible tmux tmux-cpu tmux-kubectx tmux-resurrect tmux-continuum; do
+  test -d "/home/ubuntu/.tmux/plugins/$plugin/.git"
+  test "$(stat -c '%U:%G' "/home/ubuntu/.tmux/plugins/$plugin")" = ubuntu:ubuntu
+done
+sudo -u ubuntu -H tmux -L ai-desktops-test -f /home/ubuntu/.tmux.conf new-session -d -s ai-desktops-test
+trap 'sudo -u ubuntu -H tmux -L ai-desktops-test kill-server >/dev/null 2>&1 || true' EXIT
+for attempt in $(seq 1 15); do
+  if sudo -u ubuntu -H tmux -L ai-desktops-test list-keys | grep -q install_plugins; then
+    break
+  fi
+  sleep 1
+done
+sudo -u ubuntu -H tmux -L ai-desktops-test list-keys | grep -q install_plugins
+sudo -u ubuntu -H tmux -L ai-desktops-test show-options -gv status-right | grep -q gitmux
+test "$(sudo -u ubuntu -H tmux -L ai-desktops-test show-options -gv prefix)" = C-a
+sudo -u ubuntu -H tmux -L ai-desktops-test kill-server`
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey, script)
+	if err != nil {
+		t.Fatalf("developer terminal workflow verification failed: %v\noutput: %s", err, out)
+	}
+}
+
 // TestFR5_AllToolsOnPath verifies that every required tool is on PATH in a
 // single SSH round-trip, confirming FR-5.5.
 func TestFR5_AllToolsOnPath(t *testing.T) {

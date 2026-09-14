@@ -387,6 +387,10 @@
         classic: true
         state: present
 
+    - name: Configure pinned developer terminal workflow
+      ansible.builtin.include_role:
+        name: developer_terminal
+
     - name: Install Android Studio via snap
       community.general.snap:
         name: android-studio
@@ -411,11 +415,16 @@
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           fi
 
+    - name: Trust everydaydevopsio/ballast Homebrew tap before loading it
+      ansible.builtin.command: >-
+        /home/linuxbrew/.linuxbrew/bin/brew trust --tap everydaydevopsio/ballast
+      changed_when: false
+      become: false
+
     - name: Tap everydaydevopsio/ballast Homebrew tap
       ansible.builtin.shell: |
         set -euo pipefail
         /home/linuxbrew/.linuxbrew/bin/brew tap everydaydevopsio/ballast
-        /home/linuxbrew/.linuxbrew/bin/brew trust everydaydevopsio/ballast
       args:
         creates: /home/linuxbrew/.linuxbrew/Library/Taps/everydaydevopsio/homebrew-ballast
         executable: /bin/bash
@@ -534,6 +543,22 @@
           - gh
           - python3
         state: present
+
+    - name: Configure GitHub CLI editor for ubuntu
+      ansible.builtin.command: /usr/bin/gh config set editor vim
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      changed_when: false
+
+    - name: Write developer terminal workflow capability marker
+      ansible.builtin.copy:
+        content: "ai-desktops managed developer terminal workflow\n"
+        dest: /opt/ai-desktops/developer-terminal-workflow
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Add NodeSource Node.js 24 apt repository
       ansible.builtin.shell: |

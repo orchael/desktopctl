@@ -61,6 +61,91 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Inspect AMI developer terminal workflow capability
+      ansible.builtin.stat:
+        path: /opt/ai-desktops/developer-terminal-workflow
+      register: developer_terminal_ami_workflow
+
+    - name: Inspect managed Neovim workflow
+      ansible.builtin.stat:
+        path: /home/ubuntu/.config/nvim/.ai-desktops-managed
+      register: developer_terminal_nvim_workflow
+
+    - name: Verify NvChad starts without interaction
+      ansible.builtin.command: /snap/bin/nvim --headless +qa
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      changed_when: false
+      when: developer_terminal_nvim_workflow.stat.exists
+
+    - name: Verify GitHub CLI editor configuration
+      ansible.builtin.command: gh config get editor
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      register: github_editor
+      changed_when: false
+      failed_when: github_editor.stdout | trim != 'vim'
+      when: developer_terminal_ami_workflow.stat.exists
+
+    - name: Inspect managed Neovim ownership
+      ansible.builtin.stat:
+        path: /home/ubuntu/.config/nvim
+      register: developer_terminal_nvim_config
+      when: developer_terminal_nvim_workflow.stat.exists
+
+    - name: Verify managed Neovim ownership
+      ansible.builtin.assert:
+        that:
+          - developer_terminal_nvim_config.stat.pw_name == 'ubuntu'
+          - developer_terminal_nvim_config.stat.gr_name == 'ubuntu'
+        fail_msg: Managed Neovim configuration must be owned by ubuntu
+      when: developer_terminal_nvim_workflow.stat.exists
+
+    - name: Inspect managed tmux workflow
+      ansible.builtin.stat:
+        path: /home/ubuntu/.tmux.conf.ai-desktops-managed
+      register: developer_terminal_tmux_workflow
+
+    - name: Verify managed tmux configuration and plugins
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(stat -c '%U:%G' /home/ubuntu/.tmux.conf)" = ubuntu:ubuntu
+        for plugin in tpm tmux-sensible tmux tmux-cpu tmux-kubectx tmux-resurrect tmux-continuum; do
+          test -d "/home/ubuntu/.tmux/plugins/${plugin}/.git"
+          test "$(stat -c '%U:%G' "/home/ubuntu/.tmux/plugins/${plugin}")" = ubuntu:ubuntu
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      when: developer_terminal_tmux_workflow.stat.exists
+
+    - name: Verify tmux starts in detached mode
+      ansible.builtin.shell: |
+        set -euo pipefail
+        tmux -L ai-desktops-postboot -f /home/ubuntu/.tmux.conf new-session -d -s ai-desktops-postboot
+        trap 'tmux -L ai-desktops-postboot kill-server >/dev/null 2>&1 || true' EXIT
+        for attempt in $(seq 1 15); do
+          if tmux -L ai-desktops-postboot list-keys | grep -q install_plugins; then
+            break
+          fi
+          sleep 1
+        done
+        tmux -L ai-desktops-postboot list-keys | grep -q install_plugins
+        tmux -L ai-desktops-postboot show-options -gv status-right | grep -q gitmux
+        test "$(tmux -L ai-desktops-postboot show-options -gv prefix)" = C-a
+      args:
+        executable: /bin/bash
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      changed_when: false
+      when: developer_terminal_tmux_workflow.stat.exists
+
     - name: Check novnc-desktop service
       ansible.builtin.shell: systemctl list-unit-files | grep -q novnc-desktop && echo "novnc-desktop service installed"
       args:

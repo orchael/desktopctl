@@ -367,7 +367,8 @@ ai-desktops init-foundation --preview
 
 ### 4. Build a pre-baked AMI
 
-Pre-baked AMIs reduce desktop boot time by pre-installing the toolchain. Desktop creation
+Pre-baked AMIs reduce desktop boot time by pre-installing the toolchain and configuring
+the `ubuntu` user's pinned NvChad/Catppuccin and tmux/TPM workflow. Desktop creation
 requires an active AMI for its AWS region; cloud-init handles runtime-only work such as
 TLS setup, secret injection, workspace creation, and repository cloning.
 

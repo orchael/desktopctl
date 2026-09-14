@@ -1,3 +1,35 @@
+# Desktop terminal workflow and doctor lifecycle reliability (#225, #146, #149)
+
+Mode: approval-required; the user explicitly approved implementing the three selected issues. Governing requirements: FR-3.4 through FR-3.6, AC-3.6 through AC-3.9, FR-9.9, and AC-9.7 through AC-9.11. Scope: configure the approved terminal workflow in the pre-baked AMI only, add a persistent secret-free cloud-init lifecycle artifact, and make doctor interpret bootstrap and optional CloudWatch state with actionable diagnostics. Preserve existing user-managed terminal configuration and the fallback cloud-init package path. Rollout: build and activate a new AMI, launch a dedicated validation desktop, then verify the live terminal, bootstrap, and CloudWatch paths. Rollback: reactivate the previous AMI and revert the doctor/lifecycle changes; existing lifecycle artifacts are harmless and may remain.
+
+- [x] Add failing static/unit/integration tests for pinned terminal configuration, lifecycle states, warning semantics, and CloudWatch diagnostics.
+- [x] Add a reusable, pinned, idempotent Packer Ansible role for NvChad, tmux/TPM plugins, gitmux, and the GitHub editor.
+- [x] Extend post-boot and integration verification for ownership and non-interactive Neovim/tmux startup.
+- [x] Persist bootstrap lifecycle state from all cloud-init terminal paths and interpret it in doctor.
+- [x] Report inactive optional CloudWatch monitoring as a diagnostic warning and document troubleshooting.
+- [x] Run focused tests, full Go/race/coverage validation, Ansible/Packer checks, and diff hygiene.
+- [x] Build and activate a new AMI, launch a dedicated desktop, and collect live evidence for #225, #146, and #149.
+- [x] Prepare an isolated commit and PR handoff that closes all three issues and enters the bounded Copilot/CI cycle.
+
+### PR #240 Copilot cycle 1
+
+- [x] Score 2: preserve SSH exit 255 as a hard failure for the optional CloudWatch diagnostic and distinguish a missing lifecycle artifact from remote read errors.
+- [x] Score 2: shell-quote the tmux pane path, write managed markers before terminal configuration mutations, start lifecycle observation before package modules, and gate postboot verification on the corresponding managed markers.
+- [x] Re-run full Go/race/coverage, lint, Ansible syntax/role lint, Packer format/syntax, pre-commit, and a malicious-directory tmux smoke check.
+
+### PR #240 Copilot cycle 2
+
+- [x] Score 2: keep SSH context timeouts as hard failures and reject terminal lifecycle artifacts missing required timestamps or a nonzero failure code.
+- [x] Score 2: separate image capability, Neovim, and tmux markers so editor and ownership checks run only for managed state; wait for TPM and verify its binding and gitmux status before integration teardown.
+
+### PR #240 Copilot cycle 3
+
+- [x] Score 2: reject contradictory succeeded lifecycle artifacts with nonzero exit codes.
+- [x] Score 2: preserve dangling user-managed Neovim and tmux symlinks by excluding links before treating a path as absent.
+- [x] End the bounded Copilot loop after this third cycle; no fourth review request.
+
+Validation: the new focused tests failed against the prior behavior, then passed after implementation. `go test ./...`, `go test -race ./...`, internal-package coverage (76.0%), integration compile-only validation, `golangci-lint run ./...`, the production-profile terminal-role lint, Ansible syntax, Packer formatting/syntax, a locked NvChad restore/headless launch, and isolated tmux startup all pass. Full desktop-setup lint retains 30 pre-existing findings outside the new clean role/tasks. Live Packer validation exposed and fixed gitmux output, GitHub CLI ordering, and current Homebrew tap-trust ordering; the final bake completed 187 tasks with zero failures and activated `ami-00c40d089d33d9b7c`. Disposable desktop `d-a0cc4a75` recorded bootstrap `running` at 21:52:07Z and atomically transitioned to `succeeded` at 21:53:14Z; the terminal workflow passed live, inactive CloudWatch produced a warning with actionable systemd fields, and the restored agent returned active. The disposable instance, DNS record, root disk, and stack resources were then deleted. Existing desktop timing showed the reported CloudWatch failure came from a roughly three-minute startup window rather than a persistent agent fault.
+
 # Upgrade the repository to Go 1.26
 
 Mode: approval-required; the user explicitly requested this repository-wide toolchain and CI update. Governing requirement: FR-5.6/AC-5.8. Scope: update all first-party Go modules, the control-plane and AMI builder versions, developer prerequisites, and verify that GitHub Actions continues to derive Go from the root module. Do not update historical review evidence or unrelated example snippets in generated agent-rule files. Rollout: merge the PR so CI, release builds, and subsequent container/AMI builds adopt Go 1.26. Rollback: revert the version-only commits to restore the prior Go pins.

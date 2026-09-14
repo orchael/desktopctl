@@ -59,6 +59,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
     - tmux-installed  — tmux is on PATH
 
   System Resources:
+    - bootstrap-state  — cloud-init lifecycle state from the persistent desktop artifact
     - disk-space       — /workspace has >1GB free
     - memory-available — system has >512MB free memory
 
@@ -68,7 +69,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   Swap & Monitoring:
     - swap-active              — /swapfile is active (skipped when swap not configured)
-    - cloudwatch-agent-active  — CloudWatch agent systemd service is active
+    - cloudwatch-agent-active  — optional CloudWatch agent state (inactive is a diagnostic warning)
 
   bridgectl Agent Server:
     - bridgectl-installed         — bridgectl CLI is on PATH
@@ -223,6 +224,8 @@ func runDoctorStatic(ctx context.Context, runner *health.Runner, createdAt time.
 				mark := "✓"
 				if c.Status == health.StatusFail {
 					mark = "✗"
+				} else if c.Status == health.StatusWarning {
+					mark = "!"
 				} else if c.Status == health.StatusSkipped {
 					mark = "–"
 				}
@@ -378,6 +381,8 @@ func (t *doctorTUI) onComplete(result health.CheckResult, idx, total int) {
 		t.updateLine(idx, "✓", ansiGreen, result.Name, "")
 	case health.StatusFail:
 		t.updateLine(idx, "✗", ansiRed, result.Name, result.Message)
+	case health.StatusWarning:
+		t.updateLine(idx, "!", ansiYellow, result.Name, result.Message)
 	default:
 		t.updateLine(idx, "–", ansiDim, result.Name, result.Message)
 	}
@@ -387,8 +392,10 @@ func (t *doctorTUI) onComplete(result health.CheckResult, idx, total int) {
 func (t *doctorTUI) appendSummary(report *health.Report) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if report.Passed {
+	if report.Passed && len(report.Warnings) == 0 {
 		fmt.Printf("\n%s✓ all checks passed%s\n", ansiGreen, ansiReset)
+	} else if report.Passed {
+		fmt.Printf("\n%s! %s%s\n", ansiYellow, report.Summary, ansiReset)
 	} else {
 		fmt.Printf("\n%s✗ %s%s\n", ansiRed, report.Summary, ansiReset)
 	}
@@ -454,6 +461,9 @@ func runDoctorTUI(ctx context.Context, desktopID string, runner *health.Runner, 
 		summaryColor := ansiRed
 		if report.Passed {
 			summaryColor = ansiGreen
+			if len(report.Warnings) > 0 {
+				summaryColor = ansiYellow
+			}
 		}
 		// Move up: check block + blank-before-block + (Age line) + Summary line
 		// Header layout (from top): Desktop\n [Age\n] Summary\n \n <checks>

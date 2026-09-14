@@ -73,6 +73,70 @@ ssh_authorized_keys:
   - {{ .SSHPublicKey }}
 {{- end}}
 
+# Start lifecycle reporting in cloud-init's network stage, before package
+# installation or any final-stage runtime command can fail.
+bootcmd:
+  - |
+    cat >/usr/local/bin/ai-desktops-bootstrap-status <<'SH'
+    #!/bin/sh
+    set -eu
+    status_dir=/var/lib/ai-desktops
+    status_file=/var/lib/ai-desktops/bootstrap-status.json
+    started_file="$status_dir/bootstrap-started-at"
+
+    write_status() {
+      state="$1"
+      exit_code="${2:-0}"
+      now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      mkdir -p "$status_dir"
+      if [ "$state" = running ]; then
+        printf '%s\n' "$now" > "$started_file"
+        started_at="$now"
+        finished_field=""
+      else
+        started_at="$(cat "$started_file" 2>/dev/null || printf '%s' "$now")"
+        finished_field=",\"finished_at\":\"$now\""
+      fi
+      tmp="$status_file.tmp.$$"
+      printf '{"state":"%s","started_at":"%s"%s,"exit_code":%s,"log":"/var/log/cloud-init-output.log"}\n' \
+        "$state" "$started_at" "$finished_field" "$exit_code" > "$tmp"
+      chmod 0644 "$tmp"
+      mv -f "$tmp" "$status_file"
+    }
+
+    case "${1:-}" in
+      start)
+        if [ ! -e "$status_file" ]; then
+          write_status running
+        fi
+        if ! systemd-run --unit=ai-desktops-bootstrap-status --collect --no-block \
+          /usr/local/bin/ai-desktops-bootstrap-status watch >/dev/null; then
+          write_status failed 125
+          exit 125
+        fi
+        ;;
+      watch)
+        set +e
+        cloud-init status --wait >/dev/null 2>&1
+        exit_code=$?
+        set -e
+        if [ "$exit_code" -eq 0 ]; then
+          write_status succeeded 0
+        else
+          write_status failed "$exit_code"
+        fi
+        ;;
+      *)
+        echo "usage: ai-desktops-bootstrap-status {start|watch}" >&2
+        exit 2
+        ;;
+    esac
+    SH
+    chmod 0755 /usr/local/bin/ai-desktops-bootstrap-status
+    if ! grep -Eq '"state":"(succeeded|failed)"' /var/lib/ai-desktops/bootstrap-status.json 2>/dev/null; then
+      ai-desktops-bootstrap-status start
+    fi
+
 {{- if not .PackagesPreInstalled}}
 package_update: true
 package_upgrade: false
@@ -99,8 +163,6 @@ packages:
 
 runcmd:
   # --- bootstrap timing helper ---
-  # Written as an executable script so every subsequent runcmd entry
-  # (each of which runs in its own shell) can invoke it by name.
   - |
     mkdir -p /opt/ai-desktops
     cat >/usr/local/bin/ai-desktops-ts <<'SH'
