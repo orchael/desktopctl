@@ -253,7 +253,7 @@ its own lifecycle and may survive desktop termination.
 | FR-7.2 | Installed tools, checked-out repositories, editor state, and agent workspace artifacts must remain available after restart unless explicitly deleted by the operator. |
 | FR-7.3 | Persistence semantics apply to normal desktop lifecycle operations, not to terminated desktops. |
 | FR-7.4 | Desktops must be launched with EC2 hibernation enabled and an encrypted root EBS volume (both required by AWS for hibernation). |
-| FR-7.5 | The root EBS volume must default to 100 GiB to accommodate OS, applications, and the in-memory RAM dump written during hibernation. |
+| FR-7.5 | The root EBS volume must default to 100 GiB for normal desktops and 200 GiB for mobile/AVD desktops to accommodate OS, applications, swap, and the in-memory RAM dump written during hibernation. Explicit CLI and configuration volume sizes override these defaults. |
 | FR-7.6 | An operator may resize an existing on-demand desktop to a different EC2 instance type while preserving its root EBS volume and fleet identity. |
 | FR-7.7 | Resize operations must power-stop the instance before changing instance type; RAM hibernation state is not preserved during resize. |
 | FR-7.8 | Resize must reject incompatible nested-virtualization target instance families and Spot desktops until Spot resize semantics are explicitly supported. |
@@ -269,7 +269,7 @@ its own lifecycle and may survive desktop termination.
 | AC-7.2 | After `stop` + `start`, all base toolchain commands (`git`, `docker`, `nvim`, `tmux`) remain on PATH | `TestFR7_04_ToolsPersist` |
 | AC-7.3 | After `stop`, `lifecycle_state` is `stopped`; after `start`, it is `ready` | `TestFR7_01_Stop`, `TestFR7_02_Start` |
 | AC-7.4 | The root EBS volume is encrypted and hibernation is configured at instance launch time | Infrastructure review |
-| AC-7.5 | `ai-desktops create --volume-size <n>` launches an instance with a root volume of the specified size | Manual CLI verification |
+| AC-7.5 | Normal desktops default to 100 GiB and mobile/AVD desktops to 200 GiB; `--volume-size` overrides `desktop.volume_size`, which overrides the defaults | `TestDefaultVolumeSizes`, `TestResolveVolumeSize`; manual CLI verification |
 | AC-7.6 | `ai-desktops resize --help` exits 0 and describes `--instance-type` | Unit/smoke help verification |
 | AC-7.7 | Resize validation rejects empty, unchanged, Spot, and nested-virtualization-incompatible target instance types | Unit tests |
 | AC-7.8 | `ai-desktops create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |

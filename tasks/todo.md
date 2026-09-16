@@ -1,3 +1,14 @@
+# Default root disk size: 100 GiB
+
+Mode: user-authorized configuration change. Governing requirements: FR-7.5 and AC-7.5.
+
+- [x] Set normal desktop defaults to 100 GiB in CLI configuration and the Pulumi fallback; preserve mobile/AVD defaults and explicit overrides.
+- [x] Update the example configuration, requirements, and regression expectations.
+- [x] Update the local CLI's explicit `desktop.volume_size` override from 64 to 100 GiB.
+- [x] Verify the default regression fails at 64 GiB, then passes after the change.
+
+Validation: `go test ./internal/config ./internal/pulumi ./cmd/ai-desktops/cmd -cover` passed (88.4%, 70.2%, and 25.6% respectively); `go test ./...` in `infra/pulumi/desktop` compiled successfully (no test files); `git diff --check` passed. Existing desktops are not resized. Rollback: restore the previous defaults and local configuration value; newly provisioned volumes retain their chosen size.
+
 # Desktop terminal workflow and doctor lifecycle reliability (#225, #146, #149)
 
 Mode: approval-required; the user explicitly approved implementing the three selected issues. Governing requirements: FR-3.4 through FR-3.6, AC-3.6 through AC-3.9, FR-9.9, and AC-9.7 through AC-9.11. Scope: configure the approved terminal workflow in the pre-baked AMI only, add a persistent secret-free cloud-init lifecycle artifact, and make doctor interpret bootstrap and optional CloudWatch state with actionable diagnostics. Preserve existing user-managed terminal configuration and the fallback cloud-init package path. Rollout: build and activate a new AMI, launch a dedicated validation desktop, then verify the live terminal, bootstrap, and CloudWatch paths. Rollback: reactivate the previous AMI and revert the doctor/lifecycle changes; existing lifecycle artifacts are harmless and may remain.

@@ -82,7 +82,7 @@ func TestResolveVolumeSize(t *testing.T) {
 		avds        []string
 		want        int
 	}{
-		{name: "default normal", want: config.DefaultVolumeSize},
+		{name: "default normal", want: 100},
 		{name: "default mobile flag", mobile: true, want: config.DefaultMobileVolumeSize},
 		{name: "default avd flag", avds: []string{"flutter_dev:system-images;android-35;google_apis;x86_64"}, want: config.DefaultMobileVolumeSize},
 		{name: "config override normal", configValue: 80, want: 80},
