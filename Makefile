@@ -1,7 +1,9 @@
 SHELL   := bash
 BINARY := ai-desktops
 CMD     := ./cmd/ai-desktops
-BUILD_GOGC ?= 100
+# Keep this at 50: generated aws-sdk-go-v2/service/ec2 code OOMs the Go compiler
+# on memory-constrained machines at the default GOGC. Override only with evidence.
+BUILD_GOGC ?= 50
 BUILD_P    ?= 1
 
 AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
