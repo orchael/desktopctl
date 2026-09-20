@@ -64,8 +64,8 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestDefaultVolumeSizes(t *testing.T) {
-	if DefaultVolumeSize != 64 {
-		t.Errorf("DefaultVolumeSize = %d, want 64", DefaultVolumeSize)
+	if DefaultVolumeSize != 100 {
+		t.Errorf("DefaultVolumeSize = %d, want 100", DefaultVolumeSize)
 	}
 	if DefaultMobileVolumeSize != 200 {
 		t.Errorf("DefaultMobileVolumeSize = %d, want 200", DefaultMobileVolumeSize)
@@ -306,7 +306,7 @@ func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
 		t.Fatalf("parse config.example.yaml: %v", err)
 	}
 	// The example intentionally leaves volume_size unset (0) so context-sensitive
-	// defaults apply: 64 GiB for normal desktops, 200 GiB for mobile/AVD.
+	// defaults apply: 100 GiB for normal desktops, 200 GiB for mobile/AVD.
 	if c.Desktop.VolumeSize != 0 {
 		t.Fatalf("config.example.yaml desktop.volume_size = %d, want 0 (unset/auto)", c.Desktop.VolumeSize)
 	}

@@ -23,7 +23,7 @@ const (
 	DefaultBridgePort         = 9445
 	DefaultInstanceType       = "t3.large"
 	DefaultMobileInstanceType = "m8i.xlarge"
-	DefaultVolumeSize         = 64
+	DefaultVolumeSize         = 100
 	DefaultMobileVolumeSize   = 200
 
 	// DefaultMobileAVD is the AVD created by --mobile when no --avd flags are given.
