@@ -584,6 +584,27 @@ certbot, nginx reverse-proxy configuration, secret injection, workspace setup, a
 
 ---
 
+## Agent profiles
+
+An operator may select a user-level agent profile with `agent.profile` in
+`~/.ai-desktops/config.yaml`; `create --agent-profile` overrides that default for one
+desktop. The reference format is `owner/repository[:subdirectory]`. An empty
+selection keeps the standard desktop setup.
+
+| ID | Acceptance criterion |
+| --- | --- |
+| AP-1 | The CLI rejects malformed or unsafe profile references before creating infrastructure. |
+| AP-2 | After GitHub SSH authentication, provisioning fetches the selected profile as the desktop user, verifies `profile.yaml` and `install.sh`, and runs the installer in the user's home before reporting readiness. |
+| AP-3 | A failed profile fetch or installer fails provisioning and does not report the desktop ready. No GitHub token or private key is embedded in profile URLs or logs. |
+| AP-4 | With no selected profile, provisioning follows the existing path. A per-desktop selection overrides the operator default. |
+
+Agent profiles own user-level Codex and Claude configuration. They must not
+rewrite project-owned configuration in workspace repositories. Existing
+desktops require a separate profile application; editing operator config does
+not change an already-created desktop.
+
+---
+
 ## Future Enhancements
 
 - Authenticated external-user access to the application surface

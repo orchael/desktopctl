@@ -46,7 +46,9 @@ agent:
 
 A per-desktop `--agent-profile` selection overrides that default. Crew should always pass the role profile explicitly when dispatching a worker rather than inheriting a human operator's personal profile.
 
-An empty profile means no custom agent configuration is applied.
+An explicit `--agent-profile ''` disables the configured default for one desktop. An empty profile means no custom agent configuration is applied.
+
+The selected repository must be accessible to the desktop's provisioned GitHub SSH key. The CLI rejects malformed references before creating infrastructure. Cloud-init fails if it cannot clone the repository or run the installer; it does not report the desktop ready. A profile is applied only when a desktop is created, so changing the operator config does not update an existing desktop.
 
 ## Profile contract
 
@@ -64,6 +66,8 @@ claude/
 Additional provider-specific rules and hooks may live below `codex/` and `claude/`.
 
 `install.sh` is the installation boundary. It must be idempotent and must not contain credentials. ai-desktops supplies credentials separately through its existing Secrets Manager integration.
+
+The installer runs as the desktop user after GitHub authentication and before workspace repositories are cloned or bridgectl starts. It should fail with a nonzero exit status when required setup fails.
 
 ## Provisioning model
 

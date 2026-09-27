@@ -29,6 +29,7 @@ type BootstrapConfig struct {
 	EFSFileSystemID      string
 	EFSAccessPointID     string
 	BridgePort           int
+	AgentProfile         string // optional owner/repository[:path] profile installed as ubuntu
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
@@ -972,6 +973,31 @@ runcmd:
       chmod 600 /home/ubuntu/.claude.json
     fi
 
+{{- if .AgentProfile}}
+  # --- install selected agent profile ---
+  - |
+    (
+    set -e
+    PROFILE_ROOT="/home/ubuntu/.local/share/ai-desktops/profiles/{{ .AgentProfileOwner }}/{{ .AgentProfileRepository }}"
+    PROFILE_SOURCE="git@github.com:{{ .AgentProfileOwner }}/{{ .AgentProfileRepository }}.git"
+    PROFILE_DIR="$PROFILE_ROOT{{ if .AgentProfilePath }}/{{ .AgentProfilePath }}{{ end }}"
+    install -d -o ubuntu -g ubuntu -m 700 "$(dirname "$PROFILE_ROOT")" || exit 1
+    if [ ! -d "$PROFILE_ROOT/.git" ]; then
+      if [ -e "$PROFILE_ROOT" ]; then
+        echo "ERROR: agent profile checkout path is occupied" >&2
+        exit 1
+      fi
+      sudo -H -u ubuntu git clone --depth 1 "$PROFILE_SOURCE" "$PROFILE_ROOT" || exit 1
+    fi
+    if [ ! -f "$PROFILE_DIR/profile.yaml" ] || [ ! -f "$PROFILE_DIR/install.sh" ]; then
+      echo "ERROR: agent profile missing profile.yaml or install.sh" >&2
+      exit 1
+    fi
+    sudo -H -u ubuntu bash -lc 'bash "$1"' _ "$PROFILE_DIR/install.sh" || exit 1
+    echo "Agent profile installed: {{ .AgentProfile }}"
+    ) || exit 1
+{{- end}}
+
   # --- clone repositories ---
 {{ range .Repos }}
   - |
@@ -1270,6 +1296,14 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
+	var agentProfile AgentProfileReference
+	if cfg.AgentProfile != "" {
+		var err error
+		agentProfile, err = ParseAgentProfileReference(cfg.AgentProfile)
+		if err != nil {
+			return "", err
+		}
+	}
 	var err error
 	cfg.NPMGitHubScopes, err = NormalizeNPMGitHubScopes(cfg.NPMGitHubScopes)
 	if err != nil {
@@ -1322,17 +1356,23 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
-		BridgeVersion        string
-		BridgePackageVersion string
-		AVDsJSONB64          string
-		StepCAClientsJSONB64 string
+		BridgeVersion          string
+		BridgePackageVersion   string
+		AVDsJSONB64            string
+		StepCAClientsJSONB64   string
+		AgentProfileOwner      string
+		AgentProfileRepository string
+		AgentProfilePath       string
 	}
 	data := templateData{
-		BootstrapConfig:      cfg,
-		BridgeVersion:        BridgectlVersion,
-		BridgePackageVersion: strings.TrimPrefix(BridgectlVersion, "v"),
-		AVDsJSONB64:          avdsJSONB64,
-		StepCAClientsJSONB64: stepCAClientsJSONB64,
+		BootstrapConfig:        cfg,
+		BridgeVersion:          BridgectlVersion,
+		BridgePackageVersion:   strings.TrimPrefix(BridgectlVersion, "v"),
+		AVDsJSONB64:            avdsJSONB64,
+		StepCAClientsJSONB64:   stepCAClientsJSONB64,
+		AgentProfileOwner:      agentProfile.Owner,
+		AgentProfileRepository: agentProfile.Repository,
+		AgentProfilePath:       agentProfile.Path,
 	}
 
 	funcMap := template.FuncMap{

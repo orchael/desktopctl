@@ -62,6 +62,7 @@ var (
 	createStepCAClients     []string
 	createNPMGitHubScopes   []string
 	createNoNPMGitHubScopes bool
+	createAgentProfile      string
 )
 
 var createCmd = &cobra.Command{
@@ -108,6 +109,7 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
 	createCmd.Flags().StringArrayVar(&createNPMGitHubScopes, "npm-github-scope", nil, "npm package scope to resolve from GitHub Packages on the desktop, e.g. @myorg (repeatable; default: github.npm_github_scopes)")
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
+	createCmd.Flags().StringVar(&createAgentProfile, "agent-profile", "", "agent profile owner/repository[:path] (overrides agent.profile; empty disables it)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -116,6 +118,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := context.Background()
+	agentProfile := resolveCreateAgentProfile(cfg.Agent.Profile, createAgentProfile, cmd.Flags().Changed("agent-profile"))
+	if agentProfile != "" {
+		if _, err := provision.ParseAgentProfileReference(agentProfile); err != nil {
+			return err
+		}
+	}
 
 	// --mobile implies nested virtualization and a mobile-appropriate instance type.
 	if createMobile {
@@ -545,6 +553,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Repos:                req.Repos,
 		WorkspacePath:        "/workspace",
 		BridgePort:           cfg.Agent.BridgePort,
+		AgentProfile:         agentProfile,
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
@@ -825,6 +834,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+func resolveCreateAgentProfile(configured, flag string, flagChanged bool) string {
+	if flagChanged {
+		return flag
+	}
+	return configured
 }
 
 func applyBootstrapSecretSources(bootCfg *provision.BootstrapConfig, agentPath string, trackedPaths []string) {
