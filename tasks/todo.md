@@ -229,4 +229,4 @@ Mode: user-authorized runtime and configuration change. Governing requirements: 
 - [x] Implement profile loading and installation during create, with no-profile compatibility.
 - [x] Correct the operator profile reference and update documentation.
 - [x] Run targeted/full tests and coverage, then validate the live desktop profile files and CLI behavior. Full root Go suite and all three infra modules passed; adjusted internal coverage is 76.8%. The existing desktop has matching Codex/Claude files, Pilot registered for both agents, and completed Claude onboarding.
-- [ ] Update the PR, check CI and Copilot feedback.
+- [x] Update PR #260 at `68d9ea4`, request Copilot review, and check CI. All seven checks passed; no Copilot comments were present after the request. The PR title and body now describe the implemented behavior.
