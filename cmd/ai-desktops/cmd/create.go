@@ -22,6 +22,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -768,8 +769,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("update fleet record: %w", err)
 	}
 
-	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
-		return fmt.Errorf("mark ready: %w", err)
+	var profileRunner profileBootstrapRunner
+	if agentProfile != "" {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			_ = mgr.RecordFailure(ctx, desktopID, "agent-profile", "cannot load AWS config for bootstrap check")
+			return fmt.Errorf("load AWS config for profile bootstrap check: %w", err)
+		}
+		profileRunner = &ssmProfileBootstrapRunner{client: ssm.NewFromConfig(awsCfg)}
+		fmt.Fprintf(os.Stderr, "Waiting for agent profile bootstrap on %s ...\n", desktopID)
+	}
+	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
+	defer cancelBootstrap()
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, agentProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+		return err
 	}
 
 	nestedVirtStr := "false"

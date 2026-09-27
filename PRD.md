@@ -595,7 +595,7 @@ selection keeps the standard desktop setup.
 | --- | --- |
 | AP-1 | The CLI rejects malformed or unsafe profile references before creating infrastructure. |
 | AP-2 | After GitHub SSH authentication, provisioning fetches the selected profile as the desktop user, verifies `profile.yaml` and `install.sh`, and runs the installer in the user's home before reporting readiness. |
-| AP-3 | A failed profile fetch or installer fails provisioning and does not report the desktop ready. No GitHub token or private key is embedded in profile URLs or logs. |
+| AP-3 | Create waits for the selected profile's cloud-init result before marking a desktop ready. A failed fetch or installer fails create and records a non-ready fleet state while retaining the instance for diagnosis. No GitHub token or private key is embedded in profile URLs or logs. |
 | AP-4 | With no selected profile, provisioning follows the existing path. A per-desktop selection overrides the operator default. |
 
 Agent profiles own user-level Codex and Claude configuration. They must not

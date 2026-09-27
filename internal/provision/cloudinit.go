@@ -993,7 +993,7 @@ runcmd:
       echo "ERROR: agent profile missing profile.yaml or install.sh" >&2
       exit 1
     fi
-    sudo -H -u ubuntu bash -lc 'bash "$1"' _ "$PROFILE_DIR/install.sh" || exit 1
+    sudo -H -u ubuntu bash -lc 'cd "$1" && bash ./install.sh' _ "$PROFILE_DIR" || exit 1
     echo "Agent profile installed: {{ .AgentProfile }}"
     ) || exit 1
 {{- end}}

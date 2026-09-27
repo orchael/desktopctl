@@ -1242,6 +1242,7 @@ func TestRenderCloudInit_agentProfile(t *testing.T) {
 		"git@github.com:markcallen/ai-desktop-profile.git",
 		"sudo -H -u ubuntu",
 		"bash -lc",
+		"cd \"$1\" && bash ./install.sh",
 		"profile.yaml",
 		"install.sh",
 		"set -e",
@@ -1263,6 +1264,19 @@ func TestRenderCloudInit_noAgentProfile(t *testing.T) {
 	}
 	if strings.Contains(out, "# --- install selected agent profile ---") {
 		t.Fatal("profile install block present with no selection")
+	}
+}
+
+func TestRenderCloudInit_nestedAgentProfile(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-role", AgentProfile: "orchael/crew:profiles/reviewer"})
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	if !strings.Contains(out, `PROFILE_DIR="$PROFILE_ROOT/profiles/reviewer"`) {
+		t.Fatal("nested profile installer directory not selected")
+	}
+	if !strings.Contains(out, `cd "$1" && bash ./install.sh`) {
+		t.Fatal("installer must execute from the selected profile directory")
 	}
 }
 
