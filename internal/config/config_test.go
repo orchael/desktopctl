@@ -112,6 +112,8 @@ func TestLoad(t *testing.T) {
 aws:
   region: us-west-2
   profile: myprofile
+agent:
+  profile: markcallen/ai-desktop-profile
 pulumi:
   backend_bucket: my-state-bucket
 fleet:
@@ -150,6 +152,9 @@ pki:
 	}
 	if c.AWS.Region != "us-west-2" {
 		t.Errorf("region: got %q", c.AWS.Region)
+	}
+	if c.Agent.Profile != "markcallen/ai-desktop-profile" {
+		t.Errorf("agent profile: got %q", c.Agent.Profile)
 	}
 	if c.Pulumi.BackendBucket != "my-state-bucket" {
 		t.Errorf("bucket: got %q", c.Pulumi.BackendBucket)

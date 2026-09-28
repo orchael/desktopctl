@@ -1,5 +1,9 @@
 # Execution lessons
 
+- A documented configuration key is not an implemented feature: verify the config struct, CLI selection, and rendered bootstrap all carry it before testing a live desktop. Resolve profile repository names against the actual private repo and the desktop's GitHub identity before provisioning.
+- User-level installers must run with the desktop user's login PATH when agent binaries live outside sudo's default PATH. Run Claude onboarding before a profile installer that may create `.claude.json`, and make selected-profile failures exit the enclosing cloud-init script.
+- Pulumi infrastructure completion precedes cloud-init completion. When readiness depends on bootstrap, wait for its terminal result before marking a fleet record ready; a successful rendered script alone does not prove the installer ran. Run installers from the selected profile directory so relative profile assets resolve correctly.
+
 - Cloud-init `runcmd` entries execute as separate processes, so one entry's `EXIT` trap cannot represent the full bootstrap lifecycle. Run a separate watcher for `cloud-init status --wait` and atomically publish its terminal result.
 - Validate image-baked tools in the live Packer sequence, not only in isolation: assert the release binary's actual version format, configure consumers only after installation, and establish third-party package-manager trust before loading their metadata.
 - Do not model secrets with different exposure scopes as one merged value map. Keep their retrieval paths tracked transactionally, but preserve typed destinations through initial provisioning and reload; test duplicate keys to catch accidental cross-scope copying.

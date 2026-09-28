@@ -323,6 +323,14 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 			},
 		},
 		{
+			name: "with agent profile",
+			cfg: &BootstrapConfig{
+				DesktopID:    "d-yaml-profile",
+				GitHubOwner:  "acme",
+				AgentProfile: "orchael/crew:profiles/reviewer",
+			},
+		},
+		{
 			name: "with tailscale and step-ca",
 			cfg: &BootstrapConfig{
 				DesktopID:           "d-yaml",
@@ -1210,4 +1218,70 @@ func TestRenderCloudInit_dockerEnableGating(t *testing.T) {
 			t.Error("systemctl start docker must be present when PackagesPreInstalled=false")
 		}
 	})
+}
+
+func TestRenderCloudInit_agentProfile(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{
+		DesktopID:    "d-profile",
+		GitHubOwner:  "markcallen",
+		AgentProfile: "markcallen/ai-desktop-profile",
+	})
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	gitHubAuth := strings.Index(out, "# --- retrieve GitHub credentials and configure SSH ---")
+	onboarding := strings.Index(out, "# --- suppress Claude Code first-run onboarding")
+	profile := strings.Index(out, "# --- install selected agent profile ---")
+	clone := strings.Index(out, "# --- clone repositories ---")
+	service := strings.Index(out, "# --- enable and start bridgectl user service ---")
+	if gitHubAuth < 0 || onboarding <= gitHubAuth || profile <= onboarding || clone <= profile || service <= clone {
+		t.Fatalf("profile installation is not between onboarding and agent startup")
+	}
+	block := out[profile:clone]
+	for _, want := range []string{
+		"git@github.com:markcallen/ai-desktop-profile.git",
+		"sudo -H -u ubuntu",
+		"bash -lc",
+		"cd \"$1\" && bash ./install.sh",
+		"profile.yaml",
+		"install.sh",
+		"set -e",
+		") || exit 1",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("profile install block missing %q", want)
+		}
+	}
+	if strings.Contains(block, "github_token") || strings.Contains(block, "ssh_private_key") {
+		t.Error("profile install block must not embed credentials")
+	}
+}
+
+func TestRenderCloudInit_noAgentProfile(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-default"})
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	if strings.Contains(out, "# --- install selected agent profile ---") {
+		t.Fatal("profile install block present with no selection")
+	}
+}
+
+func TestRenderCloudInit_nestedAgentProfile(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-role", AgentProfile: "orchael/crew:profiles/reviewer"})
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	if !strings.Contains(out, `PROFILE_DIR="$PROFILE_ROOT/profiles/reviewer"`) {
+		t.Fatal("nested profile installer directory not selected")
+	}
+	if !strings.Contains(out, `cd "$1" && bash ./install.sh`) {
+		t.Fatal("installer must execute from the selected profile directory")
+	}
+}
+
+func TestRenderCloudInit_rejectsUnsafeAgentProfile(t *testing.T) {
+	if _, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-bad", AgentProfile: "owner/repo;false"}); err == nil {
+		t.Fatal("unsafe profile reference accepted")
+	}
 }

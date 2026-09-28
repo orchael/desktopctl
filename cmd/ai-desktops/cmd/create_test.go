@@ -58,6 +58,26 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 }
 
+func TestCreateAgentProfileSelection(t *testing.T) {
+	if createCmd.Flags().Lookup("agent-profile") == nil {
+		t.Fatal("agent-profile flag not registered")
+	}
+	for _, tc := range []struct {
+		name, configured, flag, want string
+		changed                      bool
+	}{
+		{name: "default", configured: "markcallen/ai-desktop-profile", want: "markcallen/ai-desktop-profile"},
+		{name: "override", configured: "markcallen/ai-desktop-profile", flag: "orchael/crew:profiles/reviewer", changed: true, want: "orchael/crew:profiles/reviewer"},
+		{name: "explicitly disabled", configured: "markcallen/ai-desktop-profile", changed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveCreateAgentProfile(tc.configured, tc.flag, tc.changed); got != tc.want {
+				t.Fatalf("profile = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateCmd_spotFlagsRegistered(t *testing.T) {
 	if flag := createCmd.Flags().Lookup("spot"); flag == nil {
 		t.Fatal("spot flag not registered")

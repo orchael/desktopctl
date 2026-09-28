@@ -22,6 +22,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/orchael/ai-desktops/internal/awsx"
 	"github.com/orchael/ai-desktops/internal/config"
 	"github.com/orchael/ai-desktops/internal/desktop"
@@ -62,6 +63,7 @@ var (
 	createStepCAClients     []string
 	createNPMGitHubScopes   []string
 	createNoNPMGitHubScopes bool
+	createAgentProfile      string
 )
 
 var createCmd = &cobra.Command{
@@ -108,6 +110,7 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
 	createCmd.Flags().StringArrayVar(&createNPMGitHubScopes, "npm-github-scope", nil, "npm package scope to resolve from GitHub Packages on the desktop, e.g. @myorg (repeatable; default: github.npm_github_scopes)")
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
+	createCmd.Flags().StringVar(&createAgentProfile, "agent-profile", "", "agent profile owner/repository[:path] (overrides agent.profile; empty disables it)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -116,6 +119,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := context.Background()
+	agentProfile := resolveCreateAgentProfile(cfg.Agent.Profile, createAgentProfile, cmd.Flags().Changed("agent-profile"))
+	if agentProfile != "" {
+		if _, err := provision.ParseAgentProfileReference(agentProfile); err != nil {
+			return err
+		}
+	}
 
 	// --mobile implies nested virtualization and a mobile-appropriate instance type.
 	if createMobile {
@@ -545,6 +554,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Repos:                req.Repos,
 		WorkspacePath:        "/workspace",
 		BridgePort:           cfg.Agent.BridgePort,
+		AgentProfile:         agentProfile,
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
@@ -759,8 +769,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("update fleet record: %w", err)
 	}
 
-	if err := mgr.MarkReady(ctx, desktopID, "provisioned"); err != nil {
-		return fmt.Errorf("mark ready: %w", err)
+	var profileRunner profileBootstrapRunner
+	if agentProfile != "" {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			_ = mgr.RecordFailure(ctx, desktopID, "agent-profile", "cannot load AWS config for bootstrap check")
+			return fmt.Errorf("load AWS config for profile bootstrap check: %w", err)
+		}
+		profileRunner = &ssmProfileBootstrapRunner{client: ssm.NewFromConfig(awsCfg)}
+		fmt.Fprintf(os.Stderr, "Waiting for agent profile bootstrap on %s ...\n", desktopID)
+	}
+	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
+	defer cancelBootstrap()
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, agentProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+		return err
 	}
 
 	nestedVirtStr := "false"
@@ -825,6 +847,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+func resolveCreateAgentProfile(configured, flag string, flagChanged bool) string {
+	if flagChanged {
+		return flag
+	}
+	return configured
 }
 
 func applyBootstrapSecretSources(bootCfg *provision.BootstrapConfig, agentPath string, trackedPaths []string) {

@@ -180,6 +180,8 @@ type DesktopConfig struct {
 
 type AgentConfig struct {
 	BridgePort int `yaml:"bridge_port"`
+	// Profile is an optional owner/repository[:path] agent profile applied at creation.
+	Profile string `yaml:"profile,omitempty"`
 	// TrustHost disables SSH host key verification for SSH tunnel connections.
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.

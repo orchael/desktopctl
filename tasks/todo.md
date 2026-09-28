@@ -220,3 +220,14 @@ Validation: the metadata/source-separation regression failed to compile against 
 ### PR #239 Copilot cycle 3
 
 - [x] Score 2: carry explicit agent-surface replacement intent so legacy application-secret reload/add/remove operations preserve an untracked `agents.env`, while tracked agent rotation and removal still replace or clear it. Validate existing, missing, and unsafe output surfaces plus focused race and full-suite coverage.
+# Agent profile provisioning repair
+
+Mode: user-authorized runtime and configuration change. Governing requirements: PRD AP-1 through AP-4. Root cause: the documentation branch defined `agent.profile` but did not add a config field, CLI flag, or cloud-init installer. The configured plural repository name also differs from the existing singular private repository. Scope: implement validated selection and fail-closed provisioning, correct docs/operator config, then apply the reviewed profile to desktop `d-80bda9fc` and verify its user files. Risks: executing a profile installer and altering user-level agent configuration; review the exact repository and script before execution. Rollback: restore the previous user config files on the desktop and remove the selected profile from operator config; new provisioning can be rolled back by reverting this branch.
+
+- [x] Confirm repository access and review the selected install script. The existing private repo is `markcallen/ai-desktop-profile` at revision `d21e264`; the desktop's GitHub SSH key can read it.
+- [x] Add failing tests for reference validation, default/flag selection, and cloud-init order/failure behavior.
+- [x] Implement profile loading and installation during create, with no-profile compatibility.
+- [x] Correct the operator profile reference and update documentation.
+- [x] Run targeted/full tests and coverage, then validate the live desktop profile files and CLI behavior. Full root Go suite and all three infra modules passed; adjusted internal coverage is 76.8%. The existing desktop has matching Codex/Claude files, Pilot registered for both agents, and completed Claude onboarding.
+- [x] Update PR #260 at `68d9ea4`, request Copilot review, and check CI. All seven checks passed; no Copilot comments were present after the request. The PR title and body now describe the implemented behavior.
+- [x] Resolve Copilot review findings: wait for successful cloud-init before marking a profiled desktop ready, and run nested profile installers from their own directory. The full Go suite passed. Fresh desktop `d-23b41782` remained pending during cloud-init, then created successfully; SSM verified matching Codex/Claude files, mode 0600, and Pilot registration. Finish cleanup, push, CI, and Copilot follow-up before closing PR #260.

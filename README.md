@@ -324,6 +324,7 @@ agent:
 ```
 
 See `config.example.yaml` at the repo root for a fully commented example.
+For user-level Codex and Claude defaults, see [agent profiles](docs/AGENT_PROFILES.md).
 
 ## Full lifecycle workflow
 
