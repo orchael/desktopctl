@@ -145,6 +145,16 @@ func TestAMIPlaybookCreatesPrivateCodexHome(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookConfiguresCodexUpdateCheck(t *testing.T) {
+	for _, want := range []string{
+		"../internal/provision/codex_home_config.py",
+		"/home/ubuntu/.config/bridgectl/codex-home/config.toml",
+		"Configure bridgectl Codex home update setting",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
 	assertFileContains(t, "playbook.yml", `    - name: Configure pinned developer terminal workflow
       ansible.builtin.include_role:

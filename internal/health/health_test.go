@@ -452,6 +452,7 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 		"bridgectl-config-exists",
 		"bridgectl-credentials-env",
 		"codex-home-private",
+		"bridgectl-codex-update-disabled",
 		"bridgectl-claude-configured",
 		"bridgectl-codex-configured",
 		"bridgectl-display-env",
@@ -464,6 +465,9 @@ func TestBridgectlCheckers_returnsExpectedChecks(t *testing.T) {
 	}
 	if !checkerCommandContains(checkers, "codex-home-private", `test ! -L /home/ubuntu/.codex && test -d /home/ubuntu/.codex && test "$(stat -c '%U:%G:%a' /home/ubuntu/.codex)" = "ubuntu:ubuntu:700"`) {
 		t.Error("codex-home-private should reject symlinks and require a directory with ubuntu ownership and mode 0700")
+	}
+	if !checkerCommandContains(checkers, "bridgectl-codex-update-disabled", `check_for_update_on_startup`) {
+		t.Error("bridgectl-codex-update-disabled should inspect the Codex home TOML setting")
 	}
 }
 
