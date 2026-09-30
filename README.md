@@ -405,14 +405,14 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-bridgectl_version       = "v1.1.1"
+bridgectl_version       = "v1.4.0"
 tailscale_version       = "1.98.9"
 helm_version            = "v4.3.0"
 go_version              = "1.26.0"
 uv_version              = "0.12.3"
 ```
 
-Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.1.1`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
+Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.4.0`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops or replace their standalone bridgectl configuration. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
 
 The following variables are **injected automatically** by the CLI and must not be set in the vars file:
 

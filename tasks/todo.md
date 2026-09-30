@@ -238,6 +238,16 @@ Mode: user-authorized production configuration change. Governing requirements: F
 - [x] Add failing tests for idempotent TOML merge, both provisioning paths, and doctor output.
 - [x] Implement shared Codex config updater and wire it into the AMI and cloud-init.
 - [x] Run focused/full tests and relevant Ansible/Packer checks.
-- [ ] Open a dedicated PR, request Copilot, and resolve CI/review feedback.
+- [x] Open a dedicated PR, request Copilot, and resolve CI/review feedback. PR #266 has all seven Actions checks green; Copilot reported a review quota limit.
 
 Validation: new focused tests failed before implementation and passed afterward; `go test ./...`, `go test -cover ./internal/...`, Ansible playbook syntax with `ANSIBLE_LOCAL_TEMP=/tmp`, Packer formatting, and `git diff --check` passed. A direct Packer validate requires the build's source AMI, AWS region, and version variables; it was not run locally. Live prompt behavior will be checked after the merged AMI is built.
+# Bridge production AMI pin (#261)
+
+Mode: approval-required; the user explicitly requested an individual PR and subsequent AMI build. Governing requirement: AUTH-5. Scope: update the default Packer pin, CLI cloud-init expectation, regression, and active docs to bridgectl v1.4.0. Verify the release SHA256. Rollout: merge after green CI and rebuild the AMI; validate production enrollment on a fresh desktop without replacing standalone bridgectl config. Rollback: restore both pins and use the previous AMI. Existing desktops are not upgraded by this change.
+
+- [x] Confirm the package digest against the v1.4.0 GitHub release asset.
+- [x] Make the release-pin regression fail, then update the pins and docs.
+- [x] Run Go tests, coverage, Packer formatting, and diff checks.
+- [x] Open an individual PR with Copilot review and green CI. PR #263 merged after all seven Actions checks passed; Copilot reported a review quota limit.
+
+Validation: amd64 release package SHA256 `e81f86413ac79b2054d67fb57b94d1fd86701c3e6351bc32c457322c1f71282d` matches the GitHub release digest. `TestBridgectlReleasePin` failed for both old pins before implementation, then `go test ./...` passed afterward. `go test ./internal/provision -cover` passed at 86.5%; Packer format and `git diff --check` passed. Fresh production enrollment remains a post-merge AMI smoke check.

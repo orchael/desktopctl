@@ -1,4 +1,4 @@
-bridgectl_version             = "v1.1.1"
+bridgectl_version             = "v1.4.0"
 tailscale_version             = "1.98.9"
 helm_version                  = "v4.3.0"
 go_version                    = "1.26.0"

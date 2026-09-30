@@ -16,7 +16,7 @@ var codexHomeConfigScript string
 
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.1.1"
+	BridgectlVersion      = "v1.4.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
