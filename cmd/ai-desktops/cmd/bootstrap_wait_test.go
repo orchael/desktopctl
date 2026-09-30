@@ -66,7 +66,7 @@ func TestCompleteCreateReadinessWaitsForSelectedProfile(t *testing.T) {
 			if tc.profile != "" && runner.onlineChecks < 2 {
 				t.Fatal("did not wait for SSM to become online")
 			}
-			if tc.wantError && (got.FailurePhase != "agent-profile" || !strings.Contains(got.FailureMsg, "bootstrap")) {
+			if tc.wantError && (got.FailurePhase != "desktop-profile" || !strings.Contains(got.FailureMsg, "bootstrap")) {
 				t.Fatalf("failure was not recorded: %+v", got)
 			}
 		})

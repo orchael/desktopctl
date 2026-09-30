@@ -101,13 +101,15 @@ desktop:
   # Defaults to 0.0.0.0/0 (open). Restrict to your IP for least-privilege access.
   operator_cidr: 0.0.0.0/0
 
-agent:
-  # Optional user-level agent profile, fetched at desktop creation using the
-  # provisioned GitHub SSH key. Format: owner/repository[:subdirectory].
-  # A create --agent-profile value overrides this default; an explicit empty
-  # value disables it for that desktop.
+  # Optional desktop setup profile. Format: owner/repository[:subdirectory].
+  # A create --desktop-profile value overrides this default.
   # profile: markcallen/ai-desktop-profile
+  # AWS Secrets Manager JSON secret containing this profile's environment vars.
+  # Injected only when the configured profile is selected. A different profile
+  # needs its own create --profile-secret value.
+  # profile_secret: /ai-desktops/markcallen/profiles/ai-desktop-profile
 
+agent:
   # Port where bridgectl listens on the desktop. Defaults to localhost-only.
   # When both Tailscale and step-ca are enabled, cloud-init binds this port to
   # the desktop's Tailscale IPv4 address for direct tailnet access.

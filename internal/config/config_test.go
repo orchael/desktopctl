@@ -112,8 +112,9 @@ func TestLoad(t *testing.T) {
 aws:
   region: us-west-2
   profile: myprofile
-agent:
+desktop:
   profile: markcallen/ai-desktop-profile
+  profile_secret: /ai-desktops/acme/profiles/personal
 pulumi:
   backend_bucket: my-state-bucket
 fleet:
@@ -153,8 +154,8 @@ pki:
 	if c.AWS.Region != "us-west-2" {
 		t.Errorf("region: got %q", c.AWS.Region)
 	}
-	if c.Agent.Profile != "markcallen/ai-desktop-profile" {
-		t.Errorf("agent profile: got %q", c.Agent.Profile)
+	if c.Desktop.Profile != "markcallen/ai-desktop-profile" || c.Desktop.ProfileSecret != "/ai-desktops/acme/profiles/personal" {
+		t.Errorf("desktop profile: got %q, secret %q", c.Desktop.Profile, c.Desktop.ProfileSecret)
 	}
 	if c.Pulumi.BackendBucket != "my-state-bucket" {
 		t.Errorf("bucket: got %q", c.Pulumi.BackendBucket)
@@ -194,6 +195,16 @@ pki:
 	}
 	if !c.PKI.StepCAClients[0].Required {
 		t.Error("step-ca client required should be true")
+	}
+}
+
+func TestLoadRejectsLegacyAgentProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  profile: owner/old\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "desktop.profile") {
+		t.Fatalf("Load legacy agent.profile error = %v", err)
 	}
 }
 

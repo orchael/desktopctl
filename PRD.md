@@ -597,21 +597,31 @@ certbot, nginx reverse-proxy configuration, secret injection, workspace setup, a
 
 ---
 
-## Agent profiles
+## Desktop profiles
 
-An operator may select a user-level agent profile with `agent.profile` in
-`~/.ai-desktops/config.yaml`; `create --agent-profile` overrides that default for one
+An operator may select a desktop setup profile with `desktop.profile` in
+`~/.ai-desktops/config.yaml`; `create --desktop-profile` overrides that default for one
 desktop. The reference format is `owner/repository[:subdirectory]`. An empty
-selection keeps the standard desktop setup.
+selection keeps the standard desktop setup. Profiles may configure any desktop
+tool or user environment, not only AI agents.
+
+`desktop.profile_secret` optionally names an AWS Secrets Manager JSON secret
+containing environment variables for the configured profile. It is included only
+when that profile is selected. `create --profile-secret` explicitly selects a
+secret for an overridden profile. The secret is tracked with the desktop's
+additional secrets, injected into its user environment before profile installation,
+and included in later secret reloads. Profile repositories must contain no secret
+values. A selected profile secret must exist before infrastructure is created.
 
 | ID | Acceptance criterion |
 | --- | --- |
-| AP-1 | The CLI rejects malformed or unsafe profile references before creating infrastructure. |
+| AP-1 | The CLI rejects malformed or unsafe profile references and a profile secret without a selected profile before creating infrastructure. |
 | AP-2 | After GitHub SSH authentication, provisioning fetches the selected profile as the desktop user, verifies `profile.yaml` and `install.sh`, and runs the installer in the user's home before reporting readiness. |
 | AP-3 | Create waits for the selected profile's cloud-init result before marking a desktop ready. A failed fetch or installer fails create and records a non-ready fleet state while retaining the instance for diagnosis. No GitHub token or private key is embedded in profile URLs or logs. |
 | AP-4 | With no selected profile, provisioning follows the existing path. A per-desktop selection overrides the operator default. |
+| AP-5 | The configured profile secret is injected only with its configured profile; an overridden profile receives only an explicitly selected profile secret. The path is tracked for reload and never rendered into `agents.env`. |
 
-Agent profiles own user-level Codex and Claude configuration. They must not
+Desktop profiles may own user-level Codex and Claude configuration. They must not
 rewrite project-owned configuration in workspace repositories. Existing
 desktops require a separate profile application; editing operator config does
 not change an already-created desktop.

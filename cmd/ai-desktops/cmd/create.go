@@ -63,7 +63,8 @@ var (
 	createStepCAClients     []string
 	createNPMGitHubScopes   []string
 	createNoNPMGitHubScopes bool
-	createAgentProfile      string
+	createDesktopProfile    string
+	createProfileSecret     string
 )
 
 var createCmd = &cobra.Command{
@@ -110,7 +111,8 @@ func init() {
 	createCmd.Flags().StringArrayVar(&createStepCAClients, "step-ca-client", nil, "remote bridgectl client to trust at startup: issuer=<name>,public-key-path=<path>[,required=true] (repeatable; requires step-ca)")
 	createCmd.Flags().StringArrayVar(&createNPMGitHubScopes, "npm-github-scope", nil, "npm package scope to resolve from GitHub Packages on the desktop, e.g. @myorg (repeatable; default: github.npm_github_scopes)")
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
-	createCmd.Flags().StringVar(&createAgentProfile, "agent-profile", "", "agent profile owner/repository[:path] (overrides agent.profile; empty disables it)")
+	createCmd.Flags().StringVar(&createDesktopProfile, "desktop-profile", "", "desktop setup profile owner/repository[:path] (overrides desktop.profile; empty disables it)")
+	createCmd.Flags().StringVar(&createProfileSecret, "profile-secret", "", "AWS Secrets Manager path for the selected desktop profile (overrides desktop.profile_secret)")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -119,11 +121,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	agentProfile := resolveCreateAgentProfile(cfg.Agent.Profile, createAgentProfile, cmd.Flags().Changed("agent-profile"))
-	if agentProfile != "" {
-		if _, err := provision.ParseAgentProfileReference(agentProfile); err != nil {
+	desktopProfile := resolveCreateDesktopProfile(cfg.Desktop.Profile, createDesktopProfile, cmd.Flags().Changed("desktop-profile"))
+	if desktopProfile != "" {
+		if _, err := provision.ParseDesktopProfileReference(desktopProfile); err != nil {
 			return err
 		}
+	}
+	profileSecret := resolveProfileSecret(cfg.Desktop.Profile, cfg.Desktop.ProfileSecret, desktopProfile, createProfileSecret, cmd.Flags().Changed("profile-secret"))
+	if profileSecret != "" && desktopProfile == "" {
+		return fmt.Errorf("a profile secret requires a selected desktop profile")
+	}
+	if cfg.Desktop.ProfileSecret != "" && cfg.Desktop.Profile == "" {
+		return fmt.Errorf("desktop.profile_secret requires desktop.profile")
+	}
+	if profileSecret != "" && profileSecret == cfg.GitHub.AgentSecret {
+		return fmt.Errorf("profile secret must differ from github.agent_secret")
 	}
 
 	// --mobile implies nested virtualization and a mobile-appropriate instance type.
@@ -269,7 +281,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Track the agent secret too, so reload can rotate the complete snapshot.
-	secretPaths := desktopSecretPaths(cfg.GitHub.AgentSecret, createSecrets)
+	requestedSecrets := append([]string(nil), createSecrets...)
+	if profileSecret != "" {
+		requestedSecrets = append(requestedSecrets, profileSecret)
+	}
+	secretPaths := desktopSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets)
 	// Verify every configured secret before provisioning.
 	if len(secretPaths) > 0 {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
@@ -554,7 +570,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Repos:                req.Repos,
 		WorkspacePath:        "/workspace",
 		BridgePort:           cfg.Agent.BridgePort,
-		AgentProfile:         agentProfile,
+		DesktopProfile:       desktopProfile,
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
@@ -579,6 +595,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		AVDs:                 avds,
 	}
 	applyBootstrapSecretSources(bootCfg, cfg.GitHub.AgentSecret, secretPaths)
+	bootCfg.ProfileSecretPath = profileSecret
 	if attachedWorkspace != nil {
 		bootCfg.EFSFileSystemID = attachedWorkspace.EFSFileSystemID
 		bootCfg.EFSAccessPointID = attachedWorkspace.EFSAccessPointID
@@ -770,18 +787,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if agentProfile != "" {
+	if desktopProfile != "" {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
-			_ = mgr.RecordFailure(ctx, desktopID, "agent-profile", "cannot load AWS config for bootstrap check")
+			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
 			return fmt.Errorf("load AWS config for profile bootstrap check: %w", err)
 		}
 		profileRunner = &ssmProfileBootstrapRunner{client: ssm.NewFromConfig(awsCfg)}
-		fmt.Fprintf(os.Stderr, "Waiting for agent profile bootstrap on %s ...\n", desktopID)
+		fmt.Fprintf(os.Stderr, "Waiting for desktop profile bootstrap on %s ...\n", desktopID)
 	}
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
-	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, agentProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, desktopProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -849,11 +866,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func resolveCreateAgentProfile(configured, flag string, flagChanged bool) string {
+func resolveCreateDesktopProfile(configured, flag string, flagChanged bool) string {
 	if flagChanged {
 		return flag
 	}
 	return configured
+}
+
+func resolveProfileSecret(configuredProfile, configuredSecret, selectedProfile, flag string, flagChanged bool) string {
+	if flagChanged {
+		return flag
+	}
+	if selectedProfile != "" && selectedProfile == configuredProfile {
+		return configuredSecret
+	}
+	return ""
 }
 
 func applyBootstrapSecretSources(bootCfg *provision.BootstrapConfig, agentPath string, trackedPaths []string) {

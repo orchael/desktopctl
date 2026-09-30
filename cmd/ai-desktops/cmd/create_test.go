@@ -48,6 +48,34 @@ func TestCreateBootstrapSecretsRenderSeparateSources(t *testing.T) {
 	}
 }
 
+func TestCreateBootstrapProfileSecretUsesDesktopEnvironment(t *testing.T) {
+	const agentPath = "/ai-desktops/acme/agents"
+	const profilePath = "/ai-desktops/acme/profiles/personal"
+	bootCfg := &provision.BootstrapConfig{DesktopID: "d-profile-secret", AWSRegion: "us-east-2", DesktopProfile: "acme/personal", ProfileSecretPath: profilePath}
+	tracked := desktopSecretPaths(agentPath, []string{profilePath})
+	applyBootstrapSecretSources(bootCfg, agentPath, tracked)
+	if !containsString(tracked, profilePath) {
+		t.Fatal("profile secret was not tracked for reload")
+	}
+	out, err := provision.RenderCloudInit(bootCfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	agentStart := strings.Index(out, "# --- retrieve AI provider API keys")
+	desktopStart := strings.Index(out, "# --- retrieve desktop secrets")
+	profileStart := strings.Index(out, "# --- install selected desktop profile ---")
+	if agentStart < 0 || desktopStart <= agentStart || profileStart <= desktopStart {
+		t.Fatal("profile secret is not injected before profile installation")
+	}
+	if strings.Contains(out[agentStart:desktopStart], profilePath) || !strings.Contains(out[desktopStart:profileStart], profilePath) {
+		t.Fatal("profile secret was not scoped to the desktop environment")
+	}
+	warning := strings.Index(out[desktopStart:profileStart], "WARNING: could not retrieve desktop secret "+profilePath)
+	if warning < 0 || !strings.Contains(out[desktopStart+warning:desktopStart+warning+160], "exit 1") {
+		t.Fatal("missing profile secret must fail provisioning")
+	}
+}
+
 func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	flag := createCmd.Flags().Lookup("step-ca-provisioner")
 	if flag == nil {
@@ -58,9 +86,9 @@ func TestCreateCmd_stepCAProvisionerDefault(t *testing.T) {
 	}
 }
 
-func TestCreateAgentProfileSelection(t *testing.T) {
-	if createCmd.Flags().Lookup("agent-profile") == nil {
-		t.Fatal("agent-profile flag not registered")
+func TestCreateDesktopProfileSelection(t *testing.T) {
+	if createCmd.Flags().Lookup("desktop-profile") == nil || createCmd.Flags().Lookup("profile-secret") == nil {
+		t.Fatal("desktop profile flags not registered")
 	}
 	for _, tc := range []struct {
 		name, configured, flag, want string
@@ -71,8 +99,26 @@ func TestCreateAgentProfileSelection(t *testing.T) {
 		{name: "explicitly disabled", configured: "markcallen/ai-desktop-profile", changed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveCreateAgentProfile(tc.configured, tc.flag, tc.changed); got != tc.want {
+			if got := resolveCreateDesktopProfile(tc.configured, tc.flag, tc.changed); got != tc.want {
 				t.Fatalf("profile = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveProfileSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name, configuredProfile, configuredSecret, selectedProfile, flag, want string
+		changed                                                                bool
+	}{
+		{"default", "owner/personal", "/profiles/personal", "owner/personal", "", "/profiles/personal", false},
+		{"different profile", "owner/personal", "/profiles/personal", "owner/worker", "", "", false},
+		{"disabled", "owner/personal", "/profiles/personal", "", "", "", false},
+		{"override", "owner/personal", "/profiles/personal", "owner/worker", "/profiles/worker", "/profiles/worker", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveProfileSecret(tc.configuredProfile, tc.configuredSecret, tc.selectedProfile, tc.flag, tc.changed); got != tc.want {
+				t.Fatalf("profile secret = %q, want %q", got, tc.want)
 			}
 		})
 	}
