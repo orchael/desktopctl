@@ -24,6 +24,7 @@ CREDENTIALS_FILE="${CREDENTIALS_FILE:-/home/ubuntu/.config/bridgectl/agents.env}
 SERVICE_FILE="${SERVICE_FILE:-/home/ubuntu/.config/systemd/user/bridgectl.service}"
 BRIDGE_ADDR="${BRIDGE_ADDR:-127.0.0.1:9445}"
 CODEX_HOME_DIR="${CODEX_HOME_DIR:-/home/ubuntu/.codex}"
+CODEX_BRIDGE_HOME_DIR="${CODEX_BRIDGE_HOME_DIR:-/home/ubuntu/.config/bridgectl/codex-home}"
 REQUIRED_NODE_MAJOR=24
 
 _pass=0
@@ -196,7 +197,25 @@ else
   _fail "Codex home: ${CODEX_HOME_DIR} must be owned by ubuntu:ubuntu with mode 0700"
 fi
 
-# ── 9. /workspace path policy ────────────────────────────────────────────────
+# ── 9. Codex in-TUI updater ────────────────────────────────────────────────────
+
+_codex_config="${CODEX_BRIDGE_HOME_DIR}/config.toml"
+if [ ! -L "$CODEX_BRIDGE_HOME_DIR" ] && [ ! -L "$_codex_config" ] && [ -f "$_codex_config" ] && python3 - "$_codex_config" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+with pathlib.Path(sys.argv[1]).open("rb") as config:
+    data = tomllib.load(config)
+sys.exit(0 if data.get("check_for_update_on_startup") is False else 1)
+PY
+then
+  _ok "Codex update prompt: disabled in $_codex_config"
+else
+  _fail "Codex update prompt: set check_for_update_on_startup = false in $_codex_config"
+fi
+
+# ── 10. /workspace path policy ───────────────────────────────────────────────
 
 if [ -f "$CONFIG_FILE" ] && grep -q '/workspace' "$CONFIG_FILE" 2>/dev/null; then
   _ok "/workspace: listed in bridge allowed_paths"
@@ -204,7 +223,7 @@ else
   _fail "/workspace: not in bridge allowed_paths — agent sessions will be denied by policy"
 fi
 
-# ── 10. systemd user service ─────────────────────────────────────────────────
+# ── 11. systemd user service ─────────────────────────────────────────────────
 
 if [ -f "$SERVICE_FILE" ]; then
   if grep -q 'bridgectl server start' "$SERVICE_FILE" 2>/dev/null; then
@@ -216,7 +235,7 @@ else
   _fail "systemd user service: ${SERVICE_FILE} not found"
 fi
 
-# ── 11. Bridge health ─────────────────────────────────────────────────────────
+# ── 12. Bridge health ─────────────────────────────────────────────────────────
 
 _bridge_host=$(printf '%s' "$BRIDGE_ADDR" | cut -d: -f1)
 _bridge_port=$(printf '%s' "$BRIDGE_ADDR" | cut -d: -f2)

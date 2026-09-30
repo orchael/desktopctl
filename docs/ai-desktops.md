@@ -298,7 +298,7 @@ New pre-baked AMIs configure the `ubuntu` user with a ready-to-use terminal envi
 
 The AMI owns configurations marked with `.ai-desktops-managed`. The build role preserves an existing unmarked `~/.config/nvim` or `~/.tmux.conf` instead of replacing it. This workflow is an AMI capability; fallback cloud-init installs the base `nvim` and `tmux` binaries but does not install these configurations.
 
-The script checks eleven items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
+The script checks twelve items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 
 | Check | What it verifies |
 |---|---|
@@ -310,11 +310,14 @@ The script checks eleven items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each
 | Configured providers | One or more providers are enabled in `bridge.yaml` |
 | Credentials | Required env variables are present in `agents.env` (names only, not values) |
 | Native Codex home | `/home/ubuntu/.codex` is a real, non-symlinked directory owned by `ubuntu:ubuntu` with mode `0700` |
+| Codex update prompt | Bridgectl's `/home/ubuntu/.config/bridgectl/codex-home/config.toml` sets `check_for_update_on_startup = false` |
 | `/workspace` policy | Bridge `allowed_paths` includes `/workspace` |
 | systemd user service | `bridgectl.service` is installed for the `ubuntu` user |
 | Bridge health | Bridge responds on `127.0.0.1:9445` |
 
 The script exits `0` if all checks pass and `1` if any `[FAIL]` item is found. `[WARN]` items are informational and do not cause a non-zero exit.
+
+Bridgectl sessions run the Codex copy under `/opt/bridgectl/node_modules`. The AMI and fallback cloud-init disable Codex's startup update prompt in bridgectl's separate `codex-home/config.toml`, preserving other valid TOML keys. Upgrade Codex by rebuilding the pinned bridgectl provider runtime. If doctor reports the update prompt setting as missing, run `sudo -u ubuntu python3 /usr/local/bin/ai-desktops-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml` on an AMI desktop, or use the same updater at `/opt/ai-desktops/codex_home_config.py` on a fallback desktop.
 
 ```
 ai-desktops bridge doctor
@@ -329,11 +332,12 @@ ai-desktops bridge doctor
        CLAUDE_CODE_OAUTH_TOKEN: set
 [OK]   Credentials: all required variables present
 [OK]   Codex home: /home/ubuntu/.codex is private
+[OK]   Codex update prompt: disabled in /home/ubuntu/.config/bridgectl/codex-home/config.toml
 [OK]   /workspace: listed in bridge allowed_paths
 [OK]   systemd user service: /home/ubuntu/.config/systemd/user/bridgectl.service
 [OK]   Bridge health: healthy (127.0.0.1:9445)
 
-Result: 11 OK, 0 FAIL
+Result: 12 OK, 0 FAIL
 ```
 
 ---

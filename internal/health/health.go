@@ -612,6 +612,8 @@ func BridgectlCheckers(hostname string, sshPort int, user, keyPath string) []Che
 			"test -f /home/ubuntu/.config/bridgectl/agents.env", t),
 		NewSSHChecker("codex-home-private", hostname, sshPort, user, keyPath,
 			`test ! -L /home/ubuntu/.codex && test -d /home/ubuntu/.codex && test "$(stat -c '%U:%G:%a' /home/ubuntu/.codex)" = "ubuntu:ubuntu:700"`, t),
+		NewSSHChecker("bridgectl-codex-update-disabled", hostname, sshPort, user, keyPath,
+			`python3 -c 'import pathlib, tomllib; p = pathlib.Path("/home/ubuntu/.config/bridgectl/codex-home/config.toml"); assert not p.is_symlink(); assert tomllib.loads(p.read_text()).get("check_for_update_on_startup") is False'`, t),
 		// Provider configuration (claude and codex must be present)
 		NewSSHChecker("bridgectl-claude-configured", hostname, sshPort, user, keyPath,
 			"grep -q 'claude:' /home/ubuntu/.config/bridgectl/config.yaml", t),
