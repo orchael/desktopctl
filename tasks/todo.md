@@ -1,3 +1,13 @@
+# Add Google Cloud CLI to the AMI
+
+Mode: user-authorized AMI configuration change. Governing requirements: AMI-GCLOUD-1 and AMI-GCLOUD-2. Scope: add Google's signed apt source, install `google-cloud-cli`, and verify the command during the bake. Rollout: build and activate a new AMI after merge. Rollback: reactivate the previous AMI.
+
+- [x] Add a failing AMI playbook test for signed installation and command verification.
+- [x] Add the repository key, apt source, package installation, and bake verification.
+- [ ] Run focused and full local validation, then create the PR and check CI/Copilot.
+
+Validation: the new AMI test failed before implementation and passed after it. `go test ./...`, scoped internal coverage (77.2% excluding `internal/awsx`), Ansible syntax, and `git diff --check` pass. Full playbook lint reports 30 pre-existing failures and one task-count warning; none point to the new Google Cloud tasks. A live AMI bake remains the rollout verification after merge.
+
 # Default root disk size: 100 GiB
 
 Mode: user-authorized configuration change. Governing requirements: FR-7.5 and AC-7.5.
