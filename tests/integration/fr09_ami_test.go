@@ -8,6 +8,7 @@
 //	AC-9.1  `ai-desktops ami build --help` succeeds (confirms command registration)
 //	AC-9.3  `create --preview --ami <id>` references the supplied AMI in output
 //	AC-9.5  Helm is installed in the AMI through Linuxbrew
+//	AC-9.11 VS Code stable package and desktop launcher are installed
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
@@ -73,6 +74,40 @@ func TestFR9_HelmInstalled(t *testing.T) {
 	got := strings.SplitN(strings.TrimSpace(out), "+", 2)[0]
 	if want := string(match[1]); got != want {
 		t.Errorf("helm version = %q, want configured pin %q", got, want)
+	}
+}
+
+// TestFR9_VSCodeInstalled verifies the pinned package and usable desktop
+// launcher on a desktop created from this test run's AMI (AC-9.11).
+func TestFR9_VSCodeInstalled(t *testing.T) {
+	if !fx.ownedByTest {
+		t.Skip("VS Code AMI validation requires a desktop created from this test run's AMI")
+	}
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify VS Code")
+	}
+	variables, err := os.ReadFile(filepath.Join(moduleRootPath, "packer", "variables.pkrvars.hcl"))
+	if err != nil {
+		t.Fatalf("read Packer variables: %v", err)
+	}
+	match := regexp.MustCompile(`(?m)^vscode_version\s*=\s*"([^"]+)"\s*$`).FindSubmatch(variables)
+	if len(match) != 2 {
+		t.Fatal("Packer variables must contain one vscode_version pin")
+	}
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
+		"dpkg-query -W -f='${Version}' code && echo && desktop-file-validate /usr/share/applications/code.desktop && code --version")
+	if err != nil {
+		t.Fatalf("VS Code package or launcher validation failed: %v\noutput: %s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("VS Code validation returned too few lines: %q", out)
+	}
+	if got, want := lines[0], string(match[1]); got != want {
+		t.Errorf("VS Code package version = %q, want %q", got, want)
+	}
+	if got, want := lines[1], strings.SplitN(string(match[1]), "-", 2)[0]; got != want {
+		t.Errorf("VS Code CLI version = %q, want %q", got, want)
 	}
 }
 

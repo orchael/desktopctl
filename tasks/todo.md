@@ -231,3 +231,13 @@ Mode: user-authorized runtime and configuration change. Governing requirements: 
 - [x] Run targeted/full tests and coverage, then validate the live desktop profile files and CLI behavior. Full root Go suite and all three infra modules passed; adjusted internal coverage is 76.8%. The existing desktop has matching Codex/Claude files, Pilot registered for both agents, and completed Claude onboarding.
 - [x] Update PR #260 at `68d9ea4`, request Copilot review, and check CI. All seven checks passed; no Copilot comments were present after the request. The PR title and body now describe the implemented behavior.
 - [x] Resolve Copilot review findings: wait for successful cloud-init before marking a profiled desktop ready, and run nested profile installers from their own directory. The full Go suite passed. Fresh desktop `d-23b41782` remained pending during cloud-init, then created successfully; SSM verified matching Codex/Claude files, mode 0600, and Pilot registration. Finish cleanup, push, CI, and Copilot follow-up before closing PR #260.
+# Add VS Code to the AMI (#112)
+
+Mode: approval-required; the user explicitly requested this AMI change and separate PR. Governing requirement: FR-9.10/AC-9.11. Scope: install an exact stable VS Code version from Microsoft's signed apt repository, verify package and launcher in the image build, and document the editor. Rollout: merge after CI and review, then build and activate a new AMI. Rollback: reactivate the previous AMI.
+
+- [x] Add a failing test for the package pin, signed repository, version gate, and desktop launcher.
+- [x] Implement the minimum Packer playbook and variable changes.
+- [x] Add AMI integration verification, update toolchain docs, and run local validation.
+- [ ] Open a PR, request Copilot, address feedback, and confirm green CI.
+
+Validation: `TestAMIPlaybookInstallsPinnedVSCode` failed against the prior image recipe and passes after implementation. `go test ./...`, integration test compilation, Ansible syntax, Packer format/syntax, and `git diff --check` pass. Scoped internal-package coverage is 76.9% (excluding `internal/awsx`). Full playbook ansible-lint has pre-existing failures; this branch's initial new findings were fixed. Graphical launch requires the rebuilt AMI and a desktop session.

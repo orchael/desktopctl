@@ -127,6 +127,31 @@ func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
+	for _, want := range []string{
+		`    - name: Require vscode_version`,
+		`url: https://packages.microsoft.com/keys/microsoft.asc`,
+		`URIs: https://packages.microsoft.com/repos/code`,
+		`Signed-By: /etc/apt/keyrings/microsoft.asc`,
+		`name: "code={{ vscode_version }}"`,
+		`ansible.builtin.command: dpkg-query -W -f='${Version}' code`,
+		`vscode_installed_version.stdout == vscode_version`,
+		`path: /usr/share/applications/code.desktop`,
+		`ansible.builtin.command: desktop-file-validate /usr/share/applications/code.desktop`,
+		`ansible.builtin.command: /usr/bin/code --version`,
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+	assertFileContains(t, "variables.pkrvars.hcl", `vscode_version                = "1.139.1-1790309529"`)
+	for _, want := range []string{
+		`variable "vscode_version"`,
+		`VSCodeVersion              = var.vscode_version`,
+		`vscode_version=${var.vscode_version}`,
+	} {
+		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
+	}
+}
+
 func TestAMIPlaybookCreatesPrivateCodexHome(t *testing.T) {
 	playbook, err := os.ReadFile("playbook.yml")
 	if err != nil {

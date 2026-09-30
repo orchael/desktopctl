@@ -298,6 +298,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI editor `vim`, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
+| FR-9.10 | The pre-baked AMI must install a pinned stable Visual Studio Code package from Microsoft's signed apt repository and expose its desktop launcher. The build must verify the package version, CLI binary, and launcher entry. |
 
 **Acceptance criteria:**
 
@@ -313,6 +314,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.8 | `sudo -u ubuntu -H gh config get editor` prints `vim`; managed terminal files and plugin directories are owned by `ubuntu:ubuntu` | Static role validation and live AMI integration test |
 | AC-9.9 | A detached tmux session starts with the approved `C-a`, split, reload, login-shell, clipboard, renumbering, UTF-8, vi-copy, Catppuccin, CPU, application, session, resurrect, continuum, and gitmux behavior, while intentionally disabled options remain disabled | Static role validation and live AMI integration test |
 | AC-9.10 | Re-running the terminal-workflow role is idempotent for managed files and skips pre-existing unmarked Neovim or tmux configuration without replacing it | Role task tests and Ansible idempotence validation |
+| AC-9.11 | The AMI build pins and installs the signed Microsoft `code` package, verifies the installed version and `code.desktop` launch command, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 | AC-9.11 | The AMI bake trusts the non-official Ballast Homebrew tap before Homebrew loads its formulae, so current Homebrew trust enforcement does not block image creation | Static task-order test and live AMI build |
 
 ### FR-11 — GitHub developer tooling
