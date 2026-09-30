@@ -638,17 +638,32 @@
     - name: Verify shared Playwright Chromium launches as ubuntu
       ansible.builtin.command:
         argv:
+          - /usr/bin/env
+          - -u
+          - DISPLAY
+          - -u
+          - DBUS_SESSION_BUS_ADDRESS
+          - -u
+          - WAYLAND_DISPLAY
+          - -u
+          - XAUTHORITY
+          - -u
+          - XDG_RUNTIME_DIR
           - node
           - -e
           - >-
             const fs = require('fs'); const { chromium } = require('/opt/ai-desktops/playwright/node_modules/playwright');
             if (!fs.existsSync(chromium.executablePath())) throw new Error('Chromium executable missing');
-            chromium.launch({headless: true}).then(browser => browser.close()).catch(error => { console.error(error); process.exit(1); });
+            chromium.launch({headless: true, timeout: 90000}).then(browser => browser.close()).catch(error => { console.error(error); process.exit(1); });
       become_user: ubuntu
       environment:
         PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         HOME: /home/ubuntu
+      register: playwright_launch_result
+      retries: 2
+      delay: 5
+      until: playwright_launch_result.rc == 0
       changed_when: false
 
     - name: Install ca-certificates, curl, gnupg for apt keyring setup

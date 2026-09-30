@@ -273,7 +273,9 @@ func TestAMIPlaybookInstallsSharedPlaywrightChromium(t *testing.T) {
 		`path: /etc/environment`,
 		`- name: Verify shared Playwright Chromium launches as ubuntu`,
 		`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"`,
-		`chromium.launch({headless: true})`,
+		"- /usr/bin/env\n          - -u\n          - DISPLAY\n          - -u\n          - DBUS_SESSION_BUS_ADDRESS",
+		`chromium.launch({headless: true, timeout: 90000})`,
+		`until: playwright_launch_result.rc == 0`,
 	} {
 		assertFileContains(t, "playbook.yml", want)
 	}
