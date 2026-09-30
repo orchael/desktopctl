@@ -55,6 +55,11 @@
         that: helm_version is defined and helm_version | length > 0
         fail_msg: "helm_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require vscode_version
+      ansible.builtin.assert:
+        that: vscode_version is defined and vscode_version | length > 0
+        fail_msg: "vscode_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
     - name: Require playwright_version
       ansible.builtin.assert:
         that: playwright_version is defined and playwright_version | length > 0
@@ -657,6 +662,85 @@
         path: /etc/apt/keyrings
         state: directory
         mode: "0755"
+
+    - name: Download Microsoft apt signing key
+      ansible.builtin.get_url:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        dest: /etc/apt/keyrings/microsoft.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add official Visual Studio Code apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/vscode.sources
+        content: |
+          Types: deb
+          URIs: https://packages.microsoft.com/repos/code
+          Suites: stable
+          Components: main
+          Architectures: amd64
+          Signed-By: /etc/apt/keyrings/microsoft.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Prefer Microsoft's Visual Studio Code package
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/code
+        content: |
+          Package: code
+          Pin: origin "packages.microsoft.com"
+          Pin-Priority: 9999
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install pinned Visual Studio Code stable package
+      ansible.builtin.apt:
+        name: "code={{ vscode_version }}"
+        state: present
+        update_cache: true
+
+    - name: Install desktop launcher validator
+      ansible.builtin.apt:
+        name: desktop-file-utils
+        state: present
+
+    - name: Verify installed Visual Studio Code package version
+      ansible.builtin.command: dpkg-query -W -f='${Version}' code
+      register: vscode_installed_version
+      changed_when: false
+
+    - name: Require pinned Visual Studio Code package version
+      ansible.builtin.assert:
+        that: vscode_installed_version.stdout == vscode_version
+
+    - name: Verify Visual Studio Code desktop launcher exists
+      ansible.builtin.stat:
+        path: /usr/share/applications/code.desktop
+      register: vscode_desktop_launcher
+
+    - name: Require Visual Studio Code desktop launcher
+      ansible.builtin.assert:
+        that:
+          - vscode_desktop_launcher.stat.isreg | default(false)
+          - vscode_desktop_launcher.stat.mode == '0644'
+
+    - name: Validate Visual Studio Code desktop launcher
+      ansible.builtin.command: desktop-file-validate /usr/share/applications/code.desktop
+      changed_when: false
+
+    - name: Verify Visual Studio Code CLI launches
+      ansible.builtin.command: /usr/bin/code --version
+      become: true
+      become_user: ubuntu
+      register: vscode_cli_version
+      changed_when: false
+
+    - name: Require matching Visual Studio Code CLI version
+      ansible.builtin.assert:
+        that: vscode_cli_version.stdout_lines[0] == (vscode_version | regex_replace('-.*$', ''))
 
     - name: Add bridgectl apt signing key
       ansible.builtin.shell: |

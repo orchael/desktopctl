@@ -300,6 +300,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI editor `vim`, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
 | FR-9.10 | Both the pre-baked AMI and cloud-init must set `check_for_update_on_startup = false` in bridgectl's Codex home (`/home/ubuntu/.config/bridgectl/codex-home/config.toml`) before Codex sessions start. Provisioning must preserve existing valid TOML settings, reject unsafe paths, and be idempotent. The desktop CLI doctor and AMI doctor must report a missing or incorrect setting. Codex version upgrades are delivered through the pinned bridgectl provider runtime. |
 | FR-9.11 | New pre-baked AMIs must install a pinned Playwright package and its matching Chromium and headless browser with Linux dependencies in a shared, readable browser directory. Login sessions and systemd-launched agents must receive `PLAYWRIGHT_BROWSERS_PATH`. The bake must launch headless Chromium as `ubuntu` without downloading a browser. Projects retain their own matching Playwright dependency; other revisions may need their own browser install. Existing desktops gain this capability only after replacement with the new AMI. |
+| FR-9.12 | The pre-baked AMI must install a pinned stable Visual Studio Code package from Microsoft's signed apt repository and expose its desktop launcher. The build must verify the package version, CLI binary, and launcher entry. |
 
 **Acceptance criteria:**
 
@@ -320,6 +321,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.13 | Both doctors report when the bridgectl Codex home setting is absent or enabled | `TestAMIDoctorChecksCodexUpdateSetting`, `TestBridgectlCheckers_returnsExpectedChecks` |
 | AC-9.14 | Packer pins and records the supported Playwright version; the AMI provisions its matching Chromium and headless binaries in a shared path readable by `ubuntu`, and propagates that path to interactive and systemd sessions | Static configuration test and live AMI validation |
 | AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
+| AC-9.16 | The AMI build pins and installs the signed Microsoft `code` package, verifies the installed version and `code.desktop` launch command, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 
 ### FR-11 — GitHub developer tooling
 
