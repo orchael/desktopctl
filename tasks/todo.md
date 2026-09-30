@@ -231,3 +231,13 @@ Mode: user-authorized runtime and configuration change. Governing requirements: 
 - [x] Run targeted/full tests and coverage, then validate the live desktop profile files and CLI behavior. Full root Go suite and all three infra modules passed; adjusted internal coverage is 76.8%. The existing desktop has matching Codex/Claude files, Pilot registered for both agents, and completed Claude onboarding.
 - [x] Update PR #260 at `68d9ea4`, request Copilot review, and check CI. All seven checks passed; no Copilot comments were present after the request. The PR title and body now describe the implemented behavior.
 - [x] Resolve Copilot review findings: wait for successful cloud-init before marking a profiled desktop ready, and run nested profile installers from their own directory. The full Go suite passed. Fresh desktop `d-23b41782` remained pending during cloud-init, then created successfully; SSM verified matching Codex/Claude files, mode 0600, and Pilot registration. Finish cleanup, push, CI, and Copilot follow-up before closing PR #260.
+# Bridge production AMI pin (#261)
+
+Mode: approval-required; the user explicitly requested an individual PR and subsequent AMI build. Governing requirement: AUTH-5. Scope: update the default Packer pin, CLI cloud-init expectation, regression, and active docs to bridgectl v1.4.0. Verify the release SHA256. Rollout: merge after green CI and rebuild the AMI; validate production enrollment on a fresh desktop without replacing standalone bridgectl config. Rollback: restore both pins and use the previous AMI. Existing desktops are not upgraded by this change.
+
+- [x] Confirm the package digest against the v1.4.0 GitHub release asset.
+- [x] Make the release-pin regression fail, then update the pins and docs.
+- [x] Run Go tests, coverage, Packer formatting, and diff checks.
+- [ ] Open an individual PR with Copilot review and green CI.
+
+Validation: amd64 release package SHA256 `e81f86413ac79b2054d67fb57b94d1fd86701c3e6351bc32c457322c1f71282d` matches the GitHub release digest. `TestBridgectlReleasePin` failed for both old pins before implementation, then `go test ./...` passed afterward. `go test ./internal/provision -cover` passed at 86.5%; Packer format and `git diff --check` passed. Fresh production enrollment remains a post-merge AMI smoke check.

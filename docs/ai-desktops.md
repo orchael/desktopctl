@@ -267,7 +267,7 @@ When a new `bridgectl` package is published:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y --allow-downgrades bridgectl=1.0.1
+sudo apt-get install -y --allow-downgrades bridgectl=1.4.0
 sudo env INSTALL_DIR=/opt/bridgectl /usr/lib/bridgectl/install-provider-runtime
 sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user daemon-reload
 sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user restart bridgectl
@@ -320,7 +320,7 @@ The script exits `0` if all checks pass and `1` if any `[FAIL]` item is found. `
 ai-desktops bridge doctor
 =========================
 
-[OK]   Package version: bridgectl 1.0.1
+[OK]   Package version: bridgectl 1.4.0
 [OK]   Service state: active
 [OK]   Port 9445: bound to 127.0.0.1
 [OK]   Node.js: v24.2.0
