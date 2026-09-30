@@ -298,6 +298,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI editor `vim`, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
+| FR-9.10 | Both the pre-baked AMI and cloud-init must set `check_for_update_on_startup = false` in bridgectl's Codex home (`/home/ubuntu/.config/bridgectl/codex-home/config.toml`) before Codex sessions start. Provisioning must preserve existing valid TOML settings, reject unsafe paths, and be idempotent. The desktop CLI doctor and AMI doctor must report a missing or incorrect setting. Codex version upgrades are delivered through the pinned bridgectl provider runtime. |
 
 **Acceptance criteria:**
 
@@ -314,6 +315,8 @@ its own lifecycle and may survive desktop termination.
 | AC-9.9 | A detached tmux session starts with the approved `C-a`, split, reload, login-shell, clipboard, renumbering, UTF-8, vi-copy, Catppuccin, CPU, application, session, resurrect, continuum, and gitmux behavior, while intentionally disabled options remain disabled | Static role validation and live AMI integration test |
 | AC-9.10 | Re-running the terminal-workflow role is idempotent for managed files and skips pre-existing unmarked Neovim or tmux configuration without replacing it | Role task tests and Ansible idempotence validation |
 | AC-9.11 | The AMI bake trusts the non-official Ballast Homebrew tap before Homebrew loads its formulae, so current Homebrew trust enforcement does not block image creation | Static task-order test and live AMI build |
+| AC-9.12 | New AMI and fallback desktops have the Codex update check disabled, while existing settings survive repeated provisioning | `TestAMIPlaybookConfiguresCodexUpdateCheck`, `TestRenderCloudInit_configuresCodexUpdateCheck`, `TestCodexHomeConfigScript` |
+| AC-9.13 | Both doctors report when the bridgectl Codex home setting is absent or enabled | `TestAMIDoctorChecksCodexUpdateSetting`, `TestBridgectlCheckers_returnsExpectedChecks` |
 
 ### FR-11 — GitHub developer tooling
 

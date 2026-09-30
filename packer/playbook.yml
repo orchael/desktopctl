@@ -699,6 +699,20 @@
         group: ubuntu
         mode: "0700"
 
+    - name: Install shared Codex home config updater
+      ansible.builtin.copy:
+        src: ../internal/provision/codex_home_config.py
+        dest: /usr/local/bin/ai-desktops-codex-home-config
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure bridgectl Codex home update setting
+      ansible.builtin.command: python3 /usr/local/bin/ai-desktops-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml
+      become_user: ubuntu
+      register: codex_home_config_result
+      changed_when: "'updated' in codex_home_config_result.stdout"
+
     - name: Install bridgectl config with claude and codex providers
       ansible.builtin.copy:
         dest: /home/ubuntu/.config/bridgectl/config.yaml
