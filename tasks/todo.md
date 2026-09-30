@@ -231,6 +231,16 @@ Mode: user-authorized runtime and configuration change. Governing requirements: 
 - [x] Run targeted/full tests and coverage, then validate the live desktop profile files and CLI behavior. Full root Go suite and all three infra modules passed; adjusted internal coverage is 76.8%. The existing desktop has matching Codex/Claude files, Pilot registered for both agents, and completed Claude onboarding.
 - [x] Update PR #260 at `68d9ea4`, request Copilot review, and check CI. All seven checks passed; no Copilot comments were present after the request. The PR title and body now describe the implemented behavior.
 - [x] Resolve Copilot review findings: wait for successful cloud-init before marking a profiled desktop ready, and run nested profile installers from their own directory. The full Go suite passed. Fresh desktop `d-23b41782` remained pending during cloud-init, then created successfully; SSM verified matching Codex/Claude files, mode 0600, and Pilot registration. Finish cleanup, push, CI, and Copilot follow-up before closing PR #260.
+# Preinstall Playwright Chromium in the AMI (#241)
+
+Mode: approval-required; the user authorized Option A and a separate PR. Governing requirements: FR-9.11/AC-9.14 and AC-9.15. Scope: pin the existing web app's Playwright version, bake Chromium and OS dependencies to a shared path, propagate the path to shell and systemd environments, verify headless launch, and document project compatibility. Risk: other Playwright versions may require different browser revisions; their projects install those separately. Rollout: merge, build and activate a new AMI, then validate a fresh desktop. Existing desktops require replacement. Rollback: activate the previous AMI and revert this PR.
+
+- [x] Add failing static tests for pin, Packer propagation, environment, installation, launch verification, and metadata.
+- [x] Implement the Packer and Ansible installation and documentation.
+- [x] Run focused and full relevant tests, Packer/Ansible checks, and diff hygiene.
+- [x] Open a PR, request Copilot, check CI, and address review feedback. PR #264 passed seven checks; Copilot reported a review quota limit.
+
+Validation before PR: both new focused tests failed on the original image recipe and pass after implementation. `go test ./packer -count=1`, `go test ./...`, Packer format check, Packer syntax validation, Ansible playbook syntax check, and `git diff --check` pass. The live AMI and fresh desktop checks remain for the post-merge bake.
 # Disable bridgectl Codex startup update prompt (#262)
 
 Mode: user-authorized production configuration change. Governing requirements: FR-9.10 and AC-9.12 through AC-9.13. Scope: set the bridgectl Codex home TOML option in both Packer and fallback cloud-init, preserve other valid settings, and check the effective setting in both doctors. Risk: malformed or unsafe existing Codex config must fail provisioning instead of replacing user data. Rollout: merge the dedicated PR, bake a new AMI, and verify a fresh Codex session. Rollback: revert the PR and reactivate the prior AMI; an explicit manual edit can restore the old setting.

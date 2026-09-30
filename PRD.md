@@ -299,6 +299,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI editor `vim`, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
 | FR-9.10 | Both the pre-baked AMI and cloud-init must set `check_for_update_on_startup = false` in bridgectl's Codex home (`/home/ubuntu/.config/bridgectl/codex-home/config.toml`) before Codex sessions start. Provisioning must preserve existing valid TOML settings, reject unsafe paths, and be idempotent. The desktop CLI doctor and AMI doctor must report a missing or incorrect setting. Codex version upgrades are delivered through the pinned bridgectl provider runtime. |
+| FR-9.11 | New pre-baked AMIs must install a pinned Playwright package and its matching Chromium and headless browser with Linux dependencies in a shared, readable browser directory. Login sessions and systemd-launched agents must receive `PLAYWRIGHT_BROWSERS_PATH`. The bake must launch headless Chromium as `ubuntu` without downloading a browser. Projects retain their own matching Playwright dependency; other revisions may need their own browser install. Existing desktops gain this capability only after replacement with the new AMI. |
 
 **Acceptance criteria:**
 
@@ -317,6 +318,8 @@ its own lifecycle and may survive desktop termination.
 | AC-9.11 | The AMI bake trusts the non-official Ballast Homebrew tap before Homebrew loads its formulae, so current Homebrew trust enforcement does not block image creation | Static task-order test and live AMI build |
 | AC-9.12 | New AMI and fallback desktops have the Codex update check disabled, while existing settings survive repeated provisioning | `TestAMIPlaybookConfiguresCodexUpdateCheck`, `TestRenderCloudInit_configuresCodexUpdateCheck`, `TestCodexHomeConfigScript` |
 | AC-9.13 | Both doctors report when the bridgectl Codex home setting is absent or enabled | `TestAMIDoctorChecksCodexUpdateSetting`, `TestBridgectlCheckers_returnsExpectedChecks` |
+| AC-9.14 | Packer pins and records the supported Playwright version; the AMI provisions its matching Chromium and headless binaries in a shared path readable by `ubuntu`, and propagates that path to interactive and systemd sessions | Static configuration test and live AMI validation |
+| AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
 
 ### FR-11 — GitHub developer tooling
 
