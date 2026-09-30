@@ -145,10 +145,13 @@ func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
 func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 	for _, want := range []string{
 		`    - name: Require vscode_version`,
+		`    - name: Require vscode_sha256`,
 		`url: https://packages.microsoft.com/keys/microsoft.asc`,
 		`URIs: https://packages.microsoft.com/repos/code`,
 		`Signed-By: /etc/apt/keyrings/microsoft.asc`,
-		`name: "code={{ vscode_version }}"`,
+		`url: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_{{ vscode_version }}_amd64.deb"`,
+		`checksum: "sha256:{{ vscode_sha256 }}"`,
+		`deb: /opt/ai-desktops/vscode.deb`,
 		`ansible.builtin.command: dpkg-query -W -f='${Version}' code`,
 		`vscode_installed_version.stdout == vscode_version`,
 		`path: /usr/share/applications/com.microsoft.VSCode.desktop`,
@@ -158,10 +161,13 @@ func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 		assertFileContains(t, "playbook.yml", want)
 	}
 	assertFileContains(t, "variables.pkrvars.hcl", `vscode_version                = "1.139.1-1790309529"`)
+	assertFileContains(t, "variables.pkrvars.hcl", `vscode_sha256                 = "cc8e35cf69ff4c7e515e19fa981bf6aba41f61ddb61c79370e9fe460c5dbaf8b"`)
 	for _, want := range []string{
 		`variable "vscode_version"`,
+		`variable "vscode_sha256"`,
 		`VSCodeVersion              = var.vscode_version`,
 		`vscode_version=${var.vscode_version}`,
+		`vscode_sha256=${var.vscode_sha256}`,
 	} {
 		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
 	}
