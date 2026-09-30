@@ -170,6 +170,16 @@ func TestAMIPlaybookCreatesPrivateCodexHome(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookConfiguresCodexUpdateCheck(t *testing.T) {
+	for _, want := range []string{
+		"../internal/provision/codex_home_config.py",
+		"/home/ubuntu/.config/bridgectl/codex-home/config.toml",
+		"Configure bridgectl Codex home update setting",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIPlaybookIncludesPinnedDeveloperTerminalRole(t *testing.T) {
 	assertFileContains(t, "playbook.yml", `    - name: Configure pinned developer terminal workflow
       ansible.builtin.include_role:
@@ -236,6 +246,36 @@ func TestAMIPlaybookTrustsBallastTapBeforeLoadingIt(t *testing.T) {
 	}
 	if trust > tap {
 		t.Fatal("AMI playbook must trust everydaydevopsio/ballast before Homebrew loads the tap")
+	}
+}
+
+func TestAMIConfigurationPinsPlaywright(t *testing.T) {
+	assertFileContains(t, "variables.pkrvars.hcl", `playwright_version            = "1.63.0"`)
+	for _, want := range []string{
+		`variable "playwright_version"`,
+		`PlaywrightVersion          = var.playwright_version`,
+		`playwright_version=${var.playwright_version}`,
+		`playwright_version            = var.playwright_version`,
+	} {
+		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
+	}
+	assertFileContains(t, "playbook.yml", `playwright_version={{ playwright_version }}`)
+}
+
+func TestAMIPlaybookInstallsSharedPlaywrightChromium(t *testing.T) {
+	for _, want := range []string{
+		`- name: Require playwright_version`,
+		`path: /opt/ai-desktops/playwright-browsers`,
+		`PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers`,
+		`playwright@{{ playwright_version }}`,
+		`install --with-deps chromium`,
+		`DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/ai-desktops/playwright-browsers`,
+		`path: /etc/environment`,
+		`- name: Verify shared Playwright Chromium launches as ubuntu`,
+		`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"`,
+		`chromium.launch({headless: true})`,
+	} {
+		assertFileContains(t, "playbook.yml", want)
 	}
 }
 

@@ -11,7 +11,7 @@ runtime-only work: TLS certificates, secret injection, workspace setup, and repo
 Review `packer/variables.pkrvars.hcl` before building:
 
 ```hcl
-bridgectl_version = "v1.1.1"
+bridgectl_version = "v1.4.0"
 go_version        = "1.26.0"
 uv_version        = "0.12.3"
 ```

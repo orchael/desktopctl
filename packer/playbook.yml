@@ -60,6 +60,11 @@
         that: vscode_version is defined and vscode_version | length > 0
         fail_msg: "vscode_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require playwright_version
+      ansible.builtin.assert:
+        that: playwright_version is defined and playwright_version | length > 0
+        fail_msg: "playwright_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
     - name: Require novnc_desktop_version
       ansible.builtin.assert:
         that: novnc_desktop_version is defined and novnc_desktop_version | length > 0
@@ -578,6 +583,74 @@
         state: latest
         update_cache: true
 
+    - name: Create shared Playwright browser directory
+      ansible.builtin.file:
+        path: /opt/ai-desktops/playwright-browsers
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install pinned Playwright package for AMI browser provisioning
+      ansible.builtin.command: npm install --prefix /opt/ai-desktops/playwright --no-save --package-lock=false --ignore-scripts playwright@{{ playwright_version }}
+      args:
+        creates: /opt/ai-desktops/playwright/node_modules/.bin/playwright
+      environment:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+    - name: Install Playwright Chromium binaries and Linux dependencies
+      ansible.builtin.command: /opt/ai-desktops/playwright/node_modules/.bin/playwright install --with-deps chromium
+      environment:
+        PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers
+
+    - name: Add shared Playwright browser path to login environments
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        regexp: '^PLAYWRIGHT_BROWSERS_PATH='
+        line: 'PLAYWRIGHT_BROWSERS_PATH="/opt/ai-desktops/playwright-browsers"'
+
+    - name: Create systemd manager configuration directories
+      ansible.builtin.file:
+        path: "/etc/systemd/{{ item }}.conf.d"
+        state: directory
+        mode: "0755"
+      loop:
+        - system
+        - user
+
+    - name: Provide shared Playwright browser path to systemd services
+      ansible.builtin.copy:
+        dest: "/etc/systemd/{{ item }}.conf.d/ai-desktops-playwright.conf"
+        content: |
+          [Manager]
+          DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/ai-desktops/playwright-browsers
+        mode: "0644"
+      loop:
+        - system
+        - user
+
+    - name: Verify pinned Playwright version
+      ansible.builtin.command: node -p "require('/opt/ai-desktops/playwright/node_modules/playwright/package.json').version"
+      register: playwright_installed_version
+      changed_when: false
+      failed_when: playwright_installed_version.stdout != playwright_version
+
+    - name: Verify shared Playwright Chromium launches as ubuntu
+      ansible.builtin.command:
+        argv:
+          - node
+          - -e
+          - >-
+            const fs = require('fs'); const { chromium } = require('/opt/ai-desktops/playwright/node_modules/playwright');
+            if (!fs.existsSync(chromium.executablePath())) throw new Error('Chromium executable missing');
+            chromium.launch({headless: true}).then(browser => browser.close()).catch(error => { console.error(error); process.exit(1); });
+      become_user: ubuntu
+      environment:
+        PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        HOME: /home/ubuntu
+      changed_when: false
+
     - name: Install ca-certificates, curl, gnupg for apt keyring setup
       ansible.builtin.apt:
         name: [ca-certificates, curl, gnupg]
@@ -782,6 +855,20 @@
         owner: ubuntu
         group: ubuntu
         mode: "0700"
+
+    - name: Install shared Codex home config updater
+      ansible.builtin.copy:
+        src: ../internal/provision/codex_home_config.py
+        dest: /usr/local/bin/ai-desktops-codex-home-config
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure bridgectl Codex home update setting
+      ansible.builtin.command: python3 /usr/local/bin/ai-desktops-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml
+      become_user: ubuntu
+      register: codex_home_config_result
+      changed_when: "'updated' in codex_home_config_result.stdout"
 
     - name: Install bridgectl config with claude and codex providers
       ansible.builtin.copy:
@@ -1360,6 +1447,8 @@
           uv_version={{ uv_version }}
           tailscale_version={{ tailscale_version }}
           helm_version={{ helm_version }}
+          playwright_version={{ playwright_version }}
+          playwright_browsers_path=/opt/ai-desktops/playwright-browsers
           desktop_web_version={{ desktop_web_version }}
           novnc_desktop_version={{ novnc_desktop_version }}
           packages_pre_installed=true

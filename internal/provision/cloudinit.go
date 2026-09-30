@@ -2,6 +2,7 @@ package provision
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -10,9 +11,12 @@ import (
 	"github.com/orchael/ai-desktops/internal/config"
 )
 
+//go:embed codex_home_config.py
+var codexHomeConfigScript string
+
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.1.1"
+	BridgectlVersion      = "v1.4.0"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -189,6 +193,14 @@ runcmd:
       exit 1
     fi
     install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.codex || exit 1
+  # --- prevent the bridgectl Codex TUI from exiting for self-updates ---
+  - |
+    install -d -m 0755 /opt/ai-desktops
+    cat >/opt/ai-desktops/codex_home_config.py <<'PY'
+{{ indent 4 .CodexHomeConfigScript }}
+    PY
+    chmod 0755 /opt/ai-desktops/codex_home_config.py
+    sudo -u ubuntu python3 /opt/ai-desktops/codex_home_config.py /home/ubuntu/.config/bridgectl/codex-home/config.toml
 
 {{- if not .PackagesPreInstalled}}
   # --- nvim (via snap) ---
@@ -1363,6 +1375,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		AgentProfileOwner      string
 		AgentProfileRepository string
 		AgentProfilePath       string
+		CodexHomeConfigScript  string
 	}
 	data := templateData{
 		BootstrapConfig:        cfg,
@@ -1373,6 +1386,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		AgentProfileOwner:      agentProfile.Owner,
 		AgentProfileRepository: agentProfile.Repository,
 		AgentProfilePath:       agentProfile.Path,
+		CodexHomeConfigScript:  codexHomeConfigScript,
 	}
 
 	funcMap := template.FuncMap{

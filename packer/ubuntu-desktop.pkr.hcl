@@ -13,7 +13,7 @@ packer {
 
 variable "bridgectl_version" {
   type        = string
-  description = "bridgectl release tag (e.g. v1.1.1)"
+  description = "bridgectl release tag (e.g. v1.4.0)"
 }
 
 variable "tailscale_version" {
@@ -29,6 +29,11 @@ variable "helm_version" {
 variable "vscode_version" {
   type        = string
   description = "Visual Studio Code stable apt package version (e.g. 1.139.1-1790309529)"
+}
+
+variable "playwright_version" {
+  type        = string
+  description = "Playwright version whose Chromium revision is baked into the AMI"
 }
 
 variable "go_version" {
@@ -126,6 +131,7 @@ source "amazon-ebs" "ubuntu" {
     TailscaleVersion           = var.tailscale_version
     HelmVersion                = var.helm_version
     VSCodeVersion              = var.vscode_version
+    PlaywrightVersion          = var.playwright_version
     GoVersion                  = var.go_version
     UvVersion                  = var.uv_version
     FlutterVersion             = var.flutter_version
@@ -177,7 +183,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} vscode_version=${var.vscode_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} vscode_version=${var.vscode_version} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
@@ -197,6 +203,7 @@ build {
       tailscale_version             = var.tailscale_version
       helm_version                  = var.helm_version
       vscode_version                = var.vscode_version
+      playwright_version            = var.playwright_version
       go_version                    = var.go_version
       uv_version                    = var.uv_version
       flutter_version               = var.flutter_version

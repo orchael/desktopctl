@@ -233,11 +233,41 @@ Mode: user-authorized runtime and configuration change. Governing requirements: 
 - [x] Resolve Copilot review findings: wait for successful cloud-init before marking a profiled desktop ready, and run nested profile installers from their own directory. The full Go suite passed. Fresh desktop `d-23b41782` remained pending during cloud-init, then created successfully; SSM verified matching Codex/Claude files, mode 0600, and Pilot registration. Finish cleanup, push, CI, and Copilot follow-up before closing PR #260.
 # Add VS Code to the AMI (#112)
 
-Mode: approval-required; the user explicitly requested this AMI change and separate PR. Governing requirement: FR-9.10/AC-9.11. Scope: install an exact stable VS Code version from Microsoft's signed apt repository, verify package and launcher in the image build, and document the editor. Rollout: merge after CI and review, then build and activate a new AMI. Rollback: reactivate the previous AMI.
+Mode: approval-required; the user explicitly requested this AMI change and separate PR. Governing requirement: FR-9.12/AC-9.16. Scope: install an exact stable VS Code version from Microsoft's signed apt repository, verify package and launcher in the image build, and document the editor. Rollout: merge after CI and review, then build and activate a new AMI. Rollback: reactivate the previous AMI.
 
 - [x] Add a failing test for the package pin, signed repository, version gate, and desktop launcher.
 - [x] Implement the minimum Packer playbook and variable changes.
 - [x] Add AMI integration verification, update toolchain docs, and run local validation.
-- [ ] Open a PR, request Copilot, address feedback, and confirm green CI.
+- [x] Open a PR, request Copilot, address feedback, and confirm green CI. PR #265 passed seven checks; Copilot reported a review quota limit.
 
 Validation: `TestAMIPlaybookInstallsPinnedVSCode` failed against the prior image recipe and passes after implementation. `go test ./...`, integration test compilation, Ansible syntax, Packer format/syntax, and `git diff --check` pass. Scoped internal-package coverage is 76.9% (excluding `internal/awsx`). Full playbook ansible-lint has pre-existing failures; this branch's initial new findings were fixed. Graphical launch requires the rebuilt AMI and a desktop session.
+# Preinstall Playwright Chromium in the AMI (#241)
+
+Mode: approval-required; the user authorized Option A and a separate PR. Governing requirements: FR-9.11/AC-9.14 and AC-9.15. Scope: pin the existing web app's Playwright version, bake Chromium and OS dependencies to a shared path, propagate the path to shell and systemd environments, verify headless launch, and document project compatibility. Risk: other Playwright versions may require different browser revisions; their projects install those separately. Rollout: merge, build and activate a new AMI, then validate a fresh desktop. Existing desktops require replacement. Rollback: activate the previous AMI and revert this PR.
+
+- [x] Add failing static tests for pin, Packer propagation, environment, installation, launch verification, and metadata.
+- [x] Implement the Packer and Ansible installation and documentation.
+- [x] Run focused and full relevant tests, Packer/Ansible checks, and diff hygiene.
+- [x] Open a PR, request Copilot, check CI, and address review feedback. PR #264 passed seven checks; Copilot reported a review quota limit.
+
+Validation before PR: both new focused tests failed on the original image recipe and pass after implementation. `go test ./packer -count=1`, `go test ./...`, Packer format check, Packer syntax validation, Ansible playbook syntax check, and `git diff --check` pass. The live AMI and fresh desktop checks remain for the post-merge bake.
+# Disable bridgectl Codex startup update prompt (#262)
+
+Mode: user-authorized production configuration change. Governing requirements: FR-9.10 and AC-9.12 through AC-9.13. Scope: set the bridgectl Codex home TOML option in both Packer and fallback cloud-init, preserve other valid settings, and check the effective setting in both doctors. Risk: malformed or unsafe existing Codex config must fail provisioning instead of replacing user data. Rollout: merge the dedicated PR, bake a new AMI, and verify a fresh Codex session. Rollback: revert the PR and reactivate the prior AMI; an explicit manual edit can restore the old setting.
+
+- [x] Add failing tests for idempotent TOML merge, both provisioning paths, and doctor output.
+- [x] Implement shared Codex config updater and wire it into the AMI and cloud-init.
+- [x] Run focused/full tests and relevant Ansible/Packer checks.
+- [x] Open a dedicated PR, request Copilot, and resolve CI/review feedback. PR #266 has all seven Actions checks green; Copilot reported a review quota limit.
+
+Validation: new focused tests failed before implementation and passed afterward; `go test ./...`, `go test -cover ./internal/...`, Ansible playbook syntax with `ANSIBLE_LOCAL_TEMP=/tmp`, Packer formatting, and `git diff --check` passed. A direct Packer validate requires the build's source AMI, AWS region, and version variables; it was not run locally. Live prompt behavior will be checked after the merged AMI is built.
+# Bridge production AMI pin (#261)
+
+Mode: approval-required; the user explicitly requested an individual PR and subsequent AMI build. Governing requirement: AUTH-5. Scope: update the default Packer pin, CLI cloud-init expectation, regression, and active docs to bridgectl v1.4.0. Verify the release SHA256. Rollout: merge after green CI and rebuild the AMI; validate production enrollment on a fresh desktop without replacing standalone bridgectl config. Rollback: restore both pins and use the previous AMI. Existing desktops are not upgraded by this change.
+
+- [x] Confirm the package digest against the v1.4.0 GitHub release asset.
+- [x] Make the release-pin regression fail, then update the pins and docs.
+- [x] Run Go tests, coverage, Packer formatting, and diff checks.
+- [x] Open an individual PR with Copilot review and green CI. PR #263 merged after all seven Actions checks passed; Copilot reported a review quota limit.
+
+Validation: amd64 release package SHA256 `e81f86413ac79b2054d67fb57b94d1fd86701c3e6351bc32c457322c1f71282d` matches the GitHub release digest. `TestBridgectlReleasePin` failed for both old pins before implementation, then `go test ./...` passed afterward. `go test ./internal/provision -cover` passed at 86.5%; Packer format and `git diff --check` passed. Fresh production enrollment remains a post-merge AMI smoke check.
