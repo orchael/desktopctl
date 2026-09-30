@@ -31,6 +31,11 @@ variable "vscode_version" {
   description = "Visual Studio Code stable apt package version (e.g. 1.139.1-1790309529)"
 }
 
+variable "vscode_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned Visual Studio Code amd64 Debian package"
+}
+
 variable "playwright_version" {
   type        = string
   description = "Playwright version whose Chromium revision is baked into the AMI"
@@ -183,7 +188,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} vscode_version=${var.vscode_version} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} vscode_version=${var.vscode_version} vscode_sha256=${var.vscode_sha256} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",

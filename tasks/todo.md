@@ -292,6 +292,15 @@ Mode: user-authorized fix needed to finish the requested AMI build. Governing cr
 - [x] Correct the playbook and integration check to use the packaged launcher.
 - [ ] Run tests, open a follow-up PR, wait for green CI, merge, and rebuild the AMI.
 
+# VS Code apt candidate failure in AMI build
+
+Mode: user-authorized AMI build repair under FR-9.12/AC-9.16. The exact pinned Microsoft package is present in the repository and current package index, but the builder's apt install reported no candidate. Download the exact versioned repository artifact with a pinned SHA-256, then install the verified local package with apt. Preserve the signed repository and post-install version, CLI, and launcher checks. Rollback: revert this change and use the previous AMI.
+
+- [x] Verify package version, repository URL, and SHA-256 against Microsoft's package index.
+- [x] Add a failing regression test for a checksum-verified package download and local apt install.
+- [x] Update Packer variables and the playbook; pass focused tests, full Go tests, Packer format, and Ansible syntax.
+- [ ] Open a PR with Copilot review, confirm green CI, and rebuild the AMI.
+
 # Stabilize Playwright Chromium AMI smoke
 
 Mode: user-authorized build repair under AC-9.14 and AC-9.15. The second live Packer build stopped at the Chromium launch smoke: the process started but Playwright timed out at 180 seconds, with a malformed inherited D-Bus address in the browser log. The first build had passed the same check after 124 seconds. Scope: run the headless bake check without inherited display/session variables, bound each launch attempt, and retry one transient failure. Keep the actual browser launch assertion and verify again on a fresh desktop. Rollback: revert this smoke adjustment and use the previous active AMI.

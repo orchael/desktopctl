@@ -60,6 +60,11 @@
         that: vscode_version is defined and vscode_version | length > 0
         fail_msg: "vscode_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require vscode_sha256
+      ansible.builtin.assert:
+        that: vscode_sha256 is defined and vscode_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: "vscode_sha256 must be a SHA-256 hex digest set via --extra-vars"
+
     - name: Require playwright_version
       ansible.builtin.assert:
         that: playwright_version is defined and playwright_version | length > 0
@@ -746,11 +751,23 @@
         group: root
         mode: "0644"
 
+    - name: Download pinned Visual Studio Code stable package
+      ansible.builtin.get_url:
+        url: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_{{ vscode_version }}_amd64.deb"
+        dest: /opt/ai-desktops/vscode.deb
+        checksum: "sha256:{{ vscode_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Install pinned Visual Studio Code stable package
       ansible.builtin.apt:
-        name: "code={{ vscode_version }}"
-        state: present
-        update_cache: true
+        deb: /opt/ai-desktops/vscode.deb
+
+    - name: Remove downloaded Visual Studio Code package
+      ansible.builtin.file:
+        path: /opt/ai-desktops/vscode.deb
+        state: absent
 
     - name: Install desktop launcher validator
       ansible.builtin.apt:
