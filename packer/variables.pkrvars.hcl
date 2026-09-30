@@ -1,6 +1,7 @@
 bridgectl_version             = "v1.1.1"
 tailscale_version             = "1.98.9"
 helm_version                  = "v4.3.0"
+playwright_version            = "1.63.0"
 go_version                    = "1.26.0"
 uv_version                    = "0.12.3"
 flutter_version               = "3.32.0"
