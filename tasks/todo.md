@@ -280,3 +280,12 @@ Mode: user-authorized fix needed to finish the requested AMI build. Governing cr
 - [x] Make the focused static test fail on the old launcher path.
 - [x] Correct the playbook and integration check to use the packaged launcher.
 - [ ] Run tests, open a follow-up PR, wait for green CI, merge, and rebuild the AMI.
+
+# Stabilize Playwright Chromium AMI smoke
+
+Mode: user-authorized build repair under AC-9.14 and AC-9.15. The second live Packer build stopped at the Chromium launch smoke: the process started but Playwright timed out at 180 seconds, with a malformed inherited D-Bus address in the browser log. The first build had passed the same check after 124 seconds. Scope: run the headless bake check without inherited display/session variables, bound each launch attempt, and retry one transient failure. Keep the actual browser launch assertion and verify again on a fresh desktop. Rollback: revert this smoke adjustment and use the previous active AMI.
+
+- [x] Capture the failed Packer log and confirm it is a launch handshake timeout, not a missing binary or dependency.
+- [x] Add a failing test for isolated headless environment and bounded retry.
+- [x] Update the Ansible smoke command while keeping Playwright's real launch assertion.
+- [ ] Run full checks, open a follow-up PR, wait for green CI, merge, and rebuild the AMI.
