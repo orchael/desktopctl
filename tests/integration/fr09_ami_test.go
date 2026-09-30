@@ -8,7 +8,7 @@
 //	AC-9.1  `ai-desktops ami build --help` succeeds (confirms command registration)
 //	AC-9.3  `create --preview --ami <id>` references the supplied AMI in output
 //	AC-9.5  Helm is installed in the AMI through Linuxbrew
-//	AC-9.11 VS Code stable package and desktop launcher are installed
+//	AC-9.16 VS Code stable package and desktop launcher are installed
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
@@ -78,7 +78,7 @@ func TestFR9_HelmInstalled(t *testing.T) {
 }
 
 // TestFR9_VSCodeInstalled verifies the pinned package and usable desktop
-// launcher on a desktop created from this test run's AMI (AC-9.11).
+// launcher on a desktop created from this test run's AMI (AC-9.16).
 func TestFR9_VSCodeInstalled(t *testing.T) {
 	if !fx.ownedByTest {
 		t.Skip("VS Code AMI validation requires a desktop created from this test run's AMI")
@@ -95,7 +95,7 @@ func TestFR9_VSCodeInstalled(t *testing.T) {
 		t.Fatal("Packer variables must contain one vscode_version pin")
 	}
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
-		"dpkg-query -W -f='${Version}' code && echo && desktop-file-validate /usr/share/applications/code.desktop && code --version")
+		"dpkg-query -W -f='${Version}' code && echo && desktop-file-validate /usr/share/applications/com.microsoft.VSCode.desktop && code --version")
 	if err != nil {
 		t.Fatalf("VS Code package or launcher validation failed: %v\noutput: %s", err, out)
 	}

@@ -321,7 +321,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.13 | Both doctors report when the bridgectl Codex home setting is absent or enabled | `TestAMIDoctorChecksCodexUpdateSetting`, `TestBridgectlCheckers_returnsExpectedChecks` |
 | AC-9.14 | Packer pins and records the supported Playwright version; the AMI provisions its matching Chromium and headless binaries in a shared path readable by `ubuntu`, and propagates that path to interactive and systemd sessions | Static configuration test and live AMI validation |
 | AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
-| AC-9.16 | The AMI build pins and installs the signed Microsoft `code` package, verifies the installed version and `code.desktop` launch command, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
+| AC-9.16 | The AMI build pins and installs the signed Microsoft `code` package, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 
 ### FR-11 — GitHub developer tooling
 

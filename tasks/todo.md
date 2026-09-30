@@ -271,3 +271,12 @@ Mode: approval-required; the user explicitly requested an individual PR and subs
 - [x] Open an individual PR with Copilot review and green CI. PR #263 merged after all seven Actions checks passed; Copilot reported a review quota limit.
 
 Validation: amd64 release package SHA256 `e81f86413ac79b2054d67fb57b94d1fd86701c3e6351bc32c457322c1f71282d` matches the GitHub release digest. `TestBridgectlReleasePin` failed for both old pins before implementation, then `go test ./...` passed afterward. `go test ./internal/provision -cover` passed at 86.5%; Packer format and `git diff --check` passed. Fresh production enrollment remains a post-merge AMI smoke check.
+
+# VS Code packaged launcher correction
+
+Mode: user-authorized fix needed to finish the requested AMI build. Governing criterion: AC-9.16. The first live build failed after installing VS Code because it checked `/usr/share/applications/code.desktop`, while the verified Microsoft package contains `/usr/share/applications/com.microsoft.VSCode.desktop`. Scope: correct the assertion and live integration check, preserve the package's actual permissions, then rerun the full image build. Rollback: reactivate the prior AMI if the rebuilt image fails validation.
+
+- [x] Verify the exact pinned Debian package checksum and inspect its packaged launcher and `Exec` entry.
+- [x] Make the focused static test fail on the old launcher path.
+- [x] Correct the playbook and integration check to use the packaged launcher.
+- [ ] Run tests, open a follow-up PR, wait for green CI, merge, and rebuild the AMI.

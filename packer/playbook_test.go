@@ -136,8 +136,8 @@ func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 		`name: "code={{ vscode_version }}"`,
 		`ansible.builtin.command: dpkg-query -W -f='${Version}' code`,
 		`vscode_installed_version.stdout == vscode_version`,
-		`path: /usr/share/applications/code.desktop`,
-		`ansible.builtin.command: desktop-file-validate /usr/share/applications/code.desktop`,
+		`path: /usr/share/applications/com.microsoft.VSCode.desktop`,
+		`ansible.builtin.command: desktop-file-validate /usr/share/applications/com.microsoft.VSCode.desktop`,
 		`ansible.builtin.command: /usr/bin/code --version`,
 	} {
 		assertFileContains(t, "playbook.yml", want)

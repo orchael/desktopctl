@@ -718,17 +718,18 @@
 
     - name: Verify Visual Studio Code desktop launcher exists
       ansible.builtin.stat:
-        path: /usr/share/applications/code.desktop
+        path: /usr/share/applications/com.microsoft.VSCode.desktop
       register: vscode_desktop_launcher
 
     - name: Require Visual Studio Code desktop launcher
       ansible.builtin.assert:
         that:
           - vscode_desktop_launcher.stat.isreg | default(false)
-          - vscode_desktop_launcher.stat.mode == '0644'
+          - vscode_desktop_launcher.stat.uid == 0
+          - vscode_desktop_launcher.stat.gid == 0
 
     - name: Validate Visual Studio Code desktop launcher
-      ansible.builtin.command: desktop-file-validate /usr/share/applications/code.desktop
+      ansible.builtin.command: desktop-file-validate /usr/share/applications/com.microsoft.VSCode.desktop
       changed_when: false
 
     - name: Verify Visual Studio Code CLI launches
