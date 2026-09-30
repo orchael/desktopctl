@@ -590,6 +590,11 @@ Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI
 certbot, nginx reverse-proxy configuration, secret injection, workspace setup, and repository cloning. Additional desktop applications such as `ai-agent-browser` and
 `android-emulator-webapp` can be added to the image when they become required by a shipped workflow.
 
+| ID | Acceptance criterion |
+| --- | --- |
+| AMI-GCLOUD-1 | The pre-baked Ubuntu AMI includes the Google Cloud CLI from Google's signed apt repository, and the image build verifies that `gcloud` runs. |
+| AMI-GCLOUD-2 | The AMI contains no Google Cloud user credentials or selected account/project; each desktop user authenticates after provisioning. |
+
 ---
 
 ## Agent profiles

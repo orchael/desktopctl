@@ -70,6 +70,21 @@ func assertFileContains(t *testing.T, name, want string) {
 	}
 }
 
+func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
+	for _, want := range []string{
+		"    - name: Download Google Cloud apt signing key",
+		"url: https://packages.cloud.google.com/apt/doc/apt-key.gpg",
+		"dest: /etc/apt/keyrings/cloud.google.asc",
+		"deb [signed-by=/etc/apt/keyrings/cloud.google.asc] https://packages.cloud.google.com/apt cloud-sdk main",
+		"    - name: Install Google Cloud CLI",
+		"        name: google-cloud-cli",
+		"    - name: Verify Google Cloud CLI is installed",
+		"ansible.builtin.command: gcloud version",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 	playbook, err := os.ReadFile("playbook.yml")
 	if err != nil {

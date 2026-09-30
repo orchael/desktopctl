@@ -112,6 +112,41 @@
           - stunnel4
         state: present
 
+    - name: Create apt keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download Google Cloud apt signing key
+      ansible.builtin.get_url:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        dest: /etc/apt/keyrings/cloud.google.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add Google Cloud apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/google-cloud-sdk.list
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          deb [signed-by=/etc/apt/keyrings/cloud.google.asc] https://packages.cloud.google.com/apt cloud-sdk main
+
+    - name: Install Google Cloud CLI
+      ansible.builtin.apt:
+        name: google-cloud-cli
+        state: present
+        update_cache: true
+
+    - name: Verify Google Cloud CLI is installed
+      ansible.builtin.command: gcloud version
+      changed_when: false
+
     - name: Download Amazon EFS utils installer
       ansible.builtin.get_url:
         url: "{{ amazon_efs_utils_installer_url }}"
