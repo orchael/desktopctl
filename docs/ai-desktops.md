@@ -298,7 +298,7 @@ New pre-baked AMIs configure the `ubuntu` user with a ready-to-use terminal envi
 
 The AMI owns configurations marked with `.ai-desktops-managed`. The build role preserves an existing unmarked `~/.config/nvim` or `~/.tmux.conf` instead of replacing it. This workflow is an AMI capability; fallback cloud-init installs the base `nvim` and `tmux` binaries but does not install these configurations.
 
-New AMIs also include a pinned stable Visual Studio Code package from Microsoft's signed apt repository. Launch **Visual Studio Code** from the desktop application menu or run `code` in a terminal. The Packer build verifies the package version, CLI, and `code.desktop` launcher; graphical launch is checked on a desktop created from the built AMI.
+New AMIs also include a pinned stable Visual Studio Code package from Microsoft's signed apt repository. Launch **Visual Studio Code** from the desktop application menu or run `code` in a terminal. The Packer build verifies the package version, CLI, and packaged `com.microsoft.VSCode.desktop` launcher; graphical launch is checked on a desktop created from the built AMI.
 
 The script checks twelve items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 
