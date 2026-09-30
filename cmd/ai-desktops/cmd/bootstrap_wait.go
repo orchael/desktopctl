@@ -46,7 +46,7 @@ func (r *ssmProfileBootstrapRunner) Start(ctx context.Context, instanceID string
 	out, err := r.client.SendCommand(ctx, &ssm.SendCommandInput{
 		InstanceIds:  []string{instanceID},
 		DocumentName: aws.String("AWS-RunShellScript"),
-		Comment:      aws.String("Wait for ai-desktops agent profile bootstrap"),
+		Comment:      aws.String("Wait for ai-desktops desktop profile bootstrap"),
 		Parameters: map[string][]string{
 			"commands":         {"cloud-init status --wait >/dev/null 2>&1"},
 			"executionTimeout": {"900"},
@@ -133,13 +133,13 @@ func waitProfilePoll(ctx context.Context, interval time.Duration) error {
 	}
 }
 
-func completeCreateReadiness(ctx context.Context, mgr *desktop.Manager, desktopID, agentProfile, instanceID string, runner profileBootstrapRunner, interval time.Duration) error {
-	if agentProfile != "" {
+func completeCreateReadiness(ctx context.Context, mgr *desktop.Manager, desktopID, desktopProfile, instanceID string, runner profileBootstrapRunner, interval time.Duration) error {
+	if desktopProfile != "" {
 		if err := waitForProfileBootstrap(ctx, runner, instanceID, interval); err != nil {
 			recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			message := "agent profile bootstrap failed: " + err.Error()
-			if recordErr := mgr.RecordFailure(recordCtx, desktopID, "agent-profile", message); recordErr != nil {
+			message := "desktop profile bootstrap failed: " + err.Error()
+			if recordErr := mgr.RecordFailure(recordCtx, desktopID, "desktop-profile", message); recordErr != nil {
 				return fmt.Errorf("%s; also failed to record fleet state: %w", message, recordErr)
 			}
 			return fmt.Errorf("%s (desktop retained for diagnosis)", message)

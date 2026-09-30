@@ -318,13 +318,15 @@ operator:
 desktop:
   instance_type: t3.xlarge
   operator_cidr: 203.0.113.42/32   # your public IP
+  # profile: myorg/desktop-profile
+  # profile_secret: /ai-desktops/myorg/profiles/desktop-profile
 
 agent:
   bridge_port: 9445
 ```
 
 See `config.example.yaml` at the repo root for a fully commented example.
-For user-level Codex and Claude defaults, see [agent profiles](docs/AGENT_PROFILES.md).
+For optional desktop setup bundles and their dedicated environment-variable secrets, see [desktop profiles](docs/DESKTOP_PROFILES.md).
 
 ## Full lifecycle workflow
 

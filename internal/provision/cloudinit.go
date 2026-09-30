@@ -33,12 +33,13 @@ type BootstrapConfig struct {
 	EFSFileSystemID      string
 	EFSAccessPointID     string
 	BridgePort           int
-	AgentProfile         string // optional owner/repository[:path] profile installed as ubuntu
+	DesktopProfile       string // optional owner/repository[:path] profile installed as ubuntu
 	NoVNCHTTPPort        int
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
 	GitHubSecretPath     string   // AWS Secrets Manager path: /ai-desktops/<owner>/github
 	AgentSecretPath      string   // AWS Secrets Manager path: /ai-desktops/<owner>/agents
+	ProfileSecretPath    string   // selected profile's required AWS Secrets Manager secret
 	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
 	TailscaleNetwork     string   // optional Tailscale tailnet/network name
 	TailscaleSecretPath  string   // AWS Secrets Manager path containing {"TS_AUTHKEY":"..."}
@@ -918,6 +919,9 @@ runcmd:
       --output text 2>/dev/null) || true
     if [ -z "$SECRET_JSON" ] || [ "$SECRET_JSON" = "None" ]; then
       echo "WARNING: could not retrieve desktop secret {{ . }}" >&2
+{{ if eq . $.ProfileSecretPath}}
+      exit 1
+{{ end}}
     else
       ENV_RENDERER=$(cat <<'PY'
     import json, re, sys
@@ -951,7 +955,12 @@ runcmd:
             print(f'{k}={sq(sv)}')
     PY
       )
-      printf '%s\n' "$SECRET_JSON" | python3 -c "$ENV_RENDERER" >> "$DESKTOP_ENV_TMP" || echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+      if ! printf '%s\n' "$SECRET_JSON" | python3 -c "$ENV_RENDERER" >> "$DESKTOP_ENV_TMP"; then
+        echo "WARNING: failed to parse desktop secret {{ . }}" >&2
+{{ if eq . $.ProfileSecretPath}}
+        exit 1
+{{ end}}
+      fi
     fi
     unset SECRET_JSON
 {{ end }}
@@ -985,28 +994,28 @@ runcmd:
       chmod 600 /home/ubuntu/.claude.json
     fi
 
-{{- if .AgentProfile}}
-  # --- install selected agent profile ---
+{{- if .DesktopProfile}}
+  # --- install selected desktop profile ---
   - |
     (
     set -e
-    PROFILE_ROOT="/home/ubuntu/.local/share/ai-desktops/profiles/{{ .AgentProfileOwner }}/{{ .AgentProfileRepository }}"
-    PROFILE_SOURCE="git@github.com:{{ .AgentProfileOwner }}/{{ .AgentProfileRepository }}.git"
-    PROFILE_DIR="$PROFILE_ROOT{{ if .AgentProfilePath }}/{{ .AgentProfilePath }}{{ end }}"
+    PROFILE_ROOT="/home/ubuntu/.local/share/ai-desktops/profiles/{{ .DesktopProfileOwner }}/{{ .DesktopProfileRepository }}"
+    PROFILE_SOURCE="git@github.com:{{ .DesktopProfileOwner }}/{{ .DesktopProfileRepository }}.git"
+    PROFILE_DIR="$PROFILE_ROOT{{ if .DesktopProfilePath }}/{{ .DesktopProfilePath }}{{ end }}"
     install -d -o ubuntu -g ubuntu -m 700 "$(dirname "$PROFILE_ROOT")" || exit 1
     if [ ! -d "$PROFILE_ROOT/.git" ]; then
       if [ -e "$PROFILE_ROOT" ]; then
-        echo "ERROR: agent profile checkout path is occupied" >&2
+        echo "ERROR: desktop profile checkout path is occupied" >&2
         exit 1
       fi
       sudo -H -u ubuntu git clone --depth 1 "$PROFILE_SOURCE" "$PROFILE_ROOT" || exit 1
     fi
     if [ ! -f "$PROFILE_DIR/profile.yaml" ] || [ ! -f "$PROFILE_DIR/install.sh" ]; then
-      echo "ERROR: agent profile missing profile.yaml or install.sh" >&2
+      echo "ERROR: desktop profile missing profile.yaml or install.sh" >&2
       exit 1
     fi
-    sudo -H -u ubuntu bash -lc 'cd "$1" && bash ./install.sh' _ "$PROFILE_DIR" || exit 1
-    echo "Agent profile installed: {{ .AgentProfile }}"
+    sudo -H -u ubuntu bash -lc 'set -e; cd "$1"; if [ -f "$HOME/.desktop-secrets" ]; then . "$HOME/.desktop-secrets"; fi; bash ./install.sh' _ "$PROFILE_DIR" || exit 1
+    echo "Desktop profile installed: {{ .DesktopProfile }}"
     ) || exit 1
 {{- end}}
 
@@ -1308,10 +1317,10 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	if cfg.CertbotEmail == "" {
 		cfg.CertbotEmail = "admin@orchael.ai"
 	}
-	var agentProfile AgentProfileReference
-	if cfg.AgentProfile != "" {
+	var desktopProfile DesktopProfileReference
+	if cfg.DesktopProfile != "" {
 		var err error
-		agentProfile, err = ParseAgentProfileReference(cfg.AgentProfile)
+		desktopProfile, err = ParseDesktopProfileReference(cfg.DesktopProfile)
 		if err != nil {
 			return "", err
 		}
@@ -1368,25 +1377,25 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 	// Expose version constants and pre-computed fields to the template via a wrapper.
 	type templateData struct {
 		*BootstrapConfig
-		BridgeVersion          string
-		BridgePackageVersion   string
-		AVDsJSONB64            string
-		StepCAClientsJSONB64   string
-		AgentProfileOwner      string
-		AgentProfileRepository string
-		AgentProfilePath       string
-		CodexHomeConfigScript  string
+		BridgeVersion            string
+		BridgePackageVersion     string
+		AVDsJSONB64              string
+		StepCAClientsJSONB64     string
+		DesktopProfileOwner      string
+		DesktopProfileRepository string
+		DesktopProfilePath       string
+		CodexHomeConfigScript    string
 	}
 	data := templateData{
-		BootstrapConfig:        cfg,
-		BridgeVersion:          BridgectlVersion,
-		BridgePackageVersion:   strings.TrimPrefix(BridgectlVersion, "v"),
-		AVDsJSONB64:            avdsJSONB64,
-		StepCAClientsJSONB64:   stepCAClientsJSONB64,
-		AgentProfileOwner:      agentProfile.Owner,
-		AgentProfileRepository: agentProfile.Repository,
-		AgentProfilePath:       agentProfile.Path,
-		CodexHomeConfigScript:  codexHomeConfigScript,
+		BootstrapConfig:          cfg,
+		BridgeVersion:            BridgectlVersion,
+		BridgePackageVersion:     strings.TrimPrefix(BridgectlVersion, "v"),
+		AVDsJSONB64:              avdsJSONB64,
+		StepCAClientsJSONB64:     stepCAClientsJSONB64,
+		DesktopProfileOwner:      desktopProfile.Owner,
+		DesktopProfileRepository: desktopProfile.Repository,
+		DesktopProfilePath:       desktopProfile.Path,
+		CodexHomeConfigScript:    codexHomeConfigScript,
 	}
 
 	funcMap := template.FuncMap{

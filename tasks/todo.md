@@ -300,3 +300,13 @@ Mode: user-authorized build repair under AC-9.14 and AC-9.15. The second live Pa
 - [x] Add a failing test for isolated headless environment and bounded retry.
 - [x] Update the Ansible smoke command while keeping Playwright's real launch assertion.
 - [ ] Run full checks, open a follow-up PR, wait for green CI, merge, and rebuild the AMI.
+
+# Desktop profiles and profile secrets
+
+Mode: user-authorized configuration and secret change. Governing requirements: PRD AP-1 through AP-5. Scope: move the default to `desktop.profile`, expose `--desktop-profile`, add `desktop.profile_secret` and `--profile-secret`, inject that secret before installation through the existing desktop secret path, and document migration. Constraint: a different selected profile must not inherit the configured profile's secret. Risk: environment variables are desktop-wide, as with other additional desktop secrets. Rollback: restore the prior CLI/config and remove the tracked profile secret from affected desktops; new provisioning can be rolled back by reverting this branch.
+
+- [x] Add failing tests for config location, selection, secret association, and bootstrap injection.
+- [x] Implement config, CLI, provisioning, and documentation; migrate the operator config and create its empty profile secret.
+- [x] Run relevant tests and check the resulting diff.
+
+Validation: focused tests first failed on missing config fields and selectors, then passed. `go test ./...` passed. Cloud-init tests parse the profile-secret rendering as YAML. The real profile secret exists in us-east-2 and the operator config references its path. Existing desktops were not changed; the new secret currently contains an empty JSON object until the operator adds profile variables.

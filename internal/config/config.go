@@ -158,13 +158,17 @@ type AVDConfig struct {
 }
 
 type DesktopConfig struct {
-	DefaultProfile string   `yaml:"default_profile"`
-	InstanceType   string   `yaml:"instance_type"`
-	InstanceTypes  []string `yaml:"instance_types,omitempty"`
-	VolumeSize     int      `yaml:"volume_size,omitempty"`
-	OperatorCIDR   string   `yaml:"operator_cidr"`
-	SSHKeyPath     string   `yaml:"ssh_key_path"`
-	SSHKeyName     string   `yaml:"ssh_key_name"`
+	DefaultProfile string `yaml:"default_profile"`
+	// Profile is an optional owner/repository[:path] setup profile applied at creation.
+	Profile string `yaml:"profile,omitempty"`
+	// ProfileSecret holds environment variables for the configured profile.
+	ProfileSecret string   `yaml:"profile_secret,omitempty"`
+	InstanceType  string   `yaml:"instance_type"`
+	InstanceTypes []string `yaml:"instance_types,omitempty"`
+	VolumeSize    int      `yaml:"volume_size,omitempty"`
+	OperatorCIDR  string   `yaml:"operator_cidr"`
+	SSHKeyPath    string   `yaml:"ssh_key_path"`
+	SSHKeyName    string   `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
 	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
 	// AVDs lists Android Virtual Devices to create at desktop boot.
@@ -180,8 +184,8 @@ type DesktopConfig struct {
 
 type AgentConfig struct {
 	BridgePort int `yaml:"bridge_port"`
-	// Profile is an optional owner/repository[:path] agent profile applied at creation.
-	Profile string `yaml:"profile,omitempty"`
+	// LegacyProfile is read only to reject the obsolete agent.profile location.
+	LegacyProfile string `yaml:"profile,omitempty"`
 	// TrustHost disables SSH host key verification for SSH tunnel connections.
 	// Leave false (the default) for normal operation so known_hosts is consulted.
 	// Set to true for freshly provisioned desktops whose host key is not yet known.
@@ -360,6 +364,9 @@ func Load(path string) (*Config, error) {
 	defer f.Close()
 	if err := yaml.NewDecoder(f).Decode(c); err != nil {
 		return nil, fmt.Errorf("decode config %s: %w", path, err)
+	}
+	if c.Agent.LegacyProfile != "" {
+		return nil, fmt.Errorf("agent.profile has moved to desktop.profile in %s", path)
 	}
 	c.Defaults()
 	return c, nil

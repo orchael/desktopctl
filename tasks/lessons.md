@@ -1,5 +1,7 @@
 # Execution lessons
 
+- Configuration ownership should follow the thing being configured: a general desktop profile belongs under `desktop`, even if its first examples configure agents. When a profile secret is tied to a default profile, a per-desktop profile override must not inherit that default secret; track the chosen secret with the desktop and load it before the installer runs.
+
 - A documented configuration key is not an implemented feature: verify the config struct, CLI selection, and rendered bootstrap all carry it before testing a live desktop. Resolve profile repository names against the actual private repo and the desktop's GitHub identity before provisioning.
 - User-level installers must run with the desktop user's login PATH when agent binaries live outside sudo's default PATH. Run Claude onboarding before a profile installer that may create `.claude.json`, and make selected-profile failures exit the enclosing cloud-init script.
 - Pulumi infrastructure completion precedes cloud-init completion. When readiness depends on bootstrap, wait for its terminal result before marking a fleet record ready; a successful rendered script alone does not prove the installer ran. Run installers from the selected profile directory so relative profile assets resolve correctly.
