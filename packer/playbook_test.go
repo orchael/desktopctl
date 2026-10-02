@@ -95,18 +95,11 @@ func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
 		`line: 'EDITOR=vim'`,
 		`line: 'VISUAL=vim'`,
 		`line: 'GIT_EDITOR=vim'`,
+		"- name: Verify Git editor configuration in AMI",
+		"git config --global --get core.editor",
+		"- name: Verify default editor environment in AMI",
 	} {
 		assertFileContains(t, "playbook.yml", want)
-	}
-	for _, want := range []string{
-		"- name: Verify Git editor configuration",
-		"git config --global --get core.editor",
-		"- name: Verify default editor environment",
-		"EDITOR=vim",
-		"VISUAL=vim",
-		"GIT_EDITOR=vim",
-	} {
-		assertFileContains(t, filepath.Join("..", "ansible", "desktop-setup", "playbook.yml"), want)
 	}
 }
 

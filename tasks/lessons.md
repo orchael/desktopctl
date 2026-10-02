@@ -40,3 +40,4 @@
 # Editor defaults belong in the AMI
 
 - When correcting a desktop's editor configuration, check both the live user's shell and the Packer source. A live fix does not carry into newly created desktops. Keep Git's `core.editor` and session editor variables aligned, and verify them in the AMI and post-boot checks.
+- Before placing a verification task in a post-boot playbook, trace every invocation of that playbook. If cloud-init invokes it only for optional features, use AMI bake checks and a live desktop integration test for behavior required on every desktop.

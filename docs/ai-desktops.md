@@ -292,6 +292,7 @@ New pre-baked AMIs configure the `ubuntu` user with a ready-to-use terminal envi
 
 - NvChad starts non-interactively and uses the Catppuccin theme.
 - GitHub CLI uses `vim` as its editor.
+- Git uses `vim` for commit messages, and new desktop sessions set `EDITOR`, `VISUAL`, and `GIT_EDITOR` to `vim`. These defaults are baked into newly built AMIs.
 - tmux uses `C-a` as its prefix, `|` and `-` for pane splits, `r` to reload, vi copy-mode keys, login shells, clipboard integration, and automatic window renumbering.
 - TPM loads pinned `tmux-sensible`, Catppuccin, CPU, kubectx, resurrect, and continuum plugins. Continuum restores sessions automatically.
 - `gitmux` is installed from a checksum-verified release and is invoked only when the command is present.

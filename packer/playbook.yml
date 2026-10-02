@@ -638,6 +638,28 @@
         regexp: '^GIT_EDITOR='
         line: 'GIT_EDITOR=vim'
 
+    - name: Verify Git editor configuration in AMI
+      ansible.builtin.command: git config --global --get core.editor
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      register: git_editor
+      changed_when: false
+      failed_when: git_editor.stdout | trim != 'vim'
+
+    - name: Read default editor environment in AMI
+      ansible.builtin.slurp:
+        src: /etc/environment
+      register: editor_environment
+
+    - name: Verify default editor environment in AMI
+      ansible.builtin.assert:
+        that:
+          - "'EDITOR=vim' in (editor_environment.content | b64decode).splitlines()"
+          - "'VISUAL=vim' in (editor_environment.content | b64decode).splitlines()"
+          - "'GIT_EDITOR=vim' in (editor_environment.content | b64decode).splitlines()"
+
     - name: Write developer terminal workflow capability marker
       ansible.builtin.copy:
         content: "ai-desktops managed developer terminal workflow\n"
