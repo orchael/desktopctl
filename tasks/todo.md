@@ -320,6 +320,18 @@ Mode: user-authorized configuration and secret change. Governing requirements: P
 
 Validation: focused tests first failed on missing config fields and selectors, then passed. `go test ./...` passed. Cloud-init tests parse the profile-secret rendering as YAML. The real profile secret exists in us-east-2 and the operator config references its path. Existing desktops were not changed; the new secret currently contains an empty JSON object until the operator adds profile variables.
 
+# Upgrade desktop bridgectl to v1.4.3
+
+Mode: user-authorized AMI package upgrade. Governing requirement: AUTH-5. Scope: update the default Packer pin, CLI cloud-init expectation, release-pin regression, and active documentation. The amd64 release package must match the published SHA-256. Rollout: merge the dedicated PR, build a matching AMI, and verify a fresh desktop. Rollback: reactivate the previous AMI and restore both version pins. Existing desktops are not upgraded by this source change.
+
+- [x] Verify v1.4.3 is published to the Noble apt repository and its amd64 package digest matches the GitHub release.
+- [x] Make the release-pin regression fail against the existing version.
+- [x] Update both pins and active documentation.
+- [x] Run focused and full validation.
+- [x] Open a dedicated PR with Copilot review (PR #273).
+
+Validation: Noble's apt index lists `bridgectl` 1.4.3 for amd64, and the downloaded package SHA-256 `09ac1d71f05b33bed790e4bd7f67bfabfcc1015ea0d7f3adb1694744a72f3438` matches the GitHub release asset. `TestBridgectlReleasePin` failed on both old pins before the change and passes afterward. `go test ./...`, `go test ./internal/provision -cover` (93.3%), `packer fmt -check`, and `git diff --check` pass. Build the AMI after this PR is merged; main already includes the Vim defaults.
+
 # Default Vim editor in the AMI
 
 Mode: user-authorized AMI configuration change. Governing requirements: FR-9.9 and AC-9.8. Scope: set Git's ubuntu editor and editor environment variables during the Packer bake, verify them during the bake and live integration, and document the defaults. Rollout: build and activate a new AMI; existing desktops retain their settings. Rollback: activate the previous AMI.

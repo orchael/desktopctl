@@ -577,7 +577,7 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 
 func TestBridgectlReleasePin(t *testing.T) {
 	// AUTH-5: image builds and boot-time validation must target the same release.
-	const want = "v1.4.0"
+	const want = "v1.4.3"
 	if BridgectlVersion != want {
 		t.Errorf("CLI bridge pin = %q, want %q", BridgectlVersion, want)
 	}
@@ -597,8 +597,8 @@ func TestBridgectlReleasePin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.0"`) {
-			t.Errorf("cloud-init must require package 1.4.0 (preinstalled=%v)", preinstalled)
+		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.3"`) {
+			t.Errorf("cloud-init must require package 1.4.3 (preinstalled=%v)", preinstalled)
 		}
 	}
 }

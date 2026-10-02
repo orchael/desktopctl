@@ -1,4 +1,4 @@
-bridgectl_version             = "v1.4.0"
+bridgectl_version             = "v1.4.3"
 tailscale_version             = "1.98.9"
 helm_version                  = "v4.3.0"
 vscode_version                = "1.139.1-1790309529"
