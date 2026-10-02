@@ -407,7 +407,7 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-bridgectl_version       = "v1.4.0"
+bridgectl_version       = "v1.4.3"
 tailscale_version       = "1.98.9"
 helm_version            = "v4.3.0"
 playwright_version      = "1.63.0"
@@ -415,7 +415,7 @@ go_version              = "1.26.0"
 uv_version              = "0.12.3"
 ```
 
-Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.4.0`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops or replace their standalone bridgectl configuration. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
+Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.4.3`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops or replace their standalone bridgectl configuration. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
 
 The AMI also bakes Playwright `1.63.0` and its matching Chromium and headless browser into `/opt/ai-desktops/playwright-browsers`. `PLAYWRIGHT_BROWSERS_PATH` is set for desktop logins and systemd services; project tests still use their own `@playwright/test` dependency. To reuse the baked browser without downloads, pin the project to the same Playwright version and run its normal test command. A different Playwright version may require a different browser revision; install that revision into a project-specific path or update the AMI pin and rebuild. The Packer bake launches headless Chromium as `ubuntu`, and a fresh desktop should be checked with a minimal project-local test using `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and network access disabled. Existing desktops need replacement with the new AMI. GitHub-hosted CI continues installing Chromium separately.
 
