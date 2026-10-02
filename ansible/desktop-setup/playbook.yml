@@ -91,6 +91,31 @@
       failed_when: github_editor.stdout | trim != 'vim'
       when: developer_terminal_ami_workflow.stat.exists
 
+    - name: Verify Git editor configuration
+      ansible.builtin.command: git config --global --get core.editor
+      become_user: ubuntu
+      become: true
+      environment:
+        HOME: /home/ubuntu
+      register: git_editor
+      changed_when: false
+      failed_when: git_editor.stdout | trim != 'vim'
+      when: developer_terminal_ami_workflow.stat.exists
+
+    - name: Read default editor environment
+      ansible.builtin.slurp:
+        src: /etc/environment
+      register: editor_environment
+      when: developer_terminal_ami_workflow.stat.exists
+
+    - name: Verify default editor environment
+      ansible.builtin.assert:
+        that:
+          - "'EDITOR=vim' in (editor_environment.content | b64decode).splitlines()"
+          - "'VISUAL=vim' in (editor_environment.content | b64decode).splitlines()"
+          - "'GIT_EDITOR=vim' in (editor_environment.content | b64decode).splitlines()"
+      when: developer_terminal_ami_workflow.stat.exists
+
     - name: Inspect managed Neovim ownership
       ansible.builtin.stat:
         path: /home/ubuntu/.config/nvim
