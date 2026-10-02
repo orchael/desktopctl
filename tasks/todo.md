@@ -327,6 +327,6 @@ Mode: user-authorized AMI package upgrade. Governing requirement: AUTH-5. Scope:
 - [x] Make the release-pin regression fail against the existing version.
 - [x] Update both pins and active documentation.
 - [x] Run focused and full validation.
-- [ ] Open a dedicated PR with Copilot review.
+- [x] Open a dedicated PR with Copilot review (PR #273).
 
 Validation: Noble's apt index lists `bridgectl` 1.4.3 for amd64, and the downloaded package SHA-256 `09ac1d71f05b33bed790e4bd7f67bfabfcc1015ea0d7f3adb1694744a72f3438` matches the GitHub release asset. `TestBridgectlReleasePin` failed on both old pins before the change and passes afterward. `go test ./...`, `go test ./internal/provision -cover` (93.3%), `packer fmt -check`, and `git diff --check` pass. Build the AMI after this PR and the Vim defaults PR are merged so both changes are present.
