@@ -96,6 +96,8 @@ func TestFR5_DeveloperTerminalWorkflow(t *testing.T) {
 	}
 	script := `set -eu
 test "$(sudo -u ubuntu -H gh config get editor)" = vim
+test "$(sudo -u ubuntu -H git config --global --get core.editor)" = vim
+bash -lc 'test "$EDITOR" = vim && test "$VISUAL" = vim && test "$GIT_EDITOR" = vim'
 test "$(stat -c '%U:%G' /home/ubuntu/.tmux.conf)" = ubuntu:ubuntu
 test "$(stat -c '%U:%G' /home/ubuntu/.config/nvim)" = ubuntu:ubuntu
 for plugin in tpm tmux-sensible tmux tmux-cpu tmux-kubectx tmux-resurrect tmux-continuum; do

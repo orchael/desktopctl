@@ -36,3 +36,8 @@
 - Before adding an AMI assertion for a third-party package's installed files, inspect the exact pinned artifact with `dpkg-deb -c` or equivalent. A static test that repeats an assumed path can pass while the live bake fails; verify the package-owned path, mode, and launcher command before encoding them in the playbook.
 - A browser smoke running during image provisioning can inherit desktop display or D-Bus session variables that make a headless launch hang after the process starts. Isolate those variables for the bake check, bound its timeout, and retain a fresh-desktop browser test to prove the shipped environment works.
 - An exact apt version can be present in an upstream package index yet unavailable as an installation candidate on a builder. For essential image packages, pin the vendor artifact hash and verify the downloaded package before apt installs it; keep post-install version and launch checks to catch mismatches.
+
+# Editor defaults belong in the AMI
+
+- When correcting a desktop's editor configuration, check both the live user's shell and the Packer source. A live fix does not carry into newly created desktops. Keep Git's `core.editor` and session editor variables aligned, and verify them in the AMI and post-boot checks.
+- Before placing a verification task in a post-boot playbook, trace every invocation of that playbook. If cloud-init invokes it only for optional features, use AMI bake checks and a live desktop integration test for behavior required on every desktop.
