@@ -85,6 +85,24 @@ func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
 	}
 }
 
+func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
+	for _, want := range []string{
+		"- name: Configure Git editor for ubuntu",
+		"git config --global core.editor vim",
+		"- name: Add default editor to desktop sessions",
+		"- name: Add visual editor to desktop sessions",
+		"- name: Add Git editor to desktop sessions",
+		`line: 'EDITOR=vim'`,
+		`line: 'VISUAL=vim'`,
+		`line: 'GIT_EDITOR=vim'`,
+		"- name: Verify Git editor configuration in AMI",
+		"git config --global --get core.editor",
+		"- name: Verify default editor environment in AMI",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 	playbook, err := os.ReadFile("playbook.yml")
 	if err != nil {
