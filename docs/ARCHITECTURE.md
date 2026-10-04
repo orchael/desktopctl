@@ -87,9 +87,10 @@ stateDiagram-v2
   PROVISIONING --> FAILED
   BOOTSTRAPPING --> FAILED
   REGISTERING --> FAILED
+  FAILED --> QUEUED: reconciled retry with same desktop ID
 ```
 
-The existing CLI retains failed instances for diagnosis; destroy must clean only the one desktop stack and reconcile partial creates. Desktops should report `READY` only after infrastructure and host checks pass. A failed run keeps its desktop identity and diagnostics so a retry cannot allocate another stack. Start/stop should observe EC2 state before committing tenant state. No Bridge session or Crew worker model belongs in either desktopctl or Desktops for this slice. A future desktop record may carry a Bridge device ID after bridgectl enrollment is available, but Desktops must link to Bridge rather than duplicate its storage or client.
+The existing CLI retains failed instances for diagnosis; destroy must clean only the one desktop stack and reconcile partial creates. Desktops should report `READY` only after infrastructure and host checks pass. A failed run keeps its desktop identity and diagnostics. A retry returns to `QUEUED` only after reconciling the existing stack and live resources, then reuses that identity. Start/stop should observe EC2 state before committing tenant state. No Bridge session or Crew worker model belongs in either desktopctl or Desktops for this slice. A future desktop record may carry a Bridge device ID after bridgectl enrollment is available, but Desktops must link to Bridge rather than duplicate its storage or client.
 
 ## Validation inventory
 
