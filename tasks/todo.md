@@ -1,3 +1,14 @@
+# Desktops vertical slice — desktopctl boundary audit
+
+Mode: user-authorized cross-repository architecture and implementation. Governing requirements: BOUNDARY-1 through BOUNDARY-4 in PRD.md. This branch is documentation and rename-boundary cleanup only. Preserve the existing CLI and control plane until a tested replacement is available. Rollback: revert this documentation PR; no runtime behavior changes.
+
+- [x] Inventory CLI, Pulumi, AWS, lifecycle, bootstrap, Bridge, persistence, auth, API, tests, and release paths.
+- [x] Document current architecture and component classifications in docs/ARCHITECTURE.md.
+- [x] Correct active stale repository identity references without changing historical migrations or deployed resource identifiers.
+- [x] Run existing test and documentation validation before opening PR 1.
+
+Validation: `go test ./...` passed before and after the documentation change; `git diff --check` passed. A scan of active README, docs, workflows, and release configuration found no stale `markcallen/ai-desktops` repository URL. Existing `ai-desktops` CLI and AWS resource names remain compatibility contracts.
+
 # Add Google Cloud CLI to the AMI
 
 Mode: user-authorized AMI configuration change. Governing requirements: AMI-GCLOUD-1 and AMI-GCLOUD-2. Scope: add Google's signed apt source, install `google-cloud-cli`, and verify the command during the bake. Rollout: build and activate a new AMI after merge. Rollback: reactivate the previous AMI.

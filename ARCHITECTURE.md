@@ -1,5 +1,7 @@
 # Architecture - ai-desktops
 
+> This is the original single-repository design record. For the audited code and the desktopctl/Desktops split, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Compatibility names in this document describe existing deployments.
+
 ## Purpose
 
 `ai-desktops` is a CLI-driven fleet manager for persistent remote AI coding desktops. The implementation keeps the control surface small: a Go CLI owns lifecycle operations, Pulumi owns AWS infrastructure, DynamoDB stores fleet metadata, and each desktop runs a standard Ubuntu-based runtime with `novnc-desktop`, `bridgectl`, and developer tools.
