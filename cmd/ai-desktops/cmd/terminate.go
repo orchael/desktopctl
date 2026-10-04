@@ -18,8 +18,9 @@ var (
 )
 
 var terminateCmd = &cobra.Command{
-	Use:   "terminate <desktop-id>",
-	Short: "Permanently destroy a desktop and its disk state",
+	Use:     "terminate <desktop-id>",
+	Aliases: []string{"destroy"},
+	Short:   "Permanently destroy a desktop and its disk state",
 	Long: `terminate runs pulumi destroy on the desktop stack, which permanently removes
 the EC2 instance and root EBS volume. This operation is IRREVERSIBLE.
 

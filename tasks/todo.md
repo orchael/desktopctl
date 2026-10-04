@@ -1,3 +1,14 @@
+# Desktops vertical slice — desktopctl job contract
+
+Mode: user-authorized CLI contract change. Governing requirements: BOUNDARY-2, BOUNDARY-5, BOUNDARY-6. Scope: stable ID, safe create retry behavior, AWS identity validation, lifecycle alias, and worker-facing contract documentation. The CLI continues accepting operator profiles and existing resource names. Risk: partial Pulumi cleanup can leave resources; retain the fleet record and require reconciliation on cleanup failure. Rollback: revert this branch before deploying a worker; existing desktops and stack names are unaffected.
+
+- [x] Add failing tests for explicit desktop ID, duplicate prevention, cleanup error propagation, STS validation, and destroy alias.
+- [x] Implement the contract without changing ordinary CLI create behavior.
+- [x] Document temporary credential and worker invocation contract.
+- [x] Run local Go tests, vet, lint, and CLI build; open PR 2 after PR 1, with CI and Copilot review tracked on the PR.
+
+Validation: focused tests failed before implementation and passed afterward. `go test ./...`, `go test -cover ./internal/...`, `go vet ./...`, `golangci-lint run ./...` (0 issues), `go build ./cmd/ai-desktops`, and `git diff --check` passed. The pre-push hook runs the desktop-web build and test before push. Real AWS was not used for this contract change.
+
 # Desktops vertical slice — desktopctl boundary audit
 
 Mode: user-authorized cross-repository architecture and implementation. Governing requirements: BOUNDARY-1 through BOUNDARY-4 in PRD.md. This branch is documentation and rename-boundary cleanup only. Preserve the existing CLI and control plane until a tested replacement is available. Rollback: revert this documentation PR; no runtime behavior changes.

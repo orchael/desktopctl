@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ var (
 	createOwner             string
 	createOrganizationID    string
 	createName              string
+	createDesktopID         string
 	createRepos             []string
 	createSecrets           []string
 	createPreview           bool
@@ -86,6 +88,7 @@ func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
 	createCmd.Flags().StringVar(&createOrganizationID, "organization-id", "", "control-plane organization UUID for the desktop record (overrides fleet.organization_id)")
 	createCmd.Flags().StringVar(&createName, "name", "", "desktop name, unique among non-terminated desktops in the environment")
+	createCmd.Flags().StringVar(&createDesktopID, "desktop-id", "", "stable desktop ID for a provisioning job (d- plus eight lowercase hex characters)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
@@ -372,9 +375,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	desktopID, err := desktop.GenerateID()
+	var idStore store.Store
+	if createDesktopID != "" {
+		idStore, err = openStore(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	desktopID, err := chooseCreateID(ctx, idStore, createDesktopID)
 	if err != nil {
-		return fmt.Errorf("generate desktop ID: %w", err)
+		return err
 	}
 
 	if marketType == store.MarketSpot {
@@ -412,13 +422,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("foundation stack incomplete (run init-foundation first): %w", err)
 	}
 
-	var s store.Store
+	var s store.Store = idStore
 	var ws store.WorkspaceStore
 	var attachedWorkspace *store.Workspace
 	if createWorkspaceMode == workspaceModeEFS || createName != "" {
-		s, err = openStore(ctx)
-		if err != nil {
-			return err
+		if s == nil {
+			s, err = openStore(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		if createName != "" {
 			if err := ensureDesktopNameAvailable(ctx, s, env, createName); err != nil {
@@ -711,6 +723,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	ref := desktopRef
 	var outputs map[string]string
 	var lastErr error
+	var cleanupErr error
 	for i, candidate := range subnets {
 		prelaunchedInstanceID := ""
 		if i > 0 {
@@ -766,8 +779,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			break
 		}
 		lastErr = err
-		cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
-		terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID)
+		cleanupErr = cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
+		cleanupErr = errors.Join(cleanupErr, terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID))
+		if cleanupErr != nil {
+			break
+		}
 		if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(err)) || i == len(subnets)-1 {
 			break
 		}
@@ -775,11 +791,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
-		_ = s.Delete(ctx, desktopID)
-		if workspaceReserved {
-			_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
+		if cleanupErr == nil {
+			_ = s.Delete(ctx, desktopID)
+			if workspaceReserved {
+				_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
+			}
+			return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
 		}
-		return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
+		return fmt.Errorf("create failed; fleet record retained because stack cleanup failed: %w (cleanup: %v)", lastErr, cleanupErr)
 	}
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
@@ -1175,32 +1194,60 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func cleanupCreateAttempt(ctx context.Context, runner *pulumi.Runner, ref *pulumi.StackRef, desktopID string, cause error) {
+type createDestroyer interface {
+	Destroy(context.Context, *pulumi.StackRef, io.Writer) error
+}
+
+func cleanupCreateAttempt(ctx context.Context, runner createDestroyer, ref *pulumi.StackRef, desktopID string, cause error) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	fmt.Fprintf(os.Stderr, "Create attempt for %s failed; cleaning up stack %s ...\n", desktopID, ref.StackName)
 	if err := runner.Destroy(cleanupCtx, ref, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: cleanup for %s failed after create error %v: %v\n", desktopID, cause, err)
+		return err
 	}
+	return nil
 }
 
-func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) {
+func chooseCreateID(ctx context.Context, s store.Store, requested string) (string, error) {
+	if requested == "" {
+		return desktop.GenerateID()
+	}
+	if err := desktop.ValidateID(requested); err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("fleet store is required for an explicit desktop ID")
+	}
+	_, err := s.Get(ctx, requested)
+	if err == nil {
+		return "", fmt.Errorf("desktop %q already exists; inspect its state before retrying", requested)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return "", fmt.Errorf("check desktop %q: %w", requested, err)
+	}
+	return requested, nil
+}
+
+func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
 	if instanceID == "" {
-		return
+		return nil
 	}
 	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	awsCfg, err := awsx.LoadConfig(cleanupCtx, region, profile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not load AWS config to terminate pre-launched instance %s: %v\n", instanceID, err)
-		return
+		return err
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
 	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
+		return err
 	}
+	return nil
 }
 
 func isCreateCapacityError(err error) bool {

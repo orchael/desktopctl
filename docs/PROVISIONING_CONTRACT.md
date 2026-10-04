@@ -1,0 +1,37 @@
+# desktopctl worker contract (initial version)
+
+`orchael/desktops` will invoke the versioned `ai-desktops` CLI from a background worker. This is the cross-language boundary: the worker does not implement AWS resources or Pulumi. The CLI still works independently for an operator. This contract is not yet a complete SaaS worker; account bootstrap, customer AMI setup, and durable job reconciliation remain in Desktops.
+
+## Credentials and account identity
+
+The worker first assumes the customer's role with AWS STS, checks that the returned account ID matches the selected connection, and starts a child process with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` in its environment. These are temporary session credentials. The worker must provide a minimal environment with no `AWS_PROFILE` and a desktopctl config whose `aws.profile` is empty. Both the AWS SDK and the Pulumi subprocess then consume the same temporary credentials. Do not place credentials in arguments, Pulumi config, stdout, run records, or a persisted config file. Refresh/reassume before expiry; a single session must last longer than the bounded operation or the worker must resume safely.
+
+```sh
+ai-desktops --config /run/desktopctl/config.yaml --region ca-central-1 aws validate --account-id 123456789012 --json
+```
+
+`aws validate` uses STS `GetCallerIdentity` and returns `account_id`, `arn`, and `region`. The ARN identifies the temporary role session, not a stored customer key.
+
+## Create and lifecycle
+
+The worker assigns a stable `d-` plus eight lowercase hexadecimal character desktop ID before queueing. It records the ID and uses it for every attempt. `create --desktop-id` rejects an existing fleet record; DynamoDB also conditionally rejects concurrent record creation. On a Pulumi failure, the CLI destroys the attempted stack. If stack or prelaunched-instance cleanup fails, the fleet record stays failed so an automated retry cannot allocate another instance without operator reconciliation. On successful cleanup, the record is removed and the same ID may be retried. Desktops must lock one operation per desktop and inspect the stack and live instance before retrying after an interrupted process.
+
+```sh
+ai-desktops --config /run/desktopctl/config.yaml --region ca-central-1 \
+  create --desktop-id d-0123abcd --name test-desktop \
+  --github-owner example --desktop-profile example/developer-profile \
+  --instance-type t3.large --json
+
+ai-desktops --config /run/desktopctl/config.yaml status d-0123abcd --json
+ai-desktops --config /run/desktopctl/config.yaml stop d-0123abcd
+ai-desktops --config /run/desktopctl/config.yaml start d-0123abcd
+ai-desktops --config /run/desktopctl/config.yaml destroy d-0123abcd --force
+```
+
+`--profile` remains the AWS shared-profile flag for CLI compatibility. `--desktop-profile` is a repository reference; there is no built-in `developer` alias yet. `--instance-type` uses desktopctl's existing EC2 size model. `destroy` aliases `terminate`. The worker should consume `--json` output where available and persist an allowlisted diagnostic summary, not raw process logs that may contain operator-controlled values.
+
+The current CLI create path waits for profile cloud-init completion when a desktop profile is selected. For a create without a profile it marks ready after Pulumi outputs, so the Desktops worker must perform an independent host readiness check before reporting tenant `READY`. The existing `doctor` command is available for that check. A subsequent extraction should put create, readiness, start, stop, and destroy behind one Go provisioning service shared by the CLI and job adapter.
+
+## Configuration prerequisites
+
+The target AWS account must have desktopctl's Pulumi S3 backend, fleet DynamoDB table, foundation stack, Route53 zone, and a compatible AMI in the selected region. `bootstrap`, `init-foundation`, and AMI selection are currently explicit operator steps. The SaaS onboarding flow must account for them before the first customer desktop can be provisioned. The customer's AssumeRole policy must grant only the AWS actions those steps and the chosen lifecycle path require; see [AWS operator IAM](AWS_OPERATOR_IAM.md). An IAM role alone does not make this existing provisioning stack ready to run.
