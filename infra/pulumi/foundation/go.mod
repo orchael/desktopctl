@@ -1,4 +1,4 @@
-module github.com/orchael/ai-desktops/infra/pulumi/foundation
+module github.com/orchael/desktopctl/infra/pulumi/foundation
 
 go 1.26.0
 

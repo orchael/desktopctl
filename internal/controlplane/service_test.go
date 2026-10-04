@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	appconfig "github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/desktop"
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	appconfig "github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // mockPulumiRunner is a controllable PulumiRunner double for unit tests.
@@ -246,7 +246,7 @@ func TestService_CreateDesktop_Success(t *testing.T) {
 	svc := newServiceWithRunner(lifecycleTestConfig(), s, runner)
 	result, err := svc.CreateDesktop(context.Background(), testOrganizationID, &CreateDesktopRequest{
 		Owner:        "orchael",
-		Repos:        []string{"orchael/ai-desktops"},
+		Repos:        []string{"orchael/desktopctl"},
 		InstanceType: "t3.large",
 	})
 	if err != nil {

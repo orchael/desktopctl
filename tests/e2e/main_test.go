@@ -10,17 +10,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestGitHubRepo(t *testing.T) {
-	for _, origin := range []string{"git@github.com:markcallen/ai-desktops.git", "https://github.com/markcallen/ai-desktops.git", "ssh://git@github.com/markcallen/ai-desktops"} {
+	for _, origin := range []string{"git@github.com:orchael/desktopctl.git", "https://github.com/orchael/desktopctl.git", "ssh://git@github.com/orchael/desktopctl"} {
 		got, err := githubRepo(origin)
-		if err != nil || got != "markcallen/ai-desktops" {
+		if err != nil || got != "orchael/desktopctl" {
 			t.Fatalf("%q: %q %v", origin, got, err)
 		}
 	}
-	for _, origin := range []string{"https://evil.example/owner/ai-desktops", "git@github.com:owner/pilot.git", ""} {
+	for _, origin := range []string{"https://evil.example/owner/ai-desktops", "git@github.com:owner/ai-desktops.git", "git@github.com:owner/pilot.git", ""} {
 		if _, err := githubRepo(origin); err == nil {
 			t.Fatalf("accepted %q", origin)
 		}
@@ -52,7 +52,7 @@ func TestScenarioRejectsSSHKeyDifferentFromConfigBeforeCloudCalls(t *testing.T) 
 		return nil, nil
 	}
 	t.Cleanup(func() { runCommand = previous })
-	err := run(context.Background(), []string{"--repo", "markcallen/ai-desktops", "--config", configFile, "--ssh-key", overrideKey, "--bridgectl-binary", "unused"})
+	err := run(context.Background(), []string{"--repo", "orchael/desktopctl", "--config", configFile, "--ssh-key", overrideKey, "--bridgectl-binary", "unused"})
 	if err == nil || !strings.Contains(err.Error(), "ssh-key") {
 		t.Fatalf("expected key mismatch: %v", err)
 	}
@@ -273,7 +273,7 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 	f.t.Helper()
 	encode := func(v any) ([]byte, error) { return json.Marshal(v) }
 	if program == "git" {
-		return []byte("git@github.com:markcallen/ai-desktops.git\n"), nil
+		return []byte("git@github.com:orchael/desktopctl.git\n"), nil
 	}
 	if program == "ssh" {
 		command := args[len(args)-1]
@@ -365,7 +365,7 @@ func TestCommandFlow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if s.Region != "us-west-2" || s.Profile != "e2e-profile" || s.Repo != "markcallen/ai-desktops" {
+			if s.Region != "us-west-2" || s.Profile != "e2e-profile" || s.Repo != "orchael/desktopctl" {
 				t.Fatalf("identity not frozen: %+v", s)
 			}
 			if s.DesktopID != "d-created" {

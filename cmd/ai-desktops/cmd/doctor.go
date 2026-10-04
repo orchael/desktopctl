@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/health"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/health"
+	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +51,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   Desktop Web:
     - desktop-web-active  — ai-desktops-web systemd service is active
-    - desktop-web-version — installed @markcallen/desktop-web package version
+    - desktop-web-version — installed @orchael/desktopctl package version
 
   Essential Services:
     - docker-active   — Docker daemon is active

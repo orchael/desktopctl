@@ -150,7 +150,7 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 // Run executes packer build in the given directory.
 // baseAMI is always required; the caller must resolve it before invoking Run.
 // cliVersion is the ai-desktops CLI version baked into the AMI tag.
-// desktopWebVersion is the @markcallen/desktop-web npm package version to install.
+// desktopWebVersion is the @orchael/desktopctl npm package version to install.
 // novncDesktopVersion is the version string extracted from the base novnc-desktop AMI name.
 // subnetID is the subnet for the Packer build instance; pass "" to rely on the default VPC.
 // public controls whether the built AMI has public launch permissions.

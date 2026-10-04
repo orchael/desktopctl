@@ -1,4 +1,4 @@
-module github.com/orchael/ai-desktops
+module github.com/orchael/desktopctl
 
 go 1.26.0
 

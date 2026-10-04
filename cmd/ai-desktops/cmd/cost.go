@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func estimateHourlyCostLabel(ctx context.Context, awsCfg aws.Config, region, instanceType, marketType string) string {

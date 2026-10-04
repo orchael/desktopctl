@@ -3,7 +3,7 @@
 This opt-in runner tests a desktop against the existing **dev** foundation and
 active AMI. It creates an isolated retained EFS workspace and desktop, each named
 `e2e-ai-desktops-<random ID>`, for this checkout's GitHub origin (or an explicit
-`--repo owner/ai-desktops`). It does not use `eos-dev`, build AMIs,
+`--repo owner/desktopctl`). It does not use `eos-dev`, build AMIs,
 or create/destroy shared foundation infrastructure. These tests incur AWS costs.
 
 ## Run Codex authentication
@@ -14,7 +14,7 @@ Build the two branches under test, then run:
 go build -o /tmp/ai-desktops-e2e ./cmd/ai-desktops
 # In the bridgectl checkout containing the auth fix:
 GOOS=linux GOARCH=amd64 go build -o /tmp/bridgectl-e2e ./cmd/bridgectl
-# Back in ai-desktops:
+# Back in desktopctl:
 bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
   --bridgectl-binary /tmp/bridgectl-e2e --scenario codex-auth
 ```
@@ -90,7 +90,7 @@ temporarily configures the Codex provider to run the installed Codex CLI in
 `exec --json --sandbox read-only` mode through:
 
 ```bash
-bridgectl run --provider codex --no-tty /workspace/ai-desktops
+bridgectl run --provider codex --no-tty /workspace/desktopctl
 ```
 
 The first session must return the expected JSON assistant message. The prompt

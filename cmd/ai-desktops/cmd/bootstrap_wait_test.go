@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/desktop"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 type fakeProfileBootstrapRunner struct {

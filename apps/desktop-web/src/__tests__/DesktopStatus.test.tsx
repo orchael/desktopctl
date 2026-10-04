@@ -9,7 +9,7 @@ const baseInfo: DesktopInfo = {
   github_owner: 'orchael',
   environment: 'dev',
   bridge_port: 9445,
-  repos: ['orchael/ai-desktops'],
+  repos: ['orchael/desktopctl'],
   services: [
     { name: 'docker', active: true, version: '27.3.1' },
     { name: 'novnc', active: false }
@@ -29,7 +29,7 @@ describe('DesktopStatus', () => {
 
   it('renders repository tags', () => {
     render(<DesktopStatus info={baseInfo} />);
-    expect(screen.getByText('orchael/ai-desktops')).toBeInTheDocument();
+    expect(screen.getByText('orchael/desktopctl')).toBeInTheDocument();
   });
 
   it('shows "No repositories configured" when repos is empty', () => {

@@ -7,7 +7,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/opt/ai-desktops/web
 Environment=PORT=30080
-ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@markcallen/desktop-web/server-dist/index.js
+ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

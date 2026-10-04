@@ -88,6 +88,32 @@ The migration connection must use a role allowed to create roles, tables, functi
 
 The chart is in `deploy/control-plane/chart`. It installs separate web and API Deployments, public ingress only for Next.js, a private API Service, a NetworkPolicy, and a pre-install/pre-upgrade migration Job.
 
+### Build and deploy from source
+
+Control plane images are not published by this repository. Build both targets
+from the same source commit, tag them with a commit SHA, and push them to a
+registry that the target Kubernetes cluster can pull from. The API tag must
+have the `-api` suffix because the chart uses one repository for both images.
+
+```bash
+git clone https://github.com/orchael/desktopctl.git
+cd desktopctl
+IMAGE_REPOSITORY=registry.example.com/orchael/desktopctl-control-plane
+IMAGE_TAG="$(git rev-parse --short=12 HEAD)"
+docker build -f Dockerfile.control-plane --target web \
+  -t "$IMAGE_REPOSITORY:$IMAGE_TAG" .
+docker build -f Dockerfile.control-plane --target api \
+  -t "$IMAGE_REPOSITORY:$IMAGE_TAG-api" .
+docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
+docker push "$IMAGE_REPOSITORY:$IMAGE_TAG-api"
+```
+
+Replace the example registry with your own and authenticate before pushing.
+If the registry is private, configure an image pull secret for the namespace
+and service accounts before installation. Keep the image tag tied to the
+source commit used for both builds. The chart has no default image repository
+or tag, so supply both explicitly when installing or upgrading.
+
 Prefer creating the Secret with an external secret manager. The chart expects a Secret named `ai-desktops-control-plane` by default with these keys:
 
 - `DATABASE_URL`
@@ -105,8 +131,8 @@ Example:
 ```bash
 helm upgrade --install ai-desktops deploy/control-plane/chart \
   --namespace ai-desktops --create-namespace \
-  --set image.repository=ghcr.io/orchael/ai-desktops-control-plane \
-  --set image.tag=v0.2.0 \
+  --set-string image.repository="$IMAGE_REPOSITORY" \
+  --set-string image.tag="$IMAGE_TAG" \
   --set ingress.host=app.desktops.orchael.dev \
   --set config.backendBucket="$PULUMI_BACKEND_BUCKET" \
   --set config.operatorRoleArn="$OPERATOR_ROLE_ARN"
@@ -139,5 +165,8 @@ pnpm run build
 pnpm run test:coverage
 pnpm run lint
 pnpm run prettier
-helm lint ../../deploy/control-plane/chart
+helm lint ../../deploy/control-plane/chart \
+  --set image.repository=registry.example.com/orchael/desktopctl-control-plane \
+  --set image.tag=test --set config.backendBucket=test \
+  --set config.operatorRoleArn=arn:aws:iam::123456789012:role/test
 ```

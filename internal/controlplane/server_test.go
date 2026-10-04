@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	appconfig "github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/store"
+	appconfig "github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 const testOrganizationID = "00000000-0000-4000-8000-000000000001"

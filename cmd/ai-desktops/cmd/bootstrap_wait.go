@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
-	"github.com/orchael/ai-desktops/internal/desktop"
+	"github.com/orchael/desktopctl/internal/desktop"
 )
 
 const profileBootstrapTimeout = 15 * time.Minute

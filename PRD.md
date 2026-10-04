@@ -379,7 +379,7 @@ its own lifecycle and may survive desktop termination.
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-12.1 | `ai-desktops workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/ai-desktops --json` returns a workspace record with `workspace_mode=efs` and no attached desktop | New unit and live acceptance |
+| AC-12.1 | `ai-desktops workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/desktopctl --json` returns a workspace record with `workspace_mode=efs` and no attached desktop | New unit and live acceptance |
 | AC-12.2 | `ai-desktops create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --json` returns a ready desktop whose `workspace_path` is `/workspace` and whose metadata references the EFS workspace | New unit and live acceptance |
 | AC-12.3 | A second `create` against the same attached EFS workspace fails before provisioning a new EC2 instance | New unit test |
 | AC-12.4 | After terminating an EFS-backed desktop, the workspace record remains listable and can be attached to a replacement desktop | Live acceptance |
@@ -552,7 +552,7 @@ The operator workflow must support updating the owner-scoped agent credential se
 - AUTH-4c: A present empty or whitespace-only `CODEX_AUTH` string in the merged replacement snapshot must fail preflight without changing credential files, caches, shell configuration, or services, even if an API key is also supplied. An absent `CODEX_AUTH` remains valid for API-key-only rotation; operators must remove the seed key rather than blank it to disable that source.
 - AUTH-4d: Coordinated secret operations must return an allowlisted, non-secret failure category for known preflight and runtime failures. Raw child stdout, stderr, commands, paths supplied through secrets, and credential values must remain suppressed.
 - AUTH-5: Pin the managed desktop `bridgectl` package to release `v1.4.3` in both the default Packer variables and CLI cloud-init expectation. Tests must keep these pins synchronized. Verify the release package digest before rollout. Pre-baked AMIs must be rebuilt with the matching package so new desktops can enroll in the Bridge production control plane; this change does not upgrade existing desktops, replace their standalone bridgectl configuration, or remove the E2E runner's explicit branch-binary override.
-- E2E-1: A reusable opt-in AWS E2E runner creates a uniquely named retained EFS workspace and desktop for this checkout's repository (default from the Git remote; currently `markcallen/ai-desktops`), waits for readiness, and executes selectable scenarios. The Codex auth scenario exercises real bridge authentication and validates credential persistence and explicit reload.
+- E2E-1: A reusable opt-in AWS E2E runner creates a uniquely named retained EFS workspace and desktop for this checkout's repository (default from the Git remote; currently `orchael/desktopctl`), waits for readiness, and executes selectable scenarios. The Codex auth scenario exercises real bridge authentication and validates credential persistence and explicit reload.
 - E2E-2: Successful runs terminate their desktop before deleting their workspace. Failed runs retain resources and report their identifiers. A keep-resources option also retains successful runs; a reuse option runs scenarios on those same resources for debugging. Cleanup may target only resources recorded as created by the runner.
 
 Operators must also be able to manage per-desktop injected secret references after creation. Adding a secret path should validate that the AWS Secrets Manager secret exists, inject all configured desktop secrets, and persist the updated fleet metadata. Removing a secret path should rewrite the desktop environment files without the removed secret, clear those files when no configured secrets remain, and persist the updated fleet metadata. Reloading should re-fetch the currently configured fleet secret list without changing it.
@@ -627,6 +627,28 @@ desktops require a separate profile application; editing operator config does
 not change an already-created desktop.
 
 ---
+
+## Public repository distribution
+
+The source repository is `orchael/desktopctl`. Its Go module path is
+`github.com/orchael/desktopctl`; nested Pulumi modules use the same repository
+prefix. The desktop web runtime package is `@orchael/desktopctl` in GitHub
+Packages. The `ai-desktops` CLI command and existing cloud resource names remain
+stable for deployed operators.
+
+The control plane is built from this source and deployed by an operator. Release
+automation must not publish its container images. Deployment instructions must
+cover building both web and API image targets, supplying them to a registry
+accessible by the target cluster, and installing the existing Helm chart with
+explicit image repository and tag settings. Credentials remain outside source
+control. Security reports must have a private route documented in `SECURITY.md`.
+
+| ID | Acceptance criterion |
+| --- | --- |
+| PUB-1 | Go module declarations, first-party imports, and release version injection use `github.com/orchael/desktopctl`; README and agent metadata point to `orchael/desktopctl`. |
+| PUB-2 | The desktop web package publishes as `@orchael/desktopctl`, and AMI/runtime installation references the same package. |
+| PUB-3 | No GitHub Actions workflow publishes the control plane; the control plane guide gives reproducible web/API image build and Helm deployment steps. |
+| PUB-4 | `SECURITY.md` tells researchers which versions are supported and how to report a vulnerability privately. |
 
 ## Future Enhancements
 

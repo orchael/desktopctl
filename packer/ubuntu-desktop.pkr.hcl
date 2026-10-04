@@ -68,7 +68,7 @@ variable "desktop_web_version" {
 
 variable "github_npm_token" {
   type        = string
-  description = "GitHub token with read:packages scope for installing @markcallen/desktop-web (set via PKR_VAR_github_npm_token, mapped automatically from GITHUB_NPM_TOKEN by the CLI)"
+  description = "GitHub token with read:packages scope for installing @orchael/desktopctl (set via PKR_VAR_github_npm_token, mapped automatically from GITHUB_NPM_TOKEN by the CLI)"
   sensitive   = true
 }
 

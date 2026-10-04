@@ -3,8 +3,8 @@ package cmd
 import (
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestFormatHourlyCost(t *testing.T) {

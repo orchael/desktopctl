@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/backend"
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/backend"
 	"github.com/spf13/cobra"
 )
 

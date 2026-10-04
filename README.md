@@ -1,9 +1,9 @@
 # ai-desktops
 
-[![CI](https://github.com/orchael/ai-desktops/actions/workflows/ci.yml/badge.svg)](https://github.com/orchael/ai-desktops/actions/workflows/ci.yml)
-[![Release](https://github.com/orchael/ai-desktops/actions/workflows/publish-cli.yml/badge.svg)](https://github.com/orchael/ai-desktops/actions/workflows/publish-cli.yml)
-[![License](https://img.shields.io/github/license/orchael/ai-desktops)](LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/orchael/ai-desktops)](https://github.com/orchael/ai-desktops/releases)
+[![CI](https://github.com/orchael/desktopctl/actions/workflows/ci.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/ci.yml)
+[![Release](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml)
+[![License](https://img.shields.io/github/license/orchael/desktopctl)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/orchael/desktopctl)](https://github.com/orchael/desktopctl/releases)
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
@@ -162,8 +162,8 @@ The opt-in [AWS E2E runner](tests/e2e/README.md) tests Codex auth using this che
 ## Installation
 
 ```bash
-git clone https://github.com/orchael/ai-desktops
-cd ai-desktops
+git clone https://github.com/orchael/desktopctl
+cd desktopctl
 go install ./cmd/ai-desktops
 ```
 
@@ -172,6 +172,9 @@ Or build directly:
 ```bash
 go build -o ai-desktops ./cmd/ai-desktops
 ```
+
+The control plane is built and deployed by the operator; releases do not publish
+its images. See [control plane build and deployment](docs/control-plane.md#build-and-deploy-from-source).
 
 ## Region and environment mapping
 
@@ -386,13 +389,13 @@ TLS setup, secret injection, workspace creation, and repository cloning.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GITHUB_NPM_TOKEN` | Yes | GitHub token used to install `@markcallen/desktop-web` from GitHub Packages during the AMI build. Must have `read:packages` scope. |
+| `GITHUB_NPM_TOKEN` | Yes | GitHub token used to install `@orchael/desktopctl` from GitHub Packages during the AMI build. Must have `read:packages` scope. |
 
 Create a GitHub personal access token (classic) or fine-grained token with at minimum:
 
 | Scope | Purpose |
 |-------|---------|
-| `read:packages` | Download `@markcallen/desktop-web` from `npm.pkg.github.com` |
+| `read:packages` | Download `@orchael/desktopctl` from `npm.pkg.github.com` |
 
 ```bash
 export GITHUB_NPM_TOKEN=ghp_...
@@ -475,10 +478,16 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - Visual Studio Code stable (Microsoft's signed apt repository; version from `vscode_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
-- `@markcallen/desktop-web` npm package (version from `desktop_web_version` var)
+- `@orchael/desktopctl` npm package (version from `desktop_web_version` var)
 - Android Studio (via snap)
 - Android SDK with platforms `android-34` (including Google Play Store system image `x86_64`), build-tools 35.0.1 and 37.0.0, and NDK 27.0.12077973
 - pyenv (installed for the `ubuntu` user; Python version management at runtime)
+
+Publish the new `@orchael/desktopctl` package before baking an AMI that installs
+it. Existing AMIs keep their installed desktop web package until rebuilt.
+On an existing desktop, `ai-desktops update-web --version <version>` or
+`ai-desktops update-web --local` installs the new package and updates an older
+service unit before restarting it.
 
 The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
 

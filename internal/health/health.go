@@ -652,7 +652,7 @@ func DesktopWebCheckers(hostname string, sshPort int, user, keyPath string) []Ch
 		NewSSHChecker("desktop-web-active", hostname, sshPort, user, keyPath,
 			"systemctl is-active ai-desktops-web", t),
 		NewSSHChecker("desktop-web-version", hostname, sshPort, user, keyPath,
-			`node -e "process.stdout.write(require('/opt/ai-desktops/web/node_modules/@markcallen/desktop-web/package.json').version)"`, t),
+			`node -e "process.stdout.write(require('/opt/ai-desktops/web/node_modules/@orchael/desktopctl/package.json').version)"`, t),
 	}
 }
 

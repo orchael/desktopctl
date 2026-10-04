@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func updateDesktopFromPulumiOutputs(d *store.Desktop, outputs map[string]string) {

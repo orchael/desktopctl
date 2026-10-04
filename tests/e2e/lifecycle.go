@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // State deliberately contains resource identifiers and paths only, never auth.
@@ -75,7 +75,7 @@ func loadState(path string) (*state, error) {
 }
 
 func (s *state) validate() error {
-	if s.Version != 1 || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.RunID) || s.Name != "e2e-ai-desktops-"+s.RunID || s.Environment != "dev" || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/ai-desktops$`).MatchString(s.Repo) || s.Owner != strings.Split(s.Repo, "/")[0] {
+	if s.Version != 1 || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.RunID) || s.Name != "e2e-ai-desktops-"+s.RunID || s.Environment != "dev" || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/(ai-desktops|desktopctl)$`).MatchString(s.Repo) || s.Owner != strings.Split(s.Repo, "/")[0] {
 		return errors.New("refusing state without this runner's exact dev resource identity")
 	}
 	if s.DesktopID != "" && (!s.DesktopCreated || !s.WorkspaceCreated) {

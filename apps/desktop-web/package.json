@@ -1,5 +1,5 @@
 {
-  "name": "@markcallen/desktop-web",
+  "name": "@orchael/desktopctl",
   "version": "0.6.1",
   "type": "module",
   "packageManager": "pnpm@10.27.0",

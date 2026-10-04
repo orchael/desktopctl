@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func localSecretOperation(t *testing.T, home string) (*secretOperation, error) {

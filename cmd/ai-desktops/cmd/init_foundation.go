@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/orchael/ai-desktops/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/spf13/cobra"
 )
 

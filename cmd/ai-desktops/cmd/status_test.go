@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestStatusCmd_refreshDNSFlagRegistered(t *testing.T) {

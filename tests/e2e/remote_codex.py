@@ -168,7 +168,7 @@ def provider():
 def driver(label):
     metadata = read(META)
     proc = subprocess.Popen(["bridgectl", "run", "--provider", "codex", "--no-tty",
-                             "/workspace/ai-desktops"], stdin=subprocess.PIPE,
+                             os.environ.get("E2E_WORKSPACE_PATH", "/workspace/desktopctl")], stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     selector = selectors.DefaultSelector()
     selector.register(proc.stdout, selectors.EVENT_READ)

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
 

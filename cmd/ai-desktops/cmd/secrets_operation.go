@@ -10,7 +10,7 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 //go:embed scripts/secret-operation.py

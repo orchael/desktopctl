@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestPurgeTerminated(t *testing.T) {

@@ -9,7 +9,7 @@ describe('DesktopInfo', () => {
       github_owner: 'orchael',
       environment: 'dev',
       bridge_port: 9445,
-      repos: ['orchael/ai-desktops'],
+      repos: ['orchael/desktopctl'],
       services: [],
       novnc_url: 'https://d-001.desktops.orchael.dev/novnc',
       desktop_web_version: '0.2.4'
@@ -20,7 +20,7 @@ describe('DesktopInfo', () => {
     expect(info.environment).toBe('dev');
     expect(info.bridge_port).toBe(9445);
     expect(info.repos).toHaveLength(1);
-    expect(info.repos[0]).toBe('orchael/ai-desktops');
+    expect(info.repos[0]).toBe('orchael/desktopctl');
     expect(info.services).toHaveLength(0);
     expect(info.novnc_url).toBe('https://d-001.desktops.orchael.dev/novnc');
   });

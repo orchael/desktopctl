@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/spf13/cobra"
 )
 

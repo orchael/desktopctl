@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/agent"
-	"github.com/orchael/ai-desktops/internal/store"
-	"github.com/orchael/ai-desktops/internal/tunnel"
+	"github.com/orchael/desktopctl/internal/agent"
+	"github.com/orchael/desktopctl/internal/store"
+	"github.com/orchael/desktopctl/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 

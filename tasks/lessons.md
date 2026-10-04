@@ -41,3 +41,19 @@
 
 - When correcting a desktop's editor configuration, check both the live user's shell and the Packer source. A live fix does not carry into newly created desktops. Keep Git's `core.editor` and session editor variables aligned, and verify them in the AMI and post-boot checks.
 - Before placing a verification task in a post-boot playbook, trace every invocation of that playbook. If cloud-init invokes it only for optional features, use AMI bake checks and a live desktop integration test for behavior required on every desktop.
+# 2026-10-04 Repository moves must cover runtime assumptions
+
+- Incident/bug: After changing the Git remote and import/package references, the E2E runner still accepted only `owner/ai-desktops` and its remote helper used `/workspace/ai-desktops`.
+- Root cause pattern: Repository identity was embedded in validation and runtime paths as well as imports and documentation.
+- Early signal missed: A search for full GitHub URLs and package names did not catch unqualified repository names in regular expressions and workspace paths.
+- Preventative rule: For repository moves, search the old repository basename and workspace paths as well as complete URLs, module paths, package names, and release metadata.
+- Validation added: The E2E origin and legacy-state tests, full Go suite, and workspace-path review.
+- Next trigger to detect sooner: Any repository rename or change to the checkout's `origin`.
+# 2026-10-04 Package renames must include installers and existing service units
+
+- Incident/bug: Copilot found that the AMI npm configuration still mapped the old scope, and `update-web` on an existing desktop restarted a unit that still launched the old package.
+- Root cause pattern: Package coordinates were stored separately in registry configuration, installation commands, and baked systemd units.
+- Early signal missed: Tests covered the fresh package path but not the old AMI upgrade path.
+- Preventative rule: For package renames, verify registry scope and both fresh-install and in-place upgrade paths before declaring the migration complete.
+- Validation added: Targeted update-web tests check registry mapping, local package identity, shell syntax, and service migration before restart.
+- Next trigger to detect sooner: A package scope or runtime package name change.
