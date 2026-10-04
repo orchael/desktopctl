@@ -49,3 +49,11 @@
 - Preventative rule: For repository moves, search the old repository basename and workspace paths as well as complete URLs, module paths, package names, and release metadata.
 - Validation added: The E2E origin and legacy-state tests, full Go suite, and workspace-path review.
 - Next trigger to detect sooner: Any repository rename or change to the checkout's `origin`.
+# 2026-10-04 Package renames must include installers and existing service units
+
+- Incident/bug: Copilot found that the AMI npm configuration still mapped the old scope, and `update-web` on an existing desktop restarted a unit that still launched the old package.
+- Root cause pattern: Package coordinates were stored separately in registry configuration, installation commands, and baked systemd units.
+- Early signal missed: Tests covered the fresh package path but not the old AMI upgrade path.
+- Preventative rule: For package renames, verify registry scope and both fresh-install and in-place upgrade paths before declaring the migration complete.
+- Validation added: Targeted update-web tests check registry mapping, local package identity, shell syntax, and service migration before restart.
+- Next trigger to detect sooner: A package scope or runtime package name change.

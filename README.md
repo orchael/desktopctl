@@ -485,6 +485,9 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 
 Publish the new `@orchael/desktopctl` package before baking an AMI that installs
 it. Existing AMIs keep their installed desktop web package until rebuilt.
+On an existing desktop, `ai-desktops update-web --version <version>` or
+`ai-desktops update-web --local` installs the new package and updates an older
+service unit before restarting it.
 
 The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
 

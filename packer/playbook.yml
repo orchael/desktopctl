@@ -1219,7 +1219,7 @@
     - name: Configure npm for GitHub Packages
       ansible.builtin.copy:
         content: |
-          @markcallen:registry=https://npm.pkg.github.com
+          @orchael:registry=https://npm.pkg.github.com
           //npm.pkg.github.com/:_authToken={{ lookup('env', 'DESKTOP_WEB_NPM_TOKEN') }}
         dest: /root/.npmrc
         owner: root

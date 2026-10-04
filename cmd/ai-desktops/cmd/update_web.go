@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/orchael/desktopctl/internal/store"
@@ -17,6 +18,24 @@ import (
 var updateWebVersion string
 var updateWebLocal bool
 var updateWebLocalDir string
+
+var desktopWebVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$`)
+
+const desktopWebServiceMigration = `installed=/opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
+test -f "$installed"
+exec_start=$(sudo systemctl show -p ExecStart --value ai-desktops-web)
+case "$exec_start" in
+  *"/node_modules/@orchael/desktopctl/server-dist/index.js"*) ;;
+  *"/node_modules/@markcallen/desktop-web/server-dist/index.js"*)
+    sudo install -d -m 0755 /etc/systemd/system/ai-desktops-web.service.d
+    printf '%s\n' '[Service]' 'ExecStart=' 'ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js' | sudo tee /etc/systemd/system/ai-desktops-web.service.d/desktopctl-package.conf >/dev/null
+    sudo systemctl daemon-reload
+    ;;
+  *) echo "ai-desktops-web has an unexpected ExecStart; refusing to replace it" >&2; exit 1 ;;
+esac
+sudo systemctl show -p ExecStart --value ai-desktops-web | grep -Fq '/node_modules/@orchael/desktopctl/server-dist/index.js'
+sudo systemctl restart ai-desktops-web
+sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`
 
 var updateWebCmd = &cobra.Command{
 	Use:   "update-web <desktop-id>",
@@ -119,6 +138,9 @@ func runRemoteWithStdin(d *store.Desktop, remoteCmd string, stdin string) error 
 
 // updateWebFromRegistry installs a specific published version via npm.
 func updateWebFromRegistry(d *store.Desktop, version string) error {
+	if !desktopWebVersionPattern.MatchString(version) {
+		return fmt.Errorf("invalid desktop-web version %q", version)
+	}
 	npmToken := os.Getenv("GITHUB_NPM_TOKEN")
 	if npmToken == "" {
 		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required")
@@ -128,17 +150,8 @@ func updateWebFromRegistry(d *store.Desktop, version string) error {
 
 	// The token is sent over stdin so it never appears in SSH command-line args
 	// or the remote process list. The remote script reads it with `read`.
-	npmrcContent := fmt.Sprintf(
-		"@markcallen:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n",
-		npmToken,
-	)
-	remoteCmd := fmt.Sprintf(`set -e
-sudo tee /root/.npmrc > /dev/null
-sudo npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@%s
-sudo rm -f /root/.npmrc
-sudo systemctl restart ai-desktops-web
-sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`,
-		version)
+	npmrcContent := desktopWebNPMRC(npmToken)
+	remoteCmd := registryWebInstallScript(version)
 
 	if err := runRemoteWithStdin(d, remoteCmd, npmrcContent); err != nil {
 		return fmt.Errorf("update failed: %w", err)
@@ -227,12 +240,7 @@ func updateWebFromLocal(d *store.Desktop) error {
 
 	fmt.Printf("Installing from tarball on %s...\n", d.DesktopID)
 
-	remoteCmd := fmt.Sprintf(`set -e
-sudo npm install --prefix /opt/ai-desktops/web %s
-rm -f %s
-sudo systemctl restart ai-desktops-web
-sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`,
-		remoteTar, remoteTar)
+	remoteCmd := localWebInstallScript(remoteTar)
 
 	if err := runRemote(d, remoteCmd); err != nil {
 		return fmt.Errorf("remote install failed: %w", err)
@@ -258,11 +266,36 @@ func readLocalPkgJSON(dir string) (*localPkg, error) {
 	if p.Name == "" || p.Version == "" {
 		return nil, fmt.Errorf("package.json missing name or version")
 	}
+	if p.Name != "@orchael/desktopctl" {
+		return nil, fmt.Errorf("local package must be @orchael/desktopctl, got %q", p.Name)
+	}
+	if !desktopWebVersionPattern.MatchString(p.Version) {
+		return nil, fmt.Errorf("invalid local desktop-web version %q", p.Version)
+	}
 	return &p, nil
 }
 
+func desktopWebNPMRC(token string) string {
+	return fmt.Sprintf("@orchael:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n", token)
+}
+
+func registryWebInstallScript(version string) string {
+	return fmt.Sprintf(`set -e
+sudo tee /root/.npmrc > /dev/null
+trap 'sudo rm -f /root/.npmrc' EXIT
+sudo npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@%s
+%s`, version, desktopWebServiceMigration)
+}
+
+func localWebInstallScript(remoteTar string) string {
+	return fmt.Sprintf(`set -e
+sudo npm install --prefix /opt/ai-desktops/web %s
+rm -f %s
+%s`, remoteTar, remoteTar, desktopWebServiceMigration)
+}
+
 // npmTarballName returns the filename npm/pnpm gives a packed tarball.
-// e.g. "@orchael/desktopctl", "0.2.4" → "markcallen-desktop-web-0.2.4.tgz"
+// e.g. "@orchael/desktopctl", "0.2.4" → "orchael-desktopctl-0.2.4.tgz"
 func npmTarballName(name, version string) string {
 	n := strings.TrimPrefix(name, "@")
 	n = strings.ReplaceAll(n, "/", "-")
