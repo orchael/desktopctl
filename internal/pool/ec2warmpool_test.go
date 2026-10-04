@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // fakeEC2Ops is a controllable EC2Ops double for unit tests.

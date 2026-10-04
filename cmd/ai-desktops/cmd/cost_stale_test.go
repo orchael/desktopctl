@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestParseStaleDuration(t *testing.T) {

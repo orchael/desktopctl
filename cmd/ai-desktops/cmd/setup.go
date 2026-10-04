@@ -24,7 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	smithy "github.com/aws/smithy-go"
-	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/desktopctl/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"

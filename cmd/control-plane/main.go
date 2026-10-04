@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/orchael/ai-desktops/internal/controlplane"
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/controlplane"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func main() {
@@ -83,7 +83,7 @@ func seedMockStore() store.Store {
 		NoVNCURL:       "https://d-demo001.desktops.orchael.dev:8443/novnc/vnc.html",
 		SSHTarget:      "ubuntu@d-demo001.desktops.orchael.dev",
 		Readiness:      "mock ready",
-		Repos:          []string{"orchael/ai-desktops"},
+		Repos:          []string{"orchael/desktopctl"},
 		InstanceType:   "m7i.xlarge",
 		MarketType:     store.MarketSpot,
 		CreatedAt:      "2026-08-14T00:00:00Z",

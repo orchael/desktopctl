@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // fakeProvisioner is a controllable Provisioner double for unit tests.

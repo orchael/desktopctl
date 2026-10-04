@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	appconfig "github.com/orchael/ai-desktops/internal/config"
+	appconfig "github.com/orchael/desktopctl/internal/config"
 )
 
 const (

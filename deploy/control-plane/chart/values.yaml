@@ -1,6 +1,6 @@
 image:
-  repository: ghcr.io/orchael/ai-desktops-control-plane
-  tag: latest
+  repository: ""
+  tag: ""
   pullPolicy: IfNotPresent
 web:
   replicas: 2

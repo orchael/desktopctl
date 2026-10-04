@@ -9,7 +9,7 @@ const mockInfo: DesktopInfo = {
   github_owner: 'orchael',
   environment: 'dev',
   bridge_port: 9445,
-  repos: ['orchael/ai-desktops'],
+  repos: ['orchael/desktopctl'],
   services: [],
   novnc_url: 'https://d-test.desktops.orchael.dev/novnc',
   desktop_web_version: '0.2.4'

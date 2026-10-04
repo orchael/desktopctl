@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // Manager orchestrates desktop lifecycle operations.

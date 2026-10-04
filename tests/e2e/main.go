@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 //go:embed remote_codex.py
@@ -129,7 +129,7 @@ func run(ctx context.Context, args []string) error {
 	configPath := flags.String("config", "", "ai-desktops config (defaults to the normal operator config)")
 	profile := flags.String("profile", "", "AWS profile override")
 	region := flags.String("region", "", "AWS region override")
-	repo := flags.String("repo", "", "GitHub owner/ai-desktops (defaults to this checkout's origin)")
+	repo := flags.String("repo", "", "GitHub owner/desktopctl (defaults to this checkout's origin)")
 	key := flags.String("ssh-key", "", "SSH private key; must identify the same file as desktop.ssh_key_path in config")
 	statePath := flags.String("state", "", "new state file; defaults to a unique directory under /tmp")
 	reuse := flags.String("reuse", "", "reuse resources from this runner's state file")
@@ -180,8 +180,8 @@ func run(ctx context.Context, args []string) error {
 				return e
 			}
 		}
-		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/ai-desktops$`).MatchString(*repo) {
-			return errors.New("--repo must identify a GitHub owner/ai-desktops checkout")
+		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/desktopctl$`).MatchString(*repo) {
+			return errors.New("--repo must identify a GitHub owner/desktopctl checkout")
 		}
 		if *configPath == "" {
 			home, e := os.UserHomeDir()
@@ -307,12 +307,12 @@ func githubRepo(origin string) (string, error) {
 	for _, prefix := range []string{"git@github.com:", "https://github.com/", "ssh://git@github.com/"} {
 		if strings.HasPrefix(origin, prefix) {
 			repo := strings.TrimSuffix(strings.TrimPrefix(origin, prefix), ".git")
-			if regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/ai-desktops$`).MatchString(repo) {
+			if regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/desktopctl$`).MatchString(repo) {
 				return repo, nil
 			}
 		}
 	}
-	return "", errors.New("origin must identify this GitHub ai-desktops repository; specify --repo owner/ai-desktops")
+	return "", errors.New("origin must identify this GitHub desktopctl repository; specify --repo owner/desktopctl")
 }
 
 func provision(ctx context.Context, c *cli, s *state) error {
@@ -496,7 +496,7 @@ func exercise(ctx context.Context, c *cli, bridge, scenario string) error {
 	}
 	logStage("wait for cloud-init, workspace clone, and bridge")
 	for {
-		_, err = c.remote(ctx, host, "test -f /var/lib/cloud/instance/boot-finished && test -d /workspace/ai-desktops/.git && XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active --quiet bridgectl", nil)
+		_, err = c.remote(ctx, host, "test -f /var/lib/cloud/instance/boot-finished && test -d /workspace/"+strings.Split(c.state.Repo, "/")[1]+"/.git && XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active --quiet bridgectl", nil)
 		if err == nil {
 			break
 		}
@@ -538,7 +538,8 @@ func codexScenario(ctx context.Context, c *cli, host string) (result error) {
 	}
 	action := func(action string) error {
 		logStage("codex-auth " + action)
-		b, e := c.remote(ctx, host, "XDG_RUNTIME_DIR=/run/user/$(id -u) python3 "+shellQuote(remotePath)+" "+shellQuote(action), nil)
+		workspace := "/workspace/" + strings.Split(c.state.Repo, "/")[1]
+		b, e := c.remote(ctx, host, "XDG_RUNTIME_DIR=/run/user/$(id -u) E2E_WORKSPACE_PATH="+shellQuote(workspace)+" python3 "+shellQuote(remotePath)+" "+shellQuote(action), nil)
 		if e != nil {
 			category := strings.TrimSpace(string(b))
 			for _, safe := range []string{"refresh_token_reused", "token_expired", "authentication_failed", "provider_unavailable", "response_timeout", "assertion_failed", "configuration_failed"} {

@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	appconfig "github.com/orchael/ai-desktops/internal/config"
+	appconfig "github.com/orchael/desktopctl/internal/config"
 )
 
 // AWSLoader loads the AWS config used by the API server.

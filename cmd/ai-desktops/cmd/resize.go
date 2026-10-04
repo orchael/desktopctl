@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
-	configpkg "github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/desktop"
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/awsx"
+	configpkg "github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
 

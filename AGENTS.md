@@ -4,7 +4,7 @@ This file provides shared repository guidance for agent tools that read AGENTS.m
 
 ## Repository Facts
 
-- Canonical GitHub repo: `orchael/ai-desktops`
+- Canonical GitHub repo: `orchael/desktopctl`
 - Default branch: `main`
 - Primary package manager: `go` (CLI); `pnpm` (apps/desktop-web)
 - Version-file locations: `go.mod` (Go version), `.nvmrc` (Node version), `internal/version/version.go` (CLI version string)

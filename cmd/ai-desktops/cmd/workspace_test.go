@@ -8,7 +8,7 @@ import (
 
 	efssdk "github.com/aws/aws-sdk-go-v2/service/efs"
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 type fakeEFSWorkspaceClient struct {

@@ -9,8 +9,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
 

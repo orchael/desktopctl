@@ -1227,11 +1227,11 @@
         mode: "0600"
       no_log: true
 
-    - name: Install @markcallen/desktop-web from GitHub Packages
+    - name: Install @orchael/desktopctl from GitHub Packages
       ansible.builtin.shell: |
-        npm install --prefix /opt/ai-desktops/web @markcallen/desktop-web@{{ desktop_web_version }}
+        npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@{{ desktop_web_version }}
       args:
-        creates: /opt/ai-desktops/web/node_modules/@markcallen/desktop-web/server-dist/index.js
+        creates: /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
 
     - name: Set ownership of /opt/ai-desktops/web
       ansible.builtin.file:

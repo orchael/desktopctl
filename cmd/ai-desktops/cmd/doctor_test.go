@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestDesktopSecretsCheckersExcludeAgentSecret(t *testing.T) {

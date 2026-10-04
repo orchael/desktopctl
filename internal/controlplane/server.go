@@ -10,7 +10,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 type Server struct {

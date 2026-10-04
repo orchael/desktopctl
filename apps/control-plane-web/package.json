@@ -1,5 +1,6 @@
 {
-  "name": "@markcallen/control-plane-web",
+  "name": "@orchael/desktopctl-control-plane-web",
+  "private": true,
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@10.27.0",

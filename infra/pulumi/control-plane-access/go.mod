@@ -1,4 +1,4 @@
-module github.com/orchael/ai-desktops/infra/pulumi/control-plane-access
+module github.com/orchael/desktopctl/infra/pulumi/control-plane-access
 
 go 1.26.0
 

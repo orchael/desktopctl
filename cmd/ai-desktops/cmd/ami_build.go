@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/packer"
-	"github.com/orchael/ai-desktops/internal/store"
-	"github.com/orchael/ai-desktops/internal/version"
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/packer"
+	"github.com/orchael/desktopctl/internal/store"
+	"github.com/orchael/desktopctl/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +45,7 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if os.Getenv("GITHUB_NPM_TOKEN") == "" {
-		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @markcallen/desktop-web during the AMI build")
+		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @orchael/desktopctl during the AMI build")
 	}
 	ctx := context.Background()
 

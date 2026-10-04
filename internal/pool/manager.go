@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // Provisioner creates a new pre-configured pool member (stopped EC2 instance)

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // openStore returns a DynamoDB-backed store when AWS config is available,

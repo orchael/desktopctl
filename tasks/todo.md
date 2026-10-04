@@ -341,3 +341,14 @@ Mode: user-authorized AMI configuration change. Governing requirements: FR-9.9 a
 - [x] Run focused tests, syntax checks, and diff validation.
 
 Validation: the focused test failed before implementation, then passed. `go test ./packer`, `go test ./...`, Ansible syntax checks, integration test compilation, and `git diff --check` pass. Copilot review led to bake-time verification, live integration assertions, and documentation. A new AMI must be built and activated to apply this to future desktops; the current live desktop was configured separately.
+# Public repository migration (2026-10-04)
+
+Mode: user-authorized repository identity, package, and security documentation change. Governing requirements: PRD PUB-1 through PUB-4. Scope: file GitHub configuration issues, migrate repository/module/package references, stop automated control plane publishing, document operator-managed image builds and Helm deployment, and add a security policy. Risk: existing AMIs that install the former `@markcallen/desktop-web` package continue to need that published version until they are rebuilt. Rollback: revert this branch before release; if published, restore the old package name and rebuild the previous AMI.
+
+- [x] Create GitHub issues for repository security features and main-branch rules.
+- [x] Update Go module identity, package coordinates, release metadata, and active documentation.
+- [x] Remove automated control plane publishing and document operator-managed deployment.
+- [x] Add `SECURITY.md` with a private reporting path.
+- [x] Validate builds, tests, package references, and documentation commands.
+
+Outcome: GitHub issues [#281](https://github.com/orchael/desktopctl/issues/281) and [#282](https://github.com/orchael/desktopctl/issues/282) track repository settings. The root and nested Go suites, CLI and control plane builds, both web builds and tests, lint, Prettier, Helm lint/template, and GoReleaser validation pass. Internal Go coverage is 77.2%. A sandboxed Go coverage attempt failed because loopback sockets and the module cache were restricted; the approved unsandboxed rerun passed. Release order: publish `@orchael/desktopctl` before baking a new AMI that installs it.

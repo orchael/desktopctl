@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ var updateWebLocalDir string
 var updateWebCmd = &cobra.Command{
 	Use:   "update-web <desktop-id>",
 	Short: "Update the desktop-web app on a running desktop",
-	Long: `update-web installs a new version of @markcallen/desktop-web on a running desktop
+	Long: `update-web installs a new version of @orchael/desktopctl on a running desktop
 and restarts the ai-desktops-web systemd service.
 
 Two modes are available:
@@ -124,7 +124,7 @@ func updateWebFromRegistry(d *store.Desktop, version string) error {
 		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required")
 	}
 
-	fmt.Printf("Installing @markcallen/desktop-web@%s on %s...\n", version, d.DesktopID)
+	fmt.Printf("Installing @orchael/desktopctl@%s on %s...\n", version, d.DesktopID)
 
 	// The token is sent over stdin so it never appears in SSH command-line args
 	// or the remote process list. The remote script reads it with `read`.
@@ -134,7 +134,7 @@ func updateWebFromRegistry(d *store.Desktop, version string) error {
 	)
 	remoteCmd := fmt.Sprintf(`set -e
 sudo tee /root/.npmrc > /dev/null
-sudo npm install --prefix /opt/ai-desktops/web @markcallen/desktop-web@%s
+sudo npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@%s
 sudo rm -f /root/.npmrc
 sudo systemctl restart ai-desktops-web
 sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`,
@@ -262,7 +262,7 @@ func readLocalPkgJSON(dir string) (*localPkg, error) {
 }
 
 // npmTarballName returns the filename npm/pnpm gives a packed tarball.
-// e.g. "@markcallen/desktop-web", "0.2.4" → "markcallen-desktop-web-0.2.4.tgz"
+// e.g. "@orchael/desktopctl", "0.2.4" → "markcallen-desktop-web-0.2.4.tgz"
 func npmTarballName(name, version string) string {
 	n := strings.TrimPrefix(name, "@")
 	n = strings.ReplaceAll(n, "/", "-")

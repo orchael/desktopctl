@@ -1,4 +1,4 @@
-module github.com/orchael/ai-desktops/infra/pulumi/desktop
+module github.com/orchael/desktopctl/infra/pulumi/desktop
 
 go 1.26.0
 

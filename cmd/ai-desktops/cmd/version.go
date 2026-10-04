@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/orchael/ai-desktops/internal/version"
+	"github.com/orchael/desktopctl/internal/version"
 	"github.com/spf13/cobra"
 )
 

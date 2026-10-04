@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/desktopctl/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

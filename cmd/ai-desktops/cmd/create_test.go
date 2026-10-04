@@ -17,10 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/provision"
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/provision"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 func TestCreateBootstrapSecretsRenderSeparateSources(t *testing.T) {

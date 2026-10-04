@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/desktopctl/internal/awsx"
 )
 
 // requireTools checks that every named binary exists on PATH and returns a

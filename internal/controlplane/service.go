@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/orchael/ai-desktops/internal/awsx"
-	appconfig "github.com/orchael/ai-desktops/internal/config"
-	"github.com/orchael/ai-desktops/internal/desktop"
-	"github.com/orchael/ai-desktops/internal/pulumi"
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/awsx"
+	appconfig "github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/pulumi"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // PulumiRunner is the interface for Pulumi lifecycle operations used by the

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/orchael/ai-desktops/internal/awsx"
+	"github.com/orchael/desktopctl/internal/awsx"
 )
 
 const defaultTailscaleAPIBaseURL = "https://api.tailscale.com"

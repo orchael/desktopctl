@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ required "image.repository is required" .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{name: http, containerPort: {{ .Values.web.port }}}]
           env:
@@ -37,7 +37,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}-api"
+          image: "{{ required "image.repository is required" .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}-api"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{name: http, containerPort: {{ .Values.api.port }}}]
           env:

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/orchael/ai-desktops/internal/config"
+	"github.com/orchael/desktopctl/internal/config"
 )
 
 //go:embed codex_home_config.py

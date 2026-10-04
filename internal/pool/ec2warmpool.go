@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/orchael/ai-desktops/internal/store"
+	"github.com/orchael/desktopctl/internal/store"
 )
 
 // EC2Ops is the minimal EC2 API surface needed by the warm pool.
