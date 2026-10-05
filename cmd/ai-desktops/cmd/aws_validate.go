@@ -27,6 +27,21 @@ func validateAWSIdentity(ctx context.Context, client identityClient) (string, st
 	return aws.ToString(out.Account), aws.ToString(out.Arn), nil
 }
 
+func validateExpectedAWSAccountID(accountID string) error {
+	if accountID == "" {
+		return nil
+	}
+	if len(accountID) != 12 {
+		return fmt.Errorf("--account-id must contain exactly 12 decimal digits")
+	}
+	for _, digit := range accountID {
+		if digit < '0' || digit > '9' {
+			return fmt.Errorf("--account-id must contain exactly 12 decimal digits")
+		}
+	}
+	return nil
+}
+
 var awsValidateAccountID string
 
 var awsCmd = &cobra.Command{Use: "aws", Short: "Inspect the effective AWS credentials"}
@@ -36,6 +51,9 @@ var awsValidateCmd = &cobra.Command{
 	Short: "Verify credentials with AWS STS GetCallerIdentity",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := validateExpectedAWSAccountID(awsValidateAccountID); err != nil {
+			return err
+		}
 		ctx := cmd.Context()
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {

@@ -40,3 +40,16 @@ func TestDestroyAlias(t *testing.T) {
 		t.Fatalf("destroy command = %v, %v", command, err)
 	}
 }
+
+func TestValidateExpectedAWSAccountID(t *testing.T) {
+	for _, account := range []string{"", "123456789012"} {
+		if err := validateExpectedAWSAccountID(account); err != nil {
+			t.Fatalf("account %q rejected: %v", account, err)
+		}
+	}
+	for _, account := range []string{"123", "12345678901x", "1234567890123", " 123456789012"} {
+		if err := validateExpectedAWSAccountID(account); err == nil {
+			t.Fatalf("account %q accepted", account)
+		}
+	}
+}

@@ -759,6 +759,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			cancel()
 			if launchErr != nil {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
+				if importID != "" {
+					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
+				} else if errors.Is(launchErr, errUnknownNestedLaunch) {
+					cleanupErr = launchErr
+				}
+				if cleanupErr != nil {
+					break
+				}
 				if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(launchErr)) || i == len(subnets)-1 {
 					break
 				}
@@ -791,14 +799,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
-		if cleanupErr == nil {
-			_ = s.Delete(ctx, desktopID)
-			if workspaceReserved {
-				_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
-			}
-			return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
-		}
-		return fmt.Errorf("create failed; fleet record retained because stack cleanup failed: %w (cleanup: %v)", lastErr, cleanupErr)
+		return finalizeCreateFailure(ctx, s, ws, workspaceReserved, env, createWorkspaceName, desktopID, lastErr, cleanupErr)
 	}
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
@@ -1207,6 +1208,23 @@ func cleanupCreateAttempt(ctx context.Context, runner createDestroyer, ref *pulu
 		return err
 	}
 	return nil
+}
+
+func finalizeCreateFailure(ctx context.Context, s store.Store, ws store.WorkspaceStore, workspaceReserved bool, env, workspaceName, desktopID string, createErr, cleanupErr error) error {
+	if cleanupErr == nil && workspaceReserved {
+		if err := ws.DetachWorkspace(ctx, env, workspaceName, desktopID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			cleanupErr = fmt.Errorf("detach workspace: %w", err)
+		}
+	}
+	if cleanupErr == nil {
+		if err := s.Delete(ctx, desktopID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			cleanupErr = fmt.Errorf("delete fleet record: %w", err)
+		}
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("create failed; infrastructure or fleet cleanup needs reconciliation before retrying %s: %w (cleanup: %v)", desktopID, createErr, cleanupErr)
+	}
+	return fmt.Errorf("create failed and was cleaned up: %w", createErr)
 }
 
 func chooseCreateID(ctx context.Context, s store.Store, requested string) (string, error) {
@@ -1663,6 +1681,8 @@ type instanceLaunchParams struct {
 	spotMaxPrice    string
 }
 
+var errUnknownNestedLaunch = errors.New("nested-virt launch outcome is unknown")
+
 // launchNestedVirtInstance launches an EC2 instance directly via RunInstances with
 // CpuOptions.NestedVirtualization=enabled, then returns the instance ID so that
 // Pulumi can import it instead of creating a new one.
@@ -1755,7 +1775,7 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 		return "", fmt.Errorf("run instance: %w", err)
 	}
 	if len(result.Instances) == 0 {
-		return "", fmt.Errorf("run instance returned no instances")
+		return "", fmt.Errorf("%w: run instance returned no instance identity", errUnknownNestedLaunch)
 	}
 
 	instanceID := aws.ToString(result.Instances[0].InstanceId)
@@ -1765,13 +1785,9 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 5*time.Minute); err != nil {
-		// Best-effort terminate to avoid leaving a billable instance behind.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		_, _ = ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
-			InstanceIds: []string{instanceID},
-		})
-		return "", fmt.Errorf("wait for instance running: %w", err)
+		// Return the instance ID so the caller can confirm cleanup before deleting
+		// the fleet record or trying another Spot placement.
+		return instanceID, fmt.Errorf("wait for instance running: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
 	return instanceID, nil

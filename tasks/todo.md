@@ -9,6 +9,8 @@ Mode: user-authorized CLI contract change. Governing requirements: BOUNDARY-2, B
 
 Validation: focused tests failed before implementation and passed afterward. `go test ./...`, `go test -cover ./internal/...`, `go vet ./...`, `golangci-lint run ./...` (0 issues), `go build ./cmd/ai-desktops`, and `git diff --check` passed. The pre-push hook runs the desktop-web build and test before push. Real AWS was not used for this contract change.
 
+Copilot review of PR #285 found launch-waiter and fleet-record cleanup gaps. The follow-up retains the launched EC2 identity on waiter failure, confirms termination before retry, propagates DynamoDB deletion errors, and validates expected AWS account IDs before STS. Focused failure-path tests cover the cleanup decision and account ID format.
+
 # Desktops vertical slice — desktopctl boundary audit
 
 Mode: user-authorized cross-repository architecture and implementation. Governing requirements: BOUNDARY-1 through BOUNDARY-4 in PRD.md. This branch is documentation and rename-boundary cleanup only. Preserve the existing CLI and control plane until a tested replacement is available. Rollback: revert this documentation PR; no runtime behavior changes.
