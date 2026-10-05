@@ -780,7 +780,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
 				if importID != "" {
 					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
-				} else if errors.Is(launchErr, errUnknownNestedLaunch) || launchCtx.Err() != nil {
+				} else if errors.Is(launchErr, errUnknownNestedLaunch) || errors.Is(launchErr, context.Canceled) || errors.Is(launchErr, context.DeadlineExceeded) || timedOut {
 					cleanupErr = launchErr
 				}
 				if cleanupErr != nil {
