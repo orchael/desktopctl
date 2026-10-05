@@ -292,7 +292,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if profileSecret != "" {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
-	secretPaths := desktopSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets)
+	secretPaths := createSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets, cfg.SaaSMode)
 	// Verify every configured secret before provisioning.
 	if len(secretPaths) > 0 {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
@@ -659,9 +659,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			EFSAccessPointID: workspaceEFSAccessPointID(attachedWorkspace),
 		},
 	)
-	if createNoDNS {
-		stackCfg["dnsEnabled"] = "false"
-	}
+	stackCfg["dnsEnabled"] = fmt.Sprintf("%t", !createNoDNS)
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)

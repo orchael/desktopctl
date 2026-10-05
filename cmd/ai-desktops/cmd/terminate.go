@@ -39,11 +39,14 @@ func init() {
 }
 
 func runTerminate(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	if err := desktop.ValidateID(id); err != nil {
+		return err
+	}
 	if err := requireTools("pulumi"); err != nil {
 		return err
 	}
 	ctx := context.Background()
-	id := args[0]
 
 	s, err := openStore(ctx)
 	if err != nil {

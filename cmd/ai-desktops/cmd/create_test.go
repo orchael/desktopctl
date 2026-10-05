@@ -48,6 +48,18 @@ func TestCreateBootstrapSecretsRenderSeparateSources(t *testing.T) {
 	}
 }
 
+func TestCreateSecretPathsSaaSExcludesOperatorAgentSecret(t *testing.T) {
+	agentPath := "/operator/agents"
+	got := createSecretPaths(agentPath, []string{agentPath, "/customer/profile"}, true)
+	if len(got) != 1 || got[0] != "/customer/profile" {
+		t.Fatalf("SaaS secret paths = %v, want only customer profile", got)
+	}
+	ordinary := createSecretPaths(agentPath, []string{"/customer/profile"}, false)
+	if len(ordinary) != 2 || ordinary[0] != agentPath {
+		t.Fatalf("ordinary secret paths = %v, want operator agent secret", ordinary)
+	}
+}
+
 func TestCreateBootstrapProfileSecretUsesDesktopEnvironment(t *testing.T) {
 	const agentPath = "/ai-desktops/acme/agents"
 	const profilePath = "/ai-desktops/acme/profiles/personal"

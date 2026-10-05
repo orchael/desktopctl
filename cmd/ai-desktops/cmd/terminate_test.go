@@ -15,6 +15,12 @@ func TestTerminateWarningLocalWorkspace(t *testing.T) {
 	}
 }
 
+func TestTerminateRejectsInvalidIDBeforeStackRecovery(t *testing.T) {
+	if err := runTerminate(nil, []string{"foundation-dev"}); err == nil || !strings.Contains(err.Error(), "desktop ID") {
+		t.Fatalf("terminate invalid ID error = %v, want desktop ID validation", err)
+	}
+}
+
 func TestTerminateWarningEFSWorkspace(t *testing.T) {
 	got := terminateWarning(&store.Desktop{
 		WorkspaceMode: workspaceModeEFS,

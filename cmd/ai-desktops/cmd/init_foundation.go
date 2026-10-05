@@ -70,11 +70,11 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
+	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	if foundationSaaS {
 		if cfg.SaaSInstanceProfileName == "" {
 			return fmt.Errorf("saas_instance_profile_name is required for --saas foundation")
 		}
-		stackCfg["saasMode"] = "true"
 		stackCfg["saasInstanceProfileName"] = cfg.SaaSInstanceProfileName
 	}
 
