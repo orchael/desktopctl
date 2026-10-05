@@ -14,7 +14,8 @@ import (
 )
 
 var (
-	terminateForce bool
+	terminateForce            bool
+	terminateReconcileMissing bool
 )
 
 var terminateCmd = &cobra.Command{
@@ -33,6 +34,7 @@ is marked failed. Use --force to attempt termination from a failed state.`,
 
 func init() {
 	terminateCmd.Flags().BoolVar(&terminateForce, "force", false, "terminate even if in a failed or unhealthy state")
+	terminateCmd.Flags().BoolVar(&terminateReconcileMissing, "reconcile-missing", false, "destroy a desktop stack even when its fleet record is absent")
 	rootCmd.AddCommand(terminateCmd)
 }
 
@@ -50,12 +52,24 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	d, err := s.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			if terminateReconcileMissing {
+				if err := requireBackend(ctx); err != nil {
+					return err
+				}
+				backendURL := "s3://" + cfg.Pulumi.BackendBucket
+				workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+				ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+				return (&pulumi.Runner{AWSProfile: cfg.AWS.Profile}).Destroy(ctx, ref, os.Stderr)
+			}
 			return fmt.Errorf("desktop %q not found", id)
 		}
 		return err
 	}
 
 	if d.State == store.StateTerminated {
+		if terminateReconcileMissing {
+			return nil
+		}
 		return fmt.Errorf("desktop %q is already terminated", id)
 	}
 

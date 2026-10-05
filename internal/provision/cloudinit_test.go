@@ -56,6 +56,28 @@ func TestRenderCloudInit(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_SaaSWithoutDNSOrGitHubSecret(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID: "d-1234abcd", Hostname: "d-1234abcd.invalid",
+		GitHubOwner: "orchael", AWSRegion: "ca-central-1", NoDNS: true,
+		PackagesPreInstalled: false,
+	}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	for _, forbidden := range []string{"certbot certonly", "ai-desktops-setup-tls", "aws secretsmanager get-secret-value", "gh auth setup-git"} {
+		if strings.Contains(out, forbidden) {
+			t.Errorf("SaaS cloud-init still contains %q", forbidden)
+		}
+	}
+	for _, required := range []string{"systemctl start novnc-desktop", "bridgectl"} {
+		if !strings.Contains(out, required) {
+			t.Errorf("SaaS cloud-init missing %q", required)
+		}
+	}
+}
+
 func TestRenderCloudInit_noNPMRCByDefault(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-npm-default",
@@ -1224,9 +1246,10 @@ func TestRenderCloudInit_dockerEnableGating(t *testing.T) {
 
 func TestRenderCloudInit_agentProfile(t *testing.T) {
 	out, err := RenderCloudInit(&BootstrapConfig{
-		DesktopID:      "d-profile",
-		GitHubOwner:    "markcallen",
-		DesktopProfile: "markcallen/ai-desktop-profile",
+		DesktopID:        "d-profile",
+		GitHubOwner:      "markcallen",
+		GitHubSecretPath: "/ai-desktops/markcallen/github",
+		DesktopProfile:   "markcallen/ai-desktop-profile",
 	})
 	if err != nil {
 		t.Fatalf("RenderCloudInit: %v", err)

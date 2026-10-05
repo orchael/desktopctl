@@ -75,6 +75,7 @@ type CreateRequest struct {
 	Repos          []string
 	InstanceType   string
 	Zone           string
+	NoDNS          bool
 	OperatorCIDR   string
 	SSHKeyPath     string
 	SSHKeyName     string // EC2 key pair name (registered in AWS)
@@ -138,6 +139,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		Environment:    req.Environment,
 		State:          store.StateCreating,
 		Hostname:       hostname,
+		NoDNS:          req.NoDNS,
 		NoVNCURL:       NoVNCURL(hostname),
 		SSHTarget:      SSHTarget(hostname),
 		AMIID:          req.AMIID,

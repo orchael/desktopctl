@@ -51,6 +51,7 @@ type BootstrapConfig struct {
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
+	NoDNS                bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
@@ -714,7 +715,12 @@ runcmd:
   - ai-desktops-ts "certs_issued"
 {{- end}}
 
-{{- if .PackagesPreInstalled}}
+{{- if .NoDNS}}
+  # SaaS desktops have no public DNS or inbound desktop ports. Bridge enrollment
+  # and user access are configured separately; keep the existing desktop service.
+  - "systemctl enable novnc-desktop"
+  - "systemctl start novnc-desktop"
+{{- else if .PackagesPreInstalled}}
   # --- update ballast to latest version ---
   - "sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast update || echo 'WARNING: ballast update failed'"
 
@@ -744,6 +750,7 @@ runcmd:
 {{- end}}
 
 
+{{- if .GitHubSecretPath}}
   # --- retrieve GitHub credentials and configure SSH ---
   - |
     (
@@ -838,6 +845,7 @@ runcmd:
     unset GITHUB_LOGIN
     unset GITHUB_TOKEN
     )
+{{- end}}
 
 {{- if .AgentSecretPath}}
   # --- retrieve AI provider API keys and write bridgectl agents.env ---

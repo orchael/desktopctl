@@ -1,6 +1,6 @@
 # desktopctl worker contract (initial version)
 
-`orchael/desktops` will invoke the versioned `ai-desktops` CLI from a background worker. This is the cross-language boundary: the worker does not implement AWS resources or Pulumi. The CLI still works independently for an operator. This contract is not yet a complete SaaS worker; account bootstrap, customer AMI setup, and durable job reconciliation remain in Desktops.
+`orchael/desktops` invokes the versioned `ai-desktops` CLI from a background worker. This is the cross-language boundary: the worker does not implement AWS resources or Pulumi. The CLI still works independently for an operator. Desktops owns account records and durable job reconciliation.
 
 ## Credentials and account identity
 
@@ -30,7 +30,7 @@ ai-desktops --config /run/desktopctl/config.yaml destroy d-0123abcd --force
 
 `--profile` remains the AWS shared-profile flag for CLI compatibility. `--desktop-profile` is a repository reference; there is no built-in `developer` alias yet. `--instance-type` uses desktopctl's existing EC2 size model. `destroy` aliases `terminate`. The worker should consume `--json` output where available and persist an allowlisted diagnostic summary, not raw process logs that may contain operator-controlled values.
 
-The current CLI create path waits for profile cloud-init completion when a desktop profile is selected. For a create without a profile it marks ready after Pulumi outputs, so the Desktops worker must perform an independent host readiness check before reporting tenant `READY`. The existing `doctor` command is available for that check. A subsequent extraction should put create, readiness, start, stop, and destroy behind one Go provisioning service shared by the CLI and job adapter.
+The CLI create path waits for cloud-init completion when a desktop profile or `--bootstrap-packages` is selected. The Desktops worker additionally checks the bridgectl binary and desktop service over SSM before reporting tenant `READY`. A subsequent extraction can put create, readiness, start, stop, and destroy behind one Go provisioning service shared by the CLI and job adapter.
 
 ## Configuration prerequisites
 
@@ -38,6 +38,6 @@ The standard CLI path requires desktopctl's Pulumi S3 backend, fleet DynamoDB ta
 
 ## AssumeRole SaaS mode
 
-For customer accounts without a desktop DNS zone, set `saas_mode: true` in the generated desktopctl config and use `init-foundation --saas`. This keeps the original CLI foundation behavior for existing operators while omitting Route53 lookup, inbound desktop ports, EFS resources used only by optional shared workspaces, and the foundation's long-lived operator IAM user/key/secret. `create --no-dns --bootstrap-packages --ami <Ubuntu base AMI>` reuses the same Pulumi desktop program and cloud-init renderer, skips Route53 records, and installs packages at boot. The resulting hostname is a placeholder and is not a public session URL; Bridge enrollment remains the future remote-access seam.
+For customer accounts without a desktop DNS zone, set `saas_mode: true` and `saas_instance_profile_name` in the generated desktopctl config and use `init-foundation --saas`. This keeps the original CLI foundation behavior for existing operators while omitting Route53 lookup, inbound desktop ports, EFS resources used only by optional shared workspaces, and the foundation's long-lived operator IAM user/key/secret. `create --no-dns --bootstrap-packages --ami <novnc-desktop base AMI>` reuses the same Pulumi desktop program and cloud-init renderer, skips Route53 and GitHub secret setup, and installs agent packages at boot. A plain Ubuntu server AMI has no desktop service and cannot pass readiness. The base AMI must be launchable by the customer account in the selected region. The resulting hostname is a placeholder and is not a public session URL; Bridge enrollment remains the future remote-access seam.
 
 The Desktops worker calls `bootstrap`, `init-foundation --saas`, then `create` with a stable ID. These commands are idempotent at the foundation and backend layers. The worker uses a per-organization state bucket and fleet table in the customer's account. Temporary credentials remain in the child-process environment. A customer role must permit the exact bootstrap, foundation, lifecycle, and SSM readiness APIs used by this path; the SaaS role template in Desktops owns that policy.

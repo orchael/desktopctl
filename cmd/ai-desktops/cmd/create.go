@@ -353,6 +353,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if cfg.GitHub.Owner == "" {
 		gitHubSecret = "/ai-desktops/" + owner + "/github"
 	}
+	if cfg.SaaSMode {
+		gitHubSecret = ""
+	}
 
 	req := &desktop.CreateRequest{
 		OrganizationID: organizationID,
@@ -366,6 +369,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NestedVirt:     nestedVirt,
 		MarketType:     marketType,
 		Zone:           zone,
+		NoDNS:          createNoDNS,
 		OperatorCIDR:   cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:     cfg.Desktop.SSHKeyPath,
 		GitHubSecret:   gitHubSecret,
@@ -606,6 +610,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		WorkspaceMode:        createWorkspaceMode,
 		WorkspaceName:        createWorkspaceName,
 		PackagesPreInstalled: amiID != "" && !createBootstrapPackages,
+		NoDNS:                createNoDNS,
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
@@ -613,7 +618,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
 	}
-	applyBootstrapSecretSources(bootCfg, cfg.GitHub.AgentSecret, secretPaths)
+	agentSecret := cfg.GitHub.AgentSecret
+	if cfg.SaaSMode {
+		agentSecret = ""
+	}
+	applyBootstrapSecretSources(bootCfg, agentSecret, secretPaths)
 	bootCfg.ProfileSecretPath = profileSecret
 	if attachedWorkspace != nil {
 		bootCfg.EFSFileSystemID = attachedWorkspace.EFSFileSystemID
@@ -771,7 +780,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
 				if importID != "" {
 					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
-				} else if errors.Is(launchErr, errUnknownNestedLaunch) {
+				} else if errors.Is(launchErr, errUnknownNestedLaunch) || launchCtx.Err() != nil {
 					cleanupErr = launchErr
 				}
 				if cleanupErr != nil {
@@ -817,7 +826,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if desktopProfile != "" {
+	if desktopProfile != "" || createBootstrapPackages {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
@@ -828,7 +837,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
-	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, desktopProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+	readinessProfile := desktopProfile
+	if createBootstrapPackages && readinessProfile == "" {
+		readinessProfile = "bootstrap-packages"
+	}
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -1274,6 +1287,11 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
 		return err
+	}
+	if err := ec2sdk.NewInstanceTerminatedWaiter(ec2Client).Wait(cleanupCtx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 2*time.Minute); err != nil {
+		return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
 	}
 	return nil
 }

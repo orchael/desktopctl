@@ -128,6 +128,10 @@ func run(ctx *pulumi.Context) error {
 
 		rt, err := ec2.NewRouteTable(ctx, "ai-desktops-rt", &ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
 			Routes: ec2.RouteTableRouteArray{
 				&ec2.RouteTableRouteArgs{
 					CidrBlock: pulumi.String("0.0.0.0/0"),
@@ -284,7 +288,11 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- IAM instance profile ---
-	assumeRolePolicy := `{
+	var instanceProfileName pulumi.StringInput
+	if saasMode {
+		instanceProfileName = pulumi.String(cfg.Require("saasInstanceProfileName"))
+	} else {
+		assumeRolePolicy := `{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -293,27 +301,27 @@ func run(ctx *pulumi.Context) error {
   }]
 }`
 
-	role, err := iam.NewRole(ctx, "ai-desktops-role", &iam.RoleArgs{
-		AssumeRolePolicy: pulumi.String(assumeRolePolicy),
-		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
-	}
+		role, err := iam.NewRole(ctx, "ai-desktops-role", &iam.RoleArgs{
+			AssumeRolePolicy: pulumi.String(assumeRolePolicy),
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-	// SSM managed policy for Session Manager tunnel support.
-	if _, err := iam.NewRolePolicyAttachment(ctx, "ai-desktops-ssm-policy", &iam.RolePolicyAttachmentArgs{
-		Role:      role.Name,
-		PolicyArn: pulumi.String("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"),
-	}); err != nil {
-		return err
-	}
+		// SSM managed policy for Session Manager tunnel support.
+		if _, err := iam.NewRolePolicyAttachment(ctx, "ai-desktops-ssm-policy", &iam.RolePolicyAttachmentArgs{
+			Role:      role.Name,
+			PolicyArn: pulumi.String("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"),
+		}); err != nil {
+			return err
+		}
 
-	// Secrets Manager and SSM Parameter Store read access for secret retrieval.
-	secretsPolicy := `{
+		// Secrets Manager and SSM Parameter Store read access for secret retrieval.
+		secretsPolicy := `{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -334,15 +342,15 @@ func run(ctx *pulumi.Context) error {
     }
   }]
 }`
-	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-secrets-policy", &iam.RolePolicyArgs{
-		Role:   role.Name,
-		Policy: pulumi.String(secretsPolicy),
-	}); err != nil {
-		return err
-	}
+		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-secrets-policy", &iam.RolePolicyArgs{
+			Role:   role.Name,
+			Policy: pulumi.String(secretsPolicy),
+		}); err != nil {
+			return err
+		}
 
-	// Route53 write access for certbot DNS-01 challenge during TLS cert provisioning.
-	route53Policy := `{
+		// Route53 write access for certbot DNS-01 challenge during TLS cert provisioning.
+		route53Policy := `{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -354,19 +362,19 @@ func run(ctx *pulumi.Context) error {
     "Resource": "*"
   }]
 }`
-	if zone != "" {
-		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
-			Role:   role.Name,
-			Policy: pulumi.String(route53Policy),
-		}); err != nil {
-			return err
+		if zone != "" {
+			if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
+				Role:   role.Name,
+				Policy: pulumi.String(route53Policy),
+			}); err != nil {
+				return err
+			}
 		}
-	}
 
-	// CloudWatch Agent permissions: publish metrics and write logs.
-	// The CloudWatch agent collects memory, disk, and swap metrics (not natively
-	// reported by EC2) and forwards system logs for crash/OOM post-mortem analysis.
-	cloudWatchPolicy := `{
+		// CloudWatch Agent permissions: publish metrics and write logs.
+		// The CloudWatch agent collects memory, disk, and swap metrics (not natively
+		// reported by EC2) and forwards system logs for crash/OOM post-mortem analysis.
+		cloudWatchPolicy := `{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -381,22 +389,24 @@ func run(ctx *pulumi.Context) error {
     "Resource": "*"
   }]
 }`
-	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-cloudwatch-policy", &iam.RolePolicyArgs{
-		Role:   role.Name,
-		Policy: pulumi.String(cloudWatchPolicy),
-	}); err != nil {
-		return err
-	}
+		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-cloudwatch-policy", &iam.RolePolicyArgs{
+			Role:   role.Name,
+			Policy: pulumi.String(cloudWatchPolicy),
+		}); err != nil {
+			return err
+		}
 
-	instanceProfile, err := iam.NewInstanceProfile(ctx, "ai-desktops-profile", &iam.InstanceProfileArgs{
-		Role: role.Name,
-		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
+		instanceProfile, err := iam.NewInstanceProfile(ctx, "ai-desktops-profile", &iam.InstanceProfileArgs{
+			Role: role.Name,
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
+		instanceProfileName = instanceProfile.Name
 	}
 
 	if !saasMode {
@@ -564,7 +574,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("subnetId", subnetID)
 	ctx.Export("subnetIds", subnetIDs.ToStringArrayOutput())
 	ctx.Export("securityGroupId", sg.ID())
-	ctx.Export("instanceProfile", instanceProfile.Name)
+	ctx.Export("instanceProfile", instanceProfileName)
 	ctx.Export("zoneId", pulumi.String(zoneID))
 	ctx.Export("zone", pulumi.String(zone))
 	ctx.Export("fleetTable", table.Name)
