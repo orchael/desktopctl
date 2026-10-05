@@ -14,6 +14,7 @@ var (
 	foundationPreview bool
 	foundationRefresh bool
 	foundationEnv     string
+	foundationSaaS    bool
 )
 
 var initFoundationCmd = &cobra.Command{
@@ -34,6 +35,7 @@ func init() {
 	initFoundationCmd.Flags().BoolVar(&foundationPreview, "preview", false, "preview changes without applying")
 	initFoundationCmd.Flags().BoolVar(&foundationRefresh, "refresh", false, "sync Pulumi state with AWS before applying (use after manual AWS changes)")
 	initFoundationCmd.Flags().StringVar(&foundationEnv, "env", "", "environment (prod|dev|test), overrides config")
+	initFoundationCmd.Flags().BoolVar(&foundationSaaS, "saas", false, "deploy without DNS lookup or long-lived operator credentials for an AssumeRole worker")
 	rootCmd.AddCommand(initFoundationCmd)
 }
 
@@ -48,9 +50,13 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		env = cfg.Fleet.Environment
 	}
 
-	zone, err := cfg.DNSZone()
-	if err != nil {
-		return err
+	zone := ""
+	if !foundationSaaS {
+		var err error
+		zone, err = cfg.DNSZone()
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := requireBackend(ctx); err != nil {
@@ -64,6 +70,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
+	if foundationSaaS {
+		stackCfg["saasMode"] = "true"
+	}
 
 	fmt.Fprintf(os.Stderr, "Foundation environment : %s\n", env)
 	fmt.Fprintf(os.Stderr, "AWS region             : %s\n", cfg.AWS.Region)
@@ -93,7 +102,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("foundation stack: %w", err)
 	}
 
-	if err := pulumi.ValidateFoundationOutputs(outputs); err != nil {
+	if err := pulumi.ValidateFoundationOutputsForMode(outputs, foundationSaaS); err != nil {
 		return err
 	}
 

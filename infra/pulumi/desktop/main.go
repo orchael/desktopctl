@@ -27,6 +27,7 @@ func run(ctx *pulumi.Context) error {
 	desktopName := cfg.Get("desktopName")
 	githubOwner := cfg.Require("githubOwner")
 	zone := cfg.Require("zone")
+	dnsEnabled := cfg.Get("dnsEnabled") != "false"
 	instanceType := cfg.Get("instanceType")
 	if instanceType == "" {
 		instanceType = "t3.large"
@@ -180,26 +181,26 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- Route53 record ---
-	zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
-		Name: pulumi.StringRef(zone),
-	})
-	if err != nil {
-		return fmt.Errorf("Route53 zone %q not found: %w", zone, err)
-	}
+	if dnsEnabled {
+		zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
+			Name: pulumi.StringRef(zone),
+		})
+		if err != nil {
+			return fmt.Errorf("Route53 zone %q not found: %w", zone, err)
+		}
 
-	dnsRecord, err := route53.NewRecord(ctx, "desktop-dns-"+desktopID, &route53.RecordArgs{
-		ZoneId: pulumi.String(zoneData.ZoneId),
-		Name:   pulumi.String(desktopID),
-		Type:   pulumi.String("A"),
-		Ttl:    pulumi.Int(60),
-		Records: pulumi.StringArray{
-			instance.PublicIp,
-		},
-	})
-	if err != nil {
-		return err
+		if _, err := route53.NewRecord(ctx, "desktop-dns-"+desktopID, &route53.RecordArgs{
+			ZoneId: pulumi.String(zoneData.ZoneId),
+			Name:   pulumi.String(desktopID),
+			Type:   pulumi.String("A"),
+			Ttl:    pulumi.Int(60),
+			Records: pulumi.StringArray{
+				instance.PublicIp,
+			},
+		}); err != nil {
+			return err
+		}
 	}
-	_ = dnsRecord
 
 	// --- Outputs ---
 	ctx.Export("desktopId", pulumi.String(desktopID))

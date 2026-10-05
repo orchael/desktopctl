@@ -67,6 +67,8 @@ var (
 	createNoNPMGitHubScopes bool
 	createDesktopProfile    string
 	createProfileSecret     string
+	createNoDNS             bool
+	createBootstrapPackages bool
 )
 
 var createCmd = &cobra.Command{
@@ -116,6 +118,8 @@ func init() {
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
 	createCmd.Flags().StringVar(&createDesktopProfile, "desktop-profile", "", "desktop setup profile owner/repository[:path] (overrides desktop.profile; empty disables it)")
 	createCmd.Flags().StringVar(&createProfileSecret, "profile-secret", "", "AWS Secrets Manager path for the selected desktop profile (overrides desktop.profile_secret)")
+	createCmd.Flags().BoolVar(&createNoDNS, "no-dns", false, "skip Route53 records for an account without a hosted zone")
+	createCmd.Flags().BoolVar(&createBootstrapPackages, "bootstrap-packages", false, "install desktop packages through cloud-init when using a base AMI")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -317,9 +321,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	zone, err := cfg.DNSZone()
-	if err != nil {
-		return err
+	zone := "invalid"
+	if !createNoDNS {
+		zone, err = cfg.DNSZone()
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := requireBackend(ctx); err != nil {
@@ -418,7 +425,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
 	}
-	if err := pulumi.ValidateFoundationOutputs(foundationOutputs); err != nil {
+	if err := pulumi.ValidateFoundationOutputsForMode(foundationOutputs, createNoDNS); err != nil {
 		return fmt.Errorf("foundation stack incomplete (run init-foundation first): %w", err)
 	}
 
@@ -598,7 +605,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Environment:          env,
 		WorkspaceMode:        createWorkspaceMode,
 		WorkspaceName:        createWorkspaceName,
-		PackagesPreInstalled: amiID != "",
+		PackagesPreInstalled: amiID != "" && !createBootstrapPackages,
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
@@ -643,6 +650,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			EFSAccessPointID: workspaceEFSAccessPointID(attachedWorkspace),
 		},
 	)
+	if createNoDNS {
+		stackCfg["dnsEnabled"] = "false"
+	}
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)

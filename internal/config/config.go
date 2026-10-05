@@ -62,6 +62,7 @@ var NestedVirtInstanceFamilies = []string{
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
+	SaaSMode bool           `yaml:"saas_mode,omitempty"`
 	AWS      AWSConfig      `yaml:"aws"`
 	Pulumi   PulumiConfig   `yaml:"pulumi"`
 	Fleet    FleetConfig    `yaml:"fleet"`
@@ -335,8 +336,10 @@ func (c *Config) Validate() error {
 	if c.Desktop.OperatorCIDR == "" {
 		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
-	if _, err := c.DNSZone(); err != nil {
-		return err
+	if !c.SaaSMode {
+		if _, err := c.DNSZone(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

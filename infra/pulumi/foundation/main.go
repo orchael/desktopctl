@@ -23,7 +23,8 @@ func main() {
 func run(ctx *pulumi.Context) error {
 	cfg := config.New(ctx, "")
 
-	zone := cfg.Require("zone")
+	zone := cfg.Get("zone")
+	saasMode := cfg.GetBool("saasMode")
 	environment := cfg.Get("environment")
 	if environment == "" {
 		environment = "dev"
@@ -53,12 +54,16 @@ func run(ctx *pulumi.Context) error {
 	partition := arnPartition(caller.Arn)
 	accountID := caller.AccountId
 
-	// --- Route53 hosted zone lookup ---
-	zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
-		Name: pulumi.StringRef(zone),
-	})
-	if err != nil {
-		return fmt.Errorf("Route53 zone %q not found: %w; create the hosted zone before running init-foundation", zone, err)
+	// SaaS AssumeRole deployments do not require a customer-owned DNS zone.
+	zoneID := ""
+	if zone != "" {
+		zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
+			Name: pulumi.StringRef(zone),
+		})
+		if err != nil {
+			return fmt.Errorf("Route53 zone %q not found: %w; create the hosted zone before running init-foundation", zone, err)
+		}
+		zoneID = zoneData.ZoneId
 	}
 
 	// --- VPC ---
@@ -178,43 +183,19 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- Security group ---
+	ingress := ec2.SecurityGroupIngressArray{}
+	if !saasMode {
+		ingress = ec2.SecurityGroupIngressArray{
+			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(22), ToPort: pulumi.Int(22), CidrBlocks: pulumi.StringArray{pulumi.String(operatorCIDR)}, Description: pulumi.String("SSH - configurable per environment")},
+			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(80), ToPort: pulumi.Int(80), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("HTTP - ACME challenges and service testing")},
+			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8080), ToPort: pulumi.Int(8080), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("noVNC HTTP")},
+			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8443), ToPort: pulumi.Int(8443), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("noVNC HTTPS")},
+		}
+	}
 	sg, err := ec2.NewSecurityGroup(ctx, "ai-desktops-sg", &ec2.SecurityGroupArgs{
 		VpcId:       vpcIDOutput,
 		Description: pulumi.String("ai-desktops desktop security group"),
-		Ingress: ec2.SecurityGroupIngressArray{
-			// SSH on port 22 from operator CIDR (configurable, defaults to 0.0.0.0/0 for dev).
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(22),
-				ToPort:      pulumi.Int(22),
-				CidrBlocks:  pulumi.StringArray{pulumi.String(operatorCIDR)},
-				Description: pulumi.String("SSH - configurable per environment"),
-			},
-			// HTTP on port 80 (for ACME challenges or service testing).
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(80),
-				ToPort:      pulumi.Int(80),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("HTTP - ACME challenges and service testing"),
-			},
-			// noVNC HTTP on 8080 (redirect to HTTPS) from everywhere.
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(8080),
-				ToPort:      pulumi.Int(8080),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("noVNC HTTP"),
-			},
-			// noVNC HTTPS on 8443 from everywhere.
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:    pulumi.String("tcp"),
-				FromPort:    pulumi.Int(8443),
-				ToPort:      pulumi.Int(8443),
-				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
-				Description: pulumi.String("noVNC HTTPS"),
-			},
-		},
+		Ingress:     ingress,
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
 				Protocol:   pulumi.String("-1"),
@@ -233,69 +214,73 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
-	efsSG, err := ec2.NewSecurityGroup(ctx, "ai-desktops-efs-sg", &ec2.SecurityGroupArgs{
-		VpcId:       vpcIDOutput,
-		Description: pulumi.String("ai-desktops EFS security group"),
-		Ingress: ec2.SecurityGroupIngressArray{
-			&ec2.SecurityGroupIngressArgs{
-				Protocol:       pulumi.String("tcp"),
-				FromPort:       pulumi.Int(2049),
-				ToPort:         pulumi.Int(2049),
-				SecurityGroups: pulumi.StringArray{sg.ID()},
-				Description:    pulumi.String("NFS from ai-desktops desktops"),
+	if !saasMode {
+		efsSG, err := ec2.NewSecurityGroup(ctx, "ai-desktops-efs-sg", &ec2.SecurityGroupArgs{
+			VpcId:       vpcIDOutput,
+			Description: pulumi.String("ai-desktops EFS security group"),
+			Ingress: ec2.SecurityGroupIngressArray{
+				&ec2.SecurityGroupIngressArgs{
+					Protocol:       pulumi.String("tcp"),
+					FromPort:       pulumi.Int(2049),
+					ToPort:         pulumi.Int(2049),
+					SecurityGroups: pulumi.StringArray{sg.ID()},
+					Description:    pulumi.String("NFS from ai-desktops desktops"),
+				},
 			},
-		},
-		Egress: ec2.SecurityGroupEgressArray{
-			&ec2.SecurityGroupEgressArgs{
-				Protocol:   pulumi.String("-1"),
-				FromPort:   pulumi.Int(0),
-				ToPort:     pulumi.Int(0),
-				CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			Egress: ec2.SecurityGroupEgressArray{
+				&ec2.SecurityGroupEgressArgs{
+					Protocol:   pulumi.String("-1"),
+					FromPort:   pulumi.Int(0),
+					ToPort:     pulumi.Int(0),
+					CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+				},
 			},
-		},
-		Tags: pulumi.StringMap{
-			"Name":        pulumi.String("ai-desktops-efs-sg-" + environment),
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	workspaceFS, err := efs.NewFileSystem(ctx, "ai-desktops-workspaces-efs", &efs.FileSystemArgs{
-		CreationToken:  pulumi.StringPtr("ai-desktops-workspaces-" + environment),
-		Encrypted:      pulumi.BoolPtr(true),
-		ThroughputMode: pulumi.StringPtr("elastic"),
-		Tags: pulumi.StringMap{
-			"Name":        pulumi.String("ai-desktops-workspaces-" + environment),
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
-	}
-	if _, err := efs.NewBackupPolicy(ctx, "ai-desktops-workspaces-backup", &efs.BackupPolicyArgs{
-		FileSystemId: workspaceFS.ID(),
-		BackupPolicy: &efs.BackupPolicyBackupPolicyArgs{
-			Status: pulumi.String("ENABLED"),
-		},
-	}); err != nil {
-		return err
-	}
-	for i, subnet := range subnetIDs {
-		name := "ai-desktops-efs-mount-target"
-		if i > 0 {
-			name = fmt.Sprintf("ai-desktops-efs-mount-target-%d", i+1)
+			Tags: pulumi.StringMap{
+				"Name":        pulumi.String("ai-desktops-efs-sg-" + environment),
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
 		}
-		if _, err := efs.NewMountTarget(ctx, name, &efs.MountTargetArgs{
-			FileSystemId:   workspaceFS.ID(),
-			SubnetId:       subnet,
-			SecurityGroups: pulumi.StringArray{efsSG.ID()},
+
+		workspaceFS, err := efs.NewFileSystem(ctx, "ai-desktops-workspaces-efs", &efs.FileSystemArgs{
+			CreationToken:  pulumi.StringPtr("ai-desktops-workspaces-" + environment),
+			Encrypted:      pulumi.BoolPtr(true),
+			ThroughputMode: pulumi.StringPtr("elastic"),
+			Tags: pulumi.StringMap{
+				"Name":        pulumi.String("ai-desktops-workspaces-" + environment),
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := efs.NewBackupPolicy(ctx, "ai-desktops-workspaces-backup", &efs.BackupPolicyArgs{
+			FileSystemId: workspaceFS.ID(),
+			BackupPolicy: &efs.BackupPolicyBackupPolicyArgs{
+				Status: pulumi.String("ENABLED"),
+			},
 		}); err != nil {
 			return err
 		}
+		for i, subnet := range subnetIDs {
+			name := "ai-desktops-efs-mount-target"
+			if i > 0 {
+				name = fmt.Sprintf("ai-desktops-efs-mount-target-%d", i+1)
+			}
+			if _, err := efs.NewMountTarget(ctx, name, &efs.MountTargetArgs{
+				FileSystemId:   workspaceFS.ID(),
+				SubnetId:       subnet,
+				SecurityGroups: pulumi.StringArray{efsSG.ID()},
+			}); err != nil {
+				return err
+			}
+		}
+		ctx.Export("efsFileSystemId", workspaceFS.ID())
+		ctx.Export("efsSecurityGroupId", efsSG.ID())
 	}
 
 	// --- IAM instance profile ---
@@ -369,11 +354,13 @@ func run(ctx *pulumi.Context) error {
     "Resource": "*"
   }]
 }`
-	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
-		Role:   role.Name,
-		Policy: pulumi.String(route53Policy),
-	}); err != nil {
-		return err
+	if zone != "" {
+		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
+			Role:   role.Name,
+			Policy: pulumi.String(route53Policy),
+		}); err != nil {
+			return err
+		}
 	}
 
 	// CloudWatch Agent permissions: publish metrics and write logs.
@@ -412,22 +399,23 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
-	operatorUserName := "ai-desktops-control-plane-" + environment
-	operatorRoleName := "ai-desktops-control-plane-role-" + environment
+	if !saasMode {
+		operatorUserName := "ai-desktops-control-plane-" + environment
+		operatorRoleName := "ai-desktops-control-plane-role-" + environment
 
-	operatorUser, err := iam.NewUser(ctx, "ai-desktops-control-plane-user", &iam.UserArgs{
-		Name: pulumi.String(operatorUserName),
-		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
-	}
+		operatorUser, err := iam.NewUser(ctx, "ai-desktops-control-plane-user", &iam.UserArgs{
+			Name: pulumi.String(operatorUserName),
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-	operatorAssumeRolePolicy := operatorUser.Arn.ApplyT(func(userArn string) string {
-		return fmt.Sprintf(`{
+		operatorAssumeRolePolicy := operatorUser.Arn.ApplyT(func(userArn string) string {
+			return fmt.Sprintf(`{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -435,30 +423,30 @@ func run(ctx *pulumi.Context) error {
     "Action": "sts:AssumeRole"
   }]
 }`, userArn)
-	}).(pulumi.StringOutput)
+		}).(pulumi.StringOutput)
 
-	operatorRole, err := iam.NewRole(ctx, "ai-desktops-control-plane-role", &iam.RoleArgs{
-		Name:             pulumi.String(operatorRoleName),
-		AssumeRolePolicy: operatorAssumeRolePolicy,
-		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
-			"environment": pulumi.String(environment),
-		},
-	})
-	if err != nil {
-		return err
-	}
+		operatorRole, err := iam.NewRole(ctx, "ai-desktops-control-plane-role", &iam.RoleArgs{
+			Name:             pulumi.String(operatorRoleName),
+			AssumeRolePolicy: operatorAssumeRolePolicy,
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("ai-desktops"),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-	operatorPolicy := controlPlanePolicy(partition, accountID, pulumiBackendBucket)
-	if _, err := iam.NewRolePolicy(ctx, "ai-desktops-control-plane-policy", &iam.RolePolicyArgs{
-		Role:   operatorRole.Name,
-		Policy: pulumi.String(operatorPolicy),
-	}); err != nil {
-		return err
-	}
+		operatorPolicy := controlPlanePolicy(partition, accountID, pulumiBackendBucket)
+		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-control-plane-policy", &iam.RolePolicyArgs{
+			Role:   operatorRole.Name,
+			Policy: pulumi.String(operatorPolicy),
+		}); err != nil {
+			return err
+		}
 
-	operatorAssumePolicy := operatorRole.Arn.ApplyT(func(roleArn string) string {
-		return fmt.Sprintf(`{
+		operatorAssumePolicy := operatorRole.Arn.ApplyT(func(roleArn string) string {
+			return fmt.Sprintf(`{
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
@@ -466,62 +454,66 @@ func run(ctx *pulumi.Context) error {
     "Resource": %q
   }]
 }`, roleArn)
-	}).(pulumi.StringOutput)
+		}).(pulumi.StringOutput)
 
-	if _, err := iam.NewUserPolicy(ctx, "ai-desktops-control-plane-assume-role", &iam.UserPolicyArgs{
-		User:   operatorUser.Name,
-		Policy: operatorAssumePolicy,
-	}); err != nil {
-		return err
-	}
-
-	operatorAccessKey, err := iam.NewAccessKey(ctx, "ai-desktops-control-plane-access-key", &iam.AccessKeyArgs{
-		User: operatorUser.Name,
-	})
-	if err != nil {
-		return err
-	}
-
-	operatorSecret, err := secretsmanager.NewSecret(ctx, "ai-desktops-control-plane-credentials", &secretsmanager.SecretArgs{
-		Name:        pulumi.String(operatorCredentialsSecretName),
-		Description: pulumi.String("AWS control-plane credentials for ai-desktops " + environment),
-		Tags: pulumi.StringMap{
-			"managed-by":        pulumi.String("ai-desktops"),
-			"environment":       pulumi.String(environment),
-			"ai-desktops-scope": pulumi.String("operator"),
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	operatorSecretPayload := pulumi.All(
-		operatorAccessKey.ID(),
-		operatorAccessKey.Secret,
-		operatorRole.Arn,
-		operatorUser.Arn,
-	).ApplyT(func(args []interface{}) (string, error) {
-		payload := map[string]string{
-			"OPERATOR_AWS_ACCESS_KEY_ID":     fmt.Sprint(args[0]),
-			"OPERATOR_AWS_SECRET_ACCESS_KEY": fmt.Sprint(args[1]),
-			"OPERATOR_ROLE_ARN":              fmt.Sprint(args[2]),
-			"OPERATOR_USER_ARN":              fmt.Sprint(args[3]),
-			"OPERATOR_ENVIRONMENT":           environment,
-			"OPERATOR_SOURCE_PROFILE":        "ai-desktops-" + environment + "-user",
-			"OPERATOR_ROLE_PROFILE":          "ai-desktops-" + environment,
+		if _, err := iam.NewUserPolicy(ctx, "ai-desktops-control-plane-assume-role", &iam.UserPolicyArgs{
+			User:   operatorUser.Name,
+			Policy: operatorAssumePolicy,
+		}); err != nil {
+			return err
 		}
-		b, err := json.Marshal(payload)
+
+		operatorAccessKey, err := iam.NewAccessKey(ctx, "ai-desktops-control-plane-access-key", &iam.AccessKeyArgs{
+			User: operatorUser.Name,
+		})
 		if err != nil {
-			return "", err
+			return err
 		}
-		return string(b), nil
-	}).(pulumi.StringOutput)
 
-	if _, err := secretsmanager.NewSecretVersion(ctx, "ai-desktops-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
-		SecretId:     operatorSecret.ID(),
-		SecretString: operatorSecretPayload,
-	}); err != nil {
-		return err
+		operatorSecret, err := secretsmanager.NewSecret(ctx, "ai-desktops-control-plane-credentials", &secretsmanager.SecretArgs{
+			Name:        pulumi.String(operatorCredentialsSecretName),
+			Description: pulumi.String("AWS control-plane credentials for ai-desktops " + environment),
+			Tags: pulumi.StringMap{
+				"managed-by":        pulumi.String("ai-desktops"),
+				"environment":       pulumi.String(environment),
+				"ai-desktops-scope": pulumi.String("operator"),
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		operatorSecretPayload := pulumi.All(
+			operatorAccessKey.ID(),
+			operatorAccessKey.Secret,
+			operatorRole.Arn,
+			operatorUser.Arn,
+		).ApplyT(func(args []interface{}) (string, error) {
+			payload := map[string]string{
+				"OPERATOR_AWS_ACCESS_KEY_ID":     fmt.Sprint(args[0]),
+				"OPERATOR_AWS_SECRET_ACCESS_KEY": fmt.Sprint(args[1]),
+				"OPERATOR_ROLE_ARN":              fmt.Sprint(args[2]),
+				"OPERATOR_USER_ARN":              fmt.Sprint(args[3]),
+				"OPERATOR_ENVIRONMENT":           environment,
+				"OPERATOR_SOURCE_PROFILE":        "ai-desktops-" + environment + "-user",
+				"OPERATOR_ROLE_PROFILE":          "ai-desktops-" + environment,
+			}
+			b, err := json.Marshal(payload)
+			if err != nil {
+				return "", err
+			}
+			return string(b), nil
+		}).(pulumi.StringOutput)
+
+		if _, err := secretsmanager.NewSecretVersion(ctx, "ai-desktops-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
+			SecretId:     operatorSecret.ID(),
+			SecretString: operatorSecretPayload,
+		}); err != nil {
+			return err
+		}
+		ctx.Export("operatorCredentialsSecretName", operatorSecret.Name)
+		ctx.Export("operatorRoleArn", operatorRole.Arn)
+		ctx.Export("operatorUserName", operatorUser.Name)
 	}
 
 	// --- DynamoDB fleet table ---
@@ -572,16 +564,11 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("subnetId", subnetID)
 	ctx.Export("subnetIds", subnetIDs.ToStringArrayOutput())
 	ctx.Export("securityGroupId", sg.ID())
-	ctx.Export("efsFileSystemId", workspaceFS.ID())
-	ctx.Export("efsSecurityGroupId", efsSG.ID())
 	ctx.Export("instanceProfile", instanceProfile.Name)
-	ctx.Export("zoneId", pulumi.String(zoneData.ZoneId))
+	ctx.Export("zoneId", pulumi.String(zoneID))
 	ctx.Export("zone", pulumi.String(zone))
 	ctx.Export("fleetTable", table.Name)
 	ctx.Export("amiTable", amiTable.Name)
-	ctx.Export("operatorCredentialsSecretName", operatorSecret.Name)
-	ctx.Export("operatorRoleArn", operatorRole.Arn)
-	ctx.Export("operatorUserName", operatorUser.Name)
 
 	return nil
 }
