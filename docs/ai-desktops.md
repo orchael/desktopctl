@@ -43,11 +43,9 @@ Install `bridgectl` from the apt repository:
 
 ```bash
 curl -fsSL https://orchael.github.io/bridgectl/install.sh | sudo bash
-sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user enable --now bridgectl
-sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user status bridgectl
 ```
 
-The base package installs a provider-neutral daemon. It starts and passes a health check, but no AI providers are configured yet.
+The package installs a provider-neutral daemon and a generic `bridge.service` user unit. On an ai-desktops host, configure the desktop-specific `bridgectl.service` below instead of enabling the generic unit. The image and cloud-init mask `bridge.service` for the `ubuntu` user to prevent a second server from competing for the same endpoint.
 
 **What the package installs:**
 
@@ -106,11 +104,12 @@ Uncomment one or more provider blocks in the config. See [Provider Configuration
 
 ```bash
 sudo install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/.config/systemd/user
-sudo install -o ubuntu -g ubuntu -m 0644 /usr/lib/systemd/user/bridge.service \
+sudo install -o ubuntu -g ubuntu -m 0644 packer/files/bridgectl.service \
   /home/ubuntu/.config/systemd/user/bridgectl.service
+sudo ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service
 ```
 
-The ai-desktops AMI overrides the upstream unit name with `bridgectl.service` and adds:
+Run the `install` command from a desktopctl source checkout. The ai-desktops AMI installs this unit as `bridgectl.service` with:
 - `ExecStart=bridgectl server start --config %h/.config/bridgectl/config.yaml`
 - `EnvironmentFile=-%h/.config/bridgectl/agents.env`
 - `EnvironmentFile=-%h/.config/bridgectl/display.env`
@@ -145,6 +144,20 @@ sudo systemctl daemon-reload
 sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user restart bridgectl
 sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user status bridgectl
 ```
+
+For an existing desktop upgraded with apt, check for active sessions before restarting because the restart ends them. Then stop and disable any manually enabled generic unit, ensure its mask is present, reload the user manager, and restart the desktop unit to load the new executable:
+
+```bash
+bridgectl session list
+systemctl --user disable --now bridge.service
+sudo ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service
+systemctl --user daemon-reload
+systemctl --user restart bridgectl.service
+systemctl --user status bridgectl.service
+bridgectl server status
+```
+
+`sudo systemctl enable --now bridgectl` targets a system unit that this package does not install. Use `systemctl --user` for the configured desktop service.
 
 ### 6. Verify Health
 

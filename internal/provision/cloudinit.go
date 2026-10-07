@@ -16,7 +16,7 @@ var codexHomeConfigScript string
 
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
-	BridgectlVersion      = "v1.4.3"
+	BridgectlVersion      = "v1.4.4"
 	DefaultNoVNCHTTPPort  = 8080
 	DefaultNoVNCHTTPSPort = 8443
 )
@@ -1132,6 +1132,8 @@ runcmd:
     export UBUNTU_UID
     # Start the user manager so the user bus is available in cloud-init (non-fatal)
     systemctl start user@${UBUNTU_UID}.service 2>/dev/null || true
+    sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user disable --now bridge.service 2>/dev/null || true
+    ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user daemon-reload || echo "WARNING: daemon-reload failed; user bus may not be ready yet"
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user enable bridgectl || echo "WARNING: bridgectl enable failed; it will be enabled at next login"
     sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user start bridgectl || echo "WARNING: bridgectl user service failed to start; it will start at next login"
