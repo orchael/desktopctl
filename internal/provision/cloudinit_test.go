@@ -613,7 +613,7 @@ func TestRenderCloudInitMasksGenericBridgeUnit(t *testing.T) {
 		stop := strings.Index(out, "systemctl --user disable --now bridge.service")
 		mask := strings.Index(out, "ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service")
 		start := strings.Index(out, "systemctl --user start bridgectl")
-		if stop < 0 || mask < 0 || start < 0 || !(stop < mask && mask < start) {
+		if stop < 0 || mask < 0 || start < 0 || stop >= mask || mask >= start {
 			t.Errorf("generic unit must be stopped and masked before desktop unit starts (preinstalled=%v)", preinstalled)
 		}
 	}
