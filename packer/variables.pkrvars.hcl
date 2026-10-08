@@ -1,6 +1,7 @@
 bridgectl_version             = "v1.4.4"
 tailscale_version             = "1.98.9"
 helm_version                  = "v4.3.0"
+terraform_version             = "1.16.5"
 vscode_version                = "1.139.1-1790309529"
 vscode_sha256                 = "cc8e35cf69ff4c7e515e19fa981bf6aba41f61ddb61c79370e9fe460c5dbaf8b"
 playwright_version            = "1.63.0"

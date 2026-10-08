@@ -293,7 +293,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `tfenv` (via Linuxbrew), `bridgectl` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
@@ -322,7 +322,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.14 | Packer pins and records the supported Playwright version; the AMI provisions its matching Chromium and headless binaries in a shared path readable by `ubuntu`, and propagates that path to interactive and systemd sessions | Static configuration test and live AMI validation |
 | AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
 | AC-9.16 | The AMI build downloads the exact pinned Microsoft `code` package from its apt repository, verifies its SHA-256 before installing with apt, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
-| AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew and verifies the command is available in the built image | `TestAMIPlaybookInstallsTfenvWithHomebrew`; live AMI build |
+| AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
 
 ### FR-11 — GitHub developer tooling
 
