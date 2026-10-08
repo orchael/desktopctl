@@ -314,6 +314,8 @@ The AMI owns configurations marked with `.ai-desktops-managed`. The build role p
 
 New AMIs also include a pinned stable Visual Studio Code package from Microsoft's signed apt repository. Launch **Visual Studio Code** from the desktop application menu or run `code` in a terminal. The Packer build verifies the package version, CLI, and packaged `com.microsoft.VSCode.desktop` launcher; graphical launch is checked on a desktop created from the built AMI.
 
+New AMIs include `tfenv` through Linuxbrew. Run `tfenv install <version>` and `tfenv use <version>` to select a Terraform version for your desktop; the AMI does not select one by default.
+
 The script checks twelve items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each:
 
 | Check | What it verifies |

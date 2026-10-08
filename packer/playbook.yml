@@ -493,6 +493,12 @@
         creates: /home/linuxbrew/.linuxbrew/bin/helm
       become: false
 
+    - name: Install tfenv via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install tfenv
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/tfenv
+      become: false
+
     - name: Get latest nvm release version
       ansible.builtin.uri:
         url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
@@ -1540,6 +1546,11 @@
     - name: Show Helm version
       ansible.builtin.debug:
         msg: "Helm version: {{ helm_ver_out.stdout }}"
+
+    - name: Verify tfenv is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv --version
+      changed_when: false
+      become: false
 
     - name: Unmask unattended-upgrades timers before re-enabling
       ansible.builtin.systemd:

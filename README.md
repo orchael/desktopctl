@@ -475,6 +475,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - neovim (via snap)
 - Homebrew
 - Helm (via Homebrew; version from `helm_version` var)
+- tfenv (via Homebrew)
 - Visual Studio Code stable (Microsoft's signed apt repository; version from `vscode_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)

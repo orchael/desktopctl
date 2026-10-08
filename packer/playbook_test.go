@@ -146,6 +146,22 @@ func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookInstallsTfenvWithHomebrew(t *testing.T) {
+	for _, want := range []string{
+		`    - name: Install tfenv via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install tfenv
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/tfenv
+      become: false`,
+		`    - name: Verify tfenv is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv --version
+      changed_when: false
+      become: false`,
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
 	vars, err := os.ReadFile("variables.pkrvars.hcl")
 	if err != nil {
