@@ -85,6 +85,17 @@ func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookMasksGenericBridgeUnit(t *testing.T) {
+	for _, want := range []string{
+		"    - name: Mask package bridge user service for ubuntu",
+		"        path: /home/ubuntu/.config/systemd/user/bridge.service",
+		"        src: /dev/null",
+		"        state: link",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
 func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
 	for _, want := range []string{
 		"- name: Configure Git editor for ubuntu",

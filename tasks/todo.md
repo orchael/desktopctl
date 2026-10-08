@@ -352,3 +352,13 @@ Mode: user-authorized repository identity, package, and security documentation c
 - [x] Validate builds, tests, package references, and documentation commands.
 
 Outcome: GitHub issues [#281](https://github.com/orchael/desktopctl/issues/281) and [#282](https://github.com/orchael/desktopctl/issues/282) track repository settings. The root and nested Go suites, CLI and control plane builds, both web builds and tests, lint, Prettier, Helm lint/template, and GoReleaser validation pass. Internal Go coverage is 77.2%. A sandboxed Go coverage attempt failed because loopback sockets and the module cache were restricted; the approved unsandboxed rerun passed. Release order: publish `@orchael/desktopctl` before baking a new AMI that installs it.
+
+# Bridge 1.4.4 managed desktop upgrade
+
+Mode: user-authorized runtime update. Governing requirements: AUTH-5 and AUTH-5a. Scope: pin 1.4.4 for new desktops, prevent the package's generic user unit from competing with the configured desktop unit, and document the safe in-place upgrade. Rollout: build and activate a new AMI after merge; existing desktops require a deliberate package upgrade and service restart. Rollback: restore the previous AMI/pin and disable the generic unit on affected hosts. The existing branch remains isolated in a parent-directory worktree.
+
+- [x] Confirm the v1.4.4 amd64 package digest and add failing pin and unit-ownership tests.
+- [x] Update the Packer image and cloud-init bootstrap, then document in-place upgrade steps.
+- [x] Run focused and full validation and record the results.
+
+Validation: the new pin and unit-ownership tests failed before implementation and passed afterward. `go test ./...`, `ansible-playbook --syntax-check playbook.yml`, and `git diff --check` pass. Downloaded `bridgectl_1.4.4_amd64.deb` SHA-256 is `fa922d9cb2c133158593e5e9f38db76f72d70a9c64bc8eaebd845a2ac7ce7455`, matching the GitHub release asset digest. A live AMI bake remains the rollout check.
