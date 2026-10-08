@@ -388,6 +388,7 @@ its own lifecycle and may survive desktop termination.
 | AC-12.7 | Foundation provisioning creates or verifies one encrypted EFS file system for the selected environment and enables AWS Backup by default | Infrastructure review and live acceptance |
 | AC-12.8 | `workspace create` provisions the workspace access point or directory immediately and rejects later attachment with a different repo set | Unit and live acceptance |
 | AC-12.9 | `workspace add-repo` and `workspace remove-repo` update the repo fingerprint for detached workspaces and fail clearly for attached workspaces | Unit and manual CLI verification |
+| AC-12.10 | `workspace create` accepts multiple repositories and sends EFS access point tags that satisfy AWS tag value constraints while retaining the exact repository set in workspace metadata | Unit and live acceptance |
 
 ---
 

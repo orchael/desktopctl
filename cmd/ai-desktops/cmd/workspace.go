@@ -532,13 +532,14 @@ func deleteWorkspaceAccessPoint(ctx context.Context, client efsWorkspaceClient, 
 }
 
 func workspaceEFSTags(w *store.Workspace) []efstypes.Tag {
+	repoDigest := sha256.Sum256([]byte(w.RepoFingerprint))
 	return []efstypes.Tag{
 		{Key: awsString("Name"), Value: awsString("ai-desktops-" + w.Environment + "-" + w.WorkspaceName)},
 		{Key: awsString("managed-by"), Value: awsString("ai-desktops")},
 		{Key: awsString("environment"), Value: awsString(w.Environment)},
 		{Key: awsString("workspace-name"), Value: awsString(w.WorkspaceName)},
 		{Key: awsString("github-owner"), Value: awsString(w.GitHubOwner)},
-		{Key: awsString("repo-fingerprint"), Value: awsString(w.RepoFingerprint)},
+		{Key: awsString("repo-fingerprint"), Value: awsString(hex.EncodeToString(repoDigest[:]))},
 	}
 }
 
