@@ -106,7 +106,7 @@ func init() {
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
 	createCmd.Flags().StringVar(&createInstanceType, "instance-type", "", "EC2 instance type (overrides config and --mobile default, e.g. m8i.xlarge, c7i.xlarge, m7i.large)")
 	createCmd.Flags().StringSliceVar(&createInstanceTypes, "instance-types", nil, "EC2 Spot instance types to consider (comma-separated; repeatable; default: "+strings.Join(config.DefaultSpotInstanceTypes, ",")+")")
-	createCmd.Flags().BoolVar(&createSpot, "spot", false, "launch the desktop as a persistent Spot instance that stops on interruption")
+	createCmd.Flags().BoolVar(&createSpot, "spot", false, "launch a persistent Spot instance that hibernates on interruption when supported, otherwise stops")
 	createCmd.Flags().StringVar(&createSpotMaxPrice, "spot-max-price", "", "maximum hourly Spot price in USD (requires --spot; default is AWS on-demand ceiling)")
 	createCmd.Flags().DurationVar(&createTimeout, "create-timeout", 5*time.Minute, "maximum time to wait for each infrastructure create attempt before cleaning up")
 	createCmd.Flags().BoolVar(&createTailscale, "tailscale", false, "attach the desktop to Tailscale using --tailscale-network or network.tailscale_network from config")
@@ -423,7 +423,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "  Nested virtualization : enabled (KVM via NestedVirtualization=enabled)")
 	}
 	if marketType == store.MarketSpot {
-		fmt.Fprintln(os.Stderr, "  Spot market           : enabled (persistent, stop on interruption)")
+		fmt.Fprintln(os.Stderr, "  Spot market           : enabled (persistent, hibernate when supported; otherwise stop)")
 		if createSpotMaxPrice != "" {
 			fmt.Fprintf(os.Stderr, "  Spot max price        : %s\n", createSpotMaxPrice)
 		}

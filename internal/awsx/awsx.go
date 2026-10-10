@@ -400,6 +400,7 @@ type EC2InstanceStatus struct {
 	StateTransitionReason string
 	InstanceLifecycle     string
 	SpotInstanceRequestID string
+	HibernationConfigured bool
 }
 
 // InstanceStatus returns the current EC2 instance state and lifecycle metadata.
@@ -421,6 +422,9 @@ func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC
 		StateTransitionReason: aws.ToString(inst.StateTransitionReason),
 		InstanceLifecycle:     string(inst.InstanceLifecycle),
 		SpotInstanceRequestID: aws.ToString(inst.SpotInstanceRequestId),
+	}
+	if inst.HibernationOptions != nil {
+		status.HibernationConfigured = aws.ToBool(inst.HibernationOptions.Configured)
 	}
 	state := inst.State
 	if state == nil {

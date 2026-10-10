@@ -447,3 +447,21 @@ Known remote `bridgectl` clients can be preloaded at provisioning time. Configur
 - `step_ca.clients` or `auth.jwt_public_keys` — JWT (Ed25519) to authorize RPCs
 
 See [service.md — Security](service.md) for the full mTLS + JWT configuration reference.
+
+## Spot interruption hibernation
+
+`create --spot` uses a persistent Spot request. For instance types reporting
+hibernation support, with nested virtualization disabled, the desktop stack
+configures native AWS `hibernate` interruption behavior. Unsupported types, Linux instances above 150 GiB RAM, and
+nested-virtualization desktops use `stop`, preserving disk but losing RAM.
+A compatible AMI and sufficient encrypted root storage remain prerequisites.
+
+AWS handles hibernation without a desktop listener and controls automatic resume
+following reclamation. Only AWS can resume an AWS-interrupted instance. User
+hibernation through `stop` retains user-controlled `start`, subject to capacity.
+After AWS resumes, use `start` to refresh public DNS if necessary. Existing Spot
+instances need deliberate recreation to enable launch-time hibernation; review
+replacement previews and preserve workspace data first.
+
+Manual `stop` checks EC2's actual hibernation configuration, so existing Spot
+instances without hibernation and unsupported new instances power-stop safely.
