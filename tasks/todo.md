@@ -1,3 +1,27 @@
+# Desktops vertical slice — desktopctl job contract
+
+Mode: user-authorized CLI contract change. Governing requirements: BOUNDARY-2, BOUNDARY-5, BOUNDARY-6. Scope: stable ID, safe create retry behavior, AWS identity validation, lifecycle alias, and worker-facing contract documentation. The CLI continues accepting operator profiles and existing resource names. Risk: partial Pulumi cleanup can leave resources; retain the fleet record and require reconciliation on cleanup failure. Rollback: revert this branch before deploying a worker; existing desktops and stack names are unaffected.
+
+- [x] Add failing tests for explicit desktop ID, duplicate prevention, cleanup error propagation, STS validation, and destroy alias.
+- [x] Implement the contract without changing ordinary CLI create behavior.
+- [x] Document temporary credential and worker invocation contract.
+- [x] Run local Go tests, vet, lint, and CLI build; open PR 2 after PR 1, with CI and Copilot review tracked on the PR.
+
+Validation: focused tests failed before implementation and passed afterward. `go test ./...`, `go test -cover ./internal/...`, `go vet ./...`, `golangci-lint run ./...` (0 issues), `go build ./cmd/ai-desktops`, and `git diff --check` passed. The pre-push hook runs the desktop-web build and test before push. Real AWS was not used for this contract change.
+
+Copilot review of PR #285 found launch-waiter and fleet-record cleanup gaps. The follow-up retains the launched EC2 identity on waiter failure, confirms termination before retry, propagates DynamoDB deletion errors, and validates expected AWS account IDs before STS. Focused failure-path tests cover the cleanup decision and account ID format.
+
+# Desktops vertical slice — desktopctl boundary audit
+
+Mode: user-authorized cross-repository architecture and implementation. Governing requirements: BOUNDARY-1 through BOUNDARY-4 in PRD.md. This branch is documentation and rename-boundary cleanup only. Preserve the existing CLI and control plane until a tested replacement is available. Rollback: revert this documentation PR; no runtime behavior changes.
+
+- [x] Inventory CLI, Pulumi, AWS, lifecycle, bootstrap, Bridge, persistence, auth, API, tests, and release paths.
+- [x] Document current architecture and component classifications in docs/ARCHITECTURE.md.
+- [x] Correct active stale repository identity references without changing historical migrations or deployed resource identifiers.
+- [x] Run existing test and documentation validation before opening PR 1.
+
+Validation: `go test ./...` passed before and after the documentation change; `git diff --check` passed. A scan of active README, docs, workflows, and release configuration found no stale `markcallen/ai-desktops` repository URL. Existing `ai-desktops` CLI and AWS resource names remain compatibility contracts.
+
 # Add Google Cloud CLI to the AMI
 
 Mode: user-authorized AMI configuration change. Governing requirements: AMI-GCLOUD-1 and AMI-GCLOUD-2. Scope: add Google's signed apt source, install `google-cloud-cli`, and verify the command during the bake. Rollout: build and activate a new AMI after merge. Rollback: reactivate the previous AMI.
@@ -352,6 +376,36 @@ Mode: user-authorized repository identity, package, and security documentation c
 - [x] Validate builds, tests, package references, and documentation commands.
 
 Outcome: GitHub issues [#281](https://github.com/orchael/desktopctl/issues/281) and [#282](https://github.com/orchael/desktopctl/issues/282) track repository settings. The root and nested Go suites, CLI and control plane builds, both web builds and tests, lint, Prettier, Helm lint/template, and GoReleaser validation pass. Internal Go coverage is 77.2%. A sandboxed Go coverage attempt failed because loopback sockets and the module cache were restricted; the approved unsandboxed rerun passed. Release order: publish `@orchael/desktopctl` before baking a new AMI that installs it.
+# PR #285 Bosun follow-up: SaaS clones and prelaunch cleanup
+
+Mode: user-authorized security and runtime fix. Governing criteria: BOUNDARY-7 and BOUNDARY-8. Scope: select anonymous HTTPS for SaaS public sources, allow an explicit customer GitHub secret for private sources, persist prelaunched instance identity, and verify termination before closing the fleet record. Rollback: revert these changes before merge; no schema migration is required because the existing `instance_id` field is used.
+
+- [x] Add failing tests for SaaS clone selection and anonymous preflight.
+- [x] Add failing tests for retained prelaunch identity and destroy recovery.
+- [x] Implement the smallest coherent fixes and run targeted plus full Go validation.
+- [x] Push PR #285, check CI eligibility, and request Copilot review.
+
+Validation: the four new regression tests failed to compile before implementation and passed after it. `go test ./...`, targeted package tests, `go test -cover` for internal packages (77.3% excluding AWS-dependent `internal/awsx`), `go build -buildvcs=false ./cmd/ai-desktops`, and `git diff --check` passed. The temporary Git worktree could not perform Go VCS stamping, so the CLI build used `-buildvcs=false`.
+
+PR #285 received commit `1d4be50`; pre-push Go tests and desktop web build/test passed. GitHub CI does not run for this stacked PR because CI and lint workflows target PRs based on `main`, while #285 targets `docs/desktopctl-boundary` (#284). Copilot review was requested but declined because the requesting account reached its review quota; there are no unresolved review threads.
+
+## PR #285 Bosun follow-up: interrupted launches and unknown outcomes
+
+Mode: user-authorized runtime fix and merge. Governing criterion: BOUNDARY-8. Scope: persist a returned EC2 instance ID before the running waiter and reconcile tagged instances during destroy when the ID was never returned. Test ordering and missing-ID recovery. Rollback: revert the branch before merge; no schema change.
+
+- [x] Add failing regression tests for persistence ordering and missing-ID reconciliation.
+- [x] Implement launch and destroy recovery.
+- [x] Run full Go validation and coverage.
+- [x] Push PR #285 and request Copilot review.
+- [x] Merge stacked dependency #284 into main.
+- [x] Retarget #285 to main and check review feedback.
+- [ ] Get green Actions for #285, then merge it to main.
+
+Validation: regression tests failed to compile before implementation and pass after it. `go test ./...`, `go vet ./...`, `go build -buildvcs=false ./cmd/ai-desktops`, `golangci-lint run ./...` (0 issues), `git diff --check`, and internal coverage excluding AWS-dependent `internal/awsx` (77.3%) pass. The sandbox blocked loopback sockets for the coverage run; the approved unrestricted rerun passed.
+
+PR #285 received commit `5820628`. Pre-push hooks passed. Copilot review was requested. Dependency PR #284 merged as `0f14424` after all Actions succeeded and review threads were resolved.
+
+After merging main into the branch as `173261e`, PR #285 targets main and has no unresolved review threads. Copilot declined the new review because the requesting account reached its review quota. Retargeting alone did not start Actions; the next push will trigger them.
 
 # Bridge 1.4.4 managed desktop upgrade
 

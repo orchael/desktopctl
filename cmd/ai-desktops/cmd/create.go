@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ var (
 	createOwner             string
 	createOrganizationID    string
 	createName              string
+	createDesktopID         string
 	createRepos             []string
 	createSecrets           []string
 	createPreview           bool
@@ -65,6 +67,9 @@ var (
 	createNoNPMGitHubScopes bool
 	createDesktopProfile    string
 	createProfileSecret     string
+	createGitHubSecret      string
+	createNoDNS             bool
+	createBootstrapPackages bool
 )
 
 var createCmd = &cobra.Command{
@@ -86,6 +91,7 @@ func init() {
 	createCmd.Flags().StringVar(&createOwner, "github-owner", "", "GitHub organization or username (inferred from --repo when omitted)")
 	createCmd.Flags().StringVar(&createOrganizationID, "organization-id", "", "control-plane organization UUID for the desktop record (overrides fleet.organization_id)")
 	createCmd.Flags().StringVar(&createName, "name", "", "desktop name, unique among non-terminated desktops in the environment")
+	createCmd.Flags().StringVar(&createDesktopID, "desktop-id", "", "stable desktop ID for a provisioning job (d- plus eight lowercase hex characters)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
@@ -113,6 +119,9 @@ func init() {
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
 	createCmd.Flags().StringVar(&createDesktopProfile, "desktop-profile", "", "desktop setup profile owner/repository[:path] (overrides desktop.profile; empty disables it)")
 	createCmd.Flags().StringVar(&createProfileSecret, "profile-secret", "", "AWS Secrets Manager path for the selected desktop profile (overrides desktop.profile_secret)")
+	createCmd.Flags().StringVar(&createGitHubSecret, "github-secret", "", "AWS Secrets Manager path for GitHub clone credentials (required for private SaaS repositories or profiles)")
+	createCmd.Flags().BoolVar(&createNoDNS, "no-dns", false, "skip Route53 records for an account without a hosted zone")
+	createCmd.Flags().BoolVar(&createBootstrapPackages, "bootstrap-packages", false, "install desktop packages through cloud-init when using a base AMI")
 	rootCmd.AddCommand(createCmd)
 }
 
@@ -232,6 +241,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
+	gitHubSecret := createGitHubSecret
+	if gitHubSecret == "" && !cfg.SaaSMode {
+		gitHubSecret = cfg.GitHub.GitHubSecret
+		if cfg.GitHub.Owner == "" {
+			gitHubSecret = "/ai-desktops/" + owner + "/github"
+		}
+	}
+	publicGitHubSources := cfg.SaaSMode && gitHubSecret == ""
 	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
 		tailscale:               createTailscale,
 		tailscaleNetwork:        createTailscaleNet,
@@ -272,10 +289,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		env = cfg.Fleet.Environment
 	}
 
-	// Verify every repo is reachable before touching any infrastructure.
+	// Verify credential-free SaaS sources anonymously. Operator SSH access is
+	// not evidence that a newly provisioned customer desktop can clone them.
+	if publicGitHubSources && desktopProfile != "" {
+		profileRef, _ := provision.ParseDesktopProfileReference(desktopProfile)
+		if err := (&repo.Repo{Owner: profileRef.Owner, Name: profileRef.Repository}).CheckPublicAccessible(ctx); err != nil {
+			return fmt.Errorf("desktop profile requires --github-secret or a public repository: %w", err)
+		}
+	}
 	for _, r := range repos {
 		fmt.Fprintf(os.Stderr, "Checking repository %s ...\n", r)
-		if err := r.CheckAccessible(ctx); err != nil {
+		var err error
+		if publicGitHubSources {
+			err = r.CheckPublicAccessible(ctx)
+		} else if !cfg.SaaSMode {
+			err = r.CheckAccessible(ctx)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -285,14 +315,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if profileSecret != "" {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
-	secretPaths := desktopSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets)
+	secretPaths := createSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets, cfg.SaaSMode)
 	// Verify every configured secret before provisioning.
-	if len(secretPaths) > 0 {
+	secretsToValidate := append([]string(nil), secretPaths...)
+	if cfg.SaaSMode && gitHubSecret != "" {
+		secretsToValidate = append(secretsToValidate, gitHubSecret)
+	}
+	if len(secretsToValidate) > 0 {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			return fmt.Errorf("load AWS config to validate secrets: %w", err)
 		}
-		for _, secretPath := range secretPaths {
+		for _, secretPath := range secretsToValidate {
 			fmt.Fprintf(os.Stderr, "Checking secret %s ...\n", secretPath)
 			ok, err := awsx.SecretExists(ctx, awsCfg, secretPath)
 			if err != nil {
@@ -314,9 +348,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	zone, err := cfg.DNSZone()
-	if err != nil {
-		return err
+	zone := "invalid"
+	if !createNoDNS {
+		zone, err = cfg.DNSZone()
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := requireBackend(ctx); err != nil {
@@ -336,14 +373,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no AMI configured for region %s: run `ai-desktops ami build` first or supply --ami", cfg.AWS.Region)
 	}
 
-	// cfg.GitHub.GitHubSecret defaults to /ai-desktops/github/pat when github.owner
-	// is absent from the config file. Re-derive from the effective owner so that
-	// --github-owner on the CLI resolves to the correct path.
-	gitHubSecret := cfg.GitHub.GitHubSecret
-	if cfg.GitHub.Owner == "" {
-		gitHubSecret = "/ai-desktops/" + owner + "/github"
-	}
-
 	req := &desktop.CreateRequest{
 		OrganizationID: organizationID,
 		DesktopName:    createName,
@@ -356,6 +385,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NestedVirt:     nestedVirt,
 		MarketType:     marketType,
 		Zone:           zone,
+		NoDNS:          createNoDNS,
 		OperatorCIDR:   cfg.Desktop.OperatorCIDR,
 		SSHKeyPath:     cfg.Desktop.SSHKeyPath,
 		GitHubSecret:   gitHubSecret,
@@ -372,9 +402,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	desktopID, err := desktop.GenerateID()
+	var idStore store.Store
+	if createDesktopID != "" {
+		idStore, err = openStore(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	desktopID, err := chooseCreateID(ctx, idStore, createDesktopID)
 	if err != nil {
-		return fmt.Errorf("generate desktop ID: %w", err)
+		return err
 	}
 
 	if marketType == store.MarketSpot {
@@ -408,17 +445,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
 	}
-	if err := pulumi.ValidateFoundationOutputs(foundationOutputs); err != nil {
+	if err := pulumi.ValidateFoundationOutputsForMode(foundationOutputs, createNoDNS); err != nil {
 		return fmt.Errorf("foundation stack incomplete (run init-foundation first): %w", err)
 	}
 
-	var s store.Store
+	var s store.Store = idStore
 	var ws store.WorkspaceStore
 	var attachedWorkspace *store.Workspace
 	if createWorkspaceMode == workspaceModeEFS || createName != "" {
-		s, err = openStore(ctx)
-		if err != nil {
-			return err
+		if s == nil {
+			s, err = openStore(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		if createName != "" {
 			if err := ensureDesktopNameAvailable(ctx, s, env, createName); err != nil {
@@ -575,6 +614,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
+		PublicGitHubSources:  publicGitHubSources,
 		TailscaleNetwork:     tailscaleNetwork,
 		TailscaleSecretPath:  tailscaleSecretPath,
 		StepCAServerDNS:      stepCAServer,
@@ -586,7 +626,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Environment:          env,
 		WorkspaceMode:        createWorkspaceMode,
 		WorkspaceName:        createWorkspaceName,
-		PackagesPreInstalled: amiID != "",
+		PackagesPreInstalled: amiID != "" && !createBootstrapPackages,
+		NoDNS:                createNoDNS,
 		SSHPublicKey:         sshPubKey,
 		GitUserName:          cfg.GitHub.GitUserName,
 		GitUserEmail:         cfg.GitHub.GitUserEmail,
@@ -594,7 +635,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
 	}
-	applyBootstrapSecretSources(bootCfg, cfg.GitHub.AgentSecret, secretPaths)
+	agentSecret := cfg.GitHub.AgentSecret
+	if cfg.SaaSMode {
+		agentSecret = ""
+	}
+	applyBootstrapSecretSources(bootCfg, agentSecret, secretPaths)
 	bootCfg.ProfileSecretPath = profileSecret
 	if attachedWorkspace != nil {
 		bootCfg.EFSFileSystemID = attachedWorkspace.EFSFileSystemID
@@ -631,6 +676,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			EFSAccessPointID: workspaceEFSAccessPointID(attachedWorkspace),
 		},
 	)
+	stackCfg["dnsEnabled"] = fmt.Sprintf("%t", !createNoDNS)
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
@@ -711,6 +757,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	ref := desktopRef
 	var outputs map[string]string
 	var lastErr error
+	var cleanupErr error
 	for i, candidate := range subnets {
 		prelaunchedInstanceID := ""
 		if i > 0 {
@@ -741,11 +788,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				spotMaxPrice:    createSpotMaxPrice,
 			}
 			launchCtx, cancel := context.WithTimeout(ctx, createTimeout)
-			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp, func(instanceID string) error {
+				persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return persistPrelaunchedInstance(persistCtx, s, desktopID, instanceID)
+			})
 			timedOut := launchCtx.Err() == context.DeadlineExceeded
 			cancel()
 			if launchErr != nil {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
+				if importID != "" {
+					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
+				} else if errors.Is(launchErr, errUnknownNestedLaunch) || errors.Is(launchErr, context.Canceled) || errors.Is(launchErr, context.DeadlineExceeded) || timedOut {
+					cleanupErr = launchErr
+				}
+				if cleanupErr != nil {
+					break
+				}
 				if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(launchErr)) || i == len(subnets)-1 {
 					break
 				}
@@ -766,8 +825,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			break
 		}
 		lastErr = err
-		cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
-		terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID)
+		cleanupErr = cleanupCreateAttempt(context.Background(), runner, ref, desktopID, err)
+		cleanupErr = errors.Join(cleanupErr, terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, prelaunchedInstanceID))
+		if cleanupErr != nil {
+			break
+		}
 		if marketType != store.MarketSpot || (!timedOut && !isCreateCapacityError(err)) || i == len(subnets)-1 {
 			break
 		}
@@ -775,11 +837,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
-		_ = s.Delete(ctx, desktopID)
-		if workspaceReserved {
-			_ = ws.DetachWorkspace(ctx, env, createWorkspaceName, desktopID)
-		}
-		return fmt.Errorf("create failed and was cleaned up: %w", lastErr)
+		return finalizeCreateFailure(ctx, s, ws, workspaceReserved, env, createWorkspaceName, desktopID, lastErr, cleanupErr)
 	}
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {
@@ -787,7 +845,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if desktopProfile != "" {
+	if desktopProfile != "" || createBootstrapPackages {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
@@ -798,7 +856,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
-	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, desktopProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+	readinessProfile := desktopProfile
+	if createBootstrapPackages && readinessProfile == "" {
+		readinessProfile = "bootstrap-packages"
+	}
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -1175,32 +1237,102 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func cleanupCreateAttempt(ctx context.Context, runner *pulumi.Runner, ref *pulumi.StackRef, desktopID string, cause error) {
+type createDestroyer interface {
+	Destroy(context.Context, *pulumi.StackRef, io.Writer) error
+}
+
+func cleanupCreateAttempt(ctx context.Context, runner createDestroyer, ref *pulumi.StackRef, desktopID string, cause error) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	fmt.Fprintf(os.Stderr, "Create attempt for %s failed; cleaning up stack %s ...\n", desktopID, ref.StackName)
 	if err := runner.Destroy(cleanupCtx, ref, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: cleanup for %s failed after create error %v: %v\n", desktopID, cause, err)
+		return err
 	}
+	return nil
 }
 
-func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) {
+func finalizeCreateFailure(ctx context.Context, s store.Store, ws store.WorkspaceStore, workspaceReserved bool, env, workspaceName, desktopID string, createErr, cleanupErr error) error {
+	if cleanupErr == nil && workspaceReserved {
+		if err := ws.DetachWorkspace(ctx, env, workspaceName, desktopID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			cleanupErr = fmt.Errorf("detach workspace: %w", err)
+		}
+	}
+	if cleanupErr == nil {
+		if err := s.Delete(ctx, desktopID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			cleanupErr = fmt.Errorf("delete fleet record: %w", err)
+		}
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("create failed; infrastructure or fleet cleanup needs reconciliation before retrying %s: %w (cleanup: %v)", desktopID, createErr, cleanupErr)
+	}
+	return fmt.Errorf("create failed and was cleaned up: %w", createErr)
+}
+
+func chooseCreateID(ctx context.Context, s store.Store, requested string) (string, error) {
+	if requested == "" {
+		return desktop.GenerateID()
+	}
+	if err := desktop.ValidateID(requested); err != nil {
+		return "", err
+	}
+	if s == nil {
+		return "", fmt.Errorf("fleet store is required for an explicit desktop ID")
+	}
+	_, err := s.Get(ctx, requested)
+	if err == nil {
+		return "", fmt.Errorf("desktop %q already exists; inspect its state before retrying", requested)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return "", fmt.Errorf("check desktop %q: %w", requested, err)
+	}
+	return requested, nil
+}
+
+func persistPrelaunchedInstance(ctx context.Context, s store.Store, desktopID, instanceID string) error {
+	d, err := s.Get(ctx, desktopID)
+	if err != nil {
+		return err
+	}
+	d.InstanceID = instanceID
+	return s.Update(ctx, d)
+}
+
+func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
 	if instanceID == "" {
-		return
+		return nil
 	}
 	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	awsCfg, err := awsx.LoadConfig(cleanupCtx, region, profile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not load AWS config to terminate pre-launched instance %s: %v\n", instanceID, err)
-		return
+		return err
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
+	description, err := ec2Client.DescribeInstances(cleanupCtx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	if err != nil {
+		return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
+	}
+	for _, reservation := range description.Reservations {
+		for _, instance := range reservation.Instances {
+			if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+				return nil
+			}
+		}
+	}
 	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
+		return err
 	}
+	if err := ec2sdk.NewInstanceTerminatedWaiter(ec2Client).Wait(cleanupCtx, &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	}, 2*time.Minute); err != nil {
+		return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
+	}
+	return nil
 }
 
 func isCreateCapacityError(err error) bool {
@@ -1616,6 +1748,8 @@ type instanceLaunchParams struct {
 	spotMaxPrice    string
 }
 
+var errUnknownNestedLaunch = errors.New("nested-virt launch outcome is unknown")
+
 // launchNestedVirtInstance launches an EC2 instance directly via RunInstances with
 // CpuOptions.NestedVirtualization=enabled, then returns the instance ID so that
 // Pulumi can import it instead of creating a new one.
@@ -1628,7 +1762,7 @@ type instanceLaunchParams struct {
 // on InstanceCpuOptionsArgs. The instance launch can then be handled entirely by
 // the Pulumi desktop stack program (infra/pulumi/desktop/main.go).
 // Track: https://github.com/pulumi/pulumi-aws/issues/XXXX
-func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams) (string, error) {
+func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams, persist func(string) error) (string, error) {
 	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
 	if err != nil {
 		return "", fmt.Errorf("load AWS config: %w", err)
@@ -1707,27 +1841,27 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	if err != nil {
 		return "", fmt.Errorf("run instance: %w", err)
 	}
-	if len(result.Instances) == 0 {
-		return "", fmt.Errorf("run instance returned no instances")
+	if len(result.Instances) == 0 || aws.ToString(result.Instances[0].InstanceId) == "" {
+		return "", fmt.Errorf("%w: run instance returned no instance identity", errUnknownNestedLaunch)
 	}
 
 	instanceID := aws.ToString(result.Instances[0].InstanceId)
-	fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", instanceID)
+	return completeNestedLaunch(instanceID, persist, func(id string) error {
+		fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", id)
+		waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
+		if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{id}}, 5*time.Minute); err != nil {
+			return fmt.Errorf("wait for instance running: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", id)
+		return nil
+	})
+}
 
-	waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
-	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}, 5*time.Minute); err != nil {
-		// Best-effort terminate to avoid leaving a billable instance behind.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		_, _ = ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
-			InstanceIds: []string{instanceID},
-		})
-		return "", fmt.Errorf("wait for instance running: %w", err)
+func completeNestedLaunch(instanceID string, persist, wait func(string) error) (string, error) {
+	if err := persist(instanceID); err != nil {
+		return instanceID, fmt.Errorf("persist prelaunched instance %s: %w", instanceID, err)
 	}
-	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
-	return instanceID, nil
+	return instanceID, wait(instanceID)
 }
 
 // resolveVolumeSize returns the effective EBS root volume size in GiB.

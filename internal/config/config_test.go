@@ -93,6 +93,18 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateSaaSModeAllowsScopedEnvironmentWithoutDNSZone(t *testing.T) {
+	c := &Config{SaaSMode: true, Fleet: FleetConfig{Environment: "orgabc123"}, Pulumi: PulumiConfig{BackendBucket: "orchael-desktops-state"}}
+	c.Defaults()
+	if err := c.Validate(); err != nil {
+		t.Fatalf("SaaS config should not require the fixed CLI DNS zone: %v", err)
+	}
+	c.SaaSMode = false
+	if err := c.Validate(); err == nil {
+		t.Fatal("standard config should still reject a nonstandard environment")
+	}
+}
+
 func TestLoadOrDefault_noFile(t *testing.T) {
 	c, err := LoadOrDefault("/nonexistent/path/config.yaml")
 	if err != nil {
@@ -100,6 +112,7 @@ func TestLoadOrDefault_noFile(t *testing.T) {
 	}
 	if c == nil {
 		t.Fatal("expected non-nil config")
+		return
 	}
 	// Defaults should be applied.
 	if c.AWS.Region != "us-east-1" {

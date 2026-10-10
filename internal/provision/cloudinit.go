@@ -38,6 +38,7 @@ type BootstrapConfig struct {
 	NoVNCHTTPSPort       int
 	CertbotEmail         string
 	GitHubSecretPath     string   // AWS Secrets Manager path: /ai-desktops/<owner>/github
+	PublicGitHubSources  bool     // clone public repositories and profiles without SSH credentials
 	AgentSecretPath      string   // AWS Secrets Manager path: /ai-desktops/<owner>/agents
 	ProfileSecretPath    string   // selected profile's required AWS Secrets Manager secret
 	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
@@ -51,6 +52,7 @@ type BootstrapConfig struct {
 	AWSRegion            string
 	Environment          string
 	PackagesPreInstalled bool
+	NoDNS                bool
 	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
 	GitUserName          string // git config user.name written to ubuntu's global git config
 	GitUserEmail         string // git config user.email written to ubuntu's global git config
@@ -714,7 +716,12 @@ runcmd:
   - ai-desktops-ts "certs_issued"
 {{- end}}
 
-{{- if .PackagesPreInstalled}}
+{{- if .NoDNS}}
+  # SaaS desktops have no public DNS or inbound desktop ports. Bridge enrollment
+  # and user access are configured separately; keep the existing desktop service.
+  - "systemctl enable novnc-desktop"
+  - "systemctl start novnc-desktop"
+{{- else if .PackagesPreInstalled}}
   # --- update ballast to latest version ---
   - "sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast update || echo 'WARNING: ballast update failed'"
 
@@ -744,6 +751,7 @@ runcmd:
 {{- end}}
 
 
+{{- if .GitHubSecretPath}}
   # --- retrieve GitHub credentials and configure SSH ---
   - |
     (
@@ -838,6 +846,7 @@ runcmd:
     unset GITHUB_LOGIN
     unset GITHUB_TOKEN
     )
+{{- end}}
 
 {{- if .AgentSecretPath}}
   # --- retrieve AI provider API keys and write bridgectl agents.env ---
@@ -1000,7 +1009,11 @@ runcmd:
     (
     set -e
     PROFILE_ROOT="/home/ubuntu/.local/share/ai-desktops/profiles/{{ .DesktopProfileOwner }}/{{ .DesktopProfileRepository }}"
+{{- if .PublicGitHubSources}}
+    PROFILE_SOURCE="https://github.com/{{ .DesktopProfileOwner }}/{{ .DesktopProfileRepository }}.git"
+{{- else}}
     PROFILE_SOURCE="git@github.com:{{ .DesktopProfileOwner }}/{{ .DesktopProfileRepository }}.git"
+{{- end}}
     PROFILE_DIR="$PROFILE_ROOT{{ if .DesktopProfilePath }}/{{ .DesktopProfilePath }}{{ end }}"
     install -d -o ubuntu -g ubuntu -m 700 "$(dirname "$PROFILE_ROOT")" || exit 1
     if [ ! -d "$PROFILE_ROOT/.git" ]; then
@@ -1008,7 +1021,11 @@ runcmd:
         echo "ERROR: desktop profile checkout path is occupied" >&2
         exit 1
       fi
+{{- if .PublicGitHubSources}}
+      sudo -H -u ubuntu env GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -c credential.helper= clone --depth 1 "$PROFILE_SOURCE" "$PROFILE_ROOT" || exit 1
+{{- else}}
       sudo -H -u ubuntu git clone --depth 1 "$PROFILE_SOURCE" "$PROFILE_ROOT" || exit 1
+{{- end}}
     fi
     if [ ! -f "$PROFILE_DIR/profile.yaml" ] || [ ! -f "$PROFILE_DIR/install.sh" ]; then
       echo "ERROR: desktop profile missing profile.yaml or install.sh" >&2
@@ -1052,7 +1069,11 @@ runcmd:
 
     DEST="$WORKSPACE/$REPO_NAME"
     if [ ! -d "$DEST/.git" ]; then
+{{- if $.PublicGitHubSources}}
+      sudo -H -u ubuntu env GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -c credential.helper= clone "https://github.com/${OWNER}/${REPO_NAME}.git" "$DEST"
+{{- else}}
       sudo -u ubuntu git clone "git@github.com:${OWNER}/${REPO_NAME}.git" "$DEST"
+{{- end}}
     fi
     )
 {{ end }}

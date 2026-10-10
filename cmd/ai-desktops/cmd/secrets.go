@@ -338,6 +338,21 @@ func desktopSecretPaths(agentPath string, additional []string) []string {
 	return paths
 }
 
+// createSecretPaths keeps operator agent credentials out of customer desktops.
+// The SaaS worker supplies no agent secret, even if its local config has one.
+func createSecretPaths(agentPath string, additional []string, saasMode bool) []string {
+	if !saasMode {
+		return desktopSecretPaths(agentPath, additional)
+	}
+	filtered := make([]string, 0, len(additional))
+	for _, path := range additional {
+		if path != agentPath || agentPath == "" {
+			filtered = append(filtered, path)
+		}
+	}
+	return desktopSecretPaths("", filtered)
+}
+
 // trackedSecretPaths orders only explicitly registered paths. It never opts a
 // legacy desktop into an agent secret merely because the local config has one.
 func trackedSecretPaths(agentPath string, paths []string) []string {

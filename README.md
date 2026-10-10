@@ -1,4 +1,4 @@
-# ai-desktops
+# desktopctl (`ai-desktops` CLI)
 
 [![CI](https://github.com/orchael/desktopctl/actions/workflows/ci.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/ci.yml)
 [![Release](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml)
@@ -6,6 +6,8 @@
 [![GitHub Release](https://img.shields.io/github/v/release/orchael/desktopctl)](https://github.com/orchael/desktopctl/releases)
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
+
+This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
 
 Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
 
@@ -475,6 +477,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - neovim (via snap)
 - Homebrew
 - Helm (via Homebrew; version from `helm_version` var)
+- tfenv (via Homebrew) with Terraform 1.16.5 installed and selected (version from `terraform_version` var)
 - Visual Studio Code stable (Microsoft's signed apt repository; version from `vscode_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
@@ -508,6 +511,8 @@ Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run 
 ```bash
 ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
 ```
+
+For a durable background job, pass a stable `--desktop-id d-0123abcd`. A repeated ID is rejected before another stack can be created. The [worker contract](docs/PROVISIONING_CONTRACT.md) covers temporary STS credentials, retries, and the required account setup. Check the effective AWS identity with `ai-desktops aws validate --account-id <12-digit-account-id>` before provisioning.
 
 Or use full GitHub URLs:
 
@@ -787,6 +792,8 @@ ai-desktops start d-a1b2c3d4
 ```bash
 ai-desktops terminate d-a1b2c3d4
 ```
+
+`ai-desktops destroy d-a1b2c3d4` is an equivalent alias.
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 

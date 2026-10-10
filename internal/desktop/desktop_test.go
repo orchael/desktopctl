@@ -97,6 +97,7 @@ func TestManager_CreateRecord(t *testing.T) {
 		DesktopName:    "factory-dev",
 		GitHubOwner:    "acme",
 		Zone:           "desktops.orchael.dev",
+		NoDNS:          true,
 		BackendBucket:  "my-bucket",
 		Environment:    "dev",
 		Repos:          []string{"github.com/acme/app"},
@@ -123,6 +124,9 @@ func TestManager_CreateRecord(t *testing.T) {
 	}
 	if d.OrganizationID != "00000000-0000-4000-8000-000000000001" {
 		t.Errorf("organization ID: got %q", d.OrganizationID)
+	}
+	if !d.NoDNS {
+		t.Error("no-DNS mode was not retained for the start lifecycle")
 	}
 	if d.InstanceType != "m7i.xlarge" {
 		t.Errorf("instance type: got %q", d.InstanceType)

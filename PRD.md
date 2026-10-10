@@ -293,7 +293,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `bridgectl` (pinned version). |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
 | FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
@@ -322,6 +322,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.14 | Packer pins and records the supported Playwright version; the AMI provisions its matching Chromium and headless binaries in a shared path readable by `ubuntu`, and propagates that path to interactive and systemd sessions | Static configuration test and live AMI validation |
 | AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
 | AC-9.16 | The AMI build downloads the exact pinned Microsoft `code` package from its apt repository, verifies its SHA-256 before installing with apt, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
+| AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
 
 ### FR-11 — GitHub developer tooling
 
@@ -651,6 +652,21 @@ control. Security reports must have a private route documented in `SECURITY.md`.
 | PUB-2 | The desktop web package publishes as `@orchael/desktopctl`, and AMI/runtime installation references the same package. |
 | PUB-3 | No GitHub Actions workflow publishes the control plane; the control plane guide gives reproducible web/API image build and Helm deployment steps. |
 | PUB-4 | `SECURITY.md` tells researchers which versions are supported and how to report a vulnerability privately. |
+
+## Desktops service boundary
+
+`orchael/desktopctl` remains an independently usable open-source CLI and AWS desktop runtime. Its reusable provisioning and lifecycle code owns Pulumi programs, AWS credentials supplied by the caller, desktop infrastructure, bootstrap, profiles, and bridgectl installation. `orchael/desktops` owns SaaS identity, organizations, customer AWS connections, tenant data, and asynchronous job orchestration. Crew will call Desktops later; Bridge continues to own devices and sessions.
+
+| ID | Acceptance criterion |
+| --- | --- |
+| BOUNDARY-1 | The repository documents its current components and classifies each important area as keep, move, refactor, or remove, without deleting working CLI behavior in the documentation change. |
+| BOUNDARY-2 | The CLI and Desktops worker use one desktopctl provisioning implementation. The integration contract accepts temporary AWS AssumeRole credentials and stable desktop identity for retries. |
+| BOUNDARY-3 | SaaS users, organizations, web authentication, tenant PostgreSQL records, and customer AWS account records live in Desktops. Existing control-plane functionality remains available until replacement is proven. |
+| BOUNDARY-4 | Desktop bootstrap keeps its bridgectl installation seam; Desktops does not own Bridge session data. Crew integration is deferred. |
+| BOUNDARY-5 | `create` accepts an explicit validated desktop ID for durable jobs; a repeated ID cannot silently create another desktop. Failure cleanup retains the fleet record when stack destruction fails. |
+| BOUNDARY-6 | `aws validate` checks the effective AWS identity through STS, including temporary session credentials, without printing secrets; `destroy` is an alias of the established `terminate` lifecycle command. |
+| BOUNDARY-7 | SaaS desktop bootstrap clones public GitHub repositories and profiles over HTTPS without operator credentials. Private sources require an explicitly selected customer GitHub secret, and public-only sources are checked anonymously before infrastructure is created. |
+| BOUNDARY-8 | A nested-virtualization instance launched before Pulumi import is recorded in the fleet before waiting for it to run. Failed cleanup retains its identity. `destroy` reconciles instances by desktop and environment tags when the instance ID is missing, verifies termination, and retains a failed record when an unknown launch outcome cannot be reconciled. |
 
 ## Future Enhancements
 

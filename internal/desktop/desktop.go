@@ -30,6 +30,20 @@ func GenerateID() (string, error) {
 	return "d-" + hex.EncodeToString(b), nil
 }
 
+// ValidateID accepts the stable identifier format used by existing Pulumi stacks.
+// It also prevents caller-supplied IDs from escaping stack and DNS namespaces.
+func ValidateID(id string) error {
+	if len(id) != 10 || !strings.HasPrefix(id, "d-") {
+		return fmt.Errorf("desktop ID must have form d- followed by eight lowercase hex characters")
+	}
+	for _, r := range id[2:] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return fmt.Errorf("desktop ID must have form d- followed by eight lowercase hex characters")
+		}
+	}
+	return nil
+}
+
 // StackName returns the Pulumi stack name for the given desktop ID.
 // This matches the name used by pulumi.DesktopStackRef (i.e. what the
 // `pulumi stack select` command receives).
@@ -61,6 +75,7 @@ type CreateRequest struct {
 	Repos          []string
 	InstanceType   string
 	Zone           string
+	NoDNS          bool
 	OperatorCIDR   string
 	SSHKeyPath     string
 	SSHKeyName     string // EC2 key pair name (registered in AWS)
@@ -124,6 +139,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		Environment:    req.Environment,
 		State:          store.StateCreating,
 		Hostname:       hostname,
+		NoDNS:          req.NoDNS,
 		NoVNCURL:       NoVNCURL(hostname),
 		SSHTarget:      SSHTarget(hostname),
 		AMIID:          req.AMIID,

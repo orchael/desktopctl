@@ -146,6 +146,52 @@ func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookInstallsTfenvWithHomebrew(t *testing.T) {
+	for _, want := range []string{
+		`    - name: Require terraform_version
+      ansible.builtin.assert:
+        that: terraform_version is defined and terraform_version | length > 0`,
+		`    - name: Install tfenv via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install tfenv
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/tfenv
+      become: false`,
+		`    - name: Install pinned Terraform via tfenv
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv install {{ terraform_version }}
+      args:
+        creates: /home/ubuntu/.config/tfenv/versions/{{ terraform_version }}/terraform
+      become: false`,
+		`    - name: Select pinned Terraform via tfenv
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv use {{ terraform_version }}
+      become: false`,
+		`    - name: Verify tfenv is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv --version
+      changed_when: false
+      become: false`,
+		`    - name: Verify pinned Terraform is selected
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/terraform version
+      register: terraform_ver_out
+      changed_when: false
+      become: false`,
+		`        that: terraform_ver_out.stdout_lines[0] == 'Terraform v' ~ terraform_version`,
+		`          terraform_version={{ terraform_version }}`,
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+}
+
+func TestAMIConfigurationPinsTerraformVersion(t *testing.T) {
+	assertFileContains(t, "variables.pkrvars.hcl", `terraform_version             = "1.16.5"`)
+	for _, want := range []string{
+		`variable "terraform_version"`,
+		`TerraformVersion           = var.terraform_version`,
+		`terraform_version=${var.terraform_version}`,
+		`terraform_version             = var.terraform_version`,
+	} {
+		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
+	}
+}
+
 func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
 	vars, err := os.ReadFile("variables.pkrvars.hcl")
 	if err != nil {

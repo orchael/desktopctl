@@ -55,6 +55,11 @@
         that: helm_version is defined and helm_version | length > 0
         fail_msg: "helm_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require terraform_version
+      ansible.builtin.assert:
+        that: terraform_version is defined and terraform_version | length > 0
+        fail_msg: "terraform_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
     - name: Require vscode_version
       ansible.builtin.assert:
         that: vscode_version is defined and vscode_version | length > 0
@@ -492,6 +497,47 @@
       args:
         creates: /home/linuxbrew/.linuxbrew/bin/helm
       become: false
+
+    - name: Install tfenv via Homebrew
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install tfenv
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/tfenv
+      become: false
+
+    - name: Create ubuntu tfenv configuration directory
+      ansible.builtin.file:
+        path: /home/ubuntu/.config/tfenv
+        state: directory
+        mode: "0755"
+      become: false
+
+    - name: Install pinned Terraform via tfenv
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv install {{ terraform_version }}
+      args:
+        creates: /home/ubuntu/.config/tfenv/versions/{{ terraform_version }}/terraform
+      become: false
+      environment:
+        TFENV_CONFIG_DIR: /home/ubuntu/.config/tfenv
+
+    - name: Check selected Terraform version
+      ansible.builtin.stat:
+        path: /home/ubuntu/.config/tfenv/version
+      register: tfenv_version_file
+      become: false
+
+    - name: Read selected Terraform version
+      ansible.builtin.slurp:
+        src: /home/ubuntu/.config/tfenv/version
+      register: tfenv_selected_version
+      when: tfenv_version_file.stat.exists
+      become: false
+
+    - name: Select pinned Terraform via tfenv
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv use {{ terraform_version }}
+      become: false
+      environment:
+        TFENV_CONFIG_DIR: /home/ubuntu/.config/tfenv
+      when: not tfenv_version_file.stat.exists or (tfenv_selected_version.content | b64decode | trim) != terraform_version
 
     - name: Get latest nvm release version
       ansible.builtin.uri:
@@ -1541,6 +1587,24 @@
       ansible.builtin.debug:
         msg: "Helm version: {{ helm_ver_out.stdout }}"
 
+    - name: Verify tfenv is installed
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/tfenv --version
+      changed_when: false
+      become: false
+
+    - name: Verify pinned Terraform is selected
+      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/terraform version
+      register: terraform_ver_out
+      changed_when: false
+      become: false
+      environment:
+        TFENV_CONFIG_DIR: /home/ubuntu/.config/tfenv
+
+    - name: Require the pinned Terraform version
+      ansible.builtin.assert:
+        that: terraform_ver_out.stdout_lines[0] == 'Terraform v' ~ terraform_version
+        fail_msg: "Terraform version mismatch — expected {{ terraform_version }}, got {{ terraform_ver_out.stdout_lines[0] }}"
+
     - name: Unmask unattended-upgrades timers before re-enabling
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -1580,6 +1644,7 @@
           uv_version={{ uv_version }}
           tailscale_version={{ tailscale_version }}
           helm_version={{ helm_version }}
+          terraform_version={{ terraform_version }}
           playwright_version={{ playwright_version }}
           playwright_browsers_path=/opt/ai-desktops/playwright-browsers
           desktop_web_version={{ desktop_web_version }}
