@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,6 +87,38 @@ func TestCreateWorkspaceAccessPoint(t *testing.T) {
 	}
 	if *client.createInput.PosixUser.Uid != ubuntuUID || *client.createInput.PosixUser.Gid != ubuntuGID {
 		t.Fatalf("posix user = %+v", client.createInput.PosixUser)
+	}
+}
+
+func TestCreateWorkspaceAccessPointMultiRepoTag(t *testing.T) {
+	repos := []string{
+		"github.com/buildfabricio/buildfabric",
+		"github.com/buildfabricio/buildfabric-gitops",
+		"github.com/buildfabricio/buildfabric-landing",
+	}
+	fingerprint := store.RepoFingerprint(repos)
+	client := &fakeEFSWorkspaceClient{}
+	w := &store.Workspace{
+		WorkspaceName:   "buildfabricio",
+		Environment:     "dev",
+		GitHubOwner:     "buildfabricio",
+		RepoFingerprint: fingerprint,
+		EFSFileSystemID: "fs-123",
+	}
+	if _, err := createWorkspaceAccessPoint(context.Background(), client, w); err != nil {
+		t.Fatalf("createWorkspaceAccessPoint: %v", err)
+	}
+	var tagValue string
+	for _, tag := range client.createInput.Tags {
+		if *tag.Key == "repo-fingerprint" {
+			tagValue = *tag.Value
+		}
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(tagValue) {
+		t.Fatalf("repo-fingerprint EFS tag = %q, want a 64-character hexadecimal digest", tagValue)
+	}
+	if w.RepoFingerprint != fingerprint {
+		t.Fatalf("workspace fingerprint changed: got %q, want %q", w.RepoFingerprint, fingerprint)
 	}
 }
 

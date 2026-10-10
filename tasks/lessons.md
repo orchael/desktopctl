@@ -59,6 +59,12 @@
 - Preventative rule: For package renames, verify registry scope and both fresh-install and in-place upgrade paths before declaring the migration complete.
 - Validation added: Targeted update-web tests check registry mapping, local package identity, shell syntax, and service migration before restart.
 - Next trigger to detect sooner: A package scope or runtime package name change.
+# 2026-10-08 Keep provider tags separate from internal fingerprints
+
+- Incident: Creating an EFS workspace with multiple repositories failed because the internal repo fingerprint joined names with newlines, which EFS rejects in tag values.
+- Preventative rule: When internal metadata is copied into cloud tags, validate the provider's character and length constraints at the API boundary. Store a stable digest in tags when the source can contain separators or grow beyond tag limits.
+- Trigger: Any new AWS tag derived from user input or a joined list.
+
 # 2026-10-10 Prove bootstrap credentials and cleanup identity at the boundary
 
 - Incident: SaaS create omitted the operator GitHub secret while bootstrap still used SSH clone URLs; a failed nested launch cleanup could retain a fleet record without the instance ID needed by destroy.

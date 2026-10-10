@@ -416,3 +416,12 @@ Mode: user-authorized runtime update. Governing requirements: AUTH-5 and AUTH-5a
 - [x] Run focused and full validation and record the results.
 
 Validation: the new pin and unit-ownership tests failed before implementation and passed afterward. `go test ./...`, `ansible-playbook --syntax-check playbook.yml`, and `git diff --check` pass. Downloaded `bridgectl_1.4.4_amd64.deb` SHA-256 is `fa922d9cb2c133158593e5e9f38db76f72d70a9c64bc8eaebd845a2ac7ce7455`, matching the GitHub release asset digest. A live AMI bake remains the rollout check.
+# Multi-repo EFS workspace tag hotfix
+
+Mode: autonomous bug fix. Governing criterion: AC-12.10. Scope: encode the EFS repo fingerprint tag as a fixed-length digest; preserve the existing workspace metadata fingerprint and desktop attachment comparison. Rollback: revert the tag encoding change for future access points; no workspace data migration is needed.
+
+- [x] Add a failing regression test for the multi-repo EFS access point tag.
+- [x] Change only the EFS tag value and verify the repo fingerprint stored for matching remains unchanged.
+- [x] Run focused and full Go tests, review the diff, and record results.
+
+Validation: `TestCreateWorkspaceAccessPointMultiRepoTag` failed before the fix on the newline-joined tag and passed afterward. `go test ./...`, `go build -o ./ai-desktops ./cmd/ai-desktops`, and `git diff --check` passed. The AWS create call has not been retried. The stored fingerprint and attachment comparison are unchanged; only the EFS tag contains its SHA-256 digest.
