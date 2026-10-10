@@ -383,6 +383,8 @@ Mode: user-authorized security and runtime fix. Governing criteria: BOUNDARY-7 a
 - [x] Add failing tests for SaaS clone selection and anonymous preflight.
 - [x] Add failing tests for retained prelaunch identity and destroy recovery.
 - [x] Implement the smallest coherent fixes and run targeted plus full Go validation.
-- [ ] Push PR #285, check CI, and complete the Copilot review cycle.
+- [x] Push PR #285, check CI eligibility, and request Copilot review.
 
 Validation: the four new regression tests failed to compile before implementation and passed after it. `go test ./...`, targeted package tests, `go test -cover` for internal packages (77.3% excluding AWS-dependent `internal/awsx`), `go build -buildvcs=false ./cmd/ai-desktops`, and `git diff --check` passed. The temporary Git worktree could not perform Go VCS stamping, so the CLI build used `-buildvcs=false`.
+
+PR #285 received commit `1d4be50`; pre-push Go tests and desktop web build/test passed. GitHub CI does not run for this stacked PR because CI and lint workflows target PRs based on `main`, while #285 targets `docs/desktopctl-boundary` (#284). Copilot review was requested but declined because the requesting account reached its review quota; there are no unresolved review threads.
