@@ -652,6 +652,21 @@ control. Security reports must have a private route documented in `SECURITY.md`.
 | PUB-3 | No GitHub Actions workflow publishes the control plane; the control plane guide gives reproducible web/API image build and Helm deployment steps. |
 | PUB-4 | `SECURITY.md` tells researchers which versions are supported and how to report a vulnerability privately. |
 
+## Desktops service boundary
+
+`orchael/desktopctl` remains an independently usable open-source CLI and AWS desktop runtime. Its reusable provisioning and lifecycle code owns Pulumi programs, AWS credentials supplied by the caller, desktop infrastructure, bootstrap, profiles, and bridgectl installation. `orchael/desktops` owns SaaS identity, organizations, customer AWS connections, tenant data, and asynchronous job orchestration. Crew will call Desktops later; Bridge continues to own devices and sessions.
+
+| ID | Acceptance criterion |
+| --- | --- |
+| BOUNDARY-1 | The repository documents its current components and classifies each important area as keep, move, refactor, or remove, without deleting working CLI behavior in the documentation change. |
+| BOUNDARY-2 | The CLI and Desktops worker use one desktopctl provisioning implementation. The integration contract accepts temporary AWS AssumeRole credentials and stable desktop identity for retries. |
+| BOUNDARY-3 | SaaS users, organizations, web authentication, tenant PostgreSQL records, and customer AWS account records live in Desktops. Existing control-plane functionality remains available until replacement is proven. |
+| BOUNDARY-4 | Desktop bootstrap keeps its bridgectl installation seam; Desktops does not own Bridge session data. Crew integration is deferred. |
+| BOUNDARY-5 | `create` accepts an explicit validated desktop ID for durable jobs; a repeated ID cannot silently create another desktop. Failure cleanup retains the fleet record when stack destruction fails. |
+| BOUNDARY-6 | `aws validate` checks the effective AWS identity through STS, including temporary session credentials, without printing secrets; `destroy` is an alias of the established `terminate` lifecycle command. |
+| BOUNDARY-7 | SaaS desktop bootstrap clones public GitHub repositories and profiles over HTTPS without operator credentials. Private sources require an explicitly selected customer GitHub secret, and public-only sources are checked anonymously before infrastructure is created. |
+| BOUNDARY-8 | A nested-virtualization instance launched before Pulumi import is recorded in the fleet before waiting for it to run. Failed cleanup retains its identity. `destroy` reconciles instances by desktop and environment tags when the instance ID is missing, verifies termination, and retains a failed record when an unknown launch outcome cannot be reconciled. |
+
 ## Future Enhancements
 
 - Authenticated external-user access to the application surface

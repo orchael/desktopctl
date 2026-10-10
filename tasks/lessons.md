@@ -59,3 +59,8 @@
 - Preventative rule: For package renames, verify registry scope and both fresh-install and in-place upgrade paths before declaring the migration complete.
 - Validation added: Targeted update-web tests check registry mapping, local package identity, shell syntax, and service migration before restart.
 - Next trigger to detect sooner: A package scope or runtime package name change.
+# 2026-10-10 Prove bootstrap credentials and cleanup identity at the boundary
+
+- Incident: SaaS create omitted the operator GitHub secret while bootstrap still used SSH clone URLs; a failed nested launch cleanup could retain a fleet record without the instance ID needed by destroy.
+- Preventative rule: Match clone transport to the credentials actually installed on the guest, and persist externally created resource IDs before any waiter or cleanup step can fail.
+- Trigger: Any provisioning path that changes credential sources or creates resources before infrastructure-as-code import.

@@ -423,7 +423,14 @@ func ParseOutputs(raw map[string]any) map[string]string {
 // ValidateFoundationOutputs checks that the required foundation stack outputs
 // are present.
 func ValidateFoundationOutputs(outputs map[string]string) error {
-	required := []string{OutputSubnetID, OutputSGID, OutputInstanceProfile, OutputZoneID}
+	return ValidateFoundationOutputsForMode(outputs, false)
+}
+
+func ValidateFoundationOutputsForMode(outputs map[string]string, noDNS bool) error {
+	required := []string{OutputSubnetID, OutputSGID, OutputInstanceProfile}
+	if !noDNS {
+		required = append(required, OutputZoneID)
+	}
 	for _, k := range required {
 		if outputs[k] == "" {
 			return fmt.Errorf("foundation stack output %q is missing or empty", k)

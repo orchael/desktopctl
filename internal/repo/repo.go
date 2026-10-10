@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -12,6 +13,20 @@ import (
 // output and any error. It is a package-level variable so tests can replace it.
 var lsRemote = func(ctx context.Context, sshURL string) ([]byte, error) {
 	return exec.CommandContext(ctx, "git", "ls-remote", "--quiet", sshURL).CombinedOutput() //nolint:gosec
+}
+
+// Public checks must not reuse the operator's Git credentials. A successful
+// check therefore proves that a fresh SaaS desktop can clone over HTTPS.
+var lsRemotePublic = func(ctx context.Context, httpsURL string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", "-c", "credential.helper=", "ls-remote", "--quiet", httpsURL) //nolint:gosec
+	cmd.Dir = "/"
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/nonexistent", "XDG_CONFIG_HOME=/nonexistent", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false"}
+	for _, key := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+		if value, ok := os.LookupEnv(key); ok {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
+	return cmd.CombinedOutput()
 }
 
 // Repo represents a parsed GitHub repository reference.
@@ -117,6 +132,13 @@ func (r *Repo) CheckAccessible(ctx context.Context) error {
 			msg = strings.TrimSpace(msg[:idx])
 		}
 		return fmt.Errorf("repository %s is not accessible: %s", r, msg)
+	}
+	return nil
+}
+
+func (r *Repo) CheckPublicAccessible(ctx context.Context) error {
+	if _, err := lsRemotePublic(ctx, r.HTTPS()); err != nil {
+		return fmt.Errorf("repository %s is not publicly readable over HTTPS: %w", r, err)
 	}
 	return nil
 }

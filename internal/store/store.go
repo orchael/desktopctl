@@ -64,6 +64,7 @@ type Desktop struct {
 	State          LifecycleState `dynamodbav:"lifecycle_state"  json:"lifecycle_state"`
 	InstanceID     string         `dynamodbav:"instance_id"      json:"instance_id"`
 	Hostname       string         `dynamodbav:"hostname"         json:"hostname"`
+	NoDNS          bool           `dynamodbav:"no_dns,omitempty"  json:"no_dns,omitempty"`
 	NoVNCURL       string         `dynamodbav:"novnc_url"        json:"novnc_url"`
 	SSHTarget      string         `dynamodbav:"ssh_target"       json:"ssh_target"`
 	AMIID          string         `dynamodbav:"ami_id,omitempty" json:"ami_id,omitempty"`

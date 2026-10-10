@@ -62,16 +62,18 @@ var NestedVirtInstanceFamilies = []string{
 
 // Config holds all operator configuration for ai-desktops.
 type Config struct {
-	AWS      AWSConfig      `yaml:"aws"`
-	Pulumi   PulumiConfig   `yaml:"pulumi"`
-	Fleet    FleetConfig    `yaml:"fleet"`
-	GitHub   GitHubConfig   `yaml:"github"`
-	Operator OperatorConfig `yaml:"operator,omitempty"`
-	Desktop  DesktopConfig  `yaml:"desktop"`
-	Agent    AgentConfig    `yaml:"agent"`
-	Network  NetworkConfig  `yaml:"network,omitempty"`
-	PKI      PKIConfig      `yaml:"pki,omitempty"`
-	Pool     PoolConfig     `yaml:"pool,omitempty"`
+	SaaSMode                bool           `yaml:"saas_mode,omitempty"`
+	SaaSInstanceProfileName string         `yaml:"saas_instance_profile_name,omitempty"`
+	AWS                     AWSConfig      `yaml:"aws"`
+	Pulumi                  PulumiConfig   `yaml:"pulumi"`
+	Fleet                   FleetConfig    `yaml:"fleet"`
+	GitHub                  GitHubConfig   `yaml:"github"`
+	Operator                OperatorConfig `yaml:"operator,omitempty"`
+	Desktop                 DesktopConfig  `yaml:"desktop"`
+	Agent                   AgentConfig    `yaml:"agent"`
+	Network                 NetworkConfig  `yaml:"network,omitempty"`
+	PKI                     PKIConfig      `yaml:"pki,omitempty"`
+	Pool                    PoolConfig     `yaml:"pool,omitempty"`
 }
 
 // PoolConfig controls the warm compute pool. Set PoolSize to 0 (the default)
@@ -335,8 +337,10 @@ func (c *Config) Validate() error {
 	if c.Desktop.OperatorCIDR == "" {
 		c.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
-	if _, err := c.DNSZone(); err != nil {
-		return err
+	if !c.SaaSMode {
+		if _, err := c.DNSZone(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

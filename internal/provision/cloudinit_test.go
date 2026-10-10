@@ -56,6 +56,28 @@ func TestRenderCloudInit(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_SaaSWithoutDNSOrGitHubSecret(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID: "d-1234abcd", Hostname: "d-1234abcd.invalid",
+		GitHubOwner: "orchael", AWSRegion: "ca-central-1", NoDNS: true,
+		PackagesPreInstalled: false,
+	}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatalf("RenderCloudInit: %v", err)
+	}
+	for _, forbidden := range []string{"certbot certonly", "ai-desktops-setup-tls", "aws secretsmanager get-secret-value", "gh auth setup-git"} {
+		if strings.Contains(out, forbidden) {
+			t.Errorf("SaaS cloud-init still contains %q", forbidden)
+		}
+	}
+	for _, required := range []string{"systemctl start novnc-desktop", "bridgectl"} {
+		if !strings.Contains(out, required) {
+			t.Errorf("SaaS cloud-init missing %q", required)
+		}
+	}
+}
+
 func TestRenderCloudInit_noNPMRCByDefault(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID:        "d-npm-default",
@@ -1240,9 +1262,10 @@ func TestRenderCloudInit_dockerEnableGating(t *testing.T) {
 
 func TestRenderCloudInit_agentProfile(t *testing.T) {
 	out, err := RenderCloudInit(&BootstrapConfig{
-		DesktopID:      "d-profile",
-		GitHubOwner:    "markcallen",
-		DesktopProfile: "markcallen/ai-desktop-profile",
+		DesktopID:        "d-profile",
+		GitHubOwner:      "markcallen",
+		GitHubSecretPath: "/ai-desktops/markcallen/github",
+		DesktopProfile:   "markcallen/ai-desktop-profile",
 	})
 	if err != nil {
 		t.Fatalf("RenderCloudInit: %v", err)
@@ -1274,6 +1297,32 @@ func TestRenderCloudInit_agentProfile(t *testing.T) {
 	}
 	if strings.Contains(block, "github_token") || strings.Contains(block, "ssh_private_key") {
 		t.Error("profile install block must not embed credentials")
+	}
+}
+
+func TestRenderCloudInit_publicGitHubSources(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{
+		DesktopID:           "d-public",
+		GitHubOwner:         "acme",
+		DesktopProfile:      "acme/profile",
+		Repos:               []string{"github.com/acme/app"},
+		WorkspacePath:       "/workspace",
+		PublicGitHubSources: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"https://github.com/acme/profile.git",
+		"https://github.com/${OWNER}/${REPO_NAME}.git",
+		"GIT_TERMINAL_PROMPT=0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("public bootstrap missing %q", want)
+		}
+	}
+	if strings.Contains(out, "git@github.com:") {
+		t.Error("public bootstrap must not require GitHub SSH authentication")
 	}
 }
 

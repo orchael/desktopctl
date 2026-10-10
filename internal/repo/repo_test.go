@@ -175,6 +175,21 @@ func TestCheckAccessible(t *testing.T) {
 	}
 }
 
+func TestCheckPublicAccessibleUsesAnonymousHTTPS(t *testing.T) {
+	r := &Repo{Owner: "acme", Name: "app"}
+	old := lsRemotePublic
+	t.Cleanup(func() { lsRemotePublic = old })
+	lsRemotePublic = func(_ context.Context, url string) ([]byte, error) {
+		if url != r.HTTPS() {
+			t.Fatalf("public check URL = %q", url)
+		}
+		return nil, fmt.Errorf("authentication required")
+	}
+	if err := r.CheckPublicAccessible(context.Background()); err == nil || !strings.Contains(err.Error(), "publicly readable") {
+		t.Fatalf("public check error = %v", err)
+	}
+}
+
 func TestRepoURLs(t *testing.T) {
 	r := &Repo{Owner: "acme", Name: "myapp"}
 	if got := r.HTTPS(); got != "https://github.com/acme/myapp.git" {
