@@ -398,11 +398,14 @@ Mode: user-authorized runtime fix and merge. Governing criterion: BOUNDARY-8. Sc
 - [x] Run full Go validation and coverage.
 - [x] Push PR #285 and request Copilot review.
 - [x] Merge stacked dependency #284 into main.
-- [ ] Retarget #285 to main, review feedback, get green Actions, then merge #285.
+- [x] Retarget #285 to main and check review feedback.
+- [ ] Get green Actions for #285, then merge it to main.
 
 Validation: regression tests failed to compile before implementation and pass after it. `go test ./...`, `go vet ./...`, `go build -buildvcs=false ./cmd/ai-desktops`, `golangci-lint run ./...` (0 issues), `git diff --check`, and internal coverage excluding AWS-dependent `internal/awsx` (77.3%) pass. The sandbox blocked loopback sockets for the coverage run; the approved unrestricted rerun passed.
 
 PR #285 received commit `5820628`. Pre-push hooks passed. Copilot review was requested. Dependency PR #284 merged as `0f14424` after all Actions succeeded and review threads were resolved.
+
+After merging main into the branch as `173261e`, PR #285 targets main and has no unresolved review threads. Copilot declined the new review because the requesting account reached its review quota. Retargeting alone did not start Actions; the next push will trigger them.
 
 # Bridge 1.4.4 managed desktop upgrade
 
