@@ -1,11 +1,38 @@
 package cmd
 
 import (
+	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 )
+
+type trackingDestroyRunner struct{ called bool }
+
+func (r *trackingDestroyRunner) Destroy(context.Context, *pulumi.StackRef, io.Writer) error {
+	r.called = true
+	return nil
+}
+
+func TestDestroyDesktopResourcesRecoversUnimportedInstance(t *testing.T) {
+	runner := &trackingDestroyRunner{}
+	d := &store.Desktop{DesktopID: "d-0123abcd", NestedVirt: true, InstanceID: "i-123", Region: "us-east-2"}
+	called := false
+	err := destroyDesktopResources(context.Background(), runner, &pulumi.StackRef{}, d, "customer", func(_ context.Context, region, profile, id string) error {
+		called = true
+		if !runner.called || region != "us-east-2" || profile != "customer" || id != "i-123" {
+			t.Fatalf("termination called with unexpected state: region=%q profile=%q id=%q", region, profile, id)
+		}
+		return errors.New("instance still running")
+	})
+	if !called || err == nil {
+		t.Fatalf("cleanup called = %v, error = %v", called, err)
+	}
+}
 
 func TestTerminateWarningLocalWorkspace(t *testing.T) {
 	got := terminateWarning(&store.Desktop{WorkspaceMode: workspaceModeLocal})

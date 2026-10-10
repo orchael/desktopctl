@@ -662,6 +662,8 @@ control. Security reports must have a private route documented in `SECURITY.md`.
 | BOUNDARY-4 | Desktop bootstrap keeps its bridgectl installation seam; Desktops does not own Bridge session data. Crew integration is deferred. |
 | BOUNDARY-5 | `create` accepts an explicit validated desktop ID for durable jobs; a repeated ID cannot silently create another desktop. Failure cleanup retains the fleet record when stack destruction fails. |
 | BOUNDARY-6 | `aws validate` checks the effective AWS identity through STS, including temporary session credentials, without printing secrets; `destroy` is an alias of the established `terminate` lifecycle command. |
+| BOUNDARY-7 | SaaS desktop bootstrap clones public GitHub repositories and profiles over HTTPS without operator credentials. Private sources require an explicitly selected customer GitHub secret, and public-only sources are checked anonymously before infrastructure is created. |
+| BOUNDARY-8 | A nested-virtualization instance launched before Pulumi import is recorded in the fleet immediately; failed cleanup retains its identity, and `destroy` verifies that instance is terminated before marking the fleet record terminated. |
 
 ## Future Enhancements
 

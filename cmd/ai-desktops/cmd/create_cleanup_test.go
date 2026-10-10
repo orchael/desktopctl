@@ -64,3 +64,22 @@ func TestFinalizeCreateFailureRetainsRecordOnCleanupOrDeleteFailure(t *testing.T
 		})
 	}
 }
+
+func TestPersistPrelaunchedInstanceSurvivesCleanupFailure(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	const id = "d-0123abcd"
+	if err := s.Create(ctx, &store.Desktop{DesktopID: id, NestedVirt: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistPrelaunchedInstance(ctx, s, id, "i-123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := finalizeCreateFailure(ctx, s, nil, false, "dev", "", id, errors.New("waiter failed"), errors.New("terminate failed")); err == nil {
+		t.Fatal("expected create failure")
+	}
+	d, err := s.Get(ctx, id)
+	if err != nil || d.InstanceID != "i-123" {
+		t.Fatalf("retained instance = %#v, error = %v", d, err)
+	}
+}

@@ -112,9 +112,12 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
+	if d.Region == "" {
+		d.Region = cfg.AWS.Region
+	}
+	if err := destroyDesktopResources(ctx, runner, ref, d, cfg.AWS.Profile, terminatePrelaunchedInstance); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
-		return fmt.Errorf("pulumi destroy: %w (desktop left running for diagnosis; record marked failed)", err)
+		return fmt.Errorf("destroy resources: %w (record marked failed for reconciliation)", err)
 	}
 
 	if err := s.MarkTerminated(ctx, id); err != nil {
@@ -133,6 +136,18 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Desktop %s terminated.\n", id)
+	return nil
+}
+
+func destroyDesktopResources(ctx context.Context, runner createDestroyer, ref *pulumi.StackRef, d *store.Desktop, profile string, terminateInstance func(context.Context, string, string, string) error) error {
+	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
+		return fmt.Errorf("pulumi destroy: %w", err)
+	}
+	if d.NestedVirt && d.InstanceID != "" {
+		if err := terminateInstance(ctx, d.Region, profile, d.InstanceID); err != nil {
+			return fmt.Errorf("verify nested instance %s terminated: %w", d.InstanceID, err)
+		}
+	}
 	return nil
 }
 

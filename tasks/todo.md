@@ -376,3 +376,13 @@ Mode: user-authorized repository identity, package, and security documentation c
 - [x] Validate builds, tests, package references, and documentation commands.
 
 Outcome: GitHub issues [#281](https://github.com/orchael/desktopctl/issues/281) and [#282](https://github.com/orchael/desktopctl/issues/282) track repository settings. The root and nested Go suites, CLI and control plane builds, both web builds and tests, lint, Prettier, Helm lint/template, and GoReleaser validation pass. Internal Go coverage is 77.2%. A sandboxed Go coverage attempt failed because loopback sockets and the module cache were restricted; the approved unsandboxed rerun passed. Release order: publish `@orchael/desktopctl` before baking a new AMI that installs it.
+# PR #285 Bosun follow-up: SaaS clones and prelaunch cleanup
+
+Mode: user-authorized security and runtime fix. Governing criteria: BOUNDARY-7 and BOUNDARY-8. Scope: select anonymous HTTPS for SaaS public sources, allow an explicit customer GitHub secret for private sources, persist prelaunched instance identity, and verify termination before closing the fleet record. Rollback: revert these changes before merge; no schema migration is required because the existing `instance_id` field is used.
+
+- [x] Add failing tests for SaaS clone selection and anonymous preflight.
+- [x] Add failing tests for retained prelaunch identity and destroy recovery.
+- [x] Implement the smallest coherent fixes and run targeted plus full Go validation.
+- [ ] Push PR #285, check CI, and complete the Copilot review cycle.
+
+Validation: the four new regression tests failed to compile before implementation and passed after it. `go test ./...`, targeted package tests, `go test -cover` for internal packages (77.3% excluding AWS-dependent `internal/awsx`), `go build -buildvcs=false ./cmd/ai-desktops`, and `git diff --check` passed. The temporary Git worktree could not perform Go VCS stamping, so the CLI build used `-buildvcs=false`.

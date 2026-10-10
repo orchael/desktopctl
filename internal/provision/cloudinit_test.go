@@ -1284,6 +1284,32 @@ func TestRenderCloudInit_agentProfile(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInit_publicGitHubSources(t *testing.T) {
+	out, err := RenderCloudInit(&BootstrapConfig{
+		DesktopID:           "d-public",
+		GitHubOwner:         "acme",
+		DesktopProfile:      "acme/profile",
+		Repos:               []string{"github.com/acme/app"},
+		WorkspacePath:       "/workspace",
+		PublicGitHubSources: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"https://github.com/acme/profile.git",
+		"https://github.com/${OWNER}/${REPO_NAME}.git",
+		"GIT_TERMINAL_PROMPT=0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("public bootstrap missing %q", want)
+		}
+	}
+	if strings.Contains(out, "git@github.com:") {
+		t.Error("public bootstrap must not require GitHub SSH authentication")
+	}
+}
+
 func TestRenderCloudInit_noDesktopProfile(t *testing.T) {
 	out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-default"})
 	if err != nil {

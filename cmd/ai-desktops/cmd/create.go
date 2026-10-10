@@ -67,6 +67,7 @@ var (
 	createNoNPMGitHubScopes bool
 	createDesktopProfile    string
 	createProfileSecret     string
+	createGitHubSecret      string
 	createNoDNS             bool
 	createBootstrapPackages bool
 )
@@ -118,6 +119,7 @@ func init() {
 	createCmd.Flags().BoolVar(&createNoNPMGitHubScopes, "no-npm-github-scopes", false, "ignore github.npm_github_scopes from config for this desktop")
 	createCmd.Flags().StringVar(&createDesktopProfile, "desktop-profile", "", "desktop setup profile owner/repository[:path] (overrides desktop.profile; empty disables it)")
 	createCmd.Flags().StringVar(&createProfileSecret, "profile-secret", "", "AWS Secrets Manager path for the selected desktop profile (overrides desktop.profile_secret)")
+	createCmd.Flags().StringVar(&createGitHubSecret, "github-secret", "", "AWS Secrets Manager path for GitHub clone credentials (required for private SaaS repositories or profiles)")
 	createCmd.Flags().BoolVar(&createNoDNS, "no-dns", false, "skip Route53 records for an account without a hosted zone")
 	createCmd.Flags().BoolVar(&createBootstrapPackages, "bootstrap-packages", false, "install desktop packages through cloud-init when using a base AMI")
 	rootCmd.AddCommand(createCmd)
@@ -239,6 +241,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
+	gitHubSecret := createGitHubSecret
+	if gitHubSecret == "" && !cfg.SaaSMode {
+		gitHubSecret = cfg.GitHub.GitHubSecret
+		if cfg.GitHub.Owner == "" {
+			gitHubSecret = "/ai-desktops/" + owner + "/github"
+		}
+	}
+	publicGitHubSources := cfg.SaaSMode && gitHubSecret == ""
 	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
 		tailscale:               createTailscale,
 		tailscaleNetwork:        createTailscaleNet,
@@ -279,10 +289,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		env = cfg.Fleet.Environment
 	}
 
-	// Verify every repo is reachable before touching any infrastructure.
+	// Verify credential-free SaaS sources anonymously. Operator SSH access is
+	// not evidence that a newly provisioned customer desktop can clone them.
+	if publicGitHubSources && desktopProfile != "" {
+		profileRef, _ := provision.ParseDesktopProfileReference(desktopProfile)
+		if err := (&repo.Repo{Owner: profileRef.Owner, Name: profileRef.Repository}).CheckPublicAccessible(ctx); err != nil {
+			return fmt.Errorf("desktop profile requires --github-secret or a public repository: %w", err)
+		}
+	}
 	for _, r := range repos {
 		fmt.Fprintf(os.Stderr, "Checking repository %s ...\n", r)
-		if err := r.CheckAccessible(ctx); err != nil {
+		var err error
+		if publicGitHubSources {
+			err = r.CheckPublicAccessible(ctx)
+		} else if !cfg.SaaSMode {
+			err = r.CheckAccessible(ctx)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -294,12 +317,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	secretPaths := createSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets, cfg.SaaSMode)
 	// Verify every configured secret before provisioning.
-	if len(secretPaths) > 0 {
+	secretsToValidate := append([]string(nil), secretPaths...)
+	if cfg.SaaSMode && gitHubSecret != "" {
+		secretsToValidate = append(secretsToValidate, gitHubSecret)
+	}
+	if len(secretsToValidate) > 0 {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			return fmt.Errorf("load AWS config to validate secrets: %w", err)
 		}
-		for _, secretPath := range secretPaths {
+		for _, secretPath := range secretsToValidate {
 			fmt.Fprintf(os.Stderr, "Checking secret %s ...\n", secretPath)
 			ok, err := awsx.SecretExists(ctx, awsCfg, secretPath)
 			if err != nil {
@@ -344,17 +371,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if amiID == "" {
 		return fmt.Errorf("no AMI configured for region %s: run `ai-desktops ami build` first or supply --ami", cfg.AWS.Region)
-	}
-
-	// cfg.GitHub.GitHubSecret defaults to /ai-desktops/github/pat when github.owner
-	// is absent from the config file. Re-derive from the effective owner so that
-	// --github-owner on the CLI resolves to the correct path.
-	gitHubSecret := cfg.GitHub.GitHubSecret
-	if cfg.GitHub.Owner == "" {
-		gitHubSecret = "/ai-desktops/" + owner + "/github"
-	}
-	if cfg.SaaSMode {
-		gitHubSecret = ""
 	}
 
 	req := &desktop.CreateRequest{
@@ -598,6 +614,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
+		PublicGitHubSources:  publicGitHubSources,
 		TailscaleNetwork:     tailscaleNetwork,
 		TailscaleSecretPath:  tailscaleSecretPath,
 		StepCAServerDNS:      stepCAServer,
@@ -774,6 +791,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
 			timedOut := launchCtx.Err() == context.DeadlineExceeded
 			cancel()
+			if importID != "" {
+				if err := persistPrelaunchedInstance(ctx, s, desktopID, importID); err != nil {
+					lastErr = fmt.Errorf("persist prelaunched instance %s: %w", importID, err)
+					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
+					break
+				}
+			}
 			if launchErr != nil {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
 				if importID != "" {
@@ -1268,6 +1292,15 @@ func chooseCreateID(ctx context.Context, s store.Store, requested string) (strin
 	return requested, nil
 }
 
+func persistPrelaunchedInstance(ctx context.Context, s store.Store, desktopID, instanceID string) error {
+	d, err := s.Get(ctx, desktopID)
+	if err != nil {
+		return err
+	}
+	d.InstanceID = instanceID
+	return s.Update(ctx, d)
+}
+
 func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
 	if instanceID == "" {
 		return nil
@@ -1280,6 +1313,17 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 		return err
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
+	description, err := ec2Client.DescribeInstances(cleanupCtx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	if err != nil {
+		return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
+	}
+	for _, reservation := range description.Reservations {
+		for _, instance := range reservation.Instances {
+			if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+				return nil
+			}
+		}
+	}
 	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	}); err != nil {
