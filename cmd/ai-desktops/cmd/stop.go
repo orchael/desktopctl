@@ -42,15 +42,23 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("desktop %q has no instance ID — it may not be fully provisioned", id)
 	}
 
-	awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+	region := d.Region
+	if region == "" {
+		region = cfg.AWS.Region
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
 	if err != nil {
 		return fmt.Errorf("AWS config: %w", err)
 	}
 
 	mgr := desktop.NewManager(s)
 
-	if d.NestedVirt {
-		fmt.Printf("Stopping instance %s (nested virtualization enabled; hibernation not supported) ...\n", d.InstanceID)
+	status, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+	if err != nil {
+		return fmt.Errorf("instance status: %w", err)
+	}
+	if d.NestedVirt || !status.HibernationConfigured {
+		fmt.Printf("Stopping instance %s (hibernation not configured) ...\n", d.InstanceID)
 		if err := awsx.HaltInstance(ctx, awsCfg, d.InstanceID); err != nil {
 			return err
 		}

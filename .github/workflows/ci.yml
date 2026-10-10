@@ -25,6 +25,10 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Test desktop provisioning stack
+        working-directory: infra/pulumi/desktop
+        run: go test ./...
+
       - name: Run tests with coverage
         # Exclude awsx (pure AWS SDK wrappers) and cmd (entrypoints) from the threshold;
         # those require integration tests against real AWS.

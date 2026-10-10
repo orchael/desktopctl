@@ -218,7 +218,11 @@ func (s *Service) StopDesktop(ctx context.Context, organizationID, id string) (*
 	}
 	callCtx, cancel := context.WithTimeout(ctx, s.lifecycleTimeout)
 	defer cancel()
-	if d.NestedVirt {
+	status, err := awsx.InstanceStatus(callCtx, s.awsCfg, d.InstanceID)
+	if err != nil {
+		return nil, fmt.Errorf("instance status: %w", err)
+	}
+	if d.NestedVirt || !status.HibernationConfigured {
 		err = awsx.HaltInstance(callCtx, s.awsCfg, d.InstanceID)
 	} else {
 		err = awsx.StopInstance(callCtx, s.awsCfg, d.InstanceID)

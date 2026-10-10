@@ -586,6 +586,39 @@ ai-desktops create --repo myorg/my-app --no-npm-github-scopes
 - Prints the Pulumi stack name to run next: `cd infra/pulumi/desktop && pulumi stack select <stack> && pulumi up`
 - Cloud-init installs tools, retrieves GitHub PAT from AWS Secrets Manager/SSM, and clones repos under `/workspace`
 
+#### Native Spot hibernation
+
+Use the existing Spot flag with a hibernation-compatible desktop AMI:
+
+```bash
+ai-desktops create --spot --instance-type m6i.xlarge --repo myorg/my-app
+```
+
+The stack checks AWS's instance-type hibernation capability. Compatible Spot
+instances launch with hibernation enabled and a persistent Spot request whose
+interruption behavior is `hibernate`. AWS saves RAM to the encrypted root EBS
+volume when reclaiming capacity; no shutdown listener or CLI invocation is
+required. Unsupported instance types, Linux instances above 150 GiB RAM, and nested-virtualization desktops retain
+`stop` interruption behavior, which preserves EBS but loses running processes.
+The AMI must support hibernation, and the root volume must have enough free space
+for RAM plus normal desktop usage. Capability lookup failures abort provisioning.
+
+AWS controls resumption after an AWS-initiated interruption. Only AWS can resume
+that instance when matching Spot capacity returns. A desktop hibernated by the
+user through `stop` can be resumed with `start`, subject to Spot capacity. Run
+`status` to reconcile fleet state and `start` after AWS has resumed the instance
+to refresh DNS if its public IP changed. Resumption preserves the EC2 instance
+identity; it does not launch a replacement desktop. Network connections may need
+to reconnect even though local processes survive.
+
+This applies to newly created desktops. Existing Spot desktops were launched
+without hibernation; recreate them deliberately to opt in. Review Pulumi previews:
+changing launch-time hibernation settings on an existing stack can replace its
+instance and delete its local root workspace. Retain work before replacement.
+
+See [AWS interruption behavior](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/interruption-behavior.html)
+and [Spot hibernation and resume restrictions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-hibernate-overview.html).
+
 ### 6. Inspect fleet
 
 ```bash
@@ -785,7 +818,7 @@ ai-desktops stop d-a1b2c3d4    # hibernates: RAM + disk preserved
 ai-desktops start d-a1b2c3d4
 ```
 
-`stop` hibernates the instance — the kernel writes RAM to the encrypted root EBS volume, then the instance stops. `start` resumes it; running processes continue from where they left off. Resume typically takes 30–60 seconds.
+`stop` checks the live EC2 hibernation configuration. When enabled, it hibernates the instance — the kernel writes RAM to the encrypted root EBS volume, then the instance stops. `start` resumes it; running processes continue from where they left off. Resume typically takes 30–60 seconds. Instances without hibernation configured power-stop instead; RAM and running processes are lost.
 
 ### 14. Terminate
 

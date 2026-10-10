@@ -107,9 +107,17 @@ func run(ctx *pulumi.Context) error {
 		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
 	}
 
-	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
-	// are also configured to stop on interruption, so keep hibernation disabled.
-	hibernation := !nestedVirtualization && marketType != "spot"
+	// Nested virtualization is incompatible with hibernation. For ordinary
+	// Spot desktops, query AWS instead of assuming every instance type supports it.
+	hibernation := !nestedVirtualization
+	if marketType == "spot" && !nestedVirtualization {
+		info, err := ec2.GetInstanceType(ctx, &ec2.GetInstanceTypeArgs{InstanceType: instanceType})
+		if err != nil {
+			return fmt.Errorf("look up hibernation support for %s: %w", instanceType, err)
+		}
+		// The desktop AMI runs Linux, which supports hibernation up to 150 GiB RAM.
+		hibernation = info.HibernationSupported && info.MemorySize <= 150*1024
+	}
 
 	instanceArgs := &ec2.InstanceArgs{
 		Ami:                      pulumi.String(amiID),
@@ -147,8 +155,12 @@ func run(ctx *pulumi.Context) error {
 		instanceArgs.KeyName = pulumi.String(sshKeyName)
 	}
 	if marketType == "spot" {
+		interruptionBehavior := "stop"
+		if hibernation {
+			interruptionBehavior = "hibernate"
+		}
 		spotOptions := &ec2.InstanceInstanceMarketOptionsSpotOptionsArgs{
-			InstanceInterruptionBehavior: pulumi.String("stop"),
+			InstanceInterruptionBehavior: pulumi.String(interruptionBehavior),
 			SpotInstanceType:             pulumi.String("persistent"),
 		}
 		if spotMaxPrice != "" {
