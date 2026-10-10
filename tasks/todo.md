@@ -396,7 +396,20 @@ Mode: user-authorized runtime fix and merge. Governing criterion: BOUNDARY-8. Sc
 - [x] Add failing regression tests for persistence ordering and missing-ID reconciliation.
 - [x] Implement launch and destroy recovery.
 - [x] Run full Go validation and coverage.
-- [ ] Push PR #285 and review feedback.
-- [ ] Merge stacked dependency #284, get green Actions for #285 on main, then merge #285.
+- [x] Push PR #285 and request Copilot review.
+- [x] Merge stacked dependency #284 into main.
+- [ ] Retarget #285 to main, review feedback, get green Actions, then merge #285.
 
 Validation: regression tests failed to compile before implementation and pass after it. `go test ./...`, `go vet ./...`, `go build -buildvcs=false ./cmd/ai-desktops`, `golangci-lint run ./...` (0 issues), `git diff --check`, and internal coverage excluding AWS-dependent `internal/awsx` (77.3%) pass. The sandbox blocked loopback sockets for the coverage run; the approved unrestricted rerun passed.
+
+PR #285 received commit `5820628`. Pre-push hooks passed. Copilot review was requested. Dependency PR #284 merged as `0f14424` after all Actions succeeded and review threads were resolved.
+
+# Bridge 1.4.4 managed desktop upgrade
+
+Mode: user-authorized runtime update. Governing requirements: AUTH-5 and AUTH-5a. Scope: pin 1.4.4 for new desktops, prevent the package's generic user unit from competing with the configured desktop unit, and document the safe in-place upgrade. Rollout: build and activate a new AMI after merge; existing desktops require a deliberate package upgrade and service restart. Rollback: restore the previous AMI/pin and disable the generic unit on affected hosts. The existing branch remains isolated in a parent-directory worktree.
+
+- [x] Confirm the v1.4.4 amd64 package digest and add failing pin and unit-ownership tests.
+- [x] Update the Packer image and cloud-init bootstrap, then document in-place upgrade steps.
+- [x] Run focused and full validation and record the results.
+
+Validation: the new pin and unit-ownership tests failed before implementation and passed afterward. `go test ./...`, `ansible-playbook --syntax-check playbook.yml`, and `git diff --check` pass. Downloaded `bridgectl_1.4.4_amd64.deb` SHA-256 is `fa922d9cb2c133158593e5e9f38db76f72d70a9c64bc8eaebd845a2ac7ce7455`, matching the GitHub release asset digest. A live AMI bake remains the rollout check.

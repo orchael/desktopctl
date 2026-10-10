@@ -1,5 +1,7 @@
 # Execution lessons
 
+- On managed desktops, a package-provided user unit can coexist with the desktop's configured unit under a different name. Mask the generic unit during provisioning and document which unit to restart after upgrades; a package install leaves an already running process on the old executable.
+
 - Configuration ownership should follow the thing being configured: a general desktop profile belongs under `desktop`, even if its first examples configure agents. When a profile secret is tied to a default profile, a per-desktop profile override must not inherit that default secret; track the chosen secret with the desktop and load it before the installer runs.
 
 - A documented configuration key is not an implemented feature: verify the config struct, CLI selection, and rendered bootstrap all carry it before testing a live desktop. Resolve profile repository names against the actual private repo and the desktop's GitHub identity before provisioning.

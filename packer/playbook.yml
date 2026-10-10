@@ -1052,6 +1052,13 @@
         group: ubuntu
         mode: "0644"
 
+    - name: Mask package bridge user service for ubuntu
+      ansible.builtin.file:
+        path: /home/ubuntu/.config/systemd/user/bridge.service
+        src: /dev/null
+        state: link
+        force: true
+
     - name: Enable linger for ubuntu so user services start at boot
       ansible.builtin.command: loginctl enable-linger ubuntu
       args:

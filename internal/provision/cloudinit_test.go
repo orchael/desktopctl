@@ -599,7 +599,7 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 
 func TestBridgectlReleasePin(t *testing.T) {
 	// AUTH-5: image builds and boot-time validation must target the same release.
-	const want = "v1.4.3"
+	const want = "v1.4.4"
 	if BridgectlVersion != want {
 		t.Errorf("CLI bridge pin = %q, want %q", BridgectlVersion, want)
 	}
@@ -619,8 +619,24 @@ func TestBridgectlReleasePin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.3"`) {
-			t.Errorf("cloud-init must require package 1.4.3 (preinstalled=%v)", preinstalled)
+		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.4"`) {
+			t.Errorf("cloud-init must require package 1.4.4 (preinstalled=%v)", preinstalled)
+		}
+	}
+}
+
+func TestRenderCloudInitMasksGenericBridgeUnit(t *testing.T) {
+	// AUTH-5a: the package unit must not compete with the desktop-configured unit.
+	for _, preinstalled := range []bool{false, true} {
+		out, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-bridge-unit", PackagesPreInstalled: preinstalled})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stop := strings.Index(out, "systemctl --user disable --now bridge.service")
+		mask := strings.Index(out, "ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service")
+		start := strings.Index(out, "systemctl --user start bridgectl")
+		if stop < 0 || mask < 0 || start < 0 || stop >= mask || mask >= start {
+			t.Errorf("generic unit must be stopped and masked before desktop unit starts (preinstalled=%v)", preinstalled)
 		}
 	}
 }
