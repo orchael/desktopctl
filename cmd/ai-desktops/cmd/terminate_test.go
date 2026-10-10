@@ -22,7 +22,9 @@ func TestDestroyDesktopResourcesRecoversUnimportedInstance(t *testing.T) {
 	runner := &trackingDestroyRunner{}
 	d := &store.Desktop{DesktopID: "d-0123abcd", NestedVirt: true, InstanceID: "i-123", Region: "us-east-2"}
 	called := false
-	err := destroyDesktopResources(context.Background(), runner, &pulumi.StackRef{}, d, "customer", func(_ context.Context, region, profile, id string) error {
+	err := destroyDesktopResources(context.Background(), runner, &pulumi.StackRef{}, d, "customer", func(context.Context, string, string, *store.Desktop) ([]string, error) {
+		return nil, nil
+	}, func(_ context.Context, region, profile, id string) error {
 		called = true
 		if !runner.called || region != "us-east-2" || profile != "customer" || id != "i-123" {
 			t.Fatalf("termination called with unexpected state: region=%q profile=%q id=%q", region, profile, id)
@@ -31,6 +33,40 @@ func TestDestroyDesktopResourcesRecoversUnimportedInstance(t *testing.T) {
 	})
 	if !called || err == nil {
 		t.Fatalf("cleanup called = %v, error = %v", called, err)
+	}
+}
+
+func TestDestroyDesktopResourcesReconcilesUnknownLaunch(t *testing.T) {
+	runner := &trackingDestroyRunner{}
+	d := &store.Desktop{DesktopID: "d-0123abcd", Environment: "dev", NestedVirt: true, Region: "us-east-2"}
+	called := false
+	err := destroyDesktopResources(context.Background(), runner, &pulumi.StackRef{}, d, "customer", func(_ context.Context, region, profile string, desktop *store.Desktop) ([]string, error) {
+		if !runner.called || region != "us-east-2" || profile != "customer" || desktop != d {
+			t.Fatal("tag reconciliation did not follow stack destroy with correct scope")
+		}
+		return []string{"i-orphan"}, nil
+	}, func(_ context.Context, _, _, id string) error {
+		called = true
+		if id != "i-orphan" {
+			t.Fatalf("terminated %q", id)
+		}
+		return nil
+	})
+	if err != nil || !called {
+		t.Fatalf("reconcile error = %v, terminated = %v", err, called)
+	}
+}
+
+func TestDestroyDesktopResourcesRetainsUnknownLaunchWithoutMatch(t *testing.T) {
+	d := &store.Desktop{DesktopID: "d-0123abcd", Environment: "dev", NestedVirt: true, Region: "us-east-2"}
+	err := destroyDesktopResources(context.Background(), &trackingDestroyRunner{}, &pulumi.StackRef{}, d, "customer", func(context.Context, string, string, *store.Desktop) ([]string, error) {
+		return nil, nil
+	}, func(context.Context, string, string, string) error {
+		t.Fatal("should not terminate an unknown instance")
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot confirm") {
+		t.Fatalf("expected unreconciled launch error, got %v", err)
 	}
 }
 

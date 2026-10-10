@@ -788,16 +788,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				spotMaxPrice:    createSpotMaxPrice,
 			}
 			launchCtx, cancel := context.WithTimeout(ctx, createTimeout)
-			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp)
+			importID, launchErr := launchNestedVirtInstance(launchCtx, cfg.AWS.Region, cfg.AWS.Profile, lp, func(instanceID string) error {
+				persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return persistPrelaunchedInstance(persistCtx, s, desktopID, instanceID)
+			})
 			timedOut := launchCtx.Err() == context.DeadlineExceeded
 			cancel()
-			if importID != "" {
-				if err := persistPrelaunchedInstance(ctx, s, desktopID, importID); err != nil {
-					lastErr = fmt.Errorf("persist prelaunched instance %s: %w", importID, err)
-					cleanupErr = terminatePrelaunchedInstance(context.Background(), cfg.AWS.Region, cfg.AWS.Profile, importID)
-					break
-				}
-			}
 			if launchErr != nil {
 				lastErr = fmt.Errorf("launch nested-virt instance: %w", launchErr)
 				if importID != "" {
@@ -1765,7 +1762,7 @@ var errUnknownNestedLaunch = errors.New("nested-virt launch outcome is unknown")
 // on InstanceCpuOptionsArgs. The instance launch can then be handled entirely by
 // the Pulumi desktop stack program (infra/pulumi/desktop/main.go).
 // Track: https://github.com/pulumi/pulumi-aws/issues/XXXX
-func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams) (string, error) {
+func launchNestedVirtInstance(ctx context.Context, region, profile string, p *instanceLaunchParams, persist func(string) error) (string, error) {
 	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
 	if err != nil {
 		return "", fmt.Errorf("load AWS config: %w", err)
@@ -1844,23 +1841,27 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 	if err != nil {
 		return "", fmt.Errorf("run instance: %w", err)
 	}
-	if len(result.Instances) == 0 {
+	if len(result.Instances) == 0 || aws.ToString(result.Instances[0].InstanceId) == "" {
 		return "", fmt.Errorf("%w: run instance returned no instance identity", errUnknownNestedLaunch)
 	}
 
 	instanceID := aws.ToString(result.Instances[0].InstanceId)
-	fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", instanceID)
+	return completeNestedLaunch(instanceID, persist, func(id string) error {
+		fmt.Fprintf(os.Stderr, "Nested virt: instance %s launched, waiting for running state ...\n", id)
+		waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
+		if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{id}}, 5*time.Minute); err != nil {
+			return fmt.Errorf("wait for instance running: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", id)
+		return nil
+	})
+}
 
-	waiter := ec2sdk.NewInstanceRunningWaiter(ec2Client)
-	if err := waiter.Wait(ctx, &ec2sdk.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}, 5*time.Minute); err != nil {
-		// Return the instance ID so the caller can confirm cleanup before deleting
-		// the fleet record or trying another Spot placement.
-		return instanceID, fmt.Errorf("wait for instance running: %w", err)
+func completeNestedLaunch(instanceID string, persist, wait func(string) error) (string, error) {
+	if err := persist(instanceID); err != nil {
+		return instanceID, fmt.Errorf("persist prelaunched instance %s: %w", instanceID, err)
 	}
-	fmt.Fprintf(os.Stderr, "Nested virt: instance %s running with NestedVirtualization=enabled\n", instanceID)
-	return instanceID, nil
+	return instanceID, wait(instanceID)
 }
 
 // resolveVolumeSize returns the effective EBS root volume size in GiB.

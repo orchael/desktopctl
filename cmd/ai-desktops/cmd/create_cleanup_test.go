@@ -83,3 +83,24 @@ func TestPersistPrelaunchedInstanceSurvivesCleanupFailure(t *testing.T) {
 		t.Fatalf("retained instance = %#v, error = %v", d, err)
 	}
 }
+
+func TestCompleteNestedLaunchPersistsBeforeWait(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	const id = "d-0123abcd"
+	if err := s.Create(ctx, &store.Desktop{DesktopID: id, NestedVirt: true}); err != nil {
+		t.Fatal(err)
+	}
+	gotID, err := completeNestedLaunch("i-123", func(instanceID string) error {
+		return persistPrelaunchedInstance(ctx, s, id, instanceID)
+	}, func(instanceID string) error {
+		d, getErr := s.Get(ctx, id)
+		if getErr != nil || d.InstanceID != instanceID {
+			t.Fatalf("instance was not persisted before waiter: desktop=%#v error=%v", d, getErr)
+		}
+		return errors.New("wait interrupted")
+	})
+	if gotID != "i-123" || err == nil {
+		t.Fatalf("got ID %q, error %v", gotID, err)
+	}
+}

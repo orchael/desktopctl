@@ -388,3 +388,15 @@ Mode: user-authorized security and runtime fix. Governing criteria: BOUNDARY-7 a
 Validation: the four new regression tests failed to compile before implementation and passed after it. `go test ./...`, targeted package tests, `go test -cover` for internal packages (77.3% excluding AWS-dependent `internal/awsx`), `go build -buildvcs=false ./cmd/ai-desktops`, and `git diff --check` passed. The temporary Git worktree could not perform Go VCS stamping, so the CLI build used `-buildvcs=false`.
 
 PR #285 received commit `1d4be50`; pre-push Go tests and desktop web build/test passed. GitHub CI does not run for this stacked PR because CI and lint workflows target PRs based on `main`, while #285 targets `docs/desktopctl-boundary` (#284). Copilot review was requested but declined because the requesting account reached its review quota; there are no unresolved review threads.
+
+## PR #285 Bosun follow-up: interrupted launches and unknown outcomes
+
+Mode: user-authorized runtime fix and merge. Governing criterion: BOUNDARY-8. Scope: persist a returned EC2 instance ID before the running waiter and reconcile tagged instances during destroy when the ID was never returned. Test ordering and missing-ID recovery. Rollback: revert the branch before merge; no schema change.
+
+- [x] Add failing regression tests for persistence ordering and missing-ID reconciliation.
+- [x] Implement launch and destroy recovery.
+- [x] Run full Go validation and coverage.
+- [ ] Push PR #285 and review feedback.
+- [ ] Merge stacked dependency #284, get green Actions for #285 on main, then merge #285.
+
+Validation: regression tests failed to compile before implementation and pass after it. `go test ./...`, `go vet ./...`, `go build -buildvcs=false ./cmd/ai-desktops`, `golangci-lint run ./...` (0 issues), `git diff --check`, and internal coverage excluding AWS-dependent `internal/awsx` (77.3%) pass. The sandbox blocked loopback sockets for the coverage run; the approved unrestricted rerun passed.
