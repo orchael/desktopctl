@@ -175,6 +175,15 @@ func TestValidateFoundationOutputs(t *testing.T) {
 	if err := ValidateFoundationOutputs(bad); err == nil {
 		t.Error("expected error for incomplete outputs")
 	}
+	noDNS := map[string]string{
+		OutputSubnetID: "subnet-abc", OutputSGID: "sg-abc", OutputInstanceProfile: "my-profile",
+	}
+	if err := ValidateFoundationOutputsForMode(noDNS, true); err != nil {
+		t.Errorf("SaaS foundation without a hosted zone should be valid: %v", err)
+	}
+	if err := ValidateFoundationOutputsForMode(noDNS, false); err == nil {
+		t.Error("standard foundation must still require a hosted zone")
+	}
 }
 
 // fakePulumiDir writes a shell script named "pulumi" into a temp directory

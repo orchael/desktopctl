@@ -511,6 +511,8 @@ Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run 
 ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
 ```
 
+For a durable background job, pass a stable `--desktop-id d-0123abcd`. A repeated ID is rejected before another stack can be created. The [worker contract](docs/PROVISIONING_CONTRACT.md) covers temporary STS credentials, retries, and the required account setup. Check the effective AWS identity with `ai-desktops aws validate --account-id <12-digit-account-id>` before provisioning.
+
 Or use full GitHub URLs:
 
 ```bash
@@ -789,6 +791,8 @@ ai-desktops start d-a1b2c3d4
 ```bash
 ai-desktops terminate d-a1b2c3d4
 ```
+
+`ai-desktops destroy d-a1b2c3d4` is an equivalent alias.
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 

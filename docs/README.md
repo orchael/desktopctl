@@ -1,6 +1,7 @@
 # desktopctl documentation
 
 - [Architecture and repository boundary](ARCHITECTURE.md)
+- [Provisioning worker contract](PROVISIONING_CONTRACT.md)
 - [CLI reference](ai-desktops.md)
 - [Desktop profiles](DESKTOP_PROFILES.md)
 - [AWS operator permissions](AWS_OPERATOR_IAM.md)

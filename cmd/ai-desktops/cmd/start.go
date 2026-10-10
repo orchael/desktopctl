@@ -59,7 +59,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("instance status: %w", err)
 	}
 	if instanceStatus.State == "running" {
-		fmt.Fprintf(os.Stderr, "Instance %s is already running; refreshing DNS ...\n", d.InstanceID)
+		if d.NoDNS {
+			fmt.Fprintf(os.Stderr, "Instance %s is already running ...\n", d.InstanceID)
+		} else {
+			fmt.Fprintf(os.Stderr, "Instance %s is already running; refreshing DNS ...\n", d.InstanceID)
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "Starting instance %s ...\n", d.InstanceID)
 		if err := awsx.StartInstance(ctx, awsCfg, d.InstanceID); err != nil {
@@ -82,33 +86,35 @@ func runStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Backfilled AMI ID from existing instance: %s\n", d.AMIID)
 	}
 
-	zone, err := cfg.DNSZone()
-	if err != nil {
-		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
-		return err
-	}
-	if d.Hostname == "" {
-		d.Hostname = fmt.Sprintf("%s.%s", id, zone)
-	}
-	if instanceStatus.PublicIP == "" {
-		fmt.Fprintln(os.Stderr, "Waiting for public IP assignment ...")
-		publicIP, waitErr := awsx.WaitInstancePublicIP(ctx, awsCfg, d.InstanceID, 2*time.Minute)
-		if waitErr != nil {
-			_ = mgr.RecordFailure(ctx, id, "start", waitErr.Error())
-			return waitErr
+	if !d.NoDNS {
+		zone, err := cfg.DNSZone()
+		if err != nil {
+			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			return err
 		}
-		instanceStatus.PublicIP = publicIP
-	}
+		if d.Hostname == "" {
+			d.Hostname = fmt.Sprintf("%s.%s", id, zone)
+		}
+		if instanceStatus.PublicIP == "" {
+			fmt.Fprintln(os.Stderr, "Waiting for public IP assignment ...")
+			publicIP, waitErr := awsx.WaitInstancePublicIP(ctx, awsCfg, d.InstanceID, 2*time.Minute)
+			if waitErr != nil {
+				_ = mgr.RecordFailure(ctx, id, "start", waitErr.Error())
+				return waitErr
+			}
+			instanceStatus.PublicIP = publicIP
+		}
 
-	fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
-	if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, instanceStatus.PublicIP); err != nil {
-		_ = mgr.RecordFailure(ctx, id, "start", err.Error())
-		return err
-	}
-	d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)
-	d.SSHTarget = fmt.Sprintf("ubuntu@%s", d.Hostname)
-	if err := s.Update(ctx, d); err != nil {
-		return fmt.Errorf("update store record: %w", err)
+		fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
+		if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, instanceStatus.PublicIP); err != nil {
+			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			return err
+		}
+		d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)
+		d.SSHTarget = fmt.Sprintf("ubuntu@%s", d.Hostname)
+		if err := s.Update(ctx, d); err != nil {
+			return fmt.Errorf("update store record: %w", err)
+		}
 	}
 
 	if err := mgr.MarkRunning(ctx, id, "started"); err != nil {

@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
@@ -14,12 +18,14 @@ import (
 )
 
 var (
-	terminateForce bool
+	terminateForce            bool
+	terminateReconcileMissing bool
 )
 
 var terminateCmd = &cobra.Command{
-	Use:   "terminate <desktop-id>",
-	Short: "Permanently destroy a desktop and its disk state",
+	Use:     "terminate <desktop-id>",
+	Aliases: []string{"destroy"},
+	Short:   "Permanently destroy a desktop and its disk state",
 	Long: `terminate runs pulumi destroy on the desktop stack, which permanently removes
 the EC2 instance and root EBS volume. This operation is IRREVERSIBLE.
 
@@ -32,15 +38,19 @@ is marked failed. Use --force to attempt termination from a failed state.`,
 
 func init() {
 	terminateCmd.Flags().BoolVar(&terminateForce, "force", false, "terminate even if in a failed or unhealthy state")
+	terminateCmd.Flags().BoolVar(&terminateReconcileMissing, "reconcile-missing", false, "destroy a desktop stack even when its fleet record is absent")
 	rootCmd.AddCommand(terminateCmd)
 }
 
 func runTerminate(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	if err := desktop.ValidateID(id); err != nil {
+		return err
+	}
 	if err := requireTools("pulumi"); err != nil {
 		return err
 	}
 	ctx := context.Background()
-	id := args[0]
 
 	s, err := openStore(ctx)
 	if err != nil {
@@ -49,12 +59,24 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	d, err := s.Get(ctx, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			if terminateReconcileMissing {
+				if err := requireBackend(ctx); err != nil {
+					return err
+				}
+				backendURL := "s3://" + cfg.Pulumi.BackendBucket
+				workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
+				ref := pulumi.DesktopStackRef(backendURL, id, workDir)
+				return (&pulumi.Runner{AWSProfile: cfg.AWS.Profile}).Destroy(ctx, ref, os.Stderr)
+			}
 			return fmt.Errorf("desktop %q not found", id)
 		}
 		return err
 	}
 
 	if d.State == store.StateTerminated {
+		if terminateReconcileMissing {
+			return nil
+		}
 		return fmt.Errorf("desktop %q is already terminated", id)
 	}
 
@@ -94,9 +116,15 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
+	if d.Region == "" {
+		d.Region = cfg.AWS.Region
+	}
+	if d.Environment == "" {
+		d.Environment = cfg.Fleet.Environment
+	}
+	if err := destroyDesktopResources(ctx, runner, ref, d, cfg.AWS.Profile, listNestedDesktopInstanceIDs, terminatePrelaunchedInstance); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
-		return fmt.Errorf("pulumi destroy: %w (desktop left running for diagnosis; record marked failed)", err)
+		return fmt.Errorf("destroy resources: %w (record marked failed for reconciliation)", err)
 	}
 
 	if err := s.MarkTerminated(ctx, id); err != nil {
@@ -116,6 +144,65 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Desktop %s terminated.\n", id)
 	return nil
+}
+
+func destroyDesktopResources(ctx context.Context, runner createDestroyer, ref *pulumi.StackRef, d *store.Desktop, profile string, listInstances func(context.Context, string, string, *store.Desktop) ([]string, error), terminateInstance func(context.Context, string, string, string) error) error {
+	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
+		return fmt.Errorf("pulumi destroy: %w", err)
+	}
+	if d.NestedVirt {
+		ids, err := listInstances(ctx, d.Region, profile, d)
+		if err != nil {
+			return fmt.Errorf("list nested instances for desktop %s: %w", d.DesktopID, err)
+		}
+		seen := make(map[string]bool, len(ids)+1)
+		if d.InstanceID != "" {
+			ids = append(ids, d.InstanceID)
+		}
+		if len(ids) == 0 {
+			return fmt.Errorf("cannot confirm absence of nested instance for desktop %s after unknown launch outcome", d.DesktopID)
+		}
+		for _, id := range ids {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			if err := terminateInstance(ctx, d.Region, profile, id); err != nil {
+				return fmt.Errorf("verify nested instance %s terminated: %w", id, err)
+			}
+		}
+	}
+	return nil
+}
+
+func listNestedDesktopInstanceIDs(ctx context.Context, region, profile string, d *store.Desktop) ([]string, error) {
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return nil, err
+	}
+	client := ec2sdk.NewFromConfig(awsCfg)
+	paginator := ec2sdk.NewDescribeInstancesPaginator(client, &ec2sdk.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("tag:managed-by"), Values: []string{"ai-desktops"}},
+			{Name: aws.String("tag:desktop-id"), Values: []string{d.DesktopID}},
+			{Name: aws.String("tag:environment"), Values: []string{d.Environment}},
+		},
+	})
+	var ids []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, reservation := range page.Reservations {
+			for _, instance := range reservation.Instances {
+				if id := aws.ToString(instance.InstanceId); id != "" {
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
+	return ids, nil
 }
 
 func terminateWarning(d *store.Desktop) string {
