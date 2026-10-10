@@ -9,6 +9,7 @@
 //	AC-9.3  `create --preview --ami <id>` references the supplied AMI in output
 //	AC-9.5  Helm is installed in the AMI through Linuxbrew
 //	AC-9.16 VS Code stable package and desktop launcher are installed
+//	AC-9.17 tfenv installs and selects the pinned Terraform release
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
@@ -74,6 +75,34 @@ func TestFR9_HelmInstalled(t *testing.T) {
 	got := strings.SplitN(strings.TrimSpace(out), "+", 2)[0]
 	if want := string(match[1]); got != want {
 		t.Errorf("helm version = %q, want configured pin %q", got, want)
+	}
+}
+
+// TestFR9_TerraformInstalled verifies that tfenv and the selected Terraform
+// release are usable by ubuntu on a desktop created from the AMI (AC-9.17).
+func TestFR9_TerraformInstalled(t *testing.T) {
+	if !fx.ownedByTest {
+		t.Skip("Terraform AMI validation requires a desktop created from this test run's AMI")
+	}
+	if fx.SSHKey == "" {
+		t.Skip("no SSH key — cannot verify Terraform")
+	}
+	variables, err := os.ReadFile(filepath.Join(moduleRootPath, "packer", "variables.pkrvars.hcl"))
+	if err != nil {
+		t.Fatalf("read Packer variables: %v", err)
+	}
+	match := regexp.MustCompile(`(?m)^terraform_version\s*=\s*"([^"]+)"\s*$`).FindSubmatch(variables)
+	if len(match) != 2 {
+		t.Fatal("Packer variables must contain one terraform_version pin")
+	}
+	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
+		"/home/linuxbrew/.linuxbrew/bin/brew list --versions tfenv >/dev/null && /home/linuxbrew/.linuxbrew/bin/terraform version")
+	if err != nil {
+		t.Fatalf("Terraform is not usable through tfenv: %v\noutput: %s", err, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if got, want := lines[0], "Terraform v"+string(match[1]); got != want {
+		t.Errorf("Terraform version = %q, want %q", got, want)
 	}
 }
 
