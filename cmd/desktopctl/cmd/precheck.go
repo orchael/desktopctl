@@ -39,7 +39,7 @@ Add it to ~/.ai-desktops/config.yaml:
 
 Then run:
 
-  ai-desktops bootstrap
+  desktopctl bootstrap
 
 to create the S3 bucket with versioning, encryption, and public-access block.`)
 	}
@@ -58,7 +58,7 @@ to create the S3 bucket with versioning, encryption, and public-access block.`)
 
 Run the following to create it:
 
-  ai-desktops bootstrap
+  desktopctl bootstrap
 
 bootstrap creates the S3 bucket with versioning, encryption, and
 public-access block enabled. It is safe to re-run.`, cfg.Pulumi.BackendBucket)

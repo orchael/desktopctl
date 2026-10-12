@@ -47,30 +47,30 @@ Managed desktop host
 
 ### Go CLI
 
-The Go CLI is the primary operator interface. It should be implemented as a single binary named `ai-desktops`.
+The Go CLI is the primary operator interface. It builds as `bin/desktopctl` for local use and releases as `desktopctl`.
 
 Initial commands:
 
 | Command | Purpose |
 | --- | --- |
-| `ai-desktops bootstrap` | Create or verify the S3 Pulumi backend bucket and DynamoDB fleet table. |
-| `ai-desktops init-foundation` | Deploy shared AWS foundation resources such as network, IAM, DNS prerequisites, and secret namespaces. |
-| `ai-desktops create` | Create one persistent desktop and run first-boot provisioning. |
-| `ai-desktops list` | List known desktops from DynamoDB and reconcile with AWS tags when requested. |
-| `ai-desktops status <id>` | Show lifecycle state, URLs, SSH target, Pulumi stack name, and readiness checks. |
-| `ai-desktops url <id>` | Mint or retrieve a browser access URL for the desktop. |
-| `ai-desktops ssh <id>` | Open an SSH session to the desktop. |
-| `ai-desktops agent <id> ...` | Control bridge-managed AI agent sessions through a CLI-managed tunnel. |
-| `ai-desktops stop <id>` | Stop the EC2 instance while preserving the root EBS volume. |
-| `ai-desktops start <id>` | Start a stopped EC2 instance and refresh access details. |
-| `ai-desktops terminate <id>` | Destroy the desktop stack and its persistent state. |
-| `ai-desktops doctor <id>` | Run desktop health checks over AWS, SSH, and HTTPS. |
+| `desktopctl bootstrap` | Create or verify the S3 Pulumi backend bucket and DynamoDB fleet table. |
+| `desktopctl init-foundation` | Deploy shared AWS foundation resources such as network, IAM, DNS prerequisites, and secret namespaces. |
+| `desktopctl create` | Create one persistent desktop and run first-boot provisioning. |
+| `desktopctl list` | List known desktops from DynamoDB and reconcile with AWS tags when requested. |
+| `desktopctl status <id>` | Show lifecycle state, URLs, SSH target, Pulumi stack name, and readiness checks. |
+| `desktopctl url <id>` | Mint or retrieve a browser access URL for the desktop. |
+| `desktopctl ssh <id>` | Open an SSH session to the desktop. |
+| `desktopctl agent <id> ...` | Control bridge-managed AI agent sessions through a CLI-managed tunnel. |
+| `desktopctl stop <id>` | Stop the EC2 instance while preserving the root EBS volume. |
+| `desktopctl start <id>` | Start a stopped EC2 instance and refresh access details. |
+| `desktopctl terminate <id>` | Destroy the desktop stack and its persistent state. |
+| `desktopctl doctor <id>` | Run desktop health checks over AWS, SSH, and HTTPS. |
 
 Recommended package boundaries:
 
 | Package | Responsibility |
 | --- | --- |
-| `cmd/ai-desktops` | CLI command wiring and output formatting. |
+| `cmd/desktopctl` | CLI command wiring and output formatting. |
 | `internal/config` | Operator config, AWS region, backend bucket, DNS zone, default profile. |
 | `internal/backend` | S3 backend bootstrap and Pulumi backend URL configuration. |
 | `internal/pulumi` | Pulumi Automation API wrapper, stack naming, config, preview, up, destroy, output parsing. |
@@ -401,7 +401,7 @@ SSM tunnel support requires the desktop instance profile to allow Session Manage
 Example flow:
 
 ```text
-ai-desktops agent desk-123 start --provider codex --repo app-one
+desktopctl agent desk-123 start --provider codex --repo app-one
   |
   | ensure desktop is running
   | open local tunnel localhost:<ephemeral> -> desktop:127.0.0.1:9445

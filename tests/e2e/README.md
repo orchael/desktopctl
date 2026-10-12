@@ -11,11 +11,11 @@ or create/destroy shared foundation infrastructure. These tests incur AWS costs.
 Build the two branches under test, then run:
 
 ```bash
-go build -o /tmp/ai-desktops-e2e ./cmd/ai-desktops
+go build -o /tmp/desktopctl-e2e ./cmd/desktopctl
 # In the bridgectl checkout containing the auth fix:
 GOOS=linux GOARCH=amd64 go build -o /tmp/bridgectl-e2e ./cmd/bridgectl
 # Back in desktopctl:
-bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
+bash scripts/e2e.sh --cli /tmp/desktopctl-e2e \
   --bridgectl-binary /tmp/bridgectl-e2e --scenario codex-auth
 ```
 
@@ -45,17 +45,17 @@ returned. Raw CLI output is withheld because errors can contain secrets.
 
 ```bash
 # Keep even after all assertions pass:
-bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
+bash scripts/e2e.sh --cli /tmp/desktopctl-e2e \
   --bridgectl-binary /tmp/bridgectl-e2e --keep
 
 # Reuse only resources in a previously generated manifest:
-bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
-  --reuse /tmp/ai-desktops-e2e-EXAMPLE/state.json \
+bash scripts/e2e.sh --cli /tmp/desktopctl-e2e \
+  --reuse /tmp/desktopctl-e2e-EXAMPLE/state.json \
   --bridgectl-binary /tmp/bridgectl-e2e --keep
 
 # Explicitly terminate the recorded desktop, then delete its workspace:
-bash scripts/e2e.sh --cli /tmp/ai-desktops-e2e \
-  --cleanup /tmp/ai-desktops-e2e-EXAMPLE/state.json
+bash scripts/e2e.sh --cli /tmp/desktopctl-e2e \
+  --cleanup /tmp/desktopctl-e2e-EXAMPLE/state.json
 ```
 
 If initial creation stopped after creating the workspace, `--reuse` validates
@@ -102,7 +102,7 @@ are rejected before credentials are read or a refresh marker is written.
 A harmless metadata field added to that file
 simulates Codex refreshing credentials; a second authenticated session must
 preserve it. Two wrapper processes hold the real bridge-owned provider process
-groups alive after the answers. `ai-desktops secrets reload` must kill both
+groups alive after the answers. `desktopctl secrets reload` must kill both
 groups, replace the auth cache, and give a third session working account auth.
 This deterministic lifetime fixture avoids timing reload against model latency.
 The original provider config is restored on success and failure.

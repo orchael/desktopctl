@@ -25,7 +25,10 @@ jobs:
           cache: true
 
       - name: Verify build
-        run: go build -o /tmp/ai-desktops-verify ./cmd/ai-desktops
+        run: |
+          go build -o /tmp/desktopctl-verify ./cmd/desktopctl
+          /tmp/desktopctl-verify version | grep -q '^desktopctl '
+          /tmp/desktopctl-verify --help | grep -q 'desktopctl \[command\]'
 
       - name: Run tests
         run: go test ./...
@@ -38,3 +41,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

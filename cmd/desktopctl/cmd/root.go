@@ -17,9 +17,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "ai-desktops",
+	Use:   "desktopctl",
 	Short: "Fleet manager for AI coding desktops",
-	Long: `ai-desktops manages a fleet of remote servers that act as persistent AI coding
+	Long: `desktopctl manages a fleet of remote servers that act as persistent AI coding
 desktops. Each desktop is a browser-accessible Linux environment designed for
 AI coding agents (Codex, Claude, Gemini) with human operator access for
 supervision and debugging.`,

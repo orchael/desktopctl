@@ -41,7 +41,7 @@ Automation that has just updated one secret can pass --require-secret and
 --require-region. Reload then fails before credential mutation unless that
 exact path is tracked for the desktop and its recorded AWS region matches.
 
-The desktop must be running and reachable via SSH. Use "ai-desktops ssh" to
+The desktop must be running and reachable via SSH. Use "desktopctl ssh" to
 verify connectivity before running this command.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSecretsReload,
@@ -146,7 +146,7 @@ func runSecretsReload(cmd *cobra.Command, args []string) error {
 
 func validateSecretsReloadRequirements(paths []string, desktopRegion, requiredSecret, requiredRegion string) error {
 	if requiredSecret != "" && !containsString(paths, requiredSecret) {
-		return fmt.Errorf("required secret %q is not configured for this desktop; run `ai-desktops secrets add <desktop-id> %s` first", requiredSecret, requiredSecret)
+		return fmt.Errorf("required secret %q is not configured for this desktop; run `desktopctl secrets add <desktop-id> %s` first", requiredSecret, requiredSecret)
 	}
 	if requiredRegion != "" && desktopRegion != requiredRegion {
 		return fmt.Errorf("required secret region mismatch: desktop uses %q, updated secret uses %q", desktopRegion, requiredRegion)

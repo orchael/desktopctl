@@ -64,7 +64,7 @@ aws secretsmanager create-secret \
 
 Populate the placeholder before creating a desktop. The secret value is a JSON object whose keys are environment variable names, for example `{"SERVICE_TOKEN":"..."}`. Put the path, never the value, in `desktop.profile_secret` or pass it with `--profile-secret`. Create verifies that the selected secret exists before provisioning. Its keys are written with private permissions to the desktop's user environment, available to the profile installer, login shells, and user services. They are not written to bridgectl's bridge-only `agents.env`. As with `create --secret`, these variables are available across the desktop user environment; they are not isolated to the profile process.
 
-The profile secret path is tracked on the desktop. After changing its value, run `ai-desktops secrets reload <desktop-id>`. An existing desktop can attach a new profile secret with `ai-desktops secrets add <desktop-id> <secret-path>`. Adding a secret does not rerun the profile installer.
+The profile secret path is tracked on the desktop. After changing its value, run `desktopctl secrets reload <desktop-id>`. An existing desktop can attach a new profile secret with `desktopctl secrets add <desktop-id> <secret-path>`. Adding a secret does not rerun the profile installer.
 
 ## Profile contract
 

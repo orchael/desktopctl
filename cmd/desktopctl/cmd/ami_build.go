@@ -150,7 +150,7 @@ func preflightAMIStore(ctx context.Context) error {
 }
 
 func missingAMITableError(tableName, region, environment string) error {
-	return fmt.Errorf("AMI history table %q does not exist in AWS control region %s; run `ai-desktops init-foundation` for environment %q or set fleet.ami_table_name to the existing AMI history table", tableName, region, environment)
+	return fmt.Errorf("AMI history table %q does not exist in AWS control region %s; run `desktopctl init-foundation` for environment %q or set fleet.ami_table_name to the existing AMI history table", tableName, region, environment)
 }
 
 func validateAMIRegionSelection(regions []string, baseAMI string) error {

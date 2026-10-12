@@ -214,7 +214,7 @@ func terminateWarning(d *store.Desktop) string {
 
 func workspaceDetachRecoveryCommand(env, workspaceName string) string {
 	if env == "" {
-		return fmt.Sprintf("ai-desktops workspace detach %s --force", workspaceName)
+		return fmt.Sprintf("desktopctl workspace detach %s --force", workspaceName)
 	}
-	return fmt.Sprintf("ai-desktops workspace detach %s --env %s --force", workspaceName, env)
+	return fmt.Sprintf("desktopctl workspace detach %s --env %s --force", workspaceName, env)
 }

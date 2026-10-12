@@ -1,6 +1,6 @@
 SHELL   := bash
-BINARY := ai-desktops
-CMD     := ./cmd/ai-desktops
+BINARY := bin/desktopctl
+CMD     := ./cmd/desktopctl
 # Keep this at 50: generated aws-sdk-go-v2/service/ec2 code OOMs the Go compiler
 # on memory-constrained machines at the default GOGC. Override only with evidence.
 BUILD_GOGC ?= 50
@@ -12,6 +12,7 @@ AI_DESKTOPS_GITHUB_OWNER ?= orchael
 .PHONY: build test up down dev-up dev-down setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean very-clean deps check-deps
 
 build:
+	mkdir -p bin
 	GOGC=$(BUILD_GOGC) go build -p $(BUILD_P) -o $(BINARY) $(CMD)
 
 test:
@@ -32,7 +33,7 @@ dev-down:
 # setup-integration performs one-time setup for the integration test environment.
 #
 # It generates an SSH key pair at tests/integration/id_ed25519, runs the
-# ai-desktops setup wizard writing to tests/integration/config.yaml, then
+# desktopctl setup wizard writing to tests/integration/config.yaml, then
 # bootstraps the S3 backend and deploys the foundation stack.
 #
 # Run once before `make test-integration`. Re-running is idempotent.
@@ -48,7 +49,7 @@ setup-integration: check-deps build
 	  echo "setup-integration: SSH key already exists, skipping keygen"; \
 	fi
 	@echo ""
-	@echo "setup-integration: running ai-desktops setup..."
+	@echo "setup-integration: running desktopctl setup..."
 	@echo "  The wizard will ask for your configuration. When prompted for SSH key,"
 	@echo "  enter: $$(pwd)/tests/integration/id_ed25519"
 	@echo ""

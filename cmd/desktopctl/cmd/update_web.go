@@ -56,9 +56,9 @@ Two modes are available:
       a published package.
 
 Examples:
-  ai-desktops update-web d-8925023f --version 0.3.0
-  ai-desktops update-web d-8925023f --local
-  ai-desktops update-web d-8925023f --local ./path/to/desktop-web`,
+  desktopctl update-web d-8925023f --version 0.3.0
+  desktopctl update-web d-8925023f --local
+  desktopctl update-web d-8925023f --local ./path/to/desktop-web`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUpdateWeb,
 }

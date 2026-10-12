@@ -7,8 +7,8 @@ release:
 
 builds:
   - id: desktopctl
-    binary: ai-desktops
-    main: ./cmd/ai-desktops
+    binary: desktopctl
+    main: ./cmd/desktopctl
     ldflags:
       - -s -w -X github.com/orchael/desktopctl/internal/version.Version={{ .Version }}
     env:
@@ -34,3 +34,22 @@ archives:
 
 checksum:
   name_template: desktopctl-checksums.txt
+
+brews:
+  - name: desktopctl
+    ids:
+      - desktopctl
+    homepage: https://github.com/orchael/desktopctl
+    description: Manage persistent AI coding desktops on AWS
+    license: MIT
+    repository:
+      owner: orchael
+      name: homebrew-desktopctl
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    directory: Formula
+    test: |
+      system "#{bin}/desktopctl", "version"

@@ -1,8 +1,8 @@
-# Product Requirements Document — ai-desktops
+# Product Requirements Document — desktopctl
 
 ## Overview
 
-`ai-desktops` manages a fleet of remote servers that act as persistent AI coding desktops. Each desktop is a browser-accessible Linux environment designed primarily for AI coding agents such as Codex, Claude, and Gemini, while still allowing human operator access for supervision and debugging.
+`desktopctl` manages a fleet of remote servers that act as persistent AI coding desktops. Each desktop is a browser-accessible Linux environment designed primarily for AI coding agents such as Codex, Claude, and Gemini, while still allowing human operator access for supervision and debugging. Local builds write `bin/desktopctl`; release archives contain `desktopctl`.
 
 The product is not an orchestrator for arbitrary repo agents. The product is the desktop fleet itself: provisioning it, securing it, connecting to it, and keeping it useful for real application development work.
 
@@ -27,7 +27,7 @@ Generic VMs solve only part of the problem. A useful AI coding desktop needs:
 - persistent state across stop/start cycles
 - a clear security boundary for access, secrets, and repo scope
 
-`ai-desktops` exists to provide that environment as a managed fleet rather than a one-off manual server setup.
+`desktopctl` exists to provide that environment as a managed fleet rather than a one-off manual server setup.
 
 ---
 
