@@ -1,6 +1,6 @@
 # desktopctl worker contract (initial version)
 
-`orchael/desktops` invokes the versioned `ai-desktops` CLI from a background worker. This is the cross-language boundary: the worker does not implement AWS resources or Pulumi. The CLI still works independently for an operator. Desktops owns account records and durable job reconciliation.
+`orchael/desktops` invokes the versioned `desktopctl` CLI from a background worker. This is the cross-language boundary: the worker does not implement AWS resources or Pulumi. The CLI still works independently for an operator. Desktops owns account records and durable job reconciliation. The worker image must build `./cmd/desktopctl` and set `DESKTOPCTL_BIN` to the resulting executable.
 
 ## Credentials and account identity
 

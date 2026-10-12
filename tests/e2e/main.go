@@ -124,7 +124,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("e2e", flag.ContinueOnError)
-	binary := flags.String("cli", "./ai-desktops", "locally built ai-desktops binary")
+	binary := flags.String("cli", "./bin/desktopctl", "locally built desktopctl binary")
 	bridge := flags.String("bridgectl-binary", "", "locally built Linux amd64 bridgectl to install on the test desktop (required for a new run)")
 	configPath := flags.String("config", "", "ai-desktops config (defaults to the normal operator config)")
 	profile := flags.String("profile", "", "AWS profile override")

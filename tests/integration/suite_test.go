@@ -420,8 +420,8 @@ func teardownFoundation() {
 
 // buildCLI compiles the CLI binary into dir and returns its path.
 func buildCLI(moduleRoot, dir string) (string, error) {
-	bin := filepath.Join(dir, "ai-desktops")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/ai-desktops")
+	bin := filepath.Join(dir, "desktopctl")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/desktopctl")
 	cmd.Dir = moduleRoot
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
@@ -449,7 +449,7 @@ func findModuleRoot() (string, error) {
 	}
 }
 
-// createDesktop runs `ai-desktops create` and waits for the desktop to reach
+// createDesktop runs `desktopctl create` and waits for the desktop to reach
 // state=ready.  It returns an owned fixture (will be terminated on cleanup).
 func createDesktop(owner, sshKey string, repos, secrets []string) (*DesktopFixture, error) {
 	args := []string{
@@ -545,7 +545,7 @@ func adoptDesktop(id, sshKey, owner string) (*DesktopFixture, error) {
 	}, nil
 }
 
-// terminateDesktop runs `ai-desktops terminate <id>`.
+// terminateDesktop runs `desktopctl terminate <id>`.
 func terminateDesktop(id string) error {
 	fmt.Fprintf(os.Stderr, "integration: terminating desktop %s...\n", id)
 	_, err := runCLI(context.Background(), 30*time.Minute,
@@ -658,7 +658,7 @@ func purgeVPCInstances() {
 	}
 }
 
-// waitForState polls `ai-desktops status <id>` until lifecycle_state matches
+// waitForState polls `desktopctl status <id>` until lifecycle_state matches
 // want or the deadline elapses. It prints progress every 30 seconds so CI logs
 // do not appear to hang during long-running operations like TLS provisioning.
 //

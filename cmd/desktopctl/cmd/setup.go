@@ -92,11 +92,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	isExisting := statErr == nil
 
 	if isExisting {
-		fmt.Println("Welcome to ai-desktops setup — updating existing configuration.")
+		fmt.Println("Welcome to desktopctl setup — updating existing configuration.")
 		fmt.Printf("Config: %s\n", cfgPath)
 		fmt.Println("Press Enter to keep the current value shown in brackets.")
 	} else {
-		fmt.Println("Welcome to ai-desktops setup.")
+		fmt.Println("Welcome to desktopctl setup.")
 		fmt.Printf("This wizard will create %s and provision your GitHub credentials.\n", cfgPath)
 	}
 	fmt.Println()
@@ -483,10 +483,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Println("Setup complete.")
 	if !isExisting {
 		fmt.Println("Next steps:")
-		fmt.Println("  ai-desktops bootstrap       # create S3 Pulumi state bucket")
-		fmt.Println("  ai-desktops init-foundation # deploy shared AWS infrastructure")
+		fmt.Println("  desktopctl bootstrap       # create S3 Pulumi state bucket")
+		fmt.Println("  desktopctl init-foundation # deploy shared AWS infrastructure")
 	}
-	fmt.Printf("  ai-desktops create --github-owner %s --repo <owner/repo>\n", a.GitHubOwner)
+	fmt.Printf("  desktopctl create --github-owner %s --repo <owner/repo>\n", a.GitHubOwner)
 	return nil
 }
 

@@ -11,7 +11,7 @@ This file provides shared repository guidance for agent tools that read AGENTS.m
 - Canonical config files: `go.mod`, `apps/desktop-web/package.json`, `apps/desktop-web/pnpm-lock.yaml`
 - Primary CI workflows: `.github/workflows/ci.yml`, `.github/workflows/lint.yml`
 - Primary release/publish workflow: `.github/workflows/publish-cli.yml`
-- Go build/test commands: `go build ./cmd/ai-desktops`, `go test ./...`
+- Go build/test commands: `make build` (writes `bin/desktopctl`), `go test ./...`
 - Web build/test commands (from `apps/desktop-web/`): `pnpm run build`, `pnpm run test`, `pnpm run test:coverage`
 - Lint commands: `pnpm run lint` and `pnpm run prettier` (in `apps/desktop-web/`)
 - Coverage threshold: 60% for Go internal packages (excluding `internal/awsx` and `cmd/`, which need real AWS); 50% for TypeScript

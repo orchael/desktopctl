@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Update the ai-desktops agent secret with Codex and Claude Code auth.
+Update the desktopctl agent secret with Codex and Claude Code auth.
 
 This script updates an AWS Secrets Manager JSON secret such as:
   /ai-desktops/markcallen/agents
@@ -42,7 +42,7 @@ Options:
   --skip-codex              Do not update CODEX_AUTH
   --skip-claude             Do not update CLAUDE_CODE_OAUTH_TOKEN
   --reload-desktop ID       Reload the updated secret on this desktop
-  --ai-desktops-bin PATH    CLI used by --reload-desktop; defaults to repo binary or PATH
+  --desktopctl-bin PATH     CLI used by --reload-desktop; defaults to bin/desktopctl or PATH
   --yes                     Do not prompt before writing
   -h, --help                Show this help
 EOF
@@ -103,8 +103,8 @@ while [ "$#" -gt 0 ]; do
       reload_desktop="${2:?--reload-desktop requires a value}"
       shift 2
       ;;
-    --ai-desktops-bin)
-      ai_desktops_bin="${2:?--ai-desktops-bin requires a value}"
+    --desktopctl-bin|--ai-desktops-bin)
+      ai_desktops_bin="${2:?--desktopctl-bin requires a value}"
       shift 2
       ;;
     --yes)
@@ -126,17 +126,17 @@ done
 if [ -n "$reload_desktop" ]; then
   if [ -z "$ai_desktops_bin" ]; then
     script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
-    if [ -x "$script_dir/../ai-desktops" ]; then
-      ai_desktops_bin="$script_dir/../ai-desktops"
-    elif command -v ai-desktops >/dev/null 2>&1; then
-      ai_desktops_bin="$(command -v ai-desktops)"
+    if [ -x "$script_dir/../bin/desktopctl" ]; then
+      ai_desktops_bin="$script_dir/../bin/desktopctl"
+    elif command -v desktopctl >/dev/null 2>&1; then
+      ai_desktops_bin="$(command -v desktopctl)"
     else
-      echo "ERROR: ai-desktops CLI not found; pass --ai-desktops-bin PATH" >&2
+      echo "ERROR: desktopctl CLI not found; pass --desktopctl-bin PATH" >&2
       exit 1
     fi
   fi
   if [ ! -x "$ai_desktops_bin" ]; then
-    echo "ERROR: ai-desktops CLI is not executable: $ai_desktops_bin" >&2
+    echo "ERROR: desktopctl CLI is not executable: $ai_desktops_bin" >&2
     exit 1
   fi
 fi

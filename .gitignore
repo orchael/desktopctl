@@ -3,6 +3,7 @@
 
 # Build output
 /ai-desktops
+/bin/
 infra/pulumi/desktop/desktop
 infra/pulumi/foundation/foundation
 *.exe

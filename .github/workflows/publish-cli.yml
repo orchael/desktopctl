@@ -11,6 +11,9 @@ jobs:
   publish:
     name: Publish with GoReleaser
     runs-on: ubuntu-latest
+    env:
+      GOGC: "50"
+      GOFLAGS: "-p=1"
     permissions:
       contents: write
     steps:
@@ -25,7 +28,10 @@ jobs:
           cache: true
 
       - name: Verify build
-        run: go build -o /tmp/ai-desktops-verify ./cmd/ai-desktops
+        run: |
+          go build -o /tmp/desktopctl-verify ./cmd/desktopctl
+          /tmp/desktopctl-verify version | grep -q '^desktopctl '
+          /tmp/desktopctl-verify --help | grep -q 'desktopctl \[command\]'
 
       - name: Run tests
         run: go test ./...
@@ -35,6 +41,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.14.0
-          args: release --clean
+          args: release --clean --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

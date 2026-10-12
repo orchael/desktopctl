@@ -370,7 +370,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if amiID == "" {
-		return fmt.Errorf("no AMI configured for region %s: run `ai-desktops ami build` first or supply --ami", cfg.AWS.Region)
+		return fmt.Errorf("no AMI configured for region %s: run `desktopctl ami build` first or supply --ami", cfg.AWS.Region)
 	}
 
 	req := &desktop.CreateRequest{
@@ -474,7 +474,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		attachedWorkspace, err = ws.GetWorkspace(ctx, env, createWorkspaceName)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("workspace %q not found in environment %q; create it with `ai-desktops workspace create` first", createWorkspaceName, env)
+				return fmt.Errorf("workspace %q not found in environment %q; create it with `desktopctl workspace create` first", createWorkspaceName, env)
 			}
 			return err
 		}
@@ -566,7 +566,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	if len(avds) > 0 && amiID == "" {
 		fmt.Fprintln(os.Stderr, "WARNING: --avd requires the Android SDK to be pre-installed in the AMI. "+
-			"Run `ai-desktops ami build` to produce a compatible AMI, then set active_ami in your config.")
+			"Run `desktopctl ami build` to produce a compatible AMI, then set active_ami in your config.")
 	}
 	if len(avds) > 0 {
 		names := make([]string, len(avds))

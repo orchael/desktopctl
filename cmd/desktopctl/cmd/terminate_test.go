@@ -104,13 +104,13 @@ func TestWorkspaceDetachRecoveryCommand(t *testing.T) {
 		{
 			name:          "default env",
 			workspaceName: "factory-dev",
-			want:          "ai-desktops workspace detach factory-dev --force",
+			want:          "desktopctl workspace detach factory-dev --force",
 		},
 		{
 			name:          "explicit env",
 			env:           "prod",
 			workspaceName: "factory-dev",
-			want:          "ai-desktops workspace detach factory-dev --env prod --force",
+			want:          "desktopctl workspace detach factory-dev --env prod --force",
 		},
 	}
 

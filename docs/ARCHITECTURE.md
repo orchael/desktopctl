@@ -1,13 +1,13 @@
 # desktopctl architecture and repository boundary
 
-This document records the code as audited on 2026-10-04 and the target boundary for the first Orchael Desktops slice. The `ai-desktops` executable, `~/.ai-desktops` configuration, Pulumi stack names, AWS resource names, and on-host paths are compatibility contracts; the repository and Go module are `orchael/desktopctl` and `github.com/orchael/desktopctl`.
+This document records the code as audited on 2026-10-04 and the target boundary for the first Orchael Desktops slice. The executable is now `desktopctl`; `~/.ai-desktops` configuration, Pulumi stack names, AWS resource names, and on-host paths remain compatibility contracts. The repository and Go module are `orchael/desktopctl` and `github.com/orchael/desktopctl`.
 
 ## Current system
 
 ```mermaid
 flowchart TD
-  CLI[ai-desktops CLI] --> Config[internal/config]
-  CLI --> Lifecycle[cmd/ai-desktops/cmd lifecycle]
+  CLI[desktopctl CLI] --> Config[internal/config]
+  CLI --> Lifecycle[cmd/desktopctl/cmd lifecycle]
   Lifecycle --> Desktop[internal/desktop]
   Lifecycle --> AWS[internal/awsx]
   Lifecycle --> Pulumi[internal/pulumi runner]
@@ -22,7 +22,7 @@ flowchart TD
   LegacyAPI --> Pulumi
 ```
 
-The CLI is Cobra-based in `cmd/ai-desktops/cmd`. Its commands include `create`, `list`, `status`, `start`, `stop`, `terminate`, `bootstrap`, `init-foundation`, `destroy-foundation`, `check`, `doctor`, `resize`, `ssh`, `agent`, `secrets`, `workspace`, `ami`, `cost`, `purge`, and `version`. `terminate` is the current destroy operation. `--profile` selects a local AWS shared profile; `--desktop-profile` selects a desktop setup repository (`owner/repository[:path]`). Creation needs a GitHub owner (or a repository to infer it), configured foundation, and an AMI. The CLI remains independently usable without a SaaS account.
+The CLI is Cobra-based in `cmd/desktopctl/cmd`. Its commands include `create`, `list`, `status`, `start`, `stop`, `terminate`, `bootstrap`, `init-foundation`, `destroy-foundation`, `check`, `doctor`, `resize`, `ssh`, `agent`, `secrets`, `workspace`, `ami`, `cost`, `purge`, and `version`. `terminate` is the current destroy operation. `--profile` selects a local AWS shared profile; `--desktop-profile` selects a desktop setup repository (`owner/repository[:path]`). Creation needs a GitHub owner (or a repository to infer it), configured foundation, and an AMI. The CLI remains independently usable without a SaaS account.
 
 `infra/pulumi/foundation` creates shared VPC, subnet, security group, instance role/profile, EFS, DynamoDB, and DNS prerequisites. `infra/pulumi/desktop` owns an individual EC2 instance, root EBS volume, and Route53 record. `internal/pulumi` drives separate stacks through the Pulumi CLI. `internal/awsx` wraps AWS SDK calls for lifecycle, lookup, DNS, storage, and secrets. DynamoDB fleet records in `internal/store` index desktop state; Pulumi state remains the infrastructure record. `internal/desktop` manages record transitions and output mapping.
 
@@ -34,7 +34,7 @@ The legacy hosted surface consists of `apps/control-plane-web` (Next.js, Auth.js
 
 | Component | Decision | Reason and migration rule |
 | --- | --- | --- |
-| `cmd/ai-desktops`, `internal/config`, `internal/desktop` | **KEEP / REFACTOR** | Keep the standalone CLI and record semantics. Move lifecycle decisions out of Cobra into one reusable provisioning service; preserve existing flags and IDs. |
+| `cmd/desktopctl`, `internal/config`, `internal/desktop` | **KEEP / REFACTOR** | Keep the standalone CLI and record semantics. Move lifecycle decisions out of Cobra into one reusable provisioning service; preserve existing flags and IDs. |
 | `infra/pulumi/{foundation,desktop}`, `internal/pulumi`, `internal/awsx`, `internal/backend` | **KEEP / REFACTOR** | AWS infrastructure stays here. Add explicit temporary credential injection and account-scoped stack/backend configuration; avoid ambient worker credentials. |
 | `internal/provision`, `internal/health`, `internal/packer`, `packer`, `ansible`, desktop profiles | **KEEP** | Runtime bootstrap, tools, and readiness belong with provisioning. |
 | `internal/store` DynamoDB and `apps/desktop-web` | **KEEP** | DynamoDB serves independent CLI operators; the web app runs on the desktop itself. Neither is the SaaS tenant database. |
@@ -42,7 +42,7 @@ The legacy hosted surface consists of `apps/control-plane-web` (Next.js, Auth.js
 | `apps/control-plane-web` Auth.js/org/membership data and UI | **MOVE** | Reuse tested ideas in `orchael/desktops`; move SaaS identity and tenant records there. Keep the deployed legacy app until replacement is proven. |
 | `cmd/control-plane`, `internal/controlplane` HTTP API and `infra/pulumi/control-plane-access` | **REFACTOR**, then **REMOVE** | Existing API is synchronous and tied to one bootstrap role/key. Replace its useful lifecycle operations through the shared provisioning contract, then retire the legacy deployment separately. |
 | `Dockerfile.control-plane`, Nginx, old hosted deployment configuration | **REMOVE after migration** | They serve the legacy hosted app. No removal belongs in the initial boundary PR. |
-| Historical plans, migration names, AWS resource names, `ai-desktops` executable | **KEEP** | Preserve historical links and deployed compatibility; do not mechanically rename them. |
+| Historical plans, migration names, AWS resource names, and on-host paths | **KEEP** | Preserve historical links and deployed compatibility; rename only the operator CLI executable. |
 
 ## Target dependency direction
 

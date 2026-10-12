@@ -9,10 +9,10 @@ import (
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the ai-desktops version",
+	Short: "Print the desktopctl version",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("ai-desktops", version.Version)
+		fmt.Println("desktopctl", version.Version)
 	},
 }
 

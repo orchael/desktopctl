@@ -25,6 +25,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify Homebrew tap access
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "HOMEBREW_TAP_GITHUB_TOKEN is required before tagging a release" >&2
+            exit 1
+          fi
+          if [ "$(gh api repos/orchael/homebrew-desktopctl --jq '.permissions.push')" != "true" ]; then
+            echo "HOMEBREW_TAP_GITHUB_TOKEN needs write access to orchael/homebrew-desktopctl" >&2
+            exit 1
+          fi
+          if ! gh api repos/orchael/homebrew-desktopctl/git/ref/heads/main >/dev/null; then
+            echo "The Homebrew tap's main branch is missing" >&2
+            exit 1
+          fi
+
       - name: Get previous tag
         id: prev_tag
         uses: WyriHaximus/github-action-get-previous-tag@v2

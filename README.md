@@ -1,4 +1,4 @@
-# desktopctl (`ai-desktops` CLI)
+# desktopctl
 
 [![CI](https://github.com/orchael/desktopctl/actions/workflows/ci.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/ci.yml)
 [![Release](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml/badge.svg)](https://github.com/orchael/desktopctl/actions/workflows/publish-cli.yml)
@@ -83,7 +83,7 @@ Recommended token scopes (required scopes are marked):
 | `security_events` | Recommended | Code scanning, secret scanning |
 | `read:org` | Optional | `gh` CLI org features; missing scope produces a warning but auth continues |
 
-Run `ai-desktops setup` to configure credentials. The wizard:
+Run `desktopctl setup` to configure credentials. The wizard:
 
 1. Collects your AWS region/profile, GitHub owner, and git identity.
 2. Generates an Ed25519 SSH key pair and registers the public key with GitHub.
@@ -98,13 +98,13 @@ Run `ai-desktops setup` to configure credentials. The wizard:
 4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/ai-desktops/<owner>/agents`.
 5. Writes `~/.ai-desktops/config.yaml`.
 
-Run `ai-desktops setup` before running `create`. It is safe to re-run — it prompts whether to rotate an existing token or SSH key.
+Run `desktopctl setup` before running `create`. It is safe to re-run — it prompts whether to rotate an existing token or SSH key.
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
 ### Codex and Claude Code Agent Auth
 
-`ai-desktops setup` stores provider API keys in AWS Secrets Manager, but Codex ChatGPT auth and Claude Code long-lived OAuth tokens have their own local credential flows:
+`desktopctl setup` stores provider API keys in AWS Secrets Manager, but Codex ChatGPT auth and Claude Code long-lived OAuth tokens have their own local credential flows:
 
 - Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
 - Claude Code's `claude setup-token` command prints a long-lived `CLAUDE_CODE_OAUTH_TOKEN`; Anthropic's Claude Code docs state that command does not save the token, so copy it when it is printed.
@@ -125,19 +125,19 @@ scripts/update-agent-auth.sh \
 
 The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
 
-New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `ai-desktops secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. An already inactive bridge stays stopped, and the command reports that you need to start it. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `ai-desktops secrets add <desktop-id> /ai-desktops/<owner>/agents` to rotate it. Until registered, application-secret operations preserve the existing `agents.env` rather than clearing or replacing it.
+New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `desktopctl secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. An already inactive bridge stays stopped, and the command reports that you need to start it. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `desktopctl secrets add <desktop-id> /ai-desktops/<owner>/agents` to rotate it. Until registered, application-secret operations preserve the existing `agents.env` rather than clearing or replacing it.
 
 `github.agent_secret` is an explicit credential source: changing the repository owner with `--github-owner` does not rewrite that configured secret path. This allows the same operator seed to bootstrap desktops for different repository owners while each desktop keeps its own refreshed auth file.
 
 With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an existing account auth file, then the `CODEX_AUTH` bootstrap seed, then API-key credentials. Each desktop owns its refreshed file under its private home directory; ordinary sessions and bridge restarts preserve it. Source selection checks credential structure; a revoked account still requires renewed login or explicit credential rotation, and tasks are not replayed automatically with a different identity. Explicit `CODEX_HOME` values used by desktop secret rotation must be private absolute directories under the desktop user's home, not an EFS workspace.
 
-`secrets add`, `remove`, and `reload` coordinate across operator machines using a desktop-held lock. Overlapping commands fail immediately with a busy error; they do not queue another rotation. The lock covers the fresh fleet snapshot, remote changes, and a fenced update of only the secret-path metadata. If a command or connection is interrupted, run `ai-desktops secrets reload <desktop-id>` to reconcile against the authoritative fleet list before trying add/remove again. Recovery can clear a partially injected snapshot even when that list is empty. If reload is still busy, the earlier remote operation is still running; wait for it to finish. Do not remove `~/.ai-desktops-secret-operation/lock`: its inode coordinates running processes and records unfinished rotations without storing credentials. Upgrade all CLI and control-plane processes that write fleet records; older versions bypass coordination and metadata guards. An ordinary fleet update whose snapshot became stale during rotation fails safely and can be retried after refreshing the record.
+`secrets add`, `remove`, and `reload` coordinate across operator machines using a desktop-held lock. Overlapping commands fail immediately with a busy error; they do not queue another rotation. The lock covers the fresh fleet snapshot, remote changes, and a fenced update of only the secret-path metadata. If a command or connection is interrupted, run `desktopctl secrets reload <desktop-id>` to reconcile against the authoritative fleet list before trying add/remove again. Recovery can clear a partially injected snapshot even when that list is empty. If reload is still busy, the earlier remote operation is still running; wait for it to finish. Do not remove `~/.ai-desktops-secret-operation/lock`: its inode coordinates running processes and records unfinished rotations without storing credentials. Upgrade all CLI and control-plane processes that write fleet records; older versions bypass coordination and metadata guards. An ordinary fleet update whose snapshot became stale during rotation fails safely and can be retried after refreshing the record.
 
 Before rotation changes files or stops sessions, it validates the replacement `CODEX_AUTH` structure, existing auth-directory/file ownership and private permissions, and that the bridge systemd unit is loaded. Invalid credentials or unsafe cache paths leave the previous snapshot untouched. A failure after mutation has begun may leave a partial snapshot; fix the reported preconditions and use `secrets reload` to reconcile. Credential values and child-process diagnostics are not printed.
 
-The auth update script fails closed if an existing Secrets Manager value cannot be read; only an explicit AWS `ResourceNotFoundException` permits creating a new secret. To update Codex auth and immediately reload one desktop while preserving every other provider key, run `scripts/update-agent-auth.sh --skip-claude --reload-desktop <desktop-id> --yes`. Before reload, the CLI verifies that the exact updated secret path is tracked for the desktop and that its resolved AWS region matches the desktop. Older desktops must register the path with `ai-desktops secrets add` first. A reload failure is returned to the caller and must be reconciled before sessions resume.
+The auth update script fails closed if an existing Secrets Manager value cannot be read; only an explicit AWS `ResourceNotFoundException` permits creating a new secret. To update Codex auth and immediately reload one desktop while preserving every other provider key, run `scripts/update-agent-auth.sh --skip-claude --reload-desktop <desktop-id> --yes`. Before reload, the CLI verifies that the exact updated secret path is tracked for the desktop and that its resolved AWS region matches the desktop. Older desktops must register the path with `desktopctl secrets add` first. A reload failure is returned to the caller and must be reconciled before sessions resume.
 
-Known reload failures are reported through allowlisted non-secret categories, while raw child output remains suppressed. New AMIs and fallback cloud-init create `/home/ubuntu/.codex` as an ubuntu-owned `0700` directory; `ai-desktops doctor` checks that invariant. Existing desktops with a more permissive directory must be corrected explicitly before credential rotation.
+Known reload failures are reported through allowlisted non-secret categories, while raw child output remains suppressed. New AMIs and fallback cloud-init create `/home/ubuntu/.codex` as an ubuntu-owned `0700` directory; `desktopctl doctor` checks that invariant. Existing desktops with a more permissive directory must be corrected explicitly before credential rotation.
 
 A present empty or whitespace-only `CODEX_AUTH` string is invalid, even when an API key is also configured. To intentionally switch to API-key-only credentials, remove `CODEX_AUTH` from the configured secret sources instead of setting it to a blank string, then reload. An absent seed remains supported.
 
@@ -147,14 +147,14 @@ When adding the shell-source hook, reload preserves the existing safe permission
 
 ### Desktop Secret Management
 
-The configured `github.agent_secret` and secrets passed with `ai-desktops create --secret <path>` are tracked together in the fleet record but rendered to separate scopes. The agent secret is written only to `/home/ubuntu/.config/bridgectl/agents.env`. Additional secret paths are written only to `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf`; they remain available to login shells and user services, including bridgectl. When both scopes define the same key, the additional desktop secret takes precedence for bridgectl because its systemd environment file is loaded after `agents.env`. Creation and `secrets reload` both preserve this boundary. Human-readable `ai-desktops status` reports the tracked agent path separately as `Agent secret`; its `Secrets` line contains only the additional desktop-wide paths.
+The configured `github.agent_secret` and secrets passed with `desktopctl create --secret <path>` are tracked together in the fleet record but rendered to separate scopes. The agent secret is written only to `/home/ubuntu/.config/bridgectl/agents.env`. Additional secret paths are written only to `/home/ubuntu/.desktop-secrets` and `/home/ubuntu/.config/environment.d/desktop-secrets.conf`; they remain available to login shells and user services, including bridgectl. When both scopes define the same key, the additional desktop secret takes precedence for bridgectl because its systemd environment file is loaded after `agents.env`. Creation and `secrets reload` both preserve this boundary. Human-readable `desktopctl status` reports the tracked agent path separately as `Agent secret`; its `Secrets` line contains only the additional desktop-wide paths.
 
 Manage those per-desktop secret references after creation with:
 
 ```bash
-ai-desktops secrets add d-a1b2c3d4 /ai-desktops/myorg/app
-ai-desktops secrets reload d-a1b2c3d4
-ai-desktops secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
+desktopctl secrets add d-a1b2c3d4 /ai-desktops/myorg/app
+desktopctl secrets reload d-a1b2c3d4
+desktopctl secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
 ```
 
 `secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
@@ -166,14 +166,24 @@ The opt-in [AWS E2E runner](tests/e2e/README.md) tests Codex auth using this che
 ```bash
 git clone https://github.com/orchael/desktopctl
 cd desktopctl
-go install ./cmd/ai-desktops
+make build
+./bin/desktopctl --help
 ```
 
 Or build directly:
 
 ```bash
-go build -o ai-desktops ./cmd/ai-desktops
+mkdir -p bin
+go build -o bin/desktopctl ./cmd/desktopctl
 ```
+
+`go install ./cmd/desktopctl` installs the same `desktopctl` command in your Go bin directory.
+
+## Releases
+
+The existing `Publish` GitHub Actions workflow accepts a patch, minor, or major release type. It updates the version files, creates a `v<version>` tag, and calls the CLI publish workflow. GoReleaser builds `desktopctl` archives for Linux, macOS, and Windows, publishes them to GitHub Releases, and writes `desktopctl-checksums.txt`. Verify that the release archives contain `desktopctl` before announcing a renamed release. Existing `ai-desktops` installations need to be removed from user `PATH` separately; the new release does not install an alias.
+
+The public `orchael/homebrew-desktopctl` tap receives a `desktopctl` formula from GoReleaser during the same release. The `HOMEBREW_TAP_GITHUB_TOKEN` secret on `orchael/desktopctl` must be a fine-grained token with Contents read/write access to this tap; the release workflow checks the token and tap branch before creating a version tag. After the first formula is published, install it with `brew install orchael/desktopctl/desktopctl` on macOS or Linux. GitHub Releases contain the same versioned binary archives and checksums.
 
 The control plane is built and deployed by the operator; releases do not publish
 its images. See [control plane build and deployment](docs/control-plane.md#build-and-deploy-from-source).
@@ -212,7 +222,7 @@ The stack exports both Pulumi-style output names and Docker/Kubernetes-friendly 
 
 ### Development access stack
 
-Run this after `ai-desktops bootstrap` and `ai-desktops init-foundation` have created the dev backend, DynamoDB tables, desktop instance profile, and Route53 zone.
+Run this after `desktopctl bootstrap` and `desktopctl init-foundation` have created the dev backend, DynamoDB tables, desktop instance profile, and Route53 zone.
 
 ```bash
 cd infra/pulumi/foundation
@@ -354,7 +364,7 @@ The bucket name must be globally unique across all AWS accounts. Pick something 
 ### 2. Bootstrap Pulumi state backend
 
 ```bash
-ai-desktops bootstrap
+desktopctl bootstrap
 ```
 
 Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Idempotent — safe to re-run. This step must complete before Pulumi can initialize.
@@ -362,7 +372,7 @@ Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, e
 ### 3. Initialize shared foundation infrastructure
 
 ```bash
-ai-desktops init-foundation
+desktopctl init-foundation
 ```
 
 Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, environment-specific control-plane IAM credentials in Secrets Manager, and looks up the Route53 zone.
@@ -370,7 +380,7 @@ Creates: VPC, public subnet, internet gateway, security group (SSH from `operato
 Preview without applying:
 
 ```bash
-ai-desktops init-foundation --preview
+desktopctl init-foundation --preview
 ```
 
 ### 4. Build a pre-baked AMI
@@ -440,30 +450,30 @@ AWS control region because `ami build` records AMI history in the foundation
 DynamoDB AMI history table:
 
 ```bash
-ai-desktops init-foundation
+desktopctl init-foundation
 ```
 
 ```bash
 export GITHUB_NPM_TOKEN=ghp_...
-ai-desktops ami build --regions us-east-2
+desktopctl ami build --regions us-east-2
 ```
 
 Build all three regions:
 
 ```bash
-ai-desktops ami build --regions us-east-1,us-east-2,us-west-2
+desktopctl ami build --regions us-east-1,us-east-2,us-west-2
 ```
 
 Use an explicit base AMI instead of the auto-lookup (single region only):
 
 ```bash
-ai-desktops ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
+desktopctl ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
 ```
 
 Make the built AMI publicly accessible:
 
 ```bash
-ai-desktops ami build --regions us-east-2 --public
+desktopctl ami build --regions us-east-2 --public
 ```
 
 #### What gets installed
@@ -488,8 +498,8 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 
 Publish the new `@orchael/desktopctl` package before baking an AMI that installs
 it. Existing AMIs keep their installed desktop web package until rebuilt.
-On an existing desktop, `ai-desktops update-web --version <version>` or
-`ai-desktops update-web --local` installs the new package and updates an older
+On an existing desktop, `desktopctl update-web --version <version>` or
+`desktopctl update-web --local` installs the new package and updates an older
 service unit before restarting it.
 
 The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
@@ -497,7 +507,7 @@ The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion
 #### Verify the AMI
 
 ```bash
-ai-desktops ami list
+desktopctl ami list
 ```
 
 Output shows the registered AMI ID per region. The CLI automatically detects pre-baked AMIs and uses them during `create`.
@@ -509,27 +519,27 @@ Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run 
 ### 5. Create a desktop
 
 ```bash
-ai-desktops create --repo myorg/my-app --repo myorg/shared-lib
+desktopctl create --repo myorg/my-app --repo myorg/shared-lib
 ```
 
-For a durable background job, pass a stable `--desktop-id d-0123abcd`. A repeated ID is rejected before another stack can be created. The [worker contract](docs/PROVISIONING_CONTRACT.md) covers temporary STS credentials, retries, and the required account setup. Check the effective AWS identity with `ai-desktops aws validate --account-id <12-digit-account-id>` before provisioning.
+For a durable background job, pass a stable `--desktop-id d-0123abcd`. A repeated ID is rejected before another stack can be created. The [worker contract](docs/PROVISIONING_CONTRACT.md) covers temporary STS credentials, retries, and the required account setup. Check the effective AWS identity with `desktopctl aws validate --account-id <12-digit-account-id>` before provisioning.
 
 Or use full GitHub URLs:
 
 ```bash
-ai-desktops create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
+desktopctl create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
 ```
 
 Override the root volume size (default 100 GiB):
 
 ```bash
-ai-desktops create --repo myorg/my-app --volume-size 200
+desktopctl create --repo myorg/my-app --volume-size 200
 ```
 
 Name a desktop for easier operator workflows:
 
 ```bash
-ai-desktops create --name orchael-factory-dev --repo myorg/my-app
+desktopctl create --name orchael-factory-dev --repo myorg/my-app
 ```
 
 By default `/workspace` lives on the desktop root EBS volume and is deleted when
@@ -537,12 +547,12 @@ the desktop is terminated. To retain `/workspace` across desktop replacement,
 create an EFS-backed workspace first, then attach it during desktop creation:
 
 ```bash
-ai-desktops workspace create \
+desktopctl workspace create \
   --name orchael-factory-dev \
   --github-owner myorg \
   --repo myorg/my-app
 
-ai-desktops create \
+desktopctl create \
   --name orchael-factory-dev \
   --github-owner myorg \
   --workspace-mode efs \
@@ -554,31 +564,31 @@ Each environment has one shared encrypted EFS file system with AWS Backup
 enabled by default. Named workspaces are isolated with EFS access points. A
 workspace can be attached to only one non-terminated desktop at a time; stopped
 desktops keep the attachment lock. `terminate` releases the lock but always
-retains the EFS workspace until `ai-desktops workspace delete <name>` is run.
+retains the EFS workspace until `desktopctl workspace delete <name>` is run.
 To change the repo set for a retained workspace, first detach or terminate the
 desktop, then update the workspace metadata:
 
 ```bash
-ai-desktops workspace add-repo orchael-factory-dev --repo myorg/new-service
-ai-desktops workspace remove-repo orchael-factory-dev --repo myorg/old-service
+desktopctl workspace add-repo orchael-factory-dev --repo myorg/new-service
+desktopctl workspace remove-repo orchael-factory-dev --repo myorg/old-service
 ```
 
 Removing a repo from workspace metadata does not delete any existing directory
 or files from EFS. The updated repo set is enforced on the next
-`ai-desktops create --workspace-mode efs` call.
+`desktopctl create --workspace-mode efs` call.
 
 npm scoped packages resolve from npmjs unless a scope is explicitly configured
 for GitHub Packages. Use `github.npm_github_scopes` in config for a default, or
 pass a scope for a single desktop:
 
 ```bash
-ai-desktops create --repo myorg/my-app --npm-github-scope @private-tools
+desktopctl create --repo myorg/my-app --npm-github-scope @private-tools
 ```
 
 To ignore configured GitHub Packages scopes for one desktop:
 
 ```bash
-ai-desktops create --repo myorg/my-app --no-npm-github-scopes
+desktopctl create --repo myorg/my-app --no-npm-github-scopes
 ```
 
 - Validates repo owner boundary (all repos must belong to the same GitHub owner)
@@ -589,11 +599,11 @@ ai-desktops create --repo myorg/my-app --no-npm-github-scopes
 ### 6. Inspect fleet
 
 ```bash
-ai-desktops list
-ai-desktops list --all
-ai-desktops status d-a1b2c3d4
-ai-desktops workspace list
-ai-desktops workspace status orchael-factory-dev
+desktopctl list
+desktopctl list --all
+desktopctl status d-a1b2c3d4
+desktopctl workspace list
+desktopctl workspace status orchael-factory-dev
 ```
 
 `list` hides terminated desktop records by default. Use `list --all` to include them.
@@ -601,21 +611,21 @@ ai-desktops workspace status orchael-factory-dev
 Delete accumulated terminated records after reviewing them:
 
 ```bash
-ai-desktops purge --dry-run
-ai-desktops purge
+desktopctl purge --dry-run
+desktopctl purge
 ```
 
 ### 7. Open noVNC
 
 ```bash
-ai-desktops url d-a1b2c3d4
+desktopctl url d-a1b2c3d4
 # https://d-a1b2c3d4.desktops.orchael.dev
 ```
 
 ### 8. SSH into desktop
 
 ```bash
-ai-desktops ssh d-a1b2c3d4
+desktopctl ssh d-a1b2c3d4
 ```
 
 ### 9. Verify git repos are cloned
@@ -635,7 +645,7 @@ git remote -v
 If repos are missing or the clone failed, check the cloud-init bootstrap logs from your local machine:
 
 ```bash
-INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep "Instance ID" | awk -F: '{print $2}' | xargs)
+INSTANCE_ID=$(desktopctl status d-a1b2c3d4 | grep "Instance ID" | awk -F: '{print $2}' | xargs)
 aws ssm start-session --target $INSTANCE_ID --region us-east-2  # adjust region for your environment
 # Then inside the session:
 tail -100 /var/log/cloud-init-output.log
@@ -645,17 +655,17 @@ tail -100 /var/log/cloud-init-output.log
 
 ```bash
 # Status and available providers
-ai-desktops agent d-a1b2c3d4 status
-ai-desktops agent d-a1b2c3d4 providers
+desktopctl agent d-a1b2c3d4 status
+desktopctl agent d-a1b2c3d4 providers
 
 # Start an agent session
-ai-desktops agent d-a1b2c3d4 start --provider claude --repo myorg/my-app
+desktopctl agent d-a1b2c3d4 start --provider claude --repo myorg/my-app
 
 # List active sessions
-ai-desktops agent d-a1b2c3d4 sessions
+desktopctl agent d-a1b2c3d4 sessions
 
 # Stop a session
-ai-desktops agent d-a1b2c3d4 stop <session-id>
+desktopctl agent d-a1b2c3d4 stop <session-id>
 ```
 
 The CLI connects directly to the desktop via SSH. The bridge is accessed over `localhost:9445` on the desktop itself.
@@ -671,7 +681,7 @@ Operator secrets are tagged with `ai-desktops-scope=operator`; the foundation in
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
 
-ai-desktops create \
+desktopctl create \
   --github-owner myorg \
   --tailscale \
   --tailscale-network my-tailnet
@@ -712,7 +722,7 @@ pki:
 ```
 
 ```bash
-ai-desktops create \
+desktopctl create \
   --step-ca ca.my-tailnet.ts.net \
   --step-ca-client issuer=mark-macbook,public-key-path=/Users/mark/.config/bridgectl/certs/jwt-signing.pub,required=true
 ```
@@ -724,7 +734,7 @@ export TAILSCALE_AUTHKEY=tskey-auth-...
 export STEP_CA_PROVISIONER_PASSWORD=...
 export STEP_CA_FINGERPRINT=...
 
-ai-desktops create \
+desktopctl create \
   --github-owner myorg \
   --tailscale \
   --tailscale-network my-tailnet \
@@ -739,8 +749,8 @@ Config defaults are available as `pki.step_ca_server`, `pki.step_ca_provisioner`
 ### 12. Run diagnostics
 
 ```bash
-ai-desktops doctor d-a1b2c3d4
-ai-desktops doctor d-a1b2c3d4 --json
+desktopctl doctor d-a1b2c3d4
+desktopctl doctor d-a1b2c3d4 --json
 ```
 
 Checks include EC2 state, SSH and noVNC reachability, Docker and bridge health, and private native Codex-home ownership and permissions.
@@ -751,7 +761,7 @@ If `doctor` reports issues, use AWS Systems Manager Session Manager to open an i
 
 ```bash
 # Get the instance ID from the status output
-INSTANCE_ID=$(ai-desktops status d-a1b2c3d4 | grep instance_id | cut -d: -f2 | xargs)
+INSTANCE_ID=$(desktopctl status d-a1b2c3d4 | grep instance_id | cut -d: -f2 | xargs)
 
 # Start an interactive session
 aws ssm start-session --target $INSTANCE_ID --profile <your-profile>
@@ -781,8 +791,8 @@ Exit the session with `exit` or Ctrl+D. The CLI's `ssh` and `agent` commands use
 ### 14. Stop and start
 
 ```bash
-ai-desktops stop d-a1b2c3d4    # hibernates: RAM + disk preserved
-ai-desktops start d-a1b2c3d4
+desktopctl stop d-a1b2c3d4    # hibernates: RAM + disk preserved
+desktopctl start d-a1b2c3d4
 ```
 
 `stop` hibernates the instance — the kernel writes RAM to the encrypted root EBS volume, then the instance stops. `start` resumes it; running processes continue from where they left off. Resume typically takes 30–60 seconds.
@@ -790,10 +800,10 @@ ai-desktops start d-a1b2c3d4
 ### 14. Terminate
 
 ```bash
-ai-desktops terminate d-a1b2c3d4
+desktopctl terminate d-a1b2c3d4
 ```
 
-`ai-desktops destroy d-a1b2c3d4` is an equivalent alias.
+`desktopctl destroy d-a1b2c3d4` is an equivalent alias.
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 
@@ -805,7 +815,7 @@ The desktop configuration—including Homebrew setup, GitHub known_hosts, and to
 
 ```bash
 # SSH into the desktop
-ai-desktops ssh d-a1b2c3d4
+desktopctl ssh d-a1b2c3d4
 
 # Inside the desktop, re-run the Ansible playbook
 ansible-playbook /opt/ai-desktops/desktop-setup.yml \
@@ -818,29 +828,29 @@ The playbook is idempotent and safe to re-run. This allows you to update existin
 
 Run this against `desktops.orchael.dev` before considering the MVP complete:
 
-- [ ] `ai-desktops bootstrap` completes without error; re-run is a no-op
-- [ ] `ai-desktops init-foundation` completes; outputs include subnetId, securityGroupId, instanceProfile, zoneId
-- [ ] `ai-desktops ami build --regions us-east-2` completes; `ai-desktops ami list` shows registered AMI ID (optional — dev region)
-- [ ] `ai-desktops create --repos myorg/test-repo` returns a desktop ID
-- [ ] `ai-desktops list` shows the new desktop in state `ready`
-- [ ] `ai-desktops status <id>` shows hostname, novnc_url, ssh_target
+- [ ] `desktopctl bootstrap` completes without error; re-run is a no-op
+- [ ] `desktopctl init-foundation` completes; outputs include subnetId, securityGroupId, instanceProfile, zoneId
+- [ ] `desktopctl ami build --regions us-east-2` completes; `desktopctl ami list` shows registered AMI ID (optional — dev region)
+- [ ] `desktopctl create --repos myorg/test-repo` returns a desktop ID
+- [ ] `desktopctl list` shows the new desktop in state `ready`
+- [ ] `desktopctl status <id>` shows hostname, novnc_url, ssh_target
 - [ ] noVNC URL loads in browser; desktop appears
-- [ ] `ai-desktops ssh <id>` drops into shell
+- [ ] `desktopctl ssh <id>` drops into shell
 - [ ] SSH to desktop: `docker ps` succeeds; `nvim --version` succeeds; `tmux -V` succeeds
 - [ ] SSH to desktop: `ls /workspace/` shows cloned repos
 - [ ] SSH to desktop: `cd /workspace/test-repo && git log --oneline -5` shows commit history
-- [ ] `ai-desktops agent <id> status` returns 200 through tunnel
-- [ ] `ai-desktops stop <id>` transitions to `stopped`; EC2 hibernated in console (state = stopped, RAM dump written)
-- [ ] `ai-desktops start <id>` transitions back to `ready`; noVNC accessible again; running processes resumed
+- [ ] `desktopctl agent <id> status` returns 200 through tunnel
+- [ ] `desktopctl stop <id>` transitions to `stopped`; EC2 hibernated in console (state = stopped, RAM dump written)
+- [ ] `desktopctl start <id>` transitions back to `ready`; noVNC accessible again; running processes resumed
 - [ ] SSH to desktop: `/workspace/test-repo` still present after stop/start cycle
-- [ ] `ai-desktops terminate <id>` succeeds; record transitions to `terminated`; EC2 terminated in console; Route53 record removed
+- [ ] `desktopctl terminate <id>` succeeds; record transitions to `terminated`; EC2 terminated in console; Route53 record removed
 
 ## Known limitations
 
 - **Elementary/Pantheon reliability**: The `novnc-desktop` elementary AMI runs Pantheon on Ubuntu 24.04. If noVNC shows a black screen, SSH in and run `systemctl --user restart pantheon-session`.
 - **Root EBS persistence**: By default, workspace data lives on the root EBS volume (100 GiB gp3, encrypted). EBS is preserved through stop/start but is destroyed on terminate. Commit and push work before terminating local-workspace desktops.
-- **EFS workspace retention**: EFS workspaces are opt-in with `--workspace-mode efs`. They survive desktop termination and must be deleted explicitly with `ai-desktops workspace delete <name>`.
-- **Hibernation requires new desktops**: Hibernation is configured at launch time and cannot be retrofitted onto existing instances. Running `ai-desktops stop` on a desktop created before this change will fail because the instance was not launched with hibernation enabled. Recreate the desktop with `ai-desktops terminate` followed by `ai-desktops create`.
+- **EFS workspace retention**: EFS workspaces are opt-in with `--workspace-mode efs`. They survive desktop termination and must be deleted explicitly with `desktopctl workspace delete <name>`.
+- **Hibernation requires new desktops**: Hibernation is configured at launch time and cannot be retrofitted onto existing instances. Running `desktopctl stop` on a desktop created before this change will fail because the instance was not launched with hibernation enabled. Recreate the desktop with `desktopctl terminate` followed by `desktopctl create`.
 - **Failed desktops left running**: If `terminate` fails mid-way, the EC2 instance is intentionally left running so you can SSH in to diagnose. Clean up manually with `aws ec2 terminate-instances` and `pulumi destroy` from `infra/pulumi/desktop/`.
 - **Single availability zone**: Desktops land in the first public subnet from the foundation stack. Multi-AZ placement is not yet supported.
 - **No desktop autostop**: There is no idle-timeout or schedule-based stop. Remember to stop or terminate desktops when not in use.
@@ -848,7 +858,7 @@ Run this against `desktops.orchael.dev` before considering the MVP complete:
 ## Repository layout
 
 ```
-cmd/ai-desktops/          CLI entrypoint and Cobra commands
+cmd/desktopctl/          CLI entrypoint and Cobra commands
 internal/
   config/                 Config struct and YAML loader
   repo/                   GitHub URL normalization and owner-boundary validation
