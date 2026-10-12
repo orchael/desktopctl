@@ -2,8 +2,8 @@ package version
 
 // Version is the current CLI version. It may be overridden at build time via
 // -ldflags="-X github.com/orchael/desktopctl/internal/version.Version=x.y.z".
-var Version = "0.6.1"
+var Version = "0.7.0"
 
 // DesktopWebVersion is the @orchael/desktopctl npm package version baked
 // into AMIs built by this CLI. It is always kept in sync with Version.
-var DesktopWebVersion = "0.6.1"
+var DesktopWebVersion = "0.7.0"
