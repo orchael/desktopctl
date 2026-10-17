@@ -64,7 +64,7 @@ For each task:
 - Update `README.md`, `PRD.md`, and the relevant plan file when behavior or operator workflow changes.
 - Add focused Go, TypeScript, Pulumi, or shell tests for non-trivial logic.
 - Keep implementation scoped to the task and avoid rewriting older plan files except to correct sequencing, status, or verification guidance.
-- Record unresolved work in the task file, `tasks/todo.md`, or a follow-up GitHub issue.
+- Record unresolved work in the task file, `tasks/TODO.md`, or a follow-up GitHub issue.
 - For setup and GitHub developer tooling changes, verify `ai-desktops setup` config output, Secrets Manager path handling, SSH git credential setup, and `gh auth` bootstrap behavior.
 - For AMI changes, verify `ai-desktops ami build`, `ai-desktops ami list`, Packer/Ansible image contents, `desktop.active_ami`, and the slim cloud-init path used by `create`.
 - For desktop-web root page changes, verify `pnpm run build`, server tests, `/`, `/api/desktop`, `/novnc/vnc.html`, `ai-desktops-web.service`, and `update-web` when runtime updates are touched.

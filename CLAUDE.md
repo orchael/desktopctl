@@ -16,6 +16,7 @@ This file provides guidance to Claude Code for working in this repository.
 - Lint commands: `pnpm run lint` and `pnpm run prettier` (in `apps/desktop-web/`)
 - Coverage threshold: 60% for Go internal packages (excluding `internal/awsx` and `cmd/`, which need real AWS); 50% for TypeScript
 - Generated or protected paths: `apps/desktop-web/dist/` (build output — do not edit directly)
+- Branch-local task file: `tasks/TODO.md` (uppercase, canonical). Never create `tasks/todo.md` — both paths can be tracked in git but collide on case-insensitive filesystems, leaving one permanently dirty. The installed `tasks-todo` rule names the lowercase path; use `tasks/TODO.md` instead.
 
 ## Installed agent rules
 
