@@ -5,12 +5,12 @@ The `doctor` command runs a comprehensive suite of health checks against a deplo
 ## Usage
 
 ```bash
-ai-desktops doctor <desktop-id>
+desktopctl doctor <desktop-id>
 ```
 
 Example:
 ```bash
-ai-desktops doctor d-001
+desktopctl doctor d-001
 ```
 
 ## What It Checks
@@ -116,7 +116,7 @@ Summary : all checks passed
 Use `--json` flag for machine-readable output:
 
 ```bash
-ai-desktops doctor d-001 --json
+desktopctl doctor d-001 --json
 ```
 
 JSON reports warnings both on their individual checks and in the top-level `warnings` array. A report can therefore have `"passed": true` and a summary such as `passed with warnings: bootstrap-state`.
@@ -163,7 +163,7 @@ journalctl -u amazon-cloudwatch-agent --no-pager -n 200
 Use exit codes for automation:
 
 ```bash
-if ai-desktops doctor $DESKTOP_ID; then
+if desktopctl doctor $DESKTOP_ID; then
   echo "Desktop is healthy"
 else
   echo "Desktop has issues"
@@ -227,7 +227,7 @@ git clone <repo-url> repo-name
 ### Quick Health Check
 
 ```bash
-ai-desktops doctor my-desktop
+desktopctl doctor my-desktop
 ```
 
 ### Automated Monitoring
@@ -235,9 +235,9 @@ ai-desktops doctor my-desktop
 ```bash
 #!/bin/bash
 DESKTOP="d-001"
-if ! ai-desktops doctor "$DESKTOP" >/dev/null 2>&1; then
+if ! desktopctl doctor "$DESKTOP" >/dev/null 2>&1; then
   echo "Alert: Desktop $DESKTOP health check failed"
-  ai-desktops doctor "$DESKTOP"  # Show details
+  desktopctl doctor "$DESKTOP"  # Show details
   exit 1
 fi
 ```
@@ -247,7 +247,7 @@ fi
 ```bash
 for desktop in d-001 d-002 d-003; do
   echo "=== $desktop ==="
-  ai-desktops doctor "$desktop" || true
+  desktopctl doctor "$desktop" || true
   echo
 done
 ```
@@ -256,7 +256,7 @@ done
 
 ```bash
 # Collect metrics for monitoring system
-ai-desktops doctor my-desktop --json | jq '.checks[] | select(.status == "fail")'
+desktopctl doctor my-desktop --json | jq '.checks[] | select(.status == "fail")'
 ```
 
 ## Timeout

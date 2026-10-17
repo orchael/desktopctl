@@ -1,8 +1,8 @@
 # AWS operator IAM
 
-`ai-desktops` needs an AWS principal that can run control-plane calls from the CLI, Pulumi, and Packer. The foundation Pulumi stack creates an environment-specific IAM user, IAM role, access key, and Secrets Manager secret for that purpose.
+`desktopctl` needs an AWS principal that can run control-plane calls from the CLI, Pulumi, and Packer. The foundation Pulumi stack creates an environment-specific IAM user, IAM role, access key, and Secrets Manager secret for that purpose.
 
-An administrator profile is still required for the first `ai-desktops bootstrap` and `ai-desktops init-foundation` run. After foundation is applied, use the generated credentials and role profile for normal control-plane operations.
+An administrator profile is still required for the first `desktopctl bootstrap` and `desktopctl init-foundation` run. After foundation is applied, use the generated credentials and role profile for normal control-plane operations.
 
 ## Recommended secret name
 
@@ -52,8 +52,8 @@ The secret payload has this shape:
 Run foundation with an administrator-capable AWS profile:
 
 ```bash
-ai-desktops bootstrap
-ai-desktops init-foundation --env dev
+desktopctl bootstrap
+desktopctl init-foundation --env dev
 ```
 
 `init-foundation` prints the operator secret name after the stack applies.
@@ -79,7 +79,7 @@ aws secretsmanager get-secret-value \
   --output text
 ```
 
-Put the access key on a source profile and use the role profile for `ai-desktops`:
+Put the access key on a source profile and use the role profile for `desktopctl`:
 
 ```ini
 [profile ai-desktops-dev-user]
@@ -100,7 +100,7 @@ aws:
   profile: ai-desktops-dev
 ```
 
-Pulumi and the AWS SDK both use the same shared AWS profile chain, so the assumed role is used by `ai-desktops init-foundation`, `ai-desktops create`, lifecycle commands, and AMI builds. Keep `bootstrap` on an admin/bootstrap profile if the role has not yet been created or if the state bucket does not exist.
+Pulumi and the AWS SDK both use the same shared AWS profile chain, so the assumed role is used by `desktopctl init-foundation`, `desktopctl create`, lifecycle commands, and AMI builds. Keep `bootstrap` on an admin/bootstrap profile if the role has not yet been created or if the state bucket does not exist.
 
 ## Permission scope
 
@@ -121,5 +121,5 @@ The role is intentionally scoped to `ai-desktops-*` resource names where AWS sup
 
 ```bash
 aws sts get-caller-identity --profile ai-desktops-dev
-ai-desktops init-foundation --env dev --preview
+desktopctl init-foundation --env dev --preview
 ```
