@@ -39,7 +39,7 @@ type TableSchema struct {
 	PKType    string
 }
 
-// FleetTableSchema returns the schema for the ai-desktops fleet table.
+// FleetTableSchema returns the schema for the desktopctl fleet table.
 func FleetTableSchema(tableName string) *TableSchema {
 	return &TableSchema{
 		TableName: tableName,

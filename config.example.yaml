@@ -1,5 +1,5 @@
-# ai-desktops example configuration
-# Copy to ~/.ai-desktops/config.yaml and fill in your values.
+# desktopctl example configuration
+# Copy to ~/.config/desktopctl/config.yaml and fill in your values.
 # Do NOT commit files containing real secrets or personal values.
 
 aws:
@@ -11,18 +11,18 @@ aws:
 
 pulumi:
   # S3 bucket name for Pulumi state storage.
-  # Created by `ai-desktops bootstrap`; must be globally unique.
-  backend_bucket: myorg-ai-desktops-pulumi-state
+  # Created by `desktopctl bootstrap`; must be globally unique.
+  backend_bucket: myorg-desktopctl-pulumi-state
 
   # Path to the repository root containing infra/pulumi/foundation and
   # infra/pulumi/desktop. Defaults to "." (current working directory).
   # Set to an absolute path if running the CLI from outside the repo root.
-  # infra_dir: /home/user/ai-desktops
+  # infra_dir: /home/user/desktopctl
 
 fleet:
   # DynamoDB table name for fleet metadata.
-  # Created by `ai-desktops bootstrap`.
-  table_name: ai-desktops-fleet-dev
+  # Created by `desktopctl bootstrap`.
+  table_name: desktopctl-fleet-dev-us-east-1
 
   # Default control-plane organization UUID for new desktop records and
   # organization-scoped list output. Can be overridden with --organization-id.
@@ -40,9 +40,9 @@ github:
   owner: myorg
 
   # AWS Secrets Manager secret path for this GitHub owner's credentials.
-  # Created automatically by `ai-desktops setup`. Contains github_token,
+  # Created automatically by `desktopctl setup`. Contains github_token,
   # ssh_private_key, and ssh_public_key as a JSON document.
-  github_secret: /ai-desktops/myorg/github
+  github_secret: /desktopctl/dev/us-east-1/myorg/github
 
   # Git commit identity written to the desktop's global git config.
   # Used as the author name and email for all commits made on the desktop.
@@ -57,11 +57,11 @@ github:
 
 operator:
   # AWS Secrets Manager path for operator-only credentials used by the
-  # ai-desktops CLI, not injected into desktop environments.
+  # desktopctl CLI, not injected into desktop environments.
   # Created/updated automatically when an operator env var such as
   # TAILSCALE_API_KEY is present during relevant commands.
-  # Default: /ai-desktops/<github.owner>
-  secret: /ai-desktops/myorg
+  # Default: /desktopctl/<github.owner>
+  secret: /desktopctl/dev/us-east-1/myorg
 
 desktop:
   # EC2 instance type for each desktop.
@@ -73,14 +73,20 @@ desktop:
   # Setting a value here forces that size for all desktops, disabling the automatic mobile/AVD default.
   # volume_size: 0
 
-  # Pre-baked AMI IDs per region, populated automatically by `ai-desktops ami build`.
+  # Pre-baked AMI IDs per region, populated automatically by `desktopctl ami build`.
   # When present, desktop creation uses these AMIs instead of the default Ubuntu map,
   # and cloud-init skips package installation (tools are already baked in).
-  # Run `ai-desktops ami list` to see current values.
+  # Run `desktopctl ami list` to see current values.
   # active_ami:
   #   us-east-1: ami-0123456789abcdef0
   #   us-east-2: ami-0123456789abcdef1
   #   us-west-2: ami-0123456789abcdef2
+
+  # Optional trusted AWS publisher account. When active_ami has no entry for
+  # the current region, create discovers the newest public AMI for this CLI's
+  # major version (desktopctl-v<major>-<UTC date>-<timestamp>).
+  # public_ami_owner: "123456789012"
+  # public_ami_major: "1"  # optional override of the CLI major version
 
   # Android Virtual Devices to create at desktop boot.
   # Each entry defines an AVD that avdmanager will create for the ubuntu user.
@@ -107,7 +113,7 @@ desktop:
   # AWS Secrets Manager JSON secret containing this profile's environment vars.
   # Injected only when the configured profile is selected. A different profile
   # needs its own create --profile-secret value.
-  # profile_secret: /ai-desktops/markcallen/profiles/ai-desktop-profile
+  # profile_secret: /desktopctl/markcallen/profiles/ai-desktop-profile
 
 agent:
   # Port where bridgectl listens on the desktop. Defaults to localhost-only.
@@ -126,7 +132,7 @@ agent:
 network:
   # Optional Tailscale tailnet/network default used when running create with
   # --tailscale. Requires TAILSCALE_AUTHKEY in the local environment or an
-  # existing /ai-desktops/<owner>/tailscale/<tailnet> secret with TS_AUTHKEY.
+  # existing /desktopctl/<env>/<region>/<owner>/tailscale/<tailnet> secret with TS_AUTHKEY.
   # Can be overridden per desktop with --tailscale-network, which also enables
   # Tailscale for that desktop.
   # tailscale_network: my-tailnet
@@ -137,7 +143,7 @@ pki:
   # when this config value is set. If the CA is reachable only over Tailscale,
   # also configure network.tailscale_network.
   # Requires STEP_CA_PROVISIONER_PASSWORD in the local environment or an existing
-  # /ai-desktops/<owner>/step-ca/<server> secret with STEP_CA_PROVISIONER_PASSWORD.
+  # /desktopctl/<env>/<region>/<owner>/step-ca/<server> secret with STEP_CA_PROVISIONER_PASSWORD.
   # Can be overridden per desktop with --step-ca.
   # step_ca_server: ca.my-tailnet.ts.net
 
@@ -152,7 +158,7 @@ pki:
 
   # Remote bridgectl clients trusted by the desktop's bridge server at startup.
   # The issuer normally matches the client's Step CA certificate common name.
-  # public_key_path is read from this machine during `ai-desktops create`; only
+  # public_key_path is read from this machine during `desktopctl create`; only
   # the public key is copied to the desktop. You can also pass one-off clients
   # with --step-ca-client issuer=<name>,public-key-path=<path>,required=true.
   # step_ca_clients:

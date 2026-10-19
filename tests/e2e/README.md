@@ -1,10 +1,19 @@
 # AWS desktop E2E scenarios
 
-This opt-in runner tests a desktop against the existing **dev** foundation and
+This opt-in runner tests a desktop against the foundation selected by its
+configuration and
 active AMI. It creates an isolated retained EFS workspace and desktop, each named
-`e2e-ai-desktops-<random ID>`, for this checkout's GitHub origin (or an explicit
+`e2e-desktopctl-<random ID>`, for this checkout's GitHub origin (or an explicit
 `--repo owner/desktopctl`). It does not use `eos-dev`, build AMIs,
 or create/destroy shared foundation infrastructure. These tests incur AWS costs.
+
+For the ca-central-1 production setup, use the named XDG config and the SSH
+scenario. It needs no separate bridgectl binary and cleans up after success:
+
+```bash
+scripts/e2e.sh --config ~/.config/desktopctl/config-ca-central-1.yaml \
+  --scenario ssh-login --no-dns --cli ./bin/desktopctl
+```
 
 ## Run Codex authentication
 
@@ -28,7 +37,8 @@ identify the same private key file as `desktop.ssh_key_path` in the config:
 desktop creation and `secrets reload` both use that configured key. Mismatched
 overrides are rejected before cloud commands, including on reuse; choose the
 intended key in the CLI config before starting a run.
-Desktop defaults are `--env dev --instance-type m7i.large --workspace-mode efs`.
+Desktop defaults are the configured environment, `--instance-type m7i.large`,
+and `--workspace-mode efs`.
 `--timeout 30m` bounds provisioning and scenarios. Cleanup has its own 15-minute
 deadline.
 
@@ -113,7 +123,7 @@ AWS secret. A successful test demonstrates local refresh-state preservation;
 it cannot prove that duplicating one account refresh token across many desktops
 produces independently refreshable upstream credentials.
 
-Desktop helper files are under `~/.local/share/ai-desktops-e2e/`. JSON files record
+Desktop helper files are under `~/.local/share/desktopctl-e2e/`. JSON files record
 only safe metadata. The original bridge configuration is kept separately in a
 mode-0600 restoration copy; provider arguments are read from that protected copy
 at execution and the copy is removed after restoration. If an interrupted SSH session leaves temporary provider
@@ -121,7 +131,7 @@ configuration installed, restore it before rerunning:
 
 ```bash
 XDG_RUNTIME_DIR=/run/user/$(id -u) python3 \
-  ~/.local/share/ai-desktops-e2e/codex-test.py restore
+  ~/.local/share/desktopctl-e2e/codex-test.py restore
 ```
 
 ## Add scenarios and test the runner offline

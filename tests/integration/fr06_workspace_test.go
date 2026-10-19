@@ -95,7 +95,7 @@ func TestFR6_WorkspaceOwnerBoundary(t *testing.T) {
 	}
 }
 
-// TestFR6_MixedOwnerRejected verifies that `ai-desktops create` fails with a
+// TestFR6_MixedOwnerRejected verifies that `desktopctl create` fails with a
 // clear error when repos from different GitHub owners are provided (AC-6.2).
 // This is a local-validation test: it uses --preview so no infra is touched.
 func TestFR6_MixedOwnerRejected(t *testing.T) {

@@ -20,7 +20,7 @@ func TestGitHubRepo(t *testing.T) {
 			t.Fatalf("%q: %q %v", origin, got, err)
 		}
 	}
-	for _, origin := range []string{"https://evil.example/owner/ai-desktops", "git@github.com:owner/ai-desktops.git", "git@github.com:owner/pilot.git", ""} {
+	for _, origin := range []string{"https://evil.example/owner/desktopctl", "git@github.com:owner/pilot.git", ""} {
 		if _, err := githubRepo(origin); err == nil {
 			t.Fatalf("accepted %q", origin)
 		}
@@ -61,7 +61,7 @@ func TestScenarioRejectsSSHKeyDifferentFromConfigBeforeCloudCalls(t *testing.T) 
 func TestFailedCreateNeverRecordsUnrelatedDesktop(t *testing.T) {
 	for _, mutation := range []func(*store.Desktop){
 		func(d *store.Desktop) { d.GitHubOwner = "unrelated" },
-		func(d *store.Desktop) { d.Repos = []string{"github.com/unrelated/ai-desktops"} },
+		func(d *store.Desktop) { d.Repos = []string{"github.com/unrelated/desktopctl"} },
 		func(d *store.Desktop) { d.WorkspaceName = "other" },
 		func(d *store.Desktop) { d.State = store.StateTerminated },
 		func(d *store.Desktop) { d.CreatedAt = "invalid-time" },
@@ -166,7 +166,7 @@ func TestWorkspaceRecoveryRejectsUnrelatedRecord(t *testing.T) {
 	for _, mutation := range []func(*store.Workspace){
 		func(w *store.Workspace) { w.CreatedAt = "2025-01-01T00:00:00Z" },
 		func(w *store.Workspace) { w.GitHubOwner = "another" },
-		func(w *store.Workspace) { w.Repos = []string{"github.com/another/ai-desktops"} },
+		func(w *store.Workspace) { w.Repos = []string{"github.com/another/desktopctl"} },
 		func(w *store.Workspace) { w.AttachedDesktopID = "d-another" },
 	} {
 		s, owned := fixture(t)
@@ -258,6 +258,7 @@ type commandFixture struct {
 	d      store.Desktop
 	fail   string
 	events []string
+	noDNS  bool
 }
 
 func argValue(args []string, key string) string {
@@ -277,6 +278,10 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 	}
 	if program == "ssh" {
 		command := args[len(args)-1]
+		if strings.Contains(command, "PASS ssh-login") {
+			f.events = append(f.events, "ssh-login")
+			return []byte("PASS ssh-login\n"), nil
+		}
 		if strings.Contains(command, "codex-test.py'") && !strings.Contains(command, "dd of=") {
 			for _, action := range []string{"prepare", "first", "second", "reloaded", "third"} {
 				if strings.HasSuffix(command, shellQuote(action)) {
@@ -308,6 +313,7 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 		}
 	case "create":
 		f.events = append(f.events, "desktop-create")
+		f.noDNS = strings.Contains(strings.Join(args, " "), "--no-dns")
 		f.d = store.Desktop{DesktopID: "d-created", DesktopName: argValue(args, "--name"), WorkspaceID: f.w.WorkspaceID, WorkspaceName: f.w.WorkspaceName, Environment: "dev", GitHubOwner: f.w.GitHubOwner, Repos: f.w.Repos, State: store.StateReady, SSHTarget: "ubuntu@test.example", CreatedAt: "9999-12-31T00:00:00Z"}
 		f.w.AttachedDesktopID = f.d.DesktopID
 		if f.fail == "create" {
@@ -329,6 +335,32 @@ func (f *commandFixture) execute(_ context.Context, program string, args []strin
 	}
 	f.t.Fatalf("unexpected CLI %v", args)
 	return nil, nil
+}
+
+func TestCommandFlowSSHLogin(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	key := filepath.Join(dir, "key")
+	stateFile := filepath.Join(dir, "state.json")
+	for path, data := range map[string]string{cfg: "aws:\n  region: ca-central-1\ndesktop:\n  ssh_key_path: " + key + "\n", key: "fixture key"} {
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &commandFixture{t: t}
+	previous := runCommand
+	runCommand = f.execute
+	t.Cleanup(func() { runCommand = previous })
+	if err := run(context.Background(), []string{"--cli", "test-cli", "--config", cfg, "--state", stateFile, "--scenario", "ssh-login", "--no-dns"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadState(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.noDNS || !s.NoDNS || !s.DesktopTerminated || !s.WorkspaceDeleted {
+		t.Fatalf("SSH run did not use no-DNS creation and clean up: state=%+v events=%v", s, f.events)
+	}
 }
 
 func TestCommandFlow(t *testing.T) {

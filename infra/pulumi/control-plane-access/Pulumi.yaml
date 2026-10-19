@@ -1,21 +1,17 @@
 name: control-plane-access
 runtime: go
-description: ai-desktops DOKS control plane IAM user and assumable AWS role
+description: desktopctl DOKS control plane IAM user and assumable AWS role
 
 config:
   aws:region:
     value: us-east-1
   environment:
     default: dev
-  fleetTable:
-    default: ai-desktops-fleet-dev
-  amiTable:
-    default: ai-desktops-ami-dev
   roleName:
     default: ""
   bootstrapUserName:
     default: ""
   secretPrefix:
-    default: /ai-desktops/
+    default: /desktopctl/
   externalId:
     secret: true

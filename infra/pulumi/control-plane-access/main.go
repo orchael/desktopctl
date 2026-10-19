@@ -20,36 +20,38 @@ func run(ctx *pulumi.Context) error {
 	if environment == "" {
 		environment = "dev"
 	}
+	region := cfg.Require("region")
+	scope := environment + "-" + region
 	fleetTable := cfg.Get("fleetTable")
 	if fleetTable == "" {
-		fleetTable = "ai-desktops-fleet-" + environment
+		fleetTable = "desktopctl-fleet-" + scope
 	}
 	amiTable := cfg.Get("amiTable")
 	if amiTable == "" {
-		amiTable = "ai-desktops-ami-" + environment
+		amiTable = "desktopctl-ami-" + scope
 	}
 	backendBucket := cfg.Require("backendBucket")
 	hostedZoneArn := cfg.Require("hostedZoneArn")
 	desktopRoleArn := cfg.Require("desktopRoleArn")
 	secretPrefix := cfg.Get("secretPrefix")
 	if secretPrefix == "" {
-		secretPrefix = "/ai-desktops/"
+		secretPrefix = "/desktopctl/"
 	}
 	externalID := cfg.RequireSecret("externalId")
 
 	roleName := cfg.Get("roleName")
 	if roleName == "" {
-		roleName = defaultRoleName(environment)
+		roleName = defaultRoleName(scope)
 	}
 	userName := cfg.Get("bootstrapUserName")
 	if userName == "" {
-		userName = defaultBootstrapUserName(environment)
+		userName = defaultBootstrapUserName(scope)
 	}
 
 	user, err := iam.NewUser(ctx, userName, &iam.UserArgs{
 		Name: pulumi.String(userName),
 		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("desktopctl"),
 			"environment": pulumi.String(environment),
 			"component":   pulumi.String("control-plane-access"),
 		},
@@ -78,7 +80,7 @@ func run(ctx *pulumi.Context) error {
 		Name:             pulumi.String(roleName),
 		AssumeRolePolicy: assumeRolePolicy,
 		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("desktopctl"),
 			"environment": pulumi.String(environment),
 			"component":   pulumi.String("control-plane-access"),
 		},
@@ -142,11 +144,11 @@ func assumeOnlyPolicy(roleArn string) map[string]any {
 }
 
 func defaultRoleName(environment string) string {
-	return "ai-desktops-control-plane-" + environment
+	return "desktopctl-control-plane-" + environment
 }
 
 func defaultBootstrapUserName(environment string) string {
-	return "ai-desktop-user-" + environment
+	return "desktopctl-user-" + environment
 }
 
 func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, desktopRoleArn, secretPrefix string) (string, error) {
@@ -183,7 +185,7 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 				"Resource": "*",
 				"Condition": map[string]any{
 					"StringEquals": map[string]string{
-						"aws:RequestTag/managed-by": "ai-desktops",
+						"aws:RequestTag/managed-by": "desktopctl",
 					},
 				},
 			},
@@ -200,7 +202,7 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 				"Resource": "*",
 				"Condition": map[string]any{
 					"StringEquals": map[string]string{
-						"ec2:ResourceTag/managed-by": "ai-desktops",
+						"ec2:ResourceTag/managed-by": "desktopctl",
 					},
 				},
 			},

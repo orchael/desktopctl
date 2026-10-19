@@ -34,7 +34,7 @@ Update the corresponding test expectation in `internal/desktop/desktop_test.go`.
 
 Replace the mock `api-server.js` with a real Node.js server that:
 
-- Reads `/opt/ai-desktops/desktop.env` for `DESKTOP_ID`, `GITHUB_OWNER`, `WORKSPACE`,
+- Reads `/opt/desktopctl/desktop.env` for `DESKTOP_ID`, `GITHUB_OWNER`, `WORKSPACE`,
   `ENVIRONMENT`, `BRIDGE_PORT`
 - Scans `$WORKSPACE` for git directories to populate `repos`
 - Queries `systemctl is-active` for `docker`, `bridgectl`, `novnc-desktop` to populate
@@ -46,16 +46,16 @@ Replace the mock `api-server.js` with a real Node.js server that:
 Keep the mock data in a separate `api-server.mock.js` file for local development
 (`pnpm run dev:mock`).
 
-Add a systemd unit `ai-desktops-web.service` that runs the backend as `ubuntu`, starts after
+Add a systemd unit `desktopctl-web.service` that runs the backend as `ubuntu`, starts after
 `network.target`, and restarts on failure.
 
-### 3 — Nginx reconfiguration in `ai-desktops-setup-tls`
+### 3 — Nginx reconfiguration in `desktopctl-setup-tls`
 
-Update `packer/files/ai-desktops-setup-tls` to produce this routing layout on port 8443:
+Update `packer/files/desktopctl-setup-tls` to produce this routing layout on port 8443:
 
 | Path | Serves |
 |---|---|
-| `/` | Static files from `/opt/ai-desktops/web/dist/` |
+| `/` | Static files from `/opt/desktopctl/web/dist/` |
 | `/novnc/` | Proxy to noVNC internal service (currently at root) |
 | `/api/` | Proxy to `127.0.0.1:3001` (desktop-web backend) |
 | `/_auth/` | Existing novnc-auth integration (unchanged) |
@@ -78,10 +78,10 @@ Add a Packer `shell` provisioner (in `packer/ubuntu-desktop.pkr.hcl`) that:
 2. Installs pnpm via corepack
 3. Copies `apps/desktop-web/` to a temp location on the build instance
 4. Runs `pnpm install --frozen-lockfile && pnpm run build`
-5. Copies `dist/` to `/opt/ai-desktops/web/dist/` with `ubuntu:ubuntu` ownership
-6. Copies `api-server.js` to `/opt/ai-desktops/web/api-server.js`
-7. Copies `ai-desktops-web.service` to `/etc/systemd/system/`
-8. Runs `systemctl enable ai-desktops-web`
+5. Copies `dist/` to `/opt/desktopctl/web/dist/` with `ubuntu:ubuntu` ownership
+6. Copies `api-server.js` to `/opt/desktopctl/web/api-server.js`
+7. Copies `desktopctl-web.service` to `/etc/systemd/system/`
+8. Runs `systemctl enable desktopctl-web`
 9. Removes Node.js and pnpm from the AMI (not needed at runtime since the backend
    is a plain Node script and Node is not required — switch to Python if preferred)
 
@@ -108,20 +108,20 @@ server port).
 | `apps/desktop-web/api-server.js` | Replace mock with real implementation (or rename to `api-server.mock.js` and write real one) |
 | `apps/desktop-web/package.json` | Add `dev:mock` script |
 | `apps/desktop-web/vite.config.ts` | Add `/api/` proxy for local dev |
-| `packer/files/ai-desktops-setup-tls` | New nginx layout (root static, `/novnc/` proxy, `/api/` proxy) |
-| `packer/files/ai-desktops-web.service` | New systemd unit |
+| `packer/files/desktopctl-setup-tls` | New nginx layout (root static, `/novnc/` proxy, `/api/` proxy) |
+| `packer/files/desktopctl-web.service` | New systemd unit |
 | `packer/ubuntu-desktop.pkr.hcl` | Add desktop-web build provisioner |
 
 ## Acceptance Criteria
 
-1. `ai-desktops create --json` returns `novnc_url` ending in `/novnc/vnc.html`.
+1. `desktopctl create --json` returns `novnc_url` ending in `/novnc/vnc.html`.
 2. HTTPS GET to `https://<hostname>:8443/` returns the desktop-web HTML (not noVNC).
 3. HTTPS GET to `https://<hostname>:8443/novnc/vnc.html` opens the noVNC desktop.
 4. `GET /api/desktop` returns correct `desktop_id`, `hostname`, `github_owner`, `repos`, and
    `services` from the live desktop state.
-5. `systemctl is-active ai-desktops-web` returns `active` on a provisioned desktop.
+5. `systemctl is-active desktopctl-web` returns `active` on a provisioned desktop.
 6. `pnpm run build` in `apps/desktop-web/` succeeds with no errors.
-7. The built `dist/` is present at `/opt/ai-desktops/web/dist/` in the AMI.
+7. The built `dist/` is present at `/opt/desktopctl/web/dist/` in the AMI.
 8. `pnpm run dev:mock` starts the dev server with mock data; the app loads in a local browser.
 9. No provider credentials or PAT values appear in the rendered browser output.
 10. Existing Go unit tests still pass (`go test ./...`).
@@ -139,13 +139,13 @@ pnpm run build          # verify dist/ output
 pnpm run dev:mock       # verify app loads at localhost:5173 with mock data
 
 # After AMI rebuild and desktop creation:
-ai-desktops create --github-owner <owner> --json | jq .novnc_url
+desktopctl create --github-owner <owner> --json | jq .novnc_url
 # → "https://<hostname>:8443/novnc/vnc.html"
 
 curl -k https://<hostname>:8443/                   # welcome page HTML
 curl -k https://<hostname>:8443/api/desktop        # JSON desktop info
 curl -k https://<hostname>:8443/novnc/vnc.html     # noVNC page
-ssh ubuntu@<hostname> systemctl is-active ai-desktops-web
+ssh ubuntu@<hostname> systemctl is-active desktopctl-web
 ```
 
 ## Key Decisions
@@ -173,7 +173,7 @@ stored in DynamoDB and returned by `create` is updated to reflect the new path.
 
 These changes require a new Packer AMI build. Existing desktops provisioned with the old AMI
 will not have the welcome page. Document this in the AMI rebuild notes — operators must run
-`ai-desktops ami build` and reprovision, or run the nginx/service changes manually over SSH.
+`desktopctl ami build` and reprovision, or run the nginx/service changes manually over SSH.
 
 ## Out of Scope
 

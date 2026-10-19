@@ -296,7 +296,7 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
 
-const bootstrapStatusPath = "/var/lib/ai-desktops/bootstrap-status.json"
+const bootstrapStatusPath = "/var/lib/desktopctl/bootstrap-status.json"
 
 type bootstrapStatus struct {
 	State      string `json:"state"`
@@ -650,9 +650,9 @@ func DesktopWebCheckers(hostname string, sshPort int, user, keyPath string) []Ch
 	t := 20 * time.Second
 	return []Checker{
 		NewSSHChecker("desktop-web-active", hostname, sshPort, user, keyPath,
-			"systemctl is-active ai-desktops-web", t),
+			"systemctl is-active desktopctl-web", t),
 		NewSSHChecker("desktop-web-version", hostname, sshPort, user, keyPath,
-			`node -e "process.stdout.write(require('/opt/ai-desktops/web/node_modules/@orchael/desktopctl/package.json').version)"`, t),
+			`node -e "process.stdout.write(require('/opt/desktopctl/web/node_modules/@orchael/desktopctl/package.json').version)"`, t),
 	}
 }
 
@@ -695,7 +695,7 @@ func TailscaleCheckers(hostname string, sshPort int, user, keyPath string, netwo
 		NewSSHChecker("tailscale-running", hostname, sshPort, user, keyPath,
 			`tailscale status --json | python3 -c "import json,sys; exit(0 if json.load(sys.stdin).get('BackendState') == 'Running' else 1)"`, t),
 		NewSSHChecker("tailscale-network-metadata", hostname, sshPort, user, keyPath,
-			fmt.Sprintf("grep -qxF %s /opt/ai-desktops/tailscale.env", shellQuote(`TAILSCALE_NETWORK="`+network+`"`)), t),
+			fmt.Sprintf("grep -qxF %s /opt/desktopctl/tailscale.env", shellQuote(`TAILSCALE_NETWORK="`+network+`"`)), t),
 		NewSSHOptionalChecker("bridgectl-tailscale-listener", hostname, sshPort, user, keyPath,
 			"test -s /home/ubuntu/.config/bridgectl/step-ca.env", "step-ca not configured",
 			fmt.Sprintf(`TAILSCALE_IP=$(tailscale ip -4 | head -n 1) && test -n "$TAILSCALE_IP" && (grep -qxF "  listen: \"${TAILSCALE_IP}:%[1]d\"" /home/ubuntu/.config/bridgectl/config.yaml || grep -qxF "  listen: ${TAILSCALE_IP}:%[1]d" /home/ubuntu/.config/bridgectl/config.yaml) && (ss -tln | awk '{print $4}' | grep -qx "${TAILSCALE_IP}:%[1]d" || ss -tln | awk '{print $4}' | grep -qx "[::ffff:${TAILSCALE_IP}]:%[1]d")`, bridgePort),

@@ -50,7 +50,7 @@ Network checks (always run):
 SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
 
   Desktop Web:
-    - desktop-web-active  — ai-desktops-web systemd service is active
+    - desktop-web-active  — desktopctl-web systemd service is active
     - desktop-web-version — installed @orchael/desktopctl package version
 
   Essential Services:

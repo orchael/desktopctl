@@ -31,8 +31,28 @@ import (
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/repo"
 	"github.com/orchael/desktopctl/internal/store"
+	"github.com/orchael/desktopctl/internal/version"
 	"github.com/spf13/cobra"
 )
+
+var amiMajorPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+
+func validAMIMajor(major string) bool { return amiMajorPattern.MatchString(major) }
+
+func publicAMINamePattern(cliVersion, override string) (string, error) {
+	major := override
+	if major == "" {
+		var err error
+		major, err = version.Major(cliVersion)
+		if err != nil {
+			return "", err
+		}
+	}
+	if !validAMIMajor(major) {
+		return "", fmt.Errorf("desktop.public_ami_major must be a non-negative decimal major version")
+	}
+	return "desktopctl-v" + major + "-*", nil
+}
 
 var (
 	createOwner             string
@@ -241,11 +261,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
+	agentSecretPath := cfg.GitHub.AgentSecret
+	if owner != cfg.GitHub.Owner {
+		agentSecretPath = fmt.Sprintf("/desktopctl/%s/%s/%s/agents", cfg.Environment(), cfg.AWS.Region, owner)
+	}
 	gitHubSecret := createGitHubSecret
 	if gitHubSecret == "" && !cfg.SaaSMode {
 		gitHubSecret = cfg.GitHub.GitHubSecret
-		if cfg.GitHub.Owner == "" {
-			gitHubSecret = "/ai-desktops/" + owner + "/github"
+		if owner != cfg.GitHub.Owner {
+			gitHubSecret = fmt.Sprintf("/desktopctl/%s/%s/%s/github", cfg.Environment(), cfg.AWS.Region, owner)
 		}
 	}
 	publicGitHubSources := cfg.SaaSMode && gitHubSecret == ""
@@ -315,7 +339,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if profileSecret != "" {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
-	secretPaths := createSecretPaths(cfg.GitHub.AgentSecret, requestedSecrets, cfg.SaaSMode)
+	secretPaths := createSecretPaths(agentSecretPath, requestedSecrets, cfg.SaaSMode)
 	// Verify every configured secret before provisioning.
 	secretsToValidate := append([]string(nil), secretPaths...)
 	if cfg.SaaSMode && gitHubSecret != "" {
@@ -341,8 +365,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	tailscaleSecretPath := ""
 	stepCASecretPath := ""
 	if integrations.tailscaleEnabled || integrations.stepCAEnabled {
+		operatorSecretPath := cfg.Operator.Secret
+		if owner != cfg.GitHub.Owner && operatorSecretPath == defaultOperatorSecretPath(cfg.GitHub.Owner, cfg.Environment(), cfg.AWS.Region) {
+			operatorSecretPath = ""
+		}
 		var err error
-		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, cfg.Operator.Secret, tailscaleNetwork, stepCAServer)
+		tailscaleSecretPath, stepCASecretPath, err = prepareIntegrationSecrets(ctx, createPreview, owner, env, cfg.AWS.Region, cfg.AWS.Profile, operatorSecretPath, tailscaleNetwork, stepCAServer)
 		if err != nil {
 			return err
 		}
@@ -369,8 +397,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			amiID = ami
 		}
 	}
+	if amiID == "" && cfg.Desktop.PublicAMIOwner != "" {
+		namePattern, err := publicAMINamePattern(version.Version, cfg.Desktop.PublicAMIMajor)
+		if err != nil {
+			return err
+		}
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config for public AMI discovery: %w", err)
+		}
+		amiID, err = awsx.FindLatestAMI(ctx, awsCfg, namePattern, cfg.Desktop.PublicAMIOwner, true)
+		if err != nil {
+			return fmt.Errorf("find public desktopctl AMI: %w", err)
+		}
+		info, err := awsx.DescribeAMI(ctx, awsCfg, amiID)
+		if err != nil || !info.Public {
+			return fmt.Errorf("discovered AMI %q is not public or cannot be inspected: %w", amiID, err)
+		}
+	}
 	if amiID == "" {
-		return fmt.Errorf("no AMI configured for region %s: run `desktopctl ami build` first or supply --ami", cfg.AWS.Region)
+		return fmt.Errorf("no AMI configured for region %s: set desktop.public_ami_owner, run `desktopctl ami build`, or supply --ami", cfg.AWS.Region)
 	}
 
 	req := &desktop.CreateRequest{
@@ -435,12 +481,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "  step-ca server        : %s (provisioner=%s)\n", stepCAServer, stepCAProvisioner)
 	}
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 
 	// Read foundation stack outputs to get the subnet, SG, and instance profile
 	// that the desktop stack requires.
 	foundationWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	foundationRef := pulumi.FoundationStackRef(backendURL, env, foundationWorkDir)
+	foundationRef := pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, foundationWorkDir)
 	foundationOutputs, err := runner.Outputs(ctx, foundationRef)
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
@@ -635,7 +681,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		SwapSizeGB:           swapSizeGB,
 		AVDs:                 avds,
 	}
-	agentSecret := cfg.GitHub.AgentSecret
+	agentSecret := agentSecretPath
 	if cfg.SaaSMode {
 		agentSecret = ""
 	}
@@ -1437,11 +1483,11 @@ func resolveCreateIntegrations(in resolveCreateIntegrationsInput) (resolvedCreat
 func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, region, profile, operatorSecretPath, tailscaleNetwork, stepCAServer string) (string, string, error) {
 	tailscaleSecretPath := ""
 	if tailscaleNetwork != "" {
-		tailscaleSecretPath = fmt.Sprintf("/ai-desktops/%s/tailscale/%s", owner, secretPathSlug(tailscaleNetwork))
+		tailscaleSecretPath = fmt.Sprintf("/desktopctl/%s/%s/%s/tailscale/%s", env, region, owner, secretPathSlug(tailscaleNetwork))
 	}
 	stepCASecretPath := ""
 	if stepCAServer != "" {
-		stepCASecretPath = fmt.Sprintf("/ai-desktops/%s/step-ca/%s", owner, secretPathSlug(stepCAServer))
+		stepCASecretPath = fmt.Sprintf("/desktopctl/%s/%s/%s/step-ca/%s", env, region, owner, secretPathSlug(stepCAServer))
 	}
 	if preview {
 		return tailscaleSecretPath, stepCASecretPath, nil
@@ -1474,7 +1520,7 @@ func prepareIntegrationSecrets(ctx context.Context, preview bool, owner, env, re
 		tailscaleAPIKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY"))
 		if tailscaleAPIKey != "" {
 			if operatorSecretPath == "" {
-				operatorSecretPath = defaultOperatorSecretPath(owner)
+				operatorSecretPath = defaultOperatorSecretPath(owner, env, region)
 			}
 			fmt.Fprintf(os.Stderr, "Storing Tailscale API key at %s ...\n", operatorSecretPath)
 			if err := storeOperatorSecretValue(ctx, awsCfg, operatorSecretPath, "TAILSCALE_API_KEY", tailscaleAPIKey, owner, env); err != nil {
@@ -1812,7 +1858,7 @@ func launchNestedVirtInstance(ctx context.Context, region, profile string, p *in
 				ResourceType: ec2types.ResourceTypeInstance,
 				Tags: []ec2types.Tag{
 					{Key: aws.String("Name"), Value: aws.String(p.hostname)},
-					{Key: aws.String("managed-by"), Value: aws.String("ai-desktops")},
+					{Key: aws.String("managed-by"), Value: aws.String("desktopctl")},
 					{Key: aws.String("desktop-id"), Value: aws.String(p.desktopID)},
 					{Key: aws.String("github-owner"), Value: aws.String(p.githubOwner)},
 					{Key: aws.String("environment"), Value: aws.String(p.environment)},

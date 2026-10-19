@@ -21,9 +21,9 @@ Replace cloud-init-only software provisioning with a pre-baked AWS machine image
 
 1. `packer/ubuntu-desktop.pkr.hcl` exists and successfully builds Ubuntu 24.04 AMIs for us-east-2.
 2. Built AMI includes pre-installed: `docker`, `git`, `nvim`, `tmux`, `wireguard-tools`, `uv`, `go`, `brew`, `bridgectl` (pinned version), `novnc-desktop` (installed without TLS certificates).
-3. `ai-desktops ami build --regions us-east-1,us-west-2 --vars-file packer/variables.pkrvars.hcl` succeeds and updates `config.yaml` with AMI IDs.
-4. `ai-desktops ami list` displays a table of region → AMI ID.
-5. `ai-desktops create` with pre-baked AMI IDs in config detects them and passes them to Pulumi instead of hardcoded Ubuntu map.
+3. `desktopctl ami build --regions us-east-1,us-west-2 --vars-file packer/variables.pkrvars.hcl` succeeds and updates `config.yaml` with AMI IDs.
+4. `desktopctl ami list` displays a table of region → AMI ID.
+5. `desktopctl create` with pre-baked AMI IDs in config detects them and passes them to Pulumi instead of hardcoded Ubuntu map.
 6. Cloud-init template is rendered in the CLI and passed to Pulumi as a config value (no inline template in Pulumi program).
 7. Cloud-init template omits package installation steps when `PackagesPreInstalled` flag is true.
 8. Existing test suite still passes; new tests added for AMI config validation and Packer manifest parsing.
@@ -40,18 +40,18 @@ packer init ubuntu-desktop.pkr.hcl
 packer build -var-file=variables.pkrvars.hcl .
 
 # Verify manifest and update config
-ai-desktops ami build --regions us-east-2
+desktopctl ami build --regions us-east-2
 
 # Verify config updated
-ai-desktops ami list
+desktopctl ami list
 
 # Create a desktop with pre-baked AMI
-ai-desktops create --github-owner myorg --repo myrepo --preview
+desktopctl create --github-owner myorg --repo myrepo --preview
 # Check cloud-init in Pulumi stack output: should not have package install steps
 
 # Boot the desktop and verify tools are available
-ai-desktops status <desktop-id>
-ai-desktops doctor <desktop-id>  # should verify docker, nvim, tmux, git on PATH
+desktopctl status <desktop-id>
+desktopctl doctor <desktop-id>  # should verify docker, nvim, tmux, git on PATH
 
 # Run test suite
 go test ./...
@@ -83,7 +83,7 @@ This cleanly separates concerns: CLI owns provisioning logic, Pulumi owns infras
 
 ### AMI versioning and naming
 
-Built AMIs are named `ai-desktops-base-{novnc_desktop_version}-{timestamp}`. This allows operators to identify which component version is baked in and provides an audit trail in AWS. The AMI ID (not the name) is what matters; storing AMI IDs per region in config is the contract.
+Built AMIs are named `desktopctl-base-{novnc_desktop_version}-{timestamp}`. This allows operators to identify which component version is baked in and provides an audit trail in AWS. The AMI ID (not the name) is what matters; storing AMI IDs per region in config is the contract.
 
 ## Trade-offs
 
@@ -104,7 +104,7 @@ Built AMIs are named `ai-desktops-base-{novnc_desktop_version}-{timestamp}`. Thi
 **Integration (manual):**
 - Build an actual AMI via Packer
 - Verify manifest is created
-- Verify `ai-desktops ami build` updates config
+- Verify `desktopctl ami build` updates config
 - Provision a desktop with the pre-baked AMI
 - Boot and verify all pre-installed tools are available and functional
 

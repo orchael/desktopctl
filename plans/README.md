@@ -1,4 +1,4 @@
-# ai-desktops MVP Task Plan
+# desktopctl MVP Task Plan
 
 This directory contains small implementation tasks for building the MVP described in `PRD.md` and `ARCHITECTURE.md`.
 
@@ -31,9 +31,9 @@ landed in this order:
 
 | Implemented order | Plan | Current status |
 |---|---|---|
-| 14 | `14-pre-baked-ami.md` | Implemented with `ai-desktops ami build`, Packer/Ansible image builds, `desktop.active_ami`, AMI history in DynamoDB, and slimmed cloud-init for pre-baked images. |
-| 15 | `17-github-developer-tooling.md` | Implemented through `ai-desktops setup`, per-owner `github_secret` records in Secrets Manager, SSH git credentials, `gh auth`, git identity, and desktop developer tooling baked/configured by the AMI/bootstrap flow. |
-| 16 | `16-desktop-web-root-welcome-page.md` | Implemented with the desktop-web app served at `/`, noVNC at `/novnc/vnc.html`, `/api/desktop`, `ai-desktops-web.service`, and `update-web` for a running desktop. |
+| 14 | `14-pre-baked-ami.md` | Implemented with `desktopctl ami build`, Packer/Ansible image builds, `desktop.active_ami`, AMI history in DynamoDB, and slimmed cloud-init for pre-baked images. |
+| 15 | `17-github-developer-tooling.md` | Implemented through `desktopctl setup`, per-owner `github_secret` records in Secrets Manager, SSH git credentials, `gh auth`, git identity, and desktop developer tooling baked/configured by the AMI/bootstrap flow. |
+| 16 | `16-desktop-web-root-welcome-page.md` | Implemented with the desktop-web app served at `/`, noVNC at `/novnc/vnc.html`, `/api/desktop`, `desktopctl-web.service`, and `update-web` for a running desktop. |
 | Deferred | `15-wireguard-vpn.md` | Not implemented. Private access currently uses the Tailscale and step-ca flows documented in the README; keep this plan as a future VPN design unless the product direction changes. |
 | Follow-on | `18-efs-workspaces.md` | Adds retained EFS workspace lifecycle and optional workspace attachment. |
 | Follow-on | `18-control-plane-webapp.md` | Adds the Kubernetes-hosted control-plane web app and private Go API. |
@@ -65,8 +65,8 @@ For each task:
 - Add focused Go, TypeScript, Pulumi, or shell tests for non-trivial logic.
 - Keep implementation scoped to the task and avoid rewriting older plan files except to correct sequencing, status, or verification guidance.
 - Record unresolved work in the task file, `tasks/TODO.md`, or a follow-up GitHub issue.
-- For setup and GitHub developer tooling changes, verify `ai-desktops setup` config output, Secrets Manager path handling, SSH git credential setup, and `gh auth` bootstrap behavior.
-- For AMI changes, verify `ai-desktops ami build`, `ai-desktops ami list`, Packer/Ansible image contents, `desktop.active_ami`, and the slim cloud-init path used by `create`.
-- For desktop-web root page changes, verify `pnpm run build`, server tests, `/`, `/api/desktop`, `/novnc/vnc.html`, `ai-desktops-web.service`, and `update-web` when runtime updates are touched.
+- For setup and GitHub developer tooling changes, verify `desktopctl setup` config output, Secrets Manager path handling, SSH git credential setup, and `gh auth` bootstrap behavior.
+- For AMI changes, verify `desktopctl ami build`, `desktopctl ami list`, Packer/Ansible image contents, `desktop.active_ami`, and the slim cloud-init path used by `create`.
+- For desktop-web root page changes, verify `pnpm run build`, server tests, `/`, `/api/desktop`, `/novnc/vnc.html`, `desktopctl-web.service`, and `update-web` when runtime updates are touched.
 - For private access changes, follow the implemented Tailscale/step-ca workflow unless the deferred WireGuard plan is explicitly resumed.
 - Run the relevant verification commands before handing off and record any live-only checks that were not run.

@@ -95,7 +95,7 @@ func TestTailscaleAPIKeyFromOperatorSecret(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := tailscaleAPIKeyFromOperatorSecret(context.Background(), makeSecretsManagerConfig(srv.URL), "/ai-desktops/acme")
+	got, err := tailscaleAPIKeyFromOperatorSecret(context.Background(), makeSecretsManagerConfig(srv.URL), "/desktopctl/acme")
 	if err != nil {
 		t.Fatalf("tailscaleAPIKeyFromOperatorSecret: %v", err)
 	}

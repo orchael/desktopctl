@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { organizationNameFromEmail } from '@/lib/organization-name';
 
-export const activeOrganizationCookie = 'ai-desktops-organization';
+export const activeOrganizationCookie = 'desktopctl-organization';
 
 export async function listOrganizations(userId: string) {
   return prisma.$transaction(async (tx) => {

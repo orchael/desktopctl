@@ -2,8 +2,9 @@
 .claude/scheduled_tasks.lock
 
 # Build output
-/ai-desktops
+/desktopctl
 /bin/
+__pycache__/
 infra/pulumi/desktop/desktop
 infra/pulumi/foundation/foundation
 *.exe

@@ -2,11 +2,11 @@
 
 ## Objective
 
-Build a Kubernetes-hosted control plane webapp for `ai-desktops` that runs outside AWS, initially on DOKS, and manages the existing AWS-backed desktop fleet through the same lifecycle semantics as the CLI.
+Build a Kubernetes-hosted control plane webapp for `desktopctl` that runs outside AWS, initially on DOKS, and manages the existing AWS-backed desktop fleet through the same lifecycle semantics as the CLI.
 
 This is a new fleet control plane. It must not replace `apps/desktop-web`, which is the on-desktop status dashboard served from each provisioned desktop.
 
-Tracker: https://github.com/markcallen/ai-desktops/issues/156
+Tracker: https://github.com/markcallen/desktopctl/issues/156
 
 ## GitHub Actions Review
 
@@ -71,8 +71,8 @@ The API runs with static bootstrap credentials stored as a Kubernetes Secret bec
 
 Add a small provisioning path that creates:
 
-- IAM role: `ai-desktops-control-plane-<environment>`.
-- IAM user: `ai-desktops-control-plane-<environment>`.
+- IAM role: `desktopctl-control-plane-<environment>`.
+- IAM user: `desktopctl-control-plane-<environment>`.
 - IAM access key for the user.
 - Policy on the user allowing only `sts:AssumeRole` for the control plane role.
 - Trust policy on the role allowing only the bootstrap user to assume it, with an external ID condition.
@@ -82,8 +82,8 @@ Add a small provisioning path that creates:
 The secret access key output must be marked as a Pulumi secret. It should be installed into DOKS as a Kubernetes Secret, not committed:
 
 ```bash
-kubectl create secret generic ai-desktops-aws \
-  --namespace ai-desktops \
+kubectl create secret generic desktopctl-aws \
+  --namespace desktopctl \
   --from-literal=AWS_ACCESS_KEY_ID='<pulumi-output-access-key-id>' \
   --from-literal=AWS_SECRET_ACCESS_KEY='<pulumi-output-secret-access-key>' \
   --from-literal=AWS_REGION='<region>' \
@@ -101,10 +101,10 @@ Runtime credential flow:
 Initial role permissions:
 
 - DynamoDB read/write on the configured fleet table and AMI history table.
-- EC2 describe/start/stop/terminate/run-instance actions required by existing lifecycle operations, constrained by `managed-by=ai-desktops` tags where AWS supports it.
+- EC2 describe/start/stop/terminate/run-instance actions required by existing lifecycle operations, constrained by `managed-by=desktopctl` tags where AWS supports it.
 - IAM `PassRole` only for the existing desktop instance role.
 - SSM session permissions for managed desktop instances.
-- Secrets Manager read/write for `/ai-desktops/<owner>/*`, preserving the existing operator-secret deny boundary for desktop instance roles.
+- Secrets Manager read/write for `/desktopctl/<owner>/*`, preserving the existing operator-secret deny boundary for desktop instance roles.
 - Route53 record changes only for the configured hosted zone.
 - S3 access only to the configured Pulumi backend bucket and prefix.
 - CloudWatch Logs write access for control plane operational logs if the app exports logs directly.
@@ -184,8 +184,8 @@ Required runtime environment:
 
 | Variable | Source | Purpose |
 |---|---|---|
-| `AI_DESKTOPS_ENVIRONMENT` | ConfigMap | Environment name such as `dev`, `test`, or `prod`. |
-| `AI_DESKTOPS_CONFIG` | ConfigMap or mounted file | Existing ai-desktops config content or path. |
+| `DESKTOPCTL_ENVIRONMENT` | ConfigMap | Environment name such as `dev`, `test`, or `prod`. |
+| `DESKTOPCTL_CONFIG` | ConfigMap or mounted file | Existing desktopctl config content or path. |
 | `AWS_REGION` | Secret or ConfigMap | AWS region for the fleet. |
 | `AWS_ACCESS_KEY_ID` | Secret | DOKS bootstrap IAM user key ID. |
 | `AWS_SECRET_ACCESS_KEY` | Secret | DOKS bootstrap IAM user secret. |
@@ -224,8 +224,8 @@ pnpm run prettier
 Expected deployment checks:
 
 ```bash
-kubectl -n ai-desktops rollout status deploy/ai-desktops-control-plane
-kubectl -n ai-desktops exec deploy/ai-desktops-control-plane -- wget -qO- http://127.0.0.1:8080/readyz
+kubectl -n desktopctl rollout status deploy/desktopctl-control-plane
+kubectl -n desktopctl exec deploy/desktopctl-control-plane -- wget -qO- http://127.0.0.1:8080/readyz
 ```
 
 Expected IAM checks:
@@ -233,7 +233,7 @@ Expected IAM checks:
 ```bash
 aws sts assume-role \
   --role-arn "$AWS_ROLE_ARN" \
-  --role-session-name ai-desktops-control-plane-check \
+  --role-session-name desktopctl-control-plane-check \
   --external-id "$AWS_EXTERNAL_ID"
 ```
 

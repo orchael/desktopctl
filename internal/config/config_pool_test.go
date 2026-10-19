@@ -11,7 +11,7 @@ func TestPoolConfig_DefaultsDisabled(t *testing.T) {
 		t.Errorf("Pool.PoolSize = %d, want 0 (disabled by default)", c.Pool.PoolSize)
 	}
 	// Table name is derived even when disabled so operators can pre-create it.
-	want := "ai-desktops-pool-dev"
+	want := "desktopctl-pool-dev-us-east-1"
 	if c.Pool.TableName != want {
 		t.Errorf("Pool.TableName = %q, want %q", c.Pool.TableName, want)
 	}

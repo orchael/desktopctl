@@ -18,7 +18,7 @@ Implement:
 - `start`
 - `terminate`
 - lifecycle state updates in DynamoDB
-- local run directory logging under `~/.ai-desktops/runs/<run_id>/`
+- local run directory logging under `~/.desktopctl/runs/<run_id>/`
 
 ## Requirements
 

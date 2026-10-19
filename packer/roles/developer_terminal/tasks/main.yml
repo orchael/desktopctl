@@ -6,7 +6,7 @@
 
 - name: Inspect managed Neovim marker
   ansible.builtin.stat:
-    path: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
+    path: "{{ developer_terminal_home }}/.config/nvim/.desktopctl-managed"
   register: developer_terminal_nvim_marker
 
 - name: Decide whether Neovim configuration is managed
@@ -23,14 +23,14 @@
 - name: Refuse to replace an unmanaged Neovim configuration
   ansible.builtin.debug:
     msg: >-
-      Existing {{ developer_terminal_home }}/.config/nvim has no ai-desktops marker;
+      Existing {{ developer_terminal_home }}/.config/nvim has no desktopctl marker;
       preserving the user-managed configuration.
   when: not developer_terminal_manage_nvim
 
 - name: Fetch pinned NvChad starter
   ansible.builtin.git:
     repo: https://github.com/NvChad/starter.git
-    dest: /opt/ai-desktops/nvchad-starter
+    dest: /opt/desktopctl/nvchad-starter
     version: "{{ developer_terminal_nvchad_starter_revision }}"
     update: true
     force: false
@@ -47,7 +47,7 @@
 - name: Mark Neovim configuration as managed before installation
   ansible.builtin.copy:
     content: "NvChad starter {{ developer_terminal_nvchad_starter_revision }}\n"
-    dest: "{{ developer_terminal_home }}/.config/nvim/.ai-desktops-managed"
+    dest: "{{ developer_terminal_home }}/.config/nvim/.desktopctl-managed"
     owner: "{{ developer_terminal_user }}"
     group: "{{ developer_terminal_user }}"
     mode: "0644"
@@ -55,7 +55,7 @@
 
 - name: Install pinned NvChad starter files
   ansible.builtin.copy:
-    src: /opt/ai-desktops/nvchad-starter/
+    src: /opt/desktopctl/nvchad-starter/
     dest: "{{ developer_terminal_home }}/.config/nvim/"
     remote_src: true
     owner: "{{ developer_terminal_user }}"
@@ -141,7 +141,7 @@
 
 - name: Inspect managed tmux marker
   ansible.builtin.stat:
-    path: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
+    path: "{{ developer_terminal_home }}/.tmux.conf.desktopctl-managed"
   register: developer_terminal_tmux_marker
 
 - name: Decide whether tmux configuration is managed
@@ -158,14 +158,14 @@
 - name: Refuse to replace an unmanaged tmux configuration
   ansible.builtin.debug:
     msg: >-
-      Existing {{ developer_terminal_home }}/.tmux.conf has no ai-desktops marker;
+      Existing {{ developer_terminal_home }}/.tmux.conf has no desktopctl marker;
       preserving the user-managed configuration.
   when: not developer_terminal_manage_tmux
 
 - name: Mark tmux configuration as managed before installation
   ansible.builtin.copy:
-    content: "ai-desktops managed tmux workflow\n"
-    dest: "{{ developer_terminal_home }}/.tmux.conf.ai-desktops-managed"
+    content: "desktopctl managed tmux workflow\n"
+    dest: "{{ developer_terminal_home }}/.tmux.conf.desktopctl-managed"
     owner: "{{ developer_terminal_user }}"
     group: "{{ developer_terminal_user }}"
     mode: "0644"
@@ -215,7 +215,7 @@
 
 - name: Create versioned gitmux installation directory
   ansible.builtin.file:
-    path: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}"
+    path: "/opt/desktopctl/gitmux-{{ developer_terminal_gitmux_version }}"
     state: directory
     owner: root
     group: root
@@ -224,18 +224,18 @@
 - name: Install pinned gitmux binary
   ansible.builtin.unarchive:
     src: "/tmp/gitmux_{{ developer_terminal_gitmux_version }}_linux_amd64.tar.gz"
-    dest: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}"
+    dest: "/opt/desktopctl/gitmux-{{ developer_terminal_gitmux_version }}"
     remote_src: true
     include:
       - gitmux
-    creates: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
+    creates: "/opt/desktopctl/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
     owner: root
     group: root
     mode: "0755"
 
 - name: Activate pinned gitmux binary
   ansible.builtin.copy:
-    src: "/opt/ai-desktops/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
+    src: "/opt/desktopctl/gitmux-{{ developer_terminal_gitmux_version }}/gitmux"
     dest: /usr/local/bin/gitmux
     remote_src: true
     owner: root
@@ -271,9 +271,9 @@
 - name: Verify tmux starts in detached mode
   ansible.builtin.shell: |
     set -euo pipefail
-    /usr/bin/tmux -L ai-desktops-build -f {{ developer_terminal_home }}/.tmux.conf new-session -d -s ai-desktops-build
-    trap '/usr/bin/tmux -L ai-desktops-build kill-server >/dev/null 2>&1 || true' EXIT
-    test "$(/usr/bin/tmux -L ai-desktops-build show-options -gv prefix)" = C-a
+    /usr/bin/tmux -L desktopctl-build -f {{ developer_terminal_home }}/.tmux.conf new-session -d -s desktopctl-build
+    trap '/usr/bin/tmux -L desktopctl-build kill-server >/dev/null 2>&1 || true' EXIT
+    test "$(/usr/bin/tmux -L desktopctl-build show-options -gv prefix)" = C-a
   args:
     executable: /bin/bash
   become_user: "{{ developer_terminal_user }}"

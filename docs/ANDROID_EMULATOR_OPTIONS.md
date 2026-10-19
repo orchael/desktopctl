@@ -59,7 +59,7 @@ source "amazon-ebs" "ubuntu" {
 
 ```hcl
 source "amazon-ebs" "ubuntu" {
-  ami_name      = "ai-desktops-${var.bridgectl_version}-{{timestamp}}"
+  ami_name      = "desktopctl-v${var.desktopctl_major}-${var.build_date}-{{timestamp}}"
   instance_type = "c7i.xlarge"
   region        = var.aws_region
   source_ami    = var.source_ami

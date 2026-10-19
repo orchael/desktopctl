@@ -393,7 +393,7 @@ func (s *Service) CreateDesktop(ctx context.Context, organizationID string, req 
 
 	backendURL := "s3://" + s.cfg.Pulumi.BackendBucket
 	foundationWorkDir := filepath.Join(s.cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	foundationRef := pulumi.FoundationStackRef(backendURL, env, foundationWorkDir)
+	foundationRef := pulumi.FoundationStackRef(backendURL, env, s.cfg.AWS.Region, foundationWorkDir)
 
 	outputsCtx, outputsCancel := context.WithTimeout(ctx, s.lifecycleTimeout)
 	defer outputsCancel()

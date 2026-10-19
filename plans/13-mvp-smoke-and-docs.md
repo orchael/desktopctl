@@ -60,12 +60,12 @@ go test ./...
 Manual verification:
 
 ```bash
-ai-desktops bootstrap --env dev
-ai-desktops init-foundation --env dev
-ai-desktops create --env dev --github-owner <owner> --repo github.com/<owner>/<repo>
-ai-desktops doctor <desktop_id>
-ai-desktops agent <desktop_id> status
-ai-desktops stop <desktop_id>
-ai-desktops start <desktop_id>
-ai-desktops terminate <desktop_id>
+desktopctl bootstrap --env dev
+desktopctl init-foundation --env dev
+desktopctl create --env dev --github-owner <owner> --repo github.com/<owner>/<repo>
+desktopctl doctor <desktop_id>
+desktopctl agent <desktop_id> status
+desktopctl stop <desktop_id>
+desktopctl start <desktop_id>
+desktopctl terminate <desktop_id>
 ```

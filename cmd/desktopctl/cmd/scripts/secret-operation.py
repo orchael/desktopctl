@@ -26,7 +26,7 @@ def private(info, directory=False):
 
 
 def main():
-    directory = Path.home() / ".ai-desktops-secret-operation"
+    directory = Path.home() / ".desktopctl-secret-operation"
     directory.mkdir(mode=0o700, exist_ok=True)
     private(directory.lstat(), directory=True)
     with os.fdopen(os.open(directory / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "r+b", buffering=0) as lock:

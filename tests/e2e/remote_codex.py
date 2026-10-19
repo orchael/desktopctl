@@ -19,11 +19,11 @@ import uuid
 
 import yaml
 
-BASE = Path.home() / ".local/share/ai-desktops-e2e"
+BASE = Path.home() / ".local/share/desktopctl-e2e"
 CONFIG = Path.home() / ".config/bridgectl/config.yaml"
 BACKUP = BASE / "original-config.yaml"
 META = BASE / "codex-scenario.json"
-MARKER = "ai_desktops_e2e_refresh_marker"
+MARKER = "desktopctl_e2e_refresh_marker"
 
 
 class ScenarioFailure(Exception):

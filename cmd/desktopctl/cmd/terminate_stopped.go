@@ -151,7 +151,7 @@ func terminateOneStoppedDesktop(ctx context.Context, s store.Store, d *store.Des
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	ref := pulumi.DesktopStackRef(backendURL, d.DesktopID, workDir)
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		_ = mgr.RecordFailure(ctx, d.DesktopID, "terminate-stopped", err.Error())

@@ -1,0 +1,21 @@
+# Copy to ~/.config/desktopctl/config-ca-central-1.yaml on Linux.
+# This is a new production identity in AWS account 819363892004.
+# The named bucket and resources must be absent before bootstrap.
+aws:
+  region: ca-central-1
+  profile: marka
+pulumi:
+  backend_bucket: marka-desktopctl-prod-ca-central-1-819363892004
+  infra_dir: /home/marka/src/orchael/desktopctl-ca-central
+fleet:
+  environment: prod
+  table_name: desktopctl-fleet-prod-ca-central-1
+  ami_table_name: desktopctl-ami-prod-ca-central-1
+github:
+  owner: orchael
+desktop:
+  # Set this to the operator's current public IP /32 before provisioning.
+  operator_cidr: 127.0.0.1/32
+  # A public desktopctl AMI must be published in ca-central-1 first.
+  public_ami_owner: "819363892004"
+  # public_ami_major: "1"  # optional; by default follows the CLI major version

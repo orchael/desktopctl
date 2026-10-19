@@ -100,7 +100,7 @@ func runResize(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 	mgr := desktop.NewManager(s)
 
 	fmt.Fprintln(os.Stderr, "Updating Pulumi stack config ...")

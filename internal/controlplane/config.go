@@ -54,7 +54,7 @@ func LoadRuntimeConfig() RuntimeConfig {
 	}
 	return RuntimeConfig{
 		Addr:                    addr,
-		ConfigPath:              firstNonEmpty(os.Getenv("AI_DESKTOPS_CONFIG"), os.Getenv("CONFIG_PATH")),
+		ConfigPath:              firstNonEmpty(os.Getenv("DESKTOPCTL_CONFIG"), os.Getenv("CONFIG_PATH")),
 		StaticDir:               os.Getenv("CONTROL_PLANE_STATIC_DIR"),
 		MockAWS:                 mockAWS,
 		OperatorAccessKeyID:     os.Getenv("OPERATOR_AWS_ACCESS_KEY_ID"),
@@ -67,25 +67,30 @@ func LoadRuntimeConfig() RuntimeConfig {
 	}
 }
 
-// LoadAppConfig loads the shared ai-desktops operator config.
+// LoadAppConfig loads the shared desktopctl operator config.
 func LoadAppConfig(runtime RuntimeConfig) (*appconfig.Config, error) {
 	cfg, err := appconfig.LoadOrDefault(runtime.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	if env := os.Getenv("AI_DESKTOPS_ENVIRONMENT"); env != "" {
+	if env := os.Getenv("DESKTOPCTL_ENVIRONMENT"); env != "" {
+		if env != cfg.Fleet.Environment {
+			cfg.Fleet.TableName = ""
+			cfg.Fleet.AMITableName = ""
+			cfg.Pool.TableName = ""
+		}
 		cfg.Fleet.Environment = env
 	}
 	if region := os.Getenv("AWS_REGION"); region != "" {
-		cfg.AWS.Region = region
+		cfg.SetRegion(region)
 	}
 	if backendBucket := os.Getenv("PULUMI_BACKEND_BUCKET"); backendBucket != "" {
 		cfg.Pulumi.BackendBucket = backendBucket
 	}
-	if fleetTable := os.Getenv("AI_DESKTOPS_FLEET_TABLE"); fleetTable != "" {
+	if fleetTable := os.Getenv("DESKTOPCTL_FLEET_TABLE"); fleetTable != "" {
 		cfg.Fleet.TableName = fleetTable
 	}
-	if amiTable := os.Getenv("AI_DESKTOPS_AMI_TABLE"); amiTable != "" {
+	if amiTable := os.Getenv("DESKTOPCTL_AMI_TABLE"); amiTable != "" {
 		cfg.Fleet.AMITableName = amiTable
 	}
 	cfg.Defaults()

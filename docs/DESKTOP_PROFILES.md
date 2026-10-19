@@ -1,6 +1,6 @@
 # Desktop profiles
 
-Desktop profiles are optional configuration bundles applied at provisioning time. They can configure any desktop tool or user environment. **ai-desktops owns the profile contract and loader, not the profile policy.**
+Desktop profiles are optional configuration bundles applied at provisioning time. They can configure any desktop tool or user environment. **desktopctl owns the profile contract and loader, not the profile policy.**
 
 ## Ownership model
 
@@ -12,7 +12,7 @@ Profiles live with the thing that owns their policy:
 | Repository developer profile | repository `profiles/developer`, e.g. `orchael/bridge:profiles/developer` | Development tools and policy appropriate for that product |
 | Crew role profile | `orchael/crew:profiles/<role>` | Autonomous worker setup such as reviewer, developer, or tester |
 
-Do not copy personal policy into ai-desktops and do not put Crew execution policy into a product repository.
+Do not copy personal policy into desktopctl and do not put Crew execution policy into a product repository.
 
 ## Profile references
 
@@ -39,10 +39,10 @@ A repository-only reference means the profile is at the repository root.
 Configure a personal default on the operator machine:
 
 ```yaml
-# ~/.ai-desktops/config.yaml
+# ~/.config/desktopctl/config.yaml
 desktop:
   profile: markcallen/ai-desktop-profile
-  profile_secret: /ai-desktops/markcallen/profiles/ai-desktop-profile
+  profile_secret: /desktopctl/markcallen/profiles/ai-desktop-profile
 ```
 
 A per-desktop `--desktop-profile` selection overrides that default. `--profile-secret` selects the secret for that desktop. Crew should pass both its role profile and role secret explicitly when dispatching a worker instead of inheriting a human operator's personal profile.
@@ -57,7 +57,7 @@ Create one AWS Secrets Manager secret for each profile whose environment variabl
 
 ```sh
 aws secretsmanager create-secret \
-  --name /ai-desktops/markcallen/profiles/ai-desktop-profile \
+  --name /desktopctl/markcallen/profiles/ai-desktop-profile \
   --secret-string '{}' \
   --region <aws-region> --profile <aws-profile>
 ```
@@ -77,7 +77,7 @@ install.sh
 
 A profile may also contain tool-specific files, such as `codex/config.toml` or `claude/settings.json`, and may install any desktop tools or user configuration it owns.
 
-`install.sh` is the installation boundary. It must be idempotent and must not contain credentials. ai-desktops supplies credentials separately through Secrets Manager.
+`install.sh` is the installation boundary. It must be idempotent and must not contain credentials. desktopctl supplies credentials separately through Secrets Manager.
 
 The installer runs as the desktop user from the selected profile directory, after GitHub authentication and Claude onboarding and before workspace repositories are cloned or bridgectl starts. It should fail with a nonzero exit status when required setup fails.
 
@@ -94,7 +94,7 @@ For example, a Bridge worker can be created with `orchael/bridge:profiles/develo
 
 ## Precedence and responsibilities
 
-1. **ai-desktops** installs tools, injects credentials, fetches the selected profile, applies it, and checks readiness.
+1. **desktopctl** installs tools, injects credentials, fetches the selected profile, applies it, and checks readiness.
 2. **desktop profile** defines user-level tools, permissions, hooks, and defaults.
 3. **target repository** defines project instructions and project-scoped configuration.
 4. **Crew** selects an explicit role profile for autonomous work.

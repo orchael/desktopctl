@@ -179,17 +179,17 @@ func TestSecretPathsAfterRemove_RemovesRequestedPaths(t *testing.T) {
 
 func TestSecretPathsAfterRemove_ReloadScriptExcludesRemovedPaths(t *testing.T) {
 	toRemove, remainingPaths := secretPathsAfterRemove(
-		[]string{"/markcallen/smoke", "/orchael/desktops/local", "/ai-desktops/dev/control-plane/aws-operator"},
-		[]string{"/ai-desktops/dev/control-plane/aws-operator"},
+		[]string{"/markcallen/smoke", "/orchael/desktops/local", "/desktopctl/dev/control-plane/aws-operator"},
+		[]string{"/desktopctl/dev/control-plane/aws-operator"},
 	)
 
-	if want := []string{"/ai-desktops/dev/control-plane/aws-operator"}; !reflect.DeepEqual(toRemove, want) {
+	if want := []string{"/desktopctl/dev/control-plane/aws-operator"}; !reflect.DeepEqual(toRemove, want) {
 		t.Fatalf("toRemove = %#v, want %#v", toRemove, want)
 	}
 
 	agent, desktop := runtimeSecretPaths("", remainingPaths)
 	script := string(secretScriptRequest(t, buildSecretsReloadScript(agent, desktop, "us-east-2", agent != "")))
-	if strings.Contains(script, "/ai-desktops/dev/control-plane/aws-operator") {
+	if strings.Contains(script, "/desktopctl/dev/control-plane/aws-operator") {
 		t.Fatalf("reload script includes removed secret:\n%s", script)
 	}
 	for _, want := range []string{"/markcallen/smoke", "/orchael/desktops/local"} {

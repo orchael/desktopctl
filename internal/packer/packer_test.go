@@ -395,6 +395,30 @@ func TestRun_WithVarsFileAndPublic(t *testing.T) {
 	}
 }
 
+func TestRunPassesMajorAndUTCDate(t *testing.T) {
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "args")
+	packerPath := filepath.Join(binDir, "packer")
+	if err := os.WriteFile(packerPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$PACKER_ARGS_FILE\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PACKER_ARGS_FILE", argsPath)
+	var buf bytes.Buffer
+	if err := Run(context.Background(), t.TempDir(), "", "ca-central-1", "ami-base", "12.3.4", "12.3.4", "20260710-140357", "", true, &buf); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"desktopctl_major=12", "build_date=" + time.Now().UTC().Format("20060102"), "ami_public=true"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("packer args missing %q: %s", want, args)
+		}
+	}
+}
+
 func TestPackerBuildLogPath(t *testing.T) {
 	got := PackerBuildLogPath("/tmp/packer", "us:east/1", time.Date(2026, 9, 2, 3, 4, 5, 0, time.UTC))
 	want := filepath.Join("/tmp/packer", "build-logs", "packer-us-east-1-20260902-030405.log")

@@ -21,7 +21,7 @@ Create cloud-init or rendered bootstrap assets for:
 - `novnc-desktop` installation with `desktop_type=elementary`
 - `bridgectl` installation and user systemd service
 - `/workspace` setup
-- `/opt/ai-desktops` setup
+- `/opt/desktopctl` setup
 
 ## Requirements
 
@@ -44,5 +44,5 @@ Create cloud-init or rendered bootstrap assets for:
 
 ```bash
 go test ./...
-go run ./cmd/ai-desktops doctor <desktop_id>
+go run ./cmd/desktopctl doctor <desktop_id>
 ```

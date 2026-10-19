@@ -136,7 +136,7 @@ server.listen(3000);`}</code>
 function MissingOrganization() {
   return (
     <main className="organizationMissing">
-      <div className="landingBrand">ai-desktops</div>
+      <div className="landingBrand">desktopctl</div>
       <h1>Your account needs an organization.</h1>
       <p>We couldn’t create your workspace organization. Sign out and try again.</p>
       <Link className="landingSignIn" href="/signout">

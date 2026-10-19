@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/orchael/desktopctl/internal/version"
 )
 
 // packerEnv returns os.Environ() with LANG and LC_ALL set to en_US.UTF-8 when
@@ -149,12 +151,16 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 
 // Run executes packer build in the given directory.
 // baseAMI is always required; the caller must resolve it before invoking Run.
-// cliVersion is the ai-desktops CLI version baked into the AMI tag.
+// cliVersion is the desktopctl CLI version baked into the AMI tag.
 // desktopWebVersion is the @orchael/desktopctl npm package version to install.
 // novncDesktopVersion is the version string extracted from the base novnc-desktop AMI name.
 // subnetID is the subnet for the Packer build instance; pass "" to rely on the default VPC.
 // public controls whether the built AMI has public launch permissions.
 func Run(ctx context.Context, packerDir string, varsFile string, region string, baseAMI string, cliVersion string, desktopWebVersion string, novncDesktopVersion string, subnetID string, public bool, w io.Writer) error {
+	major, err := version.Major(cliVersion)
+	if err != nil {
+		return err
+	}
 	args := []string{"build"}
 	if varsFile != "" {
 		args = append(args, "-var-file="+varsFile)
@@ -165,7 +171,9 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	// Always override source_ami via -var so the vars file value cannot
 	// accidentally trigger a stale lookup.
 	args = append(args, "-var", "source_ami="+baseAMI)
-	args = append(args, "-var", "ai_desktops_version="+cliVersion)
+	args = append(args, "-var", "desktopctl_version="+cliVersion)
+	args = append(args, "-var", "desktopctl_major="+major)
+	args = append(args, "-var", "build_date="+time.Now().UTC().Format("20060102"))
 	args = append(args, "-var", "desktop_web_version="+desktopWebVersion)
 	args = append(args, "-var", "novnc_desktop_version="+novncDesktopVersion)
 	if subnetID != "" {

@@ -25,16 +25,16 @@ Add WireGuard VPN support to enable secure, authenticated operator access to des
 
 ## Acceptance Criteria
 
-1. `ai-desktops wireguard init` sets up WireGuard configuration in `config.yaml` with sane defaults.
-2. `ai-desktops init-foundation` with WireGuard enabled creates a security group that opens UDP 51820 and restricts SSH/HTTP/HTTPS to the WireGuard subnet.
-3. `ai-desktops create` with WireGuard enabled generates a server keypair, stores the private key in SSM, and configures the server at first boot.
-4. `ai-desktops wireguard add-peer <name>` generates a peer keypair, adds the public key to config, outputs the client config + QR code, and prints "peer private key will not be shown again".
-5. `ai-desktops wireguard add-peer --desktop <id>` on a running desktop SSHes in and applies the peer live (without reboot).
-6. `ai-desktops wireguard remove-peer <name>` removes the peer from config and (if `--desktop <id>`) from a live desktop.
-7. `ai-desktops wireguard list-peers` displays a table of peer names, allowed IPs, and public keys (truncated).
-8. `ai-desktops wireguard show-config <name> --desktop <id> --peer-private-key <key>` renders and displays the client config and QR code.
+1. `desktopctl wireguard init` sets up WireGuard configuration in `config.yaml` with sane defaults.
+2. `desktopctl init-foundation` with WireGuard enabled creates a security group that opens UDP 51820 and restricts SSH/HTTP/HTTPS to the WireGuard subnet.
+3. `desktopctl create` with WireGuard enabled generates a server keypair, stores the private key in SSM, and configures the server at first boot.
+4. `desktopctl wireguard add-peer <name>` generates a peer keypair, adds the public key to config, outputs the client config + QR code, and prints "peer private key will not be shown again".
+5. `desktopctl wireguard add-peer --desktop <id>` on a running desktop SSHes in and applies the peer live (without reboot).
+6. `desktopctl wireguard remove-peer <name>` removes the peer from config and (if `--desktop <id>`) from a live desktop.
+7. `desktopctl wireguard list-peers` displays a table of peer names, allowed IPs, and public keys (truncated).
+8. `desktopctl wireguard show-config <name> --desktop <id> --peer-private-key <key>` renders and displays the client config and QR code.
 9. Desktop health check (`doctor`) includes WireGuard status verification when enabled.
-10. `ai-desktops terminate` cleans up the server private key from SSM.
+10. `desktopctl terminate` cleans up the server private key from SSM.
 11. Operator can connect to the desktop via WireGuard from iOS (via QR), macOS, Linux, and Windows clients.
 12. All operator access routes through the WireGuard tunnel; public security group rules are restricted or absent when WireGuard is enabled.
 
@@ -42,41 +42,41 @@ Add WireGuard VPN support to enable secure, authenticated operator access to des
 
 ```bash
 # Enable WireGuard
-ai-desktops wireguard init
+desktopctl wireguard init
 # → config.yaml updated with wireguard.enabled: true, subnet: 10.99.0.0/24
 
 # Update security groups
-ai-desktops init-foundation --preview
+desktopctl init-foundation --preview
 # → verify SG has UDP 51820 ingress, SSH restricted to 10.99.0.0/24
 
-ai-desktops init-foundation
+desktopctl init-foundation
 
 # Add a peer
-ai-desktops wireguard add-peer myipad
+desktopctl wireguard add-peer myipad
 # → outputs client config and QR code
 
 # Create a desktop with WireGuard
-ai-desktops create --github-owner myorg --repo myrepo --preview
+desktopctl create --github-owner myorg --repo myrepo --preview
 # → verify cloud-init includes WireGuard server setup
 
-ai-desktops create --github-owner myorg --repo myrepo
+desktopctl create --github-owner myorg --repo myrepo
 
 # Verify desktop is reachable via WireGuard
 # (requires manual WireGuard client setup on operator machine)
-ai-desktops ssh d-abc123  # through VPN tunnel
+desktopctl ssh d-abc123  # through VPN tunnel
 
 # Add another peer to running desktop
-ai-desktops wireguard add-peer myphone --desktop d-abc123
+desktopctl wireguard add-peer myphone --desktop d-abc123
 
 # List peers
-ai-desktops wireguard list-peers
+desktopctl wireguard list-peers
 
 # Health check includes WireGuard
-ai-desktops doctor d-abc123
+desktopctl doctor d-abc123
 # → wg-active, wg-interface checks pass
 
 # Terminate (clean up key)
-ai-desktops terminate d-abc123
+desktopctl terminate d-abc123
 ```
 
 ## Key Decisions
@@ -87,7 +87,7 @@ Each desktop has its own WireGuard server (not a shared bastion). This provides 
 
 ### Server private key in SSM, peer private keys local-only
 
-WireGuard server private key is generated at create time and stored in SSM SecureString, never in config files or logs. Peer (operator) private keys are generated on-demand by the CLI and printed once; the operator must save them. This matches WireGuard's zero-knowledge design: `ai-desktops` never holds operator keys. If an operator loses their key, they must re-run `add-peer` to generate a new one.
+WireGuard server private key is generated at create time and stored in SSM SecureString, never in config files or logs. Peer (operator) private keys are generated on-demand by the CLI and printed once; the operator must save them. This matches WireGuard's zero-knowledge design: `desktopctl` never holds operator keys. If an operator loses their key, they must re-run `add-peer` to generate a new one.
 
 ### Peer management via config.yaml
 

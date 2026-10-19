@@ -47,5 +47,5 @@ Foundation stack owns:
 
 ```bash
 go test ./...
-go run ./cmd/ai-desktops init-foundation --env dev --preview
+go run ./cmd/desktopctl init-foundation --env dev --preview
 ```

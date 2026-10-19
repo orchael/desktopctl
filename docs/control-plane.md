@@ -67,10 +67,10 @@ Compose.
 | `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |
 | `CONTROL_PLANE_API_TOKEN` | Both | Service credential used only between Next.js and Go. |
 | `AWS_REGION` | Go API | Fleet AWS region. |
-| `AI_DESKTOPS_ENVIRONMENT` | Go API | Environment used for fleet defaults and resource naming. |
+| `DESKTOPCTL_ENVIRONMENT` | Go API | Environment used for fleet defaults and resource naming. |
 | `PULUMI_BACKEND_BUCKET` | Go API | Pulumi state bucket for lifecycle operations. |
-| `AI_DESKTOPS_FLEET_TABLE` | Go API | DynamoDB fleet metadata table. |
-| `AI_DESKTOPS_AMI_TABLE` | Go API | DynamoDB AMI metadata table. |
+| `DESKTOPCTL_FLEET_TABLE` | Go API | DynamoDB fleet metadata table. |
+| `DESKTOPCTL_AMI_TABLE` | Go API | DynamoDB AMI metadata table. |
 | `OPERATOR_AWS_ACCESS_KEY_ID` | Go API | Bootstrap operator access key used only for STS. |
 | `OPERATOR_AWS_SECRET_ACCESS_KEY` | Go API | Bootstrap operator secret used only for STS. |
 | `OPERATOR_ROLE_ARN` | Go API | Fleet role assumed by the Go API. |
@@ -82,7 +82,7 @@ Do not expose the Go API ingress or its service token to browsers.
 
 Prisma schema changes live under `apps/control-plane-web/prisma`. Local development uses `pnpm run db:migrate:dev`; deployed environments use `pnpm run db:migrate`.
 
-The migration connection must use a role allowed to create roles, tables, functions, triggers, and RLS policies. `DATABASE_URL` must use the non-owner `ai_desktops_app` role created or granted by the migration; `MIGRATION_DATABASE_URL` must never be supplied to the web Deployment. Runtime organization queries set transaction-local `app.current_user_id` and `app.current_organization_id` values before accessing protected tables. Never perform organization queries outside the provided organization helpers.
+The migration connection must use a role allowed to create roles, tables, functions, triggers, and RLS policies. `DATABASE_URL` must use the non-owner `desktopctl_app` role created or granted by the migration; `MIGRATION_DATABASE_URL` must never be supplied to the web Deployment. Runtime organization queries set transaction-local `app.current_user_id` and `app.current_organization_id` values before accessing protected tables. Never perform organization queries outside the provided organization helpers.
 
 ## Helm deployment
 
@@ -114,7 +114,7 @@ and service accounts before installation. Keep the image tag tied to the
 source commit used for both builds. The chart has no default image repository
 or tag, so supply both explicitly when installing or upgrading.
 
-Prefer creating the Secret with an external secret manager. The chart expects a Secret named `ai-desktops-control-plane` by default with these keys:
+Prefer creating the Secret with an external secret manager. The chart expects a Secret named `desktopctl-control-plane` by default with these keys:
 
 - `DATABASE_URL`
 - `MIGRATION_DATABASE_URL`
@@ -129,8 +129,8 @@ Prefer creating the Secret with an external secret manager. The chart expects a 
 Example:
 
 ```bash
-helm upgrade --install ai-desktops deploy/control-plane/chart \
-  --namespace ai-desktops --create-namespace \
+helm upgrade --install desktopctl deploy/control-plane/chart \
+  --namespace desktopctl --create-namespace \
   --set-string image.repository="$IMAGE_REPOSITORY" \
   --set-string image.tag="$IMAGE_TAG" \
   --set ingress.host=app.desktops.orchael.dev \

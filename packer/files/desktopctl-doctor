@@ -1,8 +1,8 @@
 #!/bin/sh
-# ai-desktops-doctor — Readiness check for an ai-desktops agent-host.
+# desktopctl-doctor — Readiness check for an desktopctl agent-host.
 #
 # Usage:
-#   ai-desktops-doctor
+#   desktopctl-doctor
 #
 # Environment overrides (for testing):
 #   CONFIG_FILE        Bridge config path (default: /home/ubuntu/.config/bridgectl/config.yaml)
@@ -34,7 +34,7 @@ _ok()   { printf '[OK]   %s\n'   "$*"; _pass=$((_pass + 1)); }
 _fail() { printf '[FAIL] %s\n'   "$*" >&2; _fail=$((_fail + 1)); }
 _warn() { printf '[WARN] %s\n'   "$*"; }
 
-echo "ai-desktops bridge doctor"
+echo "desktopctl bridge doctor"
 echo "========================="
 echo ""
 
@@ -262,6 +262,6 @@ echo ""
 printf 'Result: %d OK, %d FAIL\n' "$_pass" "$_fail"
 
 if [ "$_fail" -gt 0 ]; then
-  echo "See docs/ai-desktops.md troubleshooting section for remediation steps."
+  echo "See docs/desktopctl.md troubleshooting section for remediation steps."
   exit 1
 fi

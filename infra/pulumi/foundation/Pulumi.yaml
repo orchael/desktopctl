@@ -1,6 +1,6 @@
 name: foundation
 runtime: go
-description: ai-desktops foundation stack — shared VPC, IAM, DNS, and security group resources
+description: desktopctl foundation stack — shared VPC, IAM, DNS, and security group resources
 
 config:
   aws:region:

@@ -2,7 +2,7 @@
 
 ## Objective
 
-Implement `ai-desktops bootstrap` to create or verify the S3 Pulumi backend bucket and DynamoDB fleet table.
+Implement `desktopctl bootstrap` to create or verify the S3 Pulumi backend bucket and DynamoDB fleet table.
 
 ## Depends On
 
@@ -50,5 +50,5 @@ go test ./...
 If AWS credentials are available:
 
 ```bash
-go run ./cmd/ai-desktops bootstrap --env dev
+go run ./cmd/desktopctl bootstrap --env dev
 ```

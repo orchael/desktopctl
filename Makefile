@@ -6,8 +6,8 @@ CMD     := ./cmd/desktopctl
 BUILD_GOGC ?= 50
 BUILD_P    ?= 1
 
-AI_DESKTOPS_TEST_BUCKET  ?= orchael-ai-desktops-test
-AI_DESKTOPS_GITHUB_OWNER ?= orchael
+DESKTOPCTL_TEST_BUCKET  ?= orchael-desktopctl-test
+DESKTOPCTL_GITHUB_OWNER ?= orchael
 
 .PHONY: build test up down dev-up dev-down setup-integration test-integration test-integration-adopt test-integration-fr clean-integration clean very-clean deps check-deps
 
@@ -43,7 +43,7 @@ dev-down:
 setup-integration: check-deps build
 	@echo "setup-integration: generating SSH key pair..."
 	@if [ ! -f tests/integration/id_ed25519 ]; then \
-	  ssh-keygen -t ed25519 -f tests/integration/id_ed25519 -N "" -C "ai-desktops-integration" > /dev/null; \
+	  ssh-keygen -t ed25519 -f tests/integration/id_ed25519 -N "" -C "desktopctl-integration" > /dev/null; \
 	  echo "setup-integration: generated tests/integration/id_ed25519"; \
 	else \
 	  echo "setup-integration: SSH key already exists, skipping keygen"; \
@@ -68,20 +68,20 @@ setup-integration: check-deps build
 # The suite is self-contained: it generates its own SSH key pair, writes its
 # own config file, bootstraps the S3 Pulumi backend, deploys the foundation
 # stack in us-west-2 (env=test), creates a desktop, runs all FR checks, then
-# terminates the desktop.  It never reads ~/.ai-desktops/config.yaml or any
+# terminates the desktop.  It never reads ~/.desktopctl/config.yaml or any
 # key from ~/.ssh.
 #
 # Required:
-#   AI_DESKTOPS_TEST_BUCKET  — globally-unique S3 bucket name for Pulumi state
+#   DESKTOPCTL_TEST_BUCKET  — globally-unique S3 bucket name for Pulumi state
 #                              (created automatically if it doesn't exist)
-#   AI_DESKTOPS_GITHUB_OWNER — GitHub org or user for the test desktop
+#   DESKTOPCTL_GITHUB_OWNER — GitHub org or user for the test desktop
 #
 # AWS credentials are taken from the environment in the standard order
 # (AWS_PROFILE, AWS_ACCESS_KEY_ID/SECRET, or the default credential chain).
 #
 # Optional:
-#   AI_DESKTOPS_TEST_REPO     — repo URL to clone (enables FR-6/7 workspace tests)
-#   AI_DESKTOPS_EXISTING_ID   — adopt an already-running desktop instead of creating one
+#   DESKTOPCTL_TEST_REPO     — repo URL to clone (enables FR-6/7 workspace tests)
+#   DESKTOPCTL_EXISTING_ID   — adopt an already-running desktop instead of creating one
 #
 # The full suite always runs the Packer AMI build (15–20 min) before
 # creating the test desktop.  Total expected runtime: ~2h.
@@ -89,33 +89,33 @@ test-integration: check-deps build
 	@if [ -f tests/integration/config.yaml ]; then \
 	  echo "test-integration: using tests/integration/config.yaml (from make setup-integration)"; \
 	else \
-	  test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
+	  test -n "$(DESKTOPCTL_TEST_BUCKET)" || { \
 	    echo ""; \
-	    echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set and tests/integration/config.yaml does not exist."; \
+	    echo "ERROR: DESKTOPCTL_TEST_BUCKET is not set and tests/integration/config.yaml does not exist."; \
 	    echo ""; \
 	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
-	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo "  make test-integration DESKTOPCTL_TEST_BUCKET=myorg-desktopctl-test DESKTOPCTL_GITHUB_OWNER=myorg"; \
 	    echo ""; \
 	    exit 1; \
 	  }; \
-	  test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
+	  test -n "$(DESKTOPCTL_GITHUB_OWNER)" || { \
 	    echo ""; \
-	    echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set and tests/integration/config.yaml does not exist."; \
+	    echo "ERROR: DESKTOPCTL_GITHUB_OWNER is not set and tests/integration/config.yaml does not exist."; \
 	    echo ""; \
 	    echo "Either run 'make setup-integration' first, or supply env vars:"; \
-	    echo "  make test-integration AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg"; \
+	    echo "  make test-integration DESKTOPCTL_TEST_BUCKET=myorg-desktopctl-test DESKTOPCTL_GITHUB_OWNER=myorg"; \
 	    echo ""; \
 	    exit 1; \
 	  }; \
 	fi
 	@set -o pipefail; \
-	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
+	tmpout=$$(mktemp /tmp/desktopctl-integration-XXXXXX.log); \
 	if [ -f tests/integration/config.yaml ]; then \
-	  AI_DESKTOPS_TEST_CONFIG=$$(pwd)/tests/integration/config.yaml \
+	  DESKTOPCTL_TEST_CONFIG=$$(pwd)/tests/integration/config.yaml \
 	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	else \
-	  AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
-	    AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
+	  DESKTOPCTL_TEST_BUCKET=$(DESKTOPCTL_TEST_BUCKET) \
+	    DESKTOPCTL_GITHUB_OWNER=$(DESKTOPCTL_GITHUB_OWNER) \
 	    go test -v -tags=integration -timeout=3h ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	fi; \
 	testret=$${PIPESTATUS[0]}; \
@@ -138,16 +138,16 @@ test-integration: check-deps build
 # init-foundation (idempotent) so the config is always consistent.
 #
 # Example:
-#   make test-integration-adopt DESKTOP_ID=d-abc123 AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg
+#   make test-integration-adopt DESKTOP_ID=d-abc123 DESKTOPCTL_TEST_BUCKET=myorg-desktopctl-test DESKTOPCTL_GITHUB_OWNER=myorg
 test-integration-adopt: check-deps build
 	$(if $(DESKTOP_ID),,$(error DESKTOP_ID is required — e.g. make test-integration-adopt DESKTOP_ID=d-abc123))
-	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; exit 1; }
-	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; exit 1; }
+	@test -n "$(DESKTOPCTL_TEST_BUCKET)" || { echo "ERROR: DESKTOPCTL_TEST_BUCKET is not set"; exit 1; }
+	@test -n "$(DESKTOPCTL_GITHUB_OWNER)" || { echo "ERROR: DESKTOPCTL_GITHUB_OWNER is not set"; exit 1; }
 	@set -o pipefail; \
-	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
-	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
-	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
-	  AI_DESKTOPS_EXISTING_ID=$(DESKTOP_ID) \
+	tmpout=$$(mktemp /tmp/desktopctl-integration-XXXXXX.log); \
+	DESKTOPCTL_TEST_BUCKET=$(DESKTOPCTL_TEST_BUCKET) \
+	  DESKTOPCTL_GITHUB_OWNER=$(DESKTOPCTL_GITHUB_OWNER) \
+	  DESKTOPCTL_EXISTING_ID=$(DESKTOP_ID) \
 	  go test -v -tags=integration -timeout=30m ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	testret=$${PIPESTATUS[0]}; \
 	echo ""; \
@@ -168,17 +168,17 @@ test-integration-adopt: check-deps build
 # Set FR to the functional requirement number (1–10).
 #
 # Example:
-#   make test-integration-fr FR=5 AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg
-#   make test-integration-fr FR=7 DESKTOP_ID=d-abc123 AI_DESKTOPS_TEST_BUCKET=myorg-ai-desktops-test AI_DESKTOPS_GITHUB_OWNER=myorg
+#   make test-integration-fr FR=5 DESKTOPCTL_TEST_BUCKET=myorg-desktopctl-test DESKTOPCTL_GITHUB_OWNER=myorg
+#   make test-integration-fr FR=7 DESKTOP_ID=d-abc123 DESKTOPCTL_TEST_BUCKET=myorg-desktopctl-test DESKTOPCTL_GITHUB_OWNER=myorg
 test-integration-fr: check-deps build
 	$(if $(FR),,$(error FR is required — e.g. make test-integration-fr FR=5))
-	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; exit 1; }
-	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; exit 1; }
+	@test -n "$(DESKTOPCTL_TEST_BUCKET)" || { echo "ERROR: DESKTOPCTL_TEST_BUCKET is not set"; exit 1; }
+	@test -n "$(DESKTOPCTL_GITHUB_OWNER)" || { echo "ERROR: DESKTOPCTL_GITHUB_OWNER is not set"; exit 1; }
 	@set -o pipefail; \
-	tmpout=$$(mktemp /tmp/ai-desktops-integration-XXXXXX.log); \
-	AI_DESKTOPS_TEST_BUCKET=$(AI_DESKTOPS_TEST_BUCKET) \
-	  AI_DESKTOPS_GITHUB_OWNER=$(AI_DESKTOPS_GITHUB_OWNER) \
-	  $(if $(DESKTOP_ID),AI_DESKTOPS_EXISTING_ID=$(DESKTOP_ID),) \
+	tmpout=$$(mktemp /tmp/desktopctl-integration-XXXXXX.log); \
+	DESKTOPCTL_TEST_BUCKET=$(DESKTOPCTL_TEST_BUCKET) \
+	  DESKTOPCTL_GITHUB_OWNER=$(DESKTOPCTL_GITHUB_OWNER) \
+	  $(if $(DESKTOP_ID),DESKTOPCTL_EXISTING_ID=$(DESKTOP_ID),) \
 	  go test -v -tags=integration -timeout=30m \
 	  -run 'TestFR$(FR)_' ./tests/integration/... 2>&1 | tee "$$tmpout"; \
 	testret=$${PIPESTATUS[0]}; \
@@ -210,23 +210,23 @@ very-clean: clean
 # foundation Pulumi stack.
 #
 # Required:
-#   AI_DESKTOPS_TEST_BUCKET  — S3 bucket used as Pulumi backend for test state
-#   AI_DESKTOPS_GITHUB_OWNER — GitHub owner recorded in test desktop records
+#   DESKTOPCTL_TEST_BUCKET  — S3 bucket used as Pulumi backend for test state
+#   DESKTOPCTL_GITHUB_OWNER — GitHub owner recorded in test desktop records
 #
 # Optional:
 #   AWS_PROFILE — passed through to AWS calls (default: standard chain)
 clean-integration: build
-	@test -n "$(AI_DESKTOPS_TEST_BUCKET)" || { \
-	  echo "ERROR: AI_DESKTOPS_TEST_BUCKET is not set"; exit 1; \
+	@test -n "$(DESKTOPCTL_TEST_BUCKET)" || { \
+	  echo "ERROR: DESKTOPCTL_TEST_BUCKET is not set"; exit 1; \
 	}
-	@test -n "$(AI_DESKTOPS_GITHUB_OWNER)" || { \
-	  echo "ERROR: AI_DESKTOPS_GITHUB_OWNER is not set"; exit 1; \
+	@test -n "$(DESKTOPCTL_GITHUB_OWNER)" || { \
+	  echo "ERROR: DESKTOPCTL_GITHUB_OWNER is not set"; exit 1; \
 	}
 	@which jq > /dev/null 2>&1 || { echo "ERROR: jq is required but not found"; exit 1; }
-	@tmpconf=$$(mktemp /tmp/ai-desktops-clean-XXXXXX.yaml); \
-	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: ai-desktops-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /ai-desktops/%s/github\n  agent_secret: /ai-desktops/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
-	  "$(AWS_PROFILE)" "$(AI_DESKTOPS_TEST_BUCKET)" "$$(pwd)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
-	  "$(AI_DESKTOPS_GITHUB_OWNER)" "$(AI_DESKTOPS_GITHUB_OWNER)" \
+	@tmpconf=$$(mktemp /tmp/desktopctl-clean-XXXXXX.yaml); \
+	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: desktopctl-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /desktopctl/%s/github\n  agent_secret: /desktopctl/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
+	  "$(AWS_PROFILE)" "$(DESKTOPCTL_TEST_BUCKET)" "$$(pwd)" "$(DESKTOPCTL_GITHUB_OWNER)" \
+	  "$(DESKTOPCTL_GITHUB_OWNER)" "$(DESKTOPCTL_GITHUB_OWNER)" \
 	  > "$$tmpconf"; \
 	echo "clean-integration: config written to $$tmpconf"; \
 	echo "clean-integration: listing test desktops..."; \

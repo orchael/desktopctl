@@ -114,7 +114,7 @@ func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
 	}
 }
 
-func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
+func TestAMIPlaybookInstallsPinnedHelmArchive(t *testing.T) {
 	playbook, err := os.ReadFile("playbook.yml")
 	if err != nil {
 		t.Fatalf("read AMI playbook: %v", err)
@@ -125,13 +125,20 @@ func TestAMIPlaybookInstallsHelmWithHomebrew(t *testing.T) {
 		`    - name: Require helm_version
       ansible.builtin.assert:
         that: helm_version is defined and helm_version | length > 0`,
-		`    - name: Install Helm via Homebrew
-      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install helm
-      args:
-        creates: /home/linuxbrew/.linuxbrew/bin/helm
-      become: false`,
+		`    - name: Require helm_sha256
+      ansible.builtin.assert:
+        that: helm_sha256 is defined and helm_sha256 is match('^[0-9a-f]{64}$')`,
+		`    - name: Download pinned Helm release
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        checksum: "sha256:{{ helm_sha256 }}"`,
+		`    - name: Install pinned Helm binary
+      ansible.builtin.copy:
+        src: /tmp/desktopctl-helm/linux-amd64/helm
+        dest: /usr/local/bin/helm`,
 		`    - name: Verify Helm is installed
-      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/helm version --short
+      ansible.builtin.command: /usr/local/bin/helm version --short
       register: helm_ver_out
       changed_when: false
       become: false`,
@@ -202,13 +209,18 @@ func TestAMIConfigurationPinsHelmVersion(t *testing.T) {
 		t.Fatalf("read Packer template: %v", err)
 	}
 
-	if !strings.Contains(string(vars), `helm_version                  = "v4.3.0"`) {
-		t.Fatal("Packer variables must pin Helm v4.3.0")
+	if !strings.Contains(string(vars), `helm_version                  = "v4.3.1"`) {
+		t.Fatal("Packer variables must pin Helm v4.3.1")
+	}
+	if !strings.Contains(string(vars), `helm_sha256                   = "0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"`) {
+		t.Fatal("Packer variables must pin the verified Helm archive SHA-256")
 	}
 	for _, want := range []string{
 		`variable "helm_version"`,
+		`variable "helm_sha256"`,
 		`HelmVersion                = var.helm_version`,
 		`helm_version=${var.helm_version}`,
+		`helm_sha256=${var.helm_sha256}`,
 		`helm_version                  = var.helm_version`,
 	} {
 		if !strings.Contains(string(template), want) {
@@ -226,7 +238,7 @@ func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 		`Signed-By: /etc/apt/keyrings/microsoft.asc`,
 		`url: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_{{ vscode_version }}_amd64.deb"`,
 		`checksum: "sha256:{{ vscode_sha256 }}"`,
-		`deb: /opt/ai-desktops/vscode.deb`,
+		`deb: /opt/desktopctl/vscode.deb`,
 		`ansible.builtin.command: dpkg-query -W -f='${Version}' code`,
 		`vscode_installed_version.stdout == vscode_version`,
 		`path: /usr/share/applications/com.microsoft.VSCode.desktop`,
@@ -361,11 +373,11 @@ func TestAMIConfigurationPinsPlaywright(t *testing.T) {
 func TestAMIPlaybookInstallsSharedPlaywrightChromium(t *testing.T) {
 	for _, want := range []string{
 		`- name: Require playwright_version`,
-		`path: /opt/ai-desktops/playwright-browsers`,
-		`PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers`,
+		`path: /opt/desktopctl/playwright-browsers`,
+		`PLAYWRIGHT_BROWSERS_PATH: /opt/desktopctl/playwright-browsers`,
 		`playwright@{{ playwright_version }}`,
 		`install --with-deps chromium`,
-		`DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/ai-desktops/playwright-browsers`,
+		`DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/desktopctl/playwright-browsers`,
 		`path: /etc/environment`,
 		`- name: Verify shared Playwright Chromium launches as ubuntu`,
 		`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"`,

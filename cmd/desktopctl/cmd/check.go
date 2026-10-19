@@ -56,7 +56,7 @@ var checkTools = []toolRequirement{
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Check that all required tools are installed and at minimum versions",
-	Long: `check verifies that the tools needed to operate ai-desktops are present
+	Long: `check verifies that the tools needed to operate desktopctl are present
 on PATH and meet minimum version requirements. It also verifies that AWS
 credentials are functional.
 

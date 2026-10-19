@@ -6,7 +6,7 @@
 //
 //	AC-4.1  bridgectl user-level systemd service is active on the desktop
 //	AC-4.2  Bridge is bound to localhost only (not 0.0.0.0)
-//	AC-4.4  `ai-desktops agent <id> status` returns bridge status without error
+//	AC-4.4  `desktopctl agent <id> status` returns bridge status without error
 //	AC-4.5  Agent command works through the CLI-managed tunnel
 //	AC-4.6  Bridge port is not exposed in the public security group
 package integration_test
@@ -46,7 +46,7 @@ func TestFR4_BridgeLocalhostOnly(t *testing.T) {
 	}
 }
 
-// TestFR4_AgentStatusCommand verifies that `ai-desktops agent <id> status`
+// TestFR4_AgentStatusCommand verifies that `desktopctl agent <id> status`
 // completes without error, confirming the CLI tunnel and bridge integration
 // work end-to-end (AC-4.4, AC-4.5).
 //

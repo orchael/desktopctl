@@ -56,7 +56,7 @@ func run(ctx *pulumi.Context) error {
 	// amiId must be set to a Packer-built novnc-desktop AMI; plain Ubuntu AMIs are not supported.
 	amiID := cfg.Get("amiId")
 	if amiID == "" {
-		return fmt.Errorf("amiId is required: set it to a Packer-built ai-desktops AMI (see packer/ubuntu-desktop.pkr.hcl)")
+		return fmt.Errorf("amiId is required: set it to a Packer-built desktopctl AMI (see packer/ubuntu-desktop.pkr.hcl)")
 	}
 
 	nestedVirtualization := cfg.Get("nestedVirtualization") == "true"
@@ -104,7 +104,7 @@ func run(ctx *pulumi.Context) error {
 	userDataBase64 := cfg.Get("userDataBase64")
 	userData := cfg.Get("userData")
 	if userDataBase64 == "" && userData == "" {
-		return fmt.Errorf("userData is required: render cloud-init in the ai-desktops CLI before updating the stack")
+		return fmt.Errorf("userData is required: render cloud-init in the desktopctl CLI before updating the stack")
 	}
 
 	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
@@ -128,7 +128,7 @@ func run(ctx *pulumi.Context) error {
 		},
 		Tags: pulumi.StringMap{
 			"Name":           pulumi.String(hostname),
-			"managed-by":     pulumi.String("ai-desktops"),
+			"managed-by":     pulumi.String("desktopctl"),
 			"desktop-id":     pulumi.String(desktopID),
 			"desktop-name":   pulumi.String(desktopName),
 			"github-owner":   pulumi.String(githubOwner),

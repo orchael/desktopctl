@@ -6,7 +6,7 @@ usage() {
 Update the desktopctl agent secret with Codex and Claude Code auth.
 
 This script updates an AWS Secrets Manager JSON secret such as:
-  /ai-desktops/markcallen/agents
+  /desktopctl/dev/us-east-2/markcallen/agents
 
 It preserves existing JSON keys and updates only the keys you provide:
   CODEX_AUTH                 literal contents of a Codex auth.json file
@@ -15,7 +15,7 @@ It preserves existing JSON keys and updates only the keys you provide:
 Defaults:
   owner:      markcallen
   environment: dev
-  secret id:  /ai-desktops/<owner>/agents
+  secret id:  /desktopctl/<environment>/<region>/<owner>/agents
   Codex auth: ${CODEX_HOME:-$HOME/.codex}/auth.json
 
 Claude Code token note:
@@ -32,7 +32,7 @@ Examples:
   CLAUDE_CODE_OAUTH_TOKEN="$(pbpaste)" scripts/update-agent-auth.sh --yes
 
 Options:
-  --owner NAME              GitHub owner used in /ai-desktops/<owner>/agents
+  --owner NAME              GitHub owner used in the scoped secret path
   --environment ENV         Environment tag for newly created secrets; default dev
   --secret-id ID            Override the full AWS Secrets Manager secret id
   --region REGION           AWS region; otherwise AWS CLI default resolution
@@ -59,7 +59,7 @@ skip_codex=false
 skip_claude=false
 assume_yes=false
 reload_desktop=""
-ai_desktops_bin=""
+desktopctl_bin=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -103,8 +103,8 @@ while [ "$#" -gt 0 ]; do
       reload_desktop="${2:?--reload-desktop requires a value}"
       shift 2
       ;;
-    --desktopctl-bin|--ai-desktops-bin)
-      ai_desktops_bin="${2:?--desktopctl-bin requires a value}"
+    --desktopctl-bin)
+      desktopctl_bin="${2:?--desktopctl-bin requires a value}"
       shift 2
       ;;
     --yes)
@@ -124,25 +124,29 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -n "$reload_desktop" ]; then
-  if [ -z "$ai_desktops_bin" ]; then
+  if [ -z "$desktopctl_bin" ]; then
     script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
     if [ -x "$script_dir/../bin/desktopctl" ]; then
-      ai_desktops_bin="$script_dir/../bin/desktopctl"
+      desktopctl_bin="$script_dir/../bin/desktopctl"
     elif command -v desktopctl >/dev/null 2>&1; then
-      ai_desktops_bin="$(command -v desktopctl)"
+      desktopctl_bin="$(command -v desktopctl)"
     else
       echo "ERROR: desktopctl CLI not found; pass --desktopctl-bin PATH" >&2
       exit 1
     fi
   fi
-  if [ ! -x "$ai_desktops_bin" ]; then
-    echo "ERROR: desktopctl CLI is not executable: $ai_desktops_bin" >&2
+  if [ ! -x "$desktopctl_bin" ]; then
+    echo "ERROR: desktopctl CLI is not executable: $desktopctl_bin" >&2
     exit 1
   fi
 fi
 
 if [ -z "$secret_id" ]; then
-  secret_id="/ai-desktops/${owner}/agents"
+  if [ -z "$region" ]; then
+    echo "ERROR: --region is required when --secret-id is omitted" >&2
+    exit 2
+  fi
+  secret_id="/desktopctl/${environment}/${region}/${owner}/agents"
 fi
 
 for tool in aws python3; do
@@ -326,9 +330,9 @@ if [ "$secret_exists" = true ]; then
 else
   aws secretsmanager create-secret "${aws_args[@]}" \
     --name "$secret_id" \
-    --description "AI provider API keys and auth for ai-desktops owner: $owner" \
+    --description "AI provider API keys and auth for desktopctl owner: $owner" \
     --tags \
-      Key=ai-desktops,Value=true \
+      Key=desktopctl,Value=true \
       Key=github-owner,Value="$owner" \
       Key=environment,Value="$environment" \
     --secret-string "file://$merged_json" >/dev/null
@@ -357,8 +361,8 @@ PY
 cat <<'EOF'
 
 Existing desktops do not automatically reload this secret. Run:
-  ai-desktops secrets reload <desktop-id>
-Older desktops must first register this secret with `ai-desktops secrets add`.
+  desktopctl secrets reload <desktop-id>
+Older desktops must first register this secret with `desktopctl secrets add`.
 Reload interrupts active sessions and replaces the desktop's auth snapshot.
 EOF
 
@@ -379,7 +383,7 @@ PY
 )"
   echo
   echo "Reloading updated credentials on $reload_desktop..."
-  if ! "$ai_desktops_bin" secrets reload "$reload_desktop" \
+  if ! "$desktopctl_bin" secrets reload "$reload_desktop" \
 		--require-secret "$secret_id" --require-region "$resolved_region"; then
     echo "ERROR: secret was updated, but guarded desktop reload failed; follow the CLI error and reconcile before resuming sessions" >&2
     exit 1

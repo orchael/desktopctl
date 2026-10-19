@@ -29,9 +29,11 @@ func run(ctx *pulumi.Context) error {
 	if environment == "" {
 		environment = "dev"
 	}
+	region := cfg.Require("region")
+	scope := environment + "-" + region
 	fleetTable := cfg.Get("fleetTable")
 	if fleetTable == "" {
-		fleetTable = "ai-desktops-fleet-" + environment
+		fleetTable = "desktopctl-fleet-" + scope
 	}
 	operatorCIDR := cfg.Get("operatorCIDR")
 	if operatorCIDR == "" {
@@ -44,7 +46,7 @@ func run(ctx *pulumi.Context) error {
 	}
 	operatorCredentialsSecretName := cfg.Get("operatorCredentialsSecretName")
 	if operatorCredentialsSecretName == "" {
-		operatorCredentialsSecretName = fmt.Sprintf("/ai-desktops/%s/control-plane/aws-operator", environment)
+		operatorCredentialsSecretName = fmt.Sprintf("/desktopctl/%s/control-plane/aws-operator", scope)
 	}
 
 	caller, err := aws.GetCallerIdentity(ctx, nil)
@@ -94,13 +96,13 @@ func run(ctx *pulumi.Context) error {
 		// Create a VPC with public subnets across available AZs. Keeping the
 		// original first subnet resource name avoids replacing existing stacks,
 		// while new subnets give Spot launches another AZ when one pool is empty.
-		vpc, err := ec2.NewVpc(ctx, "ai-desktops-vpc", &ec2.VpcArgs{
+		vpc, err := ec2.NewVpc(ctx, "desktopctl-vpc", &ec2.VpcArgs{
 			CidrBlock:          pulumi.String("10.10.0.0/16"),
 			EnableDnsHostnames: pulumi.Bool(true),
 			EnableDnsSupport:   pulumi.Bool(true),
 			Tags: pulumi.StringMap{
-				"Name":        pulumi.String("ai-desktops-vpc"),
-				"managed-by":  pulumi.String("ai-desktops"),
+				"Name":        pulumi.String("desktopctl-vpc-" + scope),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -108,9 +110,9 @@ func run(ctx *pulumi.Context) error {
 			return err
 		}
 
-		igw, err := ec2.NewInternetGateway(ctx, "ai-desktops-igw", &ec2.InternetGatewayArgs{
+		igw, err := ec2.NewInternetGateway(ctx, "desktopctl-igw", &ec2.InternetGatewayArgs{
 			VpcId: vpc.ID(),
-			Tags:  pulumi.StringMap{"Name": pulumi.String("ai-desktops-igw"), "managed-by": pulumi.String("ai-desktops"), "environment": pulumi.String(environment)},
+			Tags:  pulumi.StringMap{"Name": pulumi.String("desktopctl-igw-" + scope), "managed-by": pulumi.String("desktopctl"), "environment": pulumi.String(environment)},
 		})
 		if err != nil {
 			return err
@@ -126,10 +128,10 @@ func run(ctx *pulumi.Context) error {
 			return fmt.Errorf("no available AZs found in region")
 		}
 
-		rt, err := ec2.NewRouteTable(ctx, "ai-desktops-rt", &ec2.RouteTableArgs{
+		rt, err := ec2.NewRouteTable(ctx, "desktopctl-rt", &ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
 			Tags: pulumi.StringMap{
-				"managed-by":  pulumi.String("ai-desktops"),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 			Routes: ec2.RouteTableRouteArray{
@@ -148,9 +150,9 @@ func run(ctx *pulumi.Context) error {
 			subnetCount = 3
 		}
 		for i := 0; i < subnetCount; i++ {
-			name := "ai-desktops-subnet"
+			name := "desktopctl-subnet"
 			if i > 0 {
-				name = fmt.Sprintf("ai-desktops-subnet-%d", i+1)
+				name = fmt.Sprintf("desktopctl-subnet-%d", i+1)
 			}
 			subnet, err := ec2.NewSubnet(ctx, name, &ec2.SubnetArgs{
 				VpcId:               vpc.ID(),
@@ -159,7 +161,7 @@ func run(ctx *pulumi.Context) error {
 				MapPublicIpOnLaunch: pulumi.Bool(true),
 				Tags: pulumi.StringMap{
 					"Name":        pulumi.String(name),
-					"managed-by":  pulumi.String("ai-desktops"),
+					"managed-by":  pulumi.String("desktopctl"),
 					"environment": pulumi.String(environment),
 				},
 			})
@@ -171,9 +173,9 @@ func run(ctx *pulumi.Context) error {
 			}
 			subnetIDs = append(subnetIDs, subnet.ID().ToStringOutput())
 
-			assocName := "ai-desktops-rta"
+			assocName := "desktopctl-rta"
 			if i > 0 {
-				assocName = fmt.Sprintf("ai-desktops-rta-%d", i+1)
+				assocName = fmt.Sprintf("desktopctl-rta-%d", i+1)
 			}
 			if _, err := ec2.NewRouteTableAssociation(ctx, assocName, &ec2.RouteTableAssociationArgs{
 				SubnetId:     subnet.ID(),
@@ -196,9 +198,9 @@ func run(ctx *pulumi.Context) error {
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8443), ToPort: pulumi.Int(8443), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("noVNC HTTPS")},
 		}
 	}
-	sg, err := ec2.NewSecurityGroup(ctx, "ai-desktops-sg", &ec2.SecurityGroupArgs{
+	sg, err := ec2.NewSecurityGroup(ctx, "desktopctl-sg", &ec2.SecurityGroupArgs{
 		VpcId:       vpcIDOutput,
-		Description: pulumi.String("ai-desktops desktop security group"),
+		Description: pulumi.String("desktopctl desktop security group"),
 		Ingress:     ingress,
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
@@ -209,8 +211,8 @@ func run(ctx *pulumi.Context) error {
 			},
 		},
 		Tags: pulumi.StringMap{
-			"Name":        pulumi.String("ai-desktops-sg"),
-			"managed-by":  pulumi.String("ai-desktops"),
+			"Name":        pulumi.String("desktopctl-sg-" + scope),
+			"managed-by":  pulumi.String("desktopctl"),
 			"environment": pulumi.String(environment),
 		},
 	})
@@ -219,16 +221,16 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	if !saasMode {
-		efsSG, err := ec2.NewSecurityGroup(ctx, "ai-desktops-efs-sg", &ec2.SecurityGroupArgs{
+		efsSG, err := ec2.NewSecurityGroup(ctx, "desktopctl-efs-sg", &ec2.SecurityGroupArgs{
 			VpcId:       vpcIDOutput,
-			Description: pulumi.String("ai-desktops EFS security group"),
+			Description: pulumi.String("desktopctl EFS security group"),
 			Ingress: ec2.SecurityGroupIngressArray{
 				&ec2.SecurityGroupIngressArgs{
 					Protocol:       pulumi.String("tcp"),
 					FromPort:       pulumi.Int(2049),
 					ToPort:         pulumi.Int(2049),
 					SecurityGroups: pulumi.StringArray{sg.ID()},
-					Description:    pulumi.String("NFS from ai-desktops desktops"),
+					Description:    pulumi.String("NFS from desktopctl desktops"),
 				},
 			},
 			Egress: ec2.SecurityGroupEgressArray{
@@ -240,8 +242,8 @@ func run(ctx *pulumi.Context) error {
 				},
 			},
 			Tags: pulumi.StringMap{
-				"Name":        pulumi.String("ai-desktops-efs-sg-" + environment),
-				"managed-by":  pulumi.String("ai-desktops"),
+				"Name":        pulumi.String("desktopctl-efs-sg-" + scope),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -249,20 +251,20 @@ func run(ctx *pulumi.Context) error {
 			return err
 		}
 
-		workspaceFS, err := efs.NewFileSystem(ctx, "ai-desktops-workspaces-efs", &efs.FileSystemArgs{
-			CreationToken:  pulumi.StringPtr("ai-desktops-workspaces-" + environment),
+		workspaceFS, err := efs.NewFileSystem(ctx, "desktopctl-workspaces-efs", &efs.FileSystemArgs{
+			CreationToken:  pulumi.StringPtr("desktopctl-workspaces-" + scope),
 			Encrypted:      pulumi.BoolPtr(true),
 			ThroughputMode: pulumi.StringPtr("elastic"),
 			Tags: pulumi.StringMap{
-				"Name":        pulumi.String("ai-desktops-workspaces-" + environment),
-				"managed-by":  pulumi.String("ai-desktops"),
+				"Name":        pulumi.String("desktopctl-workspaces-" + scope),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
 		if err != nil {
 			return err
 		}
-		if _, err := efs.NewBackupPolicy(ctx, "ai-desktops-workspaces-backup", &efs.BackupPolicyArgs{
+		if _, err := efs.NewBackupPolicy(ctx, "desktopctl-workspaces-backup", &efs.BackupPolicyArgs{
 			FileSystemId: workspaceFS.ID(),
 			BackupPolicy: &efs.BackupPolicyBackupPolicyArgs{
 				Status: pulumi.String("ENABLED"),
@@ -271,9 +273,9 @@ func run(ctx *pulumi.Context) error {
 			return err
 		}
 		for i, subnet := range subnetIDs {
-			name := "ai-desktops-efs-mount-target"
+			name := "desktopctl-efs-mount-target"
 			if i > 0 {
-				name = fmt.Sprintf("ai-desktops-efs-mount-target-%d", i+1)
+				name = fmt.Sprintf("desktopctl-efs-mount-target-%d", i+1)
 			}
 			if _, err := efs.NewMountTarget(ctx, name, &efs.MountTargetArgs{
 				FileSystemId:   workspaceFS.ID(),
@@ -301,10 +303,10 @@ func run(ctx *pulumi.Context) error {
   }]
 }`
 
-		role, err := iam.NewRole(ctx, "ai-desktops-role", &iam.RoleArgs{
+		role, err := iam.NewRole(ctx, "desktopctl-role", &iam.RoleArgs{
 			AssumeRolePolicy: pulumi.String(assumeRolePolicy),
 			Tags: pulumi.StringMap{
-				"managed-by":  pulumi.String("ai-desktops"),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -313,7 +315,7 @@ func run(ctx *pulumi.Context) error {
 		}
 
 		// SSM managed policy for Session Manager tunnel support.
-		if _, err := iam.NewRolePolicyAttachment(ctx, "ai-desktops-ssm-policy", &iam.RolePolicyAttachmentArgs{
+		if _, err := iam.NewRolePolicyAttachment(ctx, "desktopctl-ssm-policy", &iam.RolePolicyAttachmentArgs{
 			Role:      role.Name,
 			PolicyArn: pulumi.String("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"),
 		}); err != nil {
@@ -337,12 +339,12 @@ func run(ctx *pulumi.Context) error {
     "Resource": "*",
     "Condition": {
       "StringEquals": {
-        "secretsmanager:ResourceTag/ai-desktops-scope": "operator"
+        "secretsmanager:ResourceTag/desktopctl-scope": "operator"
       }
     }
   }]
 }`
-		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-secrets-policy", &iam.RolePolicyArgs{
+		if _, err := iam.NewRolePolicy(ctx, "desktopctl-secrets-policy", &iam.RolePolicyArgs{
 			Role:   role.Name,
 			Policy: pulumi.String(secretsPolicy),
 		}); err != nil {
@@ -363,7 +365,7 @@ func run(ctx *pulumi.Context) error {
   }]
 }`
 		if zone != "" {
-			if _, err := iam.NewRolePolicy(ctx, "ai-desktops-route53-policy", &iam.RolePolicyArgs{
+			if _, err := iam.NewRolePolicy(ctx, "desktopctl-route53-policy", &iam.RolePolicyArgs{
 				Role:   role.Name,
 				Policy: pulumi.String(route53Policy),
 			}); err != nil {
@@ -389,17 +391,17 @@ func run(ctx *pulumi.Context) error {
     "Resource": "*"
   }]
 }`
-		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-cloudwatch-policy", &iam.RolePolicyArgs{
+		if _, err := iam.NewRolePolicy(ctx, "desktopctl-cloudwatch-policy", &iam.RolePolicyArgs{
 			Role:   role.Name,
 			Policy: pulumi.String(cloudWatchPolicy),
 		}); err != nil {
 			return err
 		}
 
-		instanceProfile, err := iam.NewInstanceProfile(ctx, "ai-desktops-profile", &iam.InstanceProfileArgs{
+		instanceProfile, err := iam.NewInstanceProfile(ctx, "desktopctl-profile", &iam.InstanceProfileArgs{
 			Role: role.Name,
 			Tags: pulumi.StringMap{
-				"managed-by":  pulumi.String("ai-desktops"),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -410,13 +412,13 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	if !saasMode {
-		operatorUserName := "ai-desktops-control-plane-" + environment
-		operatorRoleName := "ai-desktops-control-plane-role-" + environment
+		operatorUserName := "desktopctl-control-plane-" + scope
+		operatorRoleName := "desktopctl-control-plane-role-" + scope
 
-		operatorUser, err := iam.NewUser(ctx, "ai-desktops-control-plane-user", &iam.UserArgs{
+		operatorUser, err := iam.NewUser(ctx, "desktopctl-control-plane-user", &iam.UserArgs{
 			Name: pulumi.String(operatorUserName),
 			Tags: pulumi.StringMap{
-				"managed-by":  pulumi.String("ai-desktops"),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -435,11 +437,11 @@ func run(ctx *pulumi.Context) error {
 }`, userArn)
 		}).(pulumi.StringOutput)
 
-		operatorRole, err := iam.NewRole(ctx, "ai-desktops-control-plane-role", &iam.RoleArgs{
+		operatorRole, err := iam.NewRole(ctx, "desktopctl-control-plane-role", &iam.RoleArgs{
 			Name:             pulumi.String(operatorRoleName),
 			AssumeRolePolicy: operatorAssumeRolePolicy,
 			Tags: pulumi.StringMap{
-				"managed-by":  pulumi.String("ai-desktops"),
+				"managed-by":  pulumi.String("desktopctl"),
 				"environment": pulumi.String(environment),
 			},
 		})
@@ -448,7 +450,7 @@ func run(ctx *pulumi.Context) error {
 		}
 
 		operatorPolicy := controlPlanePolicy(partition, accountID, pulumiBackendBucket)
-		if _, err := iam.NewRolePolicy(ctx, "ai-desktops-control-plane-policy", &iam.RolePolicyArgs{
+		if _, err := iam.NewRolePolicy(ctx, "desktopctl-control-plane-policy", &iam.RolePolicyArgs{
 			Role:   operatorRole.Name,
 			Policy: pulumi.String(operatorPolicy),
 		}); err != nil {
@@ -466,27 +468,27 @@ func run(ctx *pulumi.Context) error {
 }`, roleArn)
 		}).(pulumi.StringOutput)
 
-		if _, err := iam.NewUserPolicy(ctx, "ai-desktops-control-plane-assume-role", &iam.UserPolicyArgs{
+		if _, err := iam.NewUserPolicy(ctx, "desktopctl-control-plane-assume-role", &iam.UserPolicyArgs{
 			User:   operatorUser.Name,
 			Policy: operatorAssumePolicy,
 		}); err != nil {
 			return err
 		}
 
-		operatorAccessKey, err := iam.NewAccessKey(ctx, "ai-desktops-control-plane-access-key", &iam.AccessKeyArgs{
+		operatorAccessKey, err := iam.NewAccessKey(ctx, "desktopctl-control-plane-access-key", &iam.AccessKeyArgs{
 			User: operatorUser.Name,
 		})
 		if err != nil {
 			return err
 		}
 
-		operatorSecret, err := secretsmanager.NewSecret(ctx, "ai-desktops-control-plane-credentials", &secretsmanager.SecretArgs{
+		operatorSecret, err := secretsmanager.NewSecret(ctx, "desktopctl-control-plane-credentials", &secretsmanager.SecretArgs{
 			Name:        pulumi.String(operatorCredentialsSecretName),
-			Description: pulumi.String("AWS control-plane credentials for ai-desktops " + environment),
+			Description: pulumi.String("AWS control-plane credentials for desktopctl " + environment),
 			Tags: pulumi.StringMap{
-				"managed-by":        pulumi.String("ai-desktops"),
-				"environment":       pulumi.String(environment),
-				"ai-desktops-scope": pulumi.String("operator"),
+				"managed-by":       pulumi.String("desktopctl"),
+				"environment":      pulumi.String(environment),
+				"desktopctl-scope": pulumi.String("operator"),
 			},
 		})
 		if err != nil {
@@ -505,8 +507,8 @@ func run(ctx *pulumi.Context) error {
 				"OPERATOR_ROLE_ARN":              fmt.Sprint(args[2]),
 				"OPERATOR_USER_ARN":              fmt.Sprint(args[3]),
 				"OPERATOR_ENVIRONMENT":           environment,
-				"OPERATOR_SOURCE_PROFILE":        "ai-desktops-" + environment + "-user",
-				"OPERATOR_ROLE_PROFILE":          "ai-desktops-" + environment,
+				"OPERATOR_SOURCE_PROFILE":        "desktopctl-" + scope + "-user",
+				"OPERATOR_ROLE_PROFILE":          "desktopctl-" + scope,
 			}
 			b, err := json.Marshal(payload)
 			if err != nil {
@@ -515,7 +517,7 @@ func run(ctx *pulumi.Context) error {
 			return string(b), nil
 		}).(pulumi.StringOutput)
 
-		if _, err := secretsmanager.NewSecretVersion(ctx, "ai-desktops-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
+		if _, err := secretsmanager.NewSecretVersion(ctx, "desktopctl-control-plane-credentials-version", &secretsmanager.SecretVersionArgs{
 			SecretId:     operatorSecret.ID(),
 			SecretString: operatorSecretPayload,
 		}); err != nil {
@@ -527,8 +529,7 @@ func run(ctx *pulumi.Context) error {
 	}
 
 	// --- DynamoDB fleet table ---
-	// pulumi.Aliases preserves the prior logical name ("ai-desktops-fleet") so
-	// existing stacks don't force a delete/recreate on the next `pulumi up`.
+	// The new stack uses a fresh logical identity and never aliases legacy resources.
 	table, err := dynamodb.NewTable(ctx, "fleet-table", &dynamodb.TableArgs{
 		Name:        pulumi.String(fleetTable),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
@@ -540,17 +541,17 @@ func run(ctx *pulumi.Context) error {
 			},
 		},
 		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("desktopctl"),
 			"environment": pulumi.String(environment),
 		},
-	}, pulumi.Aliases([]pulumi.Alias{{Name: pulumi.StringInput(pulumi.String("ai-desktops-fleet"))}}))
+	})
 	if err != nil {
 		return err
 	}
 
 	// --- DynamoDB AMI history table ---
-	amiTableName := "ai-desktops-ami-" + environment
-	amiTable, err := dynamodb.NewTable(ctx, "ai-desktops-ami", &dynamodb.TableArgs{
+	amiTableName := "desktopctl-ami-" + scope
+	amiTable, err := dynamodb.NewTable(ctx, "desktopctl-ami", &dynamodb.TableArgs{
 		Name:        pulumi.String(amiTableName),
 		BillingMode: pulumi.String("PAY_PER_REQUEST"),
 		HashKey:     pulumi.String("ami_id"),
@@ -561,7 +562,7 @@ func run(ctx *pulumi.Context) error {
 			},
 		},
 		Tags: pulumi.StringMap{
-			"managed-by":  pulumi.String("ai-desktops"),
+			"managed-by":  pulumi.String("desktopctl"),
 			"environment": pulumi.String(environment),
 		},
 	})
@@ -735,7 +736,7 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "dynamodb:UpdateItem",
         "dynamodb:UpdateTable"
       ],
-      "Resource": ["arn:%[1]s:dynamodb:*:%[2]s:table/ai-desktops-*"]
+      "Resource": ["arn:%[1]s:dynamodb:*:%[2]s:table/desktopctl-*"]
     },
     {
       "Sid": "Route53DesktopRecords",
@@ -750,7 +751,7 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*"
     },
     {
-      "Sid": "CreateAiDesktopsSecrets",
+      "Sid": "CreateDesktopctlSecrets",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:CreateSecret"
@@ -758,7 +759,7 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*",
       "Condition": {
         "StringLike": {
-          "secretsmanager:Name": "/ai-desktops/*"
+          "secretsmanager:Name": "/desktopctl/*"
         }
       }
     },
@@ -775,8 +776,8 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "ssm:GetParameters"
       ],
       "Resource": [
-        "arn:%[1]s:secretsmanager:*:%[2]s:secret:/ai-desktops/*",
-        "arn:%[1]s:ssm:*:%[2]s:parameter/ai-desktops/*"
+        "arn:%[1]s:secretsmanager:*:%[2]s:secret:/desktopctl/*",
+        "arn:%[1]s:ssm:*:%[2]s:parameter/desktopctl/*"
       ]
     },
     {
@@ -790,13 +791,13 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*"
     },
     {
-      "Sid": "PassAiDesktopsInstanceRole",
+      "Sid": "PassDesktopctlInstanceRole",
       "Effect": "Allow",
       "Action": ["iam:PassRole"],
-      "Resource": ["arn:%[1]s:iam::%[2]s:role/ai-desktops-*"]
+      "Resource": ["arn:%[1]s:iam::%[2]s:role/desktopctl-*"]
     },
     {
-      "Sid": "ManageAiDesktopsIamRoles",
+      "Sid": "ManageDesktopctlIamRoles",
       "Effect": "Allow",
       "Action": [
         "iam:AddRoleToInstanceProfile",
@@ -824,13 +825,13 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "iam:UpdateAssumeRolePolicy"
       ],
       "Resource": [
-        "arn:%[1]s:iam::%[2]s:role/ai-desktops-*",
-        "arn:%[1]s:iam::%[2]s:instance-profile/ai-desktops-*",
-        "arn:%[1]s:iam::%[2]s:policy/ai-desktops-*"
+        "arn:%[1]s:iam::%[2]s:role/desktopctl-*",
+        "arn:%[1]s:iam::%[2]s:instance-profile/desktopctl-*",
+        "arn:%[1]s:iam::%[2]s:policy/desktopctl-*"
       ]
     },
     {
-      "Sid": "ManageAiDesktopsIamUsers",
+      "Sid": "ManageDesktopctlIamUsers",
       "Effect": "Allow",
       "Action": [
         "iam:CreateAccessKey",
@@ -849,7 +850,7 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "iam:UpdateAccessKey"
       ],
       "Resource": [
-        "arn:%[1]s:iam::%[2]s:user/ai-desktops-*"
+        "arn:%[1]s:iam::%[2]s:user/desktopctl-*"
       ]
     },
     {

@@ -18,8 +18,8 @@ const (
 	ZoneProd = "desktops.orchael.com"
 	ZoneDev  = "desktops.orchael.dev"
 
-	DefaultFleetTablePrefix   = "ai-desktops-fleet"
-	DefaultAMITablePrefix     = "ai-desktops-ami"
+	DefaultFleetTablePrefix   = "desktopctl-fleet"
+	DefaultAMITablePrefix     = "desktopctl-ami"
 	DefaultBridgePort         = 9445
 	DefaultInstanceType       = "t3.large"
 	DefaultMobileInstanceType = "m8i.xlarge"
@@ -60,7 +60,7 @@ var NestedVirtInstanceFamilies = []string{
 	"i7i",
 }
 
-// Config holds all operator configuration for ai-desktops.
+// Config holds all operator configuration for desktopctl.
 type Config struct {
 	SaaSMode                bool           `yaml:"saas_mode,omitempty"`
 	SaaSInstanceProfileName string         `yaml:"saas_instance_profile_name,omitempty"`
@@ -80,7 +80,7 @@ type Config struct {
 // to disable the pool entirely; all bookings will use the legacy pulumi-up path.
 type PoolConfig struct {
 	// TableName is the DynamoDB table for pool member state.
-	// Defaults to "ai-desktops-pool-<environment>".
+	// Defaults to "desktopctl-pool-<environment>".
 	TableName string `yaml:"table_name,omitempty"`
 	// PoolSize is the desired number of AVAILABLE pool members to maintain.
 	// Set to 0 to disable the warm pool.
@@ -98,6 +98,35 @@ func (c *Config) Environment() string {
 		return c.Fleet.Environment
 	}
 	return EnvDev
+}
+
+// SetRegion updates names derived from the former region when --region overrides it.
+func (c *Config) SetRegion(region string) {
+	old := c.AWS.Region
+	env := c.Environment()
+	if c.GitHub.Owner != "" {
+		prefix := "/desktopctl/" + env + "/" + old + "/" + c.GitHub.Owner
+		if c.GitHub.GitHubSecret == prefix+"/github" {
+			c.GitHub.GitHubSecret = ""
+		}
+		if c.GitHub.AgentSecret == prefix+"/agents" {
+			c.GitHub.AgentSecret = ""
+		}
+		if c.Operator.Secret == prefix {
+			c.Operator.Secret = ""
+		}
+	}
+	if c.Fleet.TableName == DefaultFleetTablePrefix+"-"+env+"-"+old {
+		c.Fleet.TableName = ""
+	}
+	if c.Fleet.AMITableName == DefaultAMITablePrefix+"-"+env+"-"+old {
+		c.Fleet.AMITableName = ""
+	}
+	if c.Pool.TableName == "desktopctl-pool-"+env+"-"+old {
+		c.Pool.TableName = ""
+	}
+	c.AWS.Region = region
+	c.Defaults()
 }
 
 type AWSConfig struct {
@@ -123,14 +152,14 @@ type GitHubConfig struct {
 	Owner string `yaml:"owner"`
 	// GitHubSecret is the AWS Secrets Manager secret path holding the JSON blob
 	// with github_token, ssh_private_key, and ssh_public_key.
-	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/github.
+	// Set by `desktopctl setup`. Default: /desktopctl/<owner>/github.
 	GitHubSecret string `yaml:"github_secret,omitempty"`
 	// AgentSecret is the AWS Secrets Manager secret path holding the JSON blob
 	// with AI provider API keys (CLAUDE_CODE_OAUTH_TOKEN, OPENAI_API_KEY, GEMINI_API_KEY).
-	// Set by `ai-desktops setup`. Default: /ai-desktops/<owner>/agents.
+	// Set by `desktopctl setup`. Default: /desktopctl/<owner>/agents.
 	AgentSecret string `yaml:"agent_secret,omitempty"`
 	// PATSecret is the legacy field name. Loaded if github_secret is absent.
-	// Deprecated: use github_secret set by `ai-desktops setup`.
+	// Deprecated: use github_secret set by `desktopctl setup`.
 	PATSecret string `yaml:"pat_secret,omitempty"`
 	// GitUserName is the git commit author name written to the desktop's global git config.
 	GitUserName string `yaml:"git_user_name,omitempty"`
@@ -143,8 +172,8 @@ type GitHubConfig struct {
 
 type OperatorConfig struct {
 	// Secret is the AWS Secrets Manager path for operator-only credentials used
-	// by the ai-desktops CLI, not by provisioned desktops.
-	// Default: /ai-desktops/<owner>.
+	// by the desktopctl CLI, not by provisioned desktops.
+	// Default: /desktopctl/<owner>.
 	Secret string `yaml:"secret,omitempty"`
 }
 
@@ -173,6 +202,12 @@ type DesktopConfig struct {
 	SSHKeyName    string   `yaml:"ssh_key_name"`
 	// ActiveAMI specifies which AMI to use for each region. History is stored in DynamoDB.
 	ActiveAMI map[string]string `yaml:"active_ami,omitempty"`
+	// PublicAMIOwner is a trusted AWS account ID whose public desktopctl images
+	// can be discovered when no active_ami entry is configured for the region.
+	PublicAMIOwner string `yaml:"public_ami_owner,omitempty"`
+	// PublicAMIMajor overrides the running CLI's major version for public AMI discovery.
+	// An explicit active_ami still takes precedence.
+	PublicAMIMajor string `yaml:"public_ami_major,omitempty"`
 	// AVDs lists Android Virtual Devices to create at desktop boot.
 	// Empty means no AVDs are created. Passed as --avd flags on the create command
 	// or set here as the default set for all desktops.
@@ -265,13 +300,13 @@ func (c *Config) Defaults() {
 		c.Fleet.Environment = EnvDev
 	}
 	if c.Fleet.TableName == "" {
-		c.Fleet.TableName = DefaultFleetTablePrefix + "-" + c.Fleet.Environment
+		c.Fleet.TableName = DefaultFleetTablePrefix + "-" + c.Fleet.Environment + "-" + c.AWS.Region
 	}
 	if c.Fleet.AMITableName == "" {
-		c.Fleet.AMITableName = DefaultAMITablePrefix + "-" + c.Fleet.Environment
+		c.Fleet.AMITableName = DefaultAMITablePrefix + "-" + c.Fleet.Environment + "-" + c.AWS.Region
 	}
 	if c.Pool.TableName == "" {
-		c.Pool.TableName = "ai-desktops-pool-" + c.Fleet.Environment
+		c.Pool.TableName = "desktopctl-pool-" + c.Fleet.Environment + "-" + c.AWS.Region
 	}
 	if c.Desktop.InstanceType == "" {
 		c.Desktop.InstanceType = DefaultInstanceType
@@ -304,10 +339,10 @@ func (c *Config) Defaults() {
 		c.PKI.StepCAProvisioner = "admin"
 	}
 	if c.GitHub.AgentSecret == "" && c.GitHub.Owner != "" {
-		c.GitHub.AgentSecret = "/ai-desktops/" + c.GitHub.Owner + "/agents"
+		c.GitHub.AgentSecret = "/desktopctl/" + c.Environment() + "/" + c.AWS.Region + "/" + c.GitHub.Owner + "/agents"
 	}
 	if c.Operator.Secret == "" && c.GitHub.Owner != "" {
-		c.Operator.Secret = "/ai-desktops/" + c.GitHub.Owner
+		c.Operator.Secret = "/desktopctl/" + c.Environment() + "/" + c.AWS.Region + "/" + c.GitHub.Owner
 	}
 	if c.GitHub.GitHubSecret == "" {
 		if c.GitHub.PATSecret != "" {
@@ -316,15 +351,13 @@ func (c *Config) Defaults() {
 			// Parameter Store. Cloud-init expects a Secrets Manager JSON blob with
 			// github_token, ssh_private_key, and ssh_public_key. If this path still
 			// points at the old SSM plain-PAT, desktop provisioning will fail when it
-			// tries to parse the secret. Run `ai-desktops setup` to re-provision
+			// tries to parse the secret. Run `desktopctl setup` to re-provision
 			// credentials in the correct format and update your config.
 			fmt.Fprintf(os.Stderr, "WARNING: config uses deprecated pat_secret field (%s).\n"+
-				"Run `ai-desktops setup` to migrate to github_secret format.\n", c.GitHub.PATSecret)
+				"Run `desktopctl setup` to migrate to github_secret format.\n", c.GitHub.PATSecret)
 			c.GitHub.GitHubSecret = c.GitHub.PATSecret
 		} else if c.GitHub.Owner != "" {
-			c.GitHub.GitHubSecret = "/ai-desktops/" + c.GitHub.Owner + "/github"
-		} else {
-			c.GitHub.GitHubSecret = "/ai-desktops/github/pat"
+			c.GitHub.GitHubSecret = "/desktopctl/" + c.Environment() + "/" + c.AWS.Region + "/" + c.GitHub.Owner + "/github"
 		}
 	}
 }
@@ -351,6 +384,9 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write config to %s: %w", path, err)
 	}
@@ -376,16 +412,25 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
+// DefaultPath returns the XDG config path used by desktopctl on this platform.
+func DefaultPath() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "desktopctl", "config.yaml"), nil
+}
+
 // LoadOrDefault loads config from path; if path is empty it looks for the
-// default config at ~/.ai-desktops/config.yaml. Returns an empty-default
+// XDG default config. Returns an empty-default
 // config when no file exists so the caller can still override via flags.
 func LoadOrDefault(path string) (*Config, error) {
 	if path == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		path, err = DefaultPath()
 		if err != nil {
 			return nil, err
 		}
-		path = filepath.Join(home, ".ai-desktops", "config.yaml")
 	}
 	c, err := Load(path)
 	if err != nil {

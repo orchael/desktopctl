@@ -2,19 +2,24 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/spf13/cobra"
 )
 
 var (
-	foundationPreview bool
-	foundationRefresh bool
-	foundationEnv     string
-	foundationSaaS    bool
+	foundationPreview       bool
+	foundationRefresh       bool
+	foundationEnv           string
+	foundationSaaS          bool
+	foundationNoDNS         bool
+	foundationAllowExisting bool
 )
 
 var initFoundationCmd = &cobra.Command{
@@ -36,6 +41,8 @@ func init() {
 	initFoundationCmd.Flags().BoolVar(&foundationRefresh, "refresh", false, "sync Pulumi state with AWS before applying (use after manual AWS changes)")
 	initFoundationCmd.Flags().StringVar(&foundationEnv, "env", "", "environment (prod|dev|test), overrides config")
 	initFoundationCmd.Flags().BoolVar(&foundationSaaS, "saas", false, "deploy without DNS lookup or long-lived operator credentials for an AssumeRole worker")
+	initFoundationCmd.Flags().BoolVar(&foundationNoDNS, "no-dns", false, "deploy normal fleet and EFS resources without a Route53 zone")
+	initFoundationCmd.Flags().BoolVar(&foundationAllowExisting, "allow-existing", false, "explicitly update an existing foundation in this environment and region")
 	rootCmd.AddCommand(initFoundationCmd)
 }
 
@@ -49,9 +56,16 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if env == "" {
 		env = cfg.Fleet.Environment
 	}
+	if env != cfg.Fleet.Environment {
+		return fmt.Errorf("--env %q differs from config fleet.environment %q; use a separate config file", env, cfg.Fleet.Environment)
+	}
+	expectedFleet := config.DefaultFleetTablePrefix + "-" + env + "-" + cfg.AWS.Region
+	if cfg.Fleet.TableName != expectedFleet {
+		return fmt.Errorf("fleet.table_name must be %q for an isolated foundation", expectedFleet)
+	}
 
 	zone := ""
-	if !foundationSaaS {
+	if !foundationSaaS && !foundationNoDNS {
 		var err error
 		zone, err = cfg.DNSZone()
 		if err != nil {
@@ -62,13 +76,34 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if err := requireBackend(ctx); err != nil {
 		return err
 	}
+	if !foundationAllowExisting {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return err
+		}
+		exists, err := awsx.DynamoTableExists(ctx, awsCfg, cfg.Fleet.TableName)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("fleet table %q already exists in %s; fresh foundation refuses reuse (use --allow-existing only for an intentional update)", cfg.Fleet.TableName, cfg.AWS.Region)
+		}
+	}
 	if cfg.Desktop.OperatorCIDR == "" {
 		cfg.Desktop.OperatorCIDR = "0.0.0.0/0"
 	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
+	ref := pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, workDir)
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
+	stackExists, err := runner.StackExists(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if stackExists && !foundationAllowExisting {
+		return fmt.Errorf("foundation stack %q already exists; fresh initialization refuses to reuse it (use --allow-existing only for an intentional update)", ref.FullName())
+	}
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	if foundationSaaS {
@@ -85,11 +120,13 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Stack                  : %s\n", ref.FullName())
 	fmt.Fprintf(os.Stderr, "Work dir               : %s\n", workDir)
 
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
-
 	if foundationPreview {
-		if err := runner.Preview(ctx, ref, stackCfg, os.Stderr); err != nil {
-			return fmt.Errorf("foundation preview: %w", err)
+		previewErr := runner.Preview(ctx, ref, stackCfg, os.Stderr)
+		if !stackExists {
+			previewErr = errors.Join(previewErr, runner.RemoveEmptyStack(ctx, ref))
+		}
+		if previewErr != nil {
+			return fmt.Errorf("foundation preview: %w", previewErr)
 		}
 		return nil
 	}
@@ -106,7 +143,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("foundation stack: %w", err)
 	}
 
-	if err := pulumi.ValidateFoundationOutputsForMode(outputs, foundationSaaS); err != nil {
+	if err := pulumi.ValidateFoundationOutputsForMode(outputs, foundationSaaS || foundationNoDNS); err != nil {
 		return err
 	}
 

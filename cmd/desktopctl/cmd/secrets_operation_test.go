@@ -115,7 +115,7 @@ func TestSecretOperationDoesNotReturnUnknownChildOutput(t *testing.T) {
 
 func TestSecretOperationRejectsSymlinkLock(t *testing.T) {
 	home := t.TempDir()
-	dir := filepath.Join(home, ".ai-desktops-secret-operation")
+	dir := filepath.Join(home, ".desktopctl-secret-operation")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}

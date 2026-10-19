@@ -45,7 +45,7 @@
 - Before placing a verification task in a post-boot playbook, trace every invocation of that playbook. If cloud-init invokes it only for optional features, use AMI bake checks and a live desktop integration test for behavior required on every desktop.
 # 2026-10-04 Repository moves must cover runtime assumptions
 
-- Incident/bug: After changing the Git remote and import/package references, the E2E runner still accepted only `owner/ai-desktops` and its remote helper used `/workspace/ai-desktops`.
+- Incident/bug: After changing the Git remote and import/package references, the E2E runner still accepted only `owner/desktopctl` and its remote helper used `/workspace/desktopctl`.
 - Root cause pattern: Repository identity was embedded in validation and runtime paths as well as imports and documentation.
 - Early signal missed: A search for full GitHub URLs and package names did not catch unqualified repository names in regular expressions and workspace paths.
 - Preventative rule: For repository moves, search the old repository basename and workspace paths as well as complete URLs, module paths, package names, and release metadata.

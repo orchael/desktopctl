@@ -2,7 +2,7 @@
 
 ## Overview
 
-`ai-desktops` builds pre-baked Ubuntu 24.04 desktop AMIs with Packer. The AMI contains the
+`desktopctl` builds pre-baked Ubuntu 24.04 desktop AMIs with Packer. The AMI contains the
 stateless toolchain and services needed by every desktop. Cloud-init remains responsible for
 runtime-only work: TLS certificates, secret injection, workspace setup, and repository cloning.
 
@@ -29,13 +29,13 @@ Ansible, AWS CLI, neovim, Node.js, provider runtimes, and a pinned `bridgectl` p
 Run from the repository root:
 
 ```bash
-ai-desktops ami build --regions us-east-2
+desktopctl ami build --regions us-east-2
 ```
 
 Build multiple regions sequentially with a comma-separated list:
 
 ```bash
-ai-desktops ami build --regions us-east-1,us-west-2
+desktopctl ami build --regions us-east-1,us-west-2
 ```
 
 The CLI initializes the Packer plugins once, then for each region:
@@ -47,19 +47,26 @@ The CLI initializes the Packer plugins once, then for each region:
 
 Use `--base-ami <id>` to override source AMI lookup for a single-region build.
 
+To publish an image that new users can launch without building their own AMI,
+run the build with `--public` in the publisher account. Publish separately in
+each region and verify EC2 reports `Public=true`. Users pin the publisher's AWS
+account ID in `desktop.public_ami_owner`; `create` then selects the latest public
+`desktopctl-*` image in its configured region. The [ca-central-1 guide](docs/CA_CENTRAL_MIGRATION.md)
+records the initial regional image path.
+
 ## Verify
 
 ```bash
-ai-desktops ami list
-ai-desktops create --repo myorg/myrepo --preview
+desktopctl ami list
+desktopctl create --repo myorg/myrepo --preview
 ```
 
 The preview must reference the active AMI ID. After creating a desktop, verify the baked tools:
 
 ```bash
-ai-desktops doctor <desktop-id>
-ai-desktops ssh <desktop-id> -- 'docker version && gh --version && go version'
-ai-desktops ssh <desktop-id> -- 'sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast --version'
+desktopctl doctor <desktop-id>
+desktopctl ssh <desktop-id> -- 'docker version && gh --version && go version'
+desktopctl ssh <desktop-id> -- 'sudo -u ubuntu /home/linuxbrew/.linuxbrew/bin/ballast --version'
 ```
 
 ## Troubleshooting

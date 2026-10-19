@@ -57,7 +57,7 @@ func TestFR2_SSHPortReachable(t *testing.T) {
 // in subsequent tests).
 func TestFR2_SSHAuthentication(t *testing.T) {
 	if fx.SSHKey == "" {
-		t.Skip("AI_DESKTOPS_SSH_KEY not set — skipping SSH auth test")
+		t.Skip("DESKTOPCTL_SSH_KEY not set — skipping SSH auth test")
 	}
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey, "echo integration-ok")
 	if err != nil {

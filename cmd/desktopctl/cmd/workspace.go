@@ -165,8 +165,8 @@ func runWorkspaceCreate(cmd *cobra.Command, args []string) error {
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	foundationWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
-	outputs, err := runner.Outputs(ctx, pulumi.FoundationStackRef(backendURL, env, foundationWorkDir))
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
+	outputs, err := runner.Outputs(ctx, pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, foundationWorkDir))
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
 	}
@@ -534,8 +534,8 @@ func deleteWorkspaceAccessPoint(ctx context.Context, client efsWorkspaceClient, 
 func workspaceEFSTags(w *store.Workspace) []efstypes.Tag {
 	repoDigest := sha256.Sum256([]byte(w.RepoFingerprint))
 	return []efstypes.Tag{
-		{Key: awsString("Name"), Value: awsString("ai-desktops-" + w.Environment + "-" + w.WorkspaceName)},
-		{Key: awsString("managed-by"), Value: awsString("ai-desktops")},
+		{Key: awsString("Name"), Value: awsString("desktopctl-" + w.Environment + "-" + w.WorkspaceName)},
+		{Key: awsString("managed-by"), Value: awsString("desktopctl")},
 		{Key: awsString("environment"), Value: awsString(w.Environment)},
 		{Key: awsString("workspace-name"), Value: awsString(w.WorkspaceName)},
 		{Key: awsString("github-owner"), Value: awsString(w.GitHubOwner)},
@@ -553,7 +553,7 @@ func workspaceEFSRootPath(name string) string {
 
 func workspaceClientToken(env, name string) string {
 	sum := sha256.Sum256([]byte(env + "\x00" + name))
-	return "ai-desktops-" + env + "-" + hex.EncodeToString(sum[:])[:16]
+	return "desktopctl-" + env + "-" + hex.EncodeToString(sum[:])[:16]
 }
 
 func validateWorkspaceName(name string) error {

@@ -186,7 +186,7 @@ esac
 func TestUpdateAgentAuthCanCreateAndReloadDesktop(t *testing.T) {
 	home := t.TempDir()
 	aiCalls := filepath.Join(home, "ai-calls")
-	ai := filepath.Join(home, "ai-desktops")
+	ai := filepath.Join(home, "desktopctl")
 	writeExecutable(t, ai, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AI_CALLS\"\n")
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
@@ -203,7 +203,7 @@ case "$2" in
 esac
 `
 	t.Setenv("AI_CALLS", aiCalls)
-	out, calls, err := runUpdateAgentAuth(t, aws, "--reload-desktop", "d-test", "--ai-desktops-bin", ai)
+	out, calls, err := runUpdateAgentAuth(t, aws, "--reload-desktop", "d-test", "--desktopctl-bin", ai)
 	if err != nil {
 		t.Fatalf("create and reload failed: %v\noutput=%s\ncalls=%s", err, out, calls)
 	}
@@ -218,7 +218,7 @@ esac
 
 func TestUpdateAgentAuthPropagatesReloadFailure(t *testing.T) {
 	home := t.TempDir()
-	ai := filepath.Join(home, "ai-desktops")
+	ai := filepath.Join(home, "desktopctl")
 	writeExecutable(t, ai, "#!/bin/sh\nexit 42\n")
 	aws := `#!/bin/sh
 printf '%s\n' "$*" >> "$AWS_CALLS"
@@ -234,7 +234,7 @@ case "$2" in
   *) exit 1 ;;
 esac
 `
-	out, _, err := runUpdateAgentAuth(t, aws, "--reload-desktop", "d-test", "--ai-desktops-bin", ai)
+	out, _, err := runUpdateAgentAuth(t, aws, "--reload-desktop", "d-test", "--desktopctl-bin", ai)
 	if err == nil {
 		t.Fatalf("reload failure was ignored: %s", out)
 	}

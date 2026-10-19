@@ -12,7 +12,7 @@ ingress:
   enabled: true
   className: nginx
   host: app.desktops.orchael.dev
-  tlsSecretName: ai-desktops-control-plane-tls
+  tlsSecretName: desktopctl-control-plane-tls
 config:
   awsRegion: us-east-2
   environment: prod
@@ -22,7 +22,7 @@ config:
   amiTableName: ""
 secrets:
   create: false
-  name: ai-desktops-control-plane
+  name: desktopctl-control-plane
   databaseUrl: ""
   migrationDatabaseUrl: ""
   authSecret: ""

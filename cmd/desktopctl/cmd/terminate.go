@@ -66,7 +66,7 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 				backendURL := "s3://" + cfg.Pulumi.BackendBucket
 				workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 				ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-				return (&pulumi.Runner{AWSProfile: cfg.AWS.Profile}).Destroy(ctx, ref, os.Stderr)
+				return (&pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}).Destroy(ctx, ref, os.Stderr)
 			}
 			return fmt.Errorf("desktop %q not found", id)
 		}
@@ -99,7 +99,7 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 
 	if d.TailscaleNet != "" {
 		fmt.Fprintf(os.Stderr, "Removing Tailscale machine %s from %s ...\n", id, d.TailscaleNet)
@@ -183,7 +183,7 @@ func listNestedDesktopInstanceIDs(ctx context.Context, region, profile string, d
 	client := ec2sdk.NewFromConfig(awsCfg)
 	paginator := ec2sdk.NewDescribeInstancesPaginator(client, &ec2sdk.DescribeInstancesInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:managed-by"), Values: []string{"ai-desktops"}},
+			{Name: aws.String("tag:managed-by"), Values: []string{"desktopctl"}},
 			{Name: aws.String("tag:desktop-id"), Values: []string{d.DesktopID}},
 			{Name: aws.String("tag:environment"), Values: []string{d.Environment}},
 		},

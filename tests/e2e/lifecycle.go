@@ -26,6 +26,7 @@ type state struct {
 	Profile                  string `json:"profile,omitempty"`
 	Region                   string `json:"region,omitempty"`
 	SSHKey                   string `json:"ssh_key"`
+	NoDNS                    bool   `json:"no_dns,omitempty"`
 	DesktopID                string `json:"desktop_id,omitempty"`
 	WorkspaceID              string `json:"workspace_id,omitempty"`
 	AccessPointID            string `json:"access_point_id,omitempty"`
@@ -75,7 +76,7 @@ func loadState(path string) (*state, error) {
 }
 
 func (s *state) validate() error {
-	if s.Version != 1 || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.RunID) || s.Name != "e2e-ai-desktops-"+s.RunID || s.Environment != "dev" || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/(ai-desktops|desktopctl)$`).MatchString(s.Repo) || s.Owner != strings.Split(s.Repo, "/")[0] {
+	if s.Version != 1 || !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(s.RunID) || s.Name != "e2e-desktopctl-"+s.RunID || !regexp.MustCompile(`^(dev|test|prod)$`).MatchString(s.Environment) || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/desktopctl$`).MatchString(s.Repo) || s.Owner != strings.Split(s.Repo, "/")[0] {
 		return errors.New("refusing state without this runner's exact dev resource identity")
 	}
 	if s.DesktopID != "" && (!s.DesktopCreated || !s.WorkspaceCreated) {
