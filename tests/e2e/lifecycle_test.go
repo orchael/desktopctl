@@ -42,10 +42,19 @@ func fixture(t *testing.T) (*state, *fakeCloud) {
 }
 
 func TestLegacyStateCanStillBeCleanedUp(t *testing.T) {
-	s, _ := fixture(t)
-	s.Repo = "orchael/desktopctl"
+	s, f := fixture(t)
+	s.Name = "e2e-ai-desktops-" + s.RunID
+	s.Repo = "orchael/ai-desktops"
+	f.w.WorkspaceName = s.Name
+	f.w.Repos = []string{s.Repo}
+	f.d.DesktopName = s.Name
+	f.d.WorkspaceName = s.Name
+	f.d.Repos = []string{s.Repo}
 	if err := s.validate(); err != nil {
 		t.Fatalf("legacy run state must remain valid for cleanup: %v", err)
+	}
+	if err := cleanup(context.Background(), f, s); err != nil {
+		t.Fatalf("legacy run cleanup: %v", err)
 	}
 }
 

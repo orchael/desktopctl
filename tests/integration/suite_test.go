@@ -209,18 +209,11 @@ func TestMain(m *testing.M) {
 		// exercises the secret-injection path (issue #90).  This secret already
 		// exists in Secrets Manager — it is required for the desktop to clone
 		// repos at all.
-		secretPath := fmt.Sprintf("/desktopctl/%s/github", owner)
-		if preExistingConfig := os.Getenv("DESKTOPCTL_TEST_CONFIG"); preExistingConfig != "" {
-			parsedCfg, cfgErr := loadConfigYAML(preExistingConfig)
-			if cfgErr != nil {
-				fmt.Fprintf(os.Stderr, "integration: WARNING: re-parse of %s failed (%v); using default secret path %s\n",
-					preExistingConfig, cfgErr, secretPath)
-			} else if parsedCfg != nil && parsedCfg.GitHub.GitHubSecret != "" {
-				secretPath = parsedCfg.GitHub.GitHubSecret
-			}
+		parsedCfg, cfgErr := loadConfigYAML(configPath)
+		if cfgErr != nil || parsedCfg == nil || parsedCfg.GitHub.GitHubSecret == "" {
+			fatalf("effective integration config %s has no GitHub secret: %v", configPath, cfgErr)
 		}
-
-		fx, err = createDesktop(owner, sshKey, repos, []string{secretPath})
+		fx, err = createDesktop(owner, sshKey, repos, []string{parsedCfg.GitHub.GitHubSecret})
 	}
 	if err != nil {
 		fatalf("fixture setup: %v", err)

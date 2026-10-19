@@ -637,7 +637,7 @@ func TestStoreOperatorSecretValue_MergesExistingSecret(t *testing.T) {
 	if gotScopeTag != "operator" {
 		t.Fatalf("operator scope tag = %q", gotScopeTag)
 	}
-	if gotTags["desktopctl"] != "true" || gotTags["github-owner"] != "testowner" || gotTags["environment"] != "dev" {
+	if gotTags["desktopctl"] != "true" || gotTags["github-owner"] != "testowner" || gotTags["environment"] != "dev" || gotTags["ai-desktops-scope"] != "operator" {
 		t.Fatalf("operator tags = %v", gotTags)
 	}
 	if gotDescription != "" {
