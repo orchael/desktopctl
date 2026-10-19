@@ -23,7 +23,12 @@ variable "tailscale_version" {
 
 variable "helm_version" {
   type        = string
-  description = "Expected Helm release installed through Homebrew (e.g. v4.3.0)"
+  description = "Pinned Helm release installed from get.helm.sh (e.g. v4.3.1)"
+}
+
+variable "helm_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned Helm linux-amd64 release archive"
 }
 
 variable "terraform_version" {
@@ -82,7 +87,7 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
-# source_ami is always required. The ai-desktops CLI resolves the correct AMI
+# source_ami is always required. The desktopctl CLI resolves the correct AMI
 # before invoking packer (either from the vars file or via an EC2 lookup) and
 # passes it via -var source_ami=<id>.
 variable "source_ami" {
@@ -90,9 +95,19 @@ variable "source_ami" {
   description = "Source AMI ID to use as the base for this build."
 }
 
-variable "ai_desktops_version" {
+variable "desktopctl_version" {
   type        = string
-  description = "ai-desktops CLI version that built this AMI (e.g. 0.2.4)"
+  description = "desktopctl CLI version that built this AMI (e.g. 0.2.4)"
+}
+
+variable "desktopctl_major" {
+  type        = string
+  description = "Major version of the desktopctl CLI; supplied by the CLI"
+}
+
+variable "build_date" {
+  type        = string
+  description = "UTC build date in YYYYMMDD form; supplied by the CLI"
 }
 
 variable "novnc_desktop_version" {
@@ -113,8 +128,8 @@ variable "subnet_id" {
 }
 
 source "amazon-ebs" "ubuntu" {
-  ami_name        = "ai-desktops-${var.bridgectl_version}-{{timestamp}}"
-  ami_description = "ai-desktops AMI - novnc-desktop elementary base with ai-desktops toolchain"
+  ami_name        = "desktopctl-v${var.desktopctl_major}-${var.build_date}-{{timestamp}}"
+  ami_description = "desktopctl AMI - novnc-desktop elementary base with desktopctl toolchain"
   instance_type   = "c6i.xlarge"
   region          = var.aws_region
   source_ami      = var.source_ami
@@ -134,9 +149,11 @@ source "amazon-ebs" "ubuntu" {
   }
 
   tags = {
-    Name                       = "ai-desktops"
-    ManagedBy                  = "ai-desktops-packer"
-    AiDesktopsVersion          = var.ai_desktops_version
+    Name                       = "desktopctl"
+    ManagedBy                  = "desktopctl-packer"
+    DesktopctlVersion          = var.desktopctl_version
+    DesktopctlMajor            = var.desktopctl_major
+    BuildDate                  = var.build_date
     BridgeVersion              = var.bridgectl_version
     TailscaleVersion           = var.tailscale_version
     HelmVersion                = var.helm_version
@@ -159,7 +176,7 @@ source "amazon-ebs" "ubuntu" {
 }
 
 build {
-  name    = "ai-desktops"
+  name    = "desktopctl"
   sources = ["source.amazon-ebs.ubuntu"]
 
   # Stop unattended-upgrades before Ansible runs so apt installs don't race
@@ -183,9 +200,9 @@ build {
 
   provisioner "shell" {
     inline = [
-      "sudo mkdir -p /opt/ai-desktops",
-      "sudo mv /tmp/desktop-setup.yml /opt/ai-desktops/desktop-setup.yml",
-      "sudo chmod 644 /opt/ai-desktops/desktop-setup.yml",
+      "sudo mkdir -p /opt/desktopctl",
+      "sudo mv /tmp/desktop-setup.yml /opt/desktopctl/desktop-setup.yml",
+      "sudo chmod 644 /opt/desktopctl/desktop-setup.yml",
     ]
   }
 
@@ -194,11 +211,11 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} terraform_version=${var.terraform_version} vscode_version=${var.vscode_version} vscode_sha256=${var.vscode_sha256} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} helm_sha256=${var.helm_sha256} terraform_version=${var.terraform_version} vscode_version=${var.vscode_version} vscode_sha256=${var.vscode_sha256} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
-      "ANSIBLE_COLLECTIONS_PATH=/tmp/ai-desktops-collections",
+      "ANSIBLE_COLLECTIONS_PATH=/tmp/desktopctl-collections",
       "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False",
       "ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks",
       "DESKTOP_WEB_NPM_TOKEN=${var.github_npm_token}",
@@ -209,7 +226,9 @@ build {
     output     = "manifest.json"
     strip_path = true
     custom_data = {
-      ai_desktops_version           = var.ai_desktops_version
+      desktopctl_version            = var.desktopctl_version
+      desktopctl_major              = var.desktopctl_major
+      build_date                    = var.build_date
       bridge_version                = var.bridgectl_version
       tailscale_version             = var.tailscale_version
       helm_version                  = var.helm_version

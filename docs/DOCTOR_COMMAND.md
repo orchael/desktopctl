@@ -19,7 +19,7 @@ The doctor command performs health checks organized into categories. Optional gr
 
 The System group includes two provisioning and monitoring signals:
 
-- `bootstrap-state` reads `/var/lib/ai-desktops/bootstrap-status.json`. New desktops report `running`, `succeeded`, or `failed`; older desktops without the artifact receive a compatibility warning. Failed and malformed states point to `/var/log/cloud-init-output.log`.
+- `bootstrap-state` reads `/var/lib/desktopctl/bootstrap-status.json`. New desktops report `running`, `succeeded`, or `failed`; older desktops without the artifact receive a compatibility warning. Failed and malformed states point to `/var/log/cloud-init-output.log`.
 - `cloudwatch-agent-active` checks the optional Amazon CloudWatch agent. An inactive agent is a warning rather than a hard failure and includes its systemd `LoadState`, `ActiveState`, `SubState`, `Result`, and `ExecMainStatus`, plus the journal command to run.
 
 The lifecycle artifact contains only state, timestamps, an exit code, and the log path. It does not contain bootstrap command output or secret values.

@@ -7,6 +7,8 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
+For a fresh production setup in ca-central-1, use the [migration and first desktop guide](docs/CA_CENTRAL_MIGRATION.md).
+
 This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
 
 Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
@@ -36,7 +38,7 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
 - `iam:CreateUser`, `iam:CreateAccessKey`, `iam:CreateRole`, `iam:PutUserPolicy`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*`/`Tag*` variants
 - `route53:GetHostedZone`, `route53:ListHostedZones`
-- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/ai-desktops/<env>/control-plane/aws-operator`
+- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/desktopctl/<env>-<region>/control-plane/aws-operator`
 - Full Pulumi S3 state backend access on the bootstrap bucket
 
 **Desktop lifecycle (`create`, `stop`, `start`, `terminate`):**
@@ -45,9 +47,9 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 - `ec2:ImportKeyPair` when registering an EC2 key pair through `setup`
 - `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:UpdateItem`, `dynamodb:Scan`, `dynamodb:DeleteItem`
-- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/ai-desktops/<owner>/tailscale/*` and `/ai-desktops/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
-- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/ai-desktops/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
-- `TAILSCALE_API_KEY` in the local environment, or in the `/ai-desktops/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
+- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret` on `/desktopctl/<env>/<region>/<owner>/tailscale/*` and `/desktopctl/<env>/<region>/<owner>/step-ca/*` (required when using `--tailscale` or `--step-ca`)
+- `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, `secretsmanager:TagResource` on `/desktopctl/<env>/<region>/<owner>` (operator-only CLI secrets such as `TAILSCALE_API_KEY`)
+- `TAILSCALE_API_KEY` in the local environment, or in the `/desktopctl/<env>/<region>/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
 
 **AMI build/list/delete (`ami` commands):**
 - `ec2:DescribeImages`, `ec2:DescribeSubnets`, `ec2:CreateImage`, `ec2:ModifyImageAttribute`, `ec2:DeregisterImage`, `ec2:DeleteSnapshot`
@@ -87,7 +89,7 @@ Run `desktopctl setup` to configure credentials. The wizard:
 
 1. Collects your AWS region/profile, GitHub owner, and git identity.
 2. Generates an Ed25519 SSH key pair and registers the public key with GitHub.
-3. Stores a JSON secret in AWS Secrets Manager at `/ai-desktops/<owner>/github`:
+3. Stores a JSON secret in AWS Secrets Manager at `/desktopctl/<env>/<region>/<owner>/github`:
    ```json
    {
      "github_token": "ghp_...",
@@ -95,10 +97,10 @@ Run `desktopctl setup` to configure credentials. The wizard:
      "ssh_public_key": "ssh-ed25519 AAAA..."
    }
    ```
-4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/ai-desktops/<owner>/agents`.
-5. Writes `~/.ai-desktops/config.yaml`.
+4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/desktopctl/<env>/<region>/<owner>/agents`.
+5. Writes `~/.config/desktopctl/config.yaml` on Linux (or under `XDG_CONFIG_HOME`).
 
-Run `desktopctl setup` before running `create`. It is safe to re-run — it prompts whether to rotate an existing token or SSH key.
+Run `desktopctl setup` before running `create`. A fresh run refuses existing AWS secrets and EC2 key pairs. Use `setup --allow-existing` when intentionally updating the same setup; the wizard then prompts before rotating a token or SSH key.
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
@@ -109,29 +111,29 @@ At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private 
 - Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
 - Claude Code's `claude setup-token` command prints a long-lived `CLAUDE_CODE_OAUTH_TOKEN`; Anthropic's Claude Code docs state that command does not save the token, so copy it when it is printed.
 
-Use the helper script to merge these credentials into `/ai-desktops/<owner>/agents` without overwriting unrelated keys:
+Use the helper script to merge these credentials into `/desktopctl/<env>/<region>/<owner>/agents` without overwriting unrelated keys:
 
 ```bash
 # Default owner is markcallen and default Codex auth path is ${CODEX_HOME:-$HOME/.codex}/auth.json.
-scripts/update-agent-auth.sh --region us-east-1
+scripts/update-agent-auth.sh --environment prod --region ca-central-1 --owner orchael
 
 # Equivalent explicit form for the markcallen agent secret:
 scripts/update-agent-auth.sh \
   --owner markcallen \
-  --secret-id /ai-desktops/markcallen/agents \
+  --secret-id /desktopctl/markcallen/agents \
   --codex-auth-json ~/.codex/auth.json \
   --region us-east-1
 ```
 
 The script reads `CLAUDE_CODE_OAUTH_TOKEN` from the current environment when set. If it is not set, it guides you to run `claude setup-token` and paste the printed token into a hidden prompt. Use `--skip-codex` or `--skip-claude` to update only one credential.
 
-New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `desktopctl secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. An already inactive bridge stays stopped, and the command reports that you need to start it. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `desktopctl secrets add <desktop-id> /ai-desktops/<owner>/agents` to rotate it. Until registered, application-secret operations preserve the existing `agents.env` rather than clearing or replacing it.
+New desktops track `github.agent_secret` together with additional `--secret` paths. After updating the AWS secret, run `desktopctl secrets reload <desktop-id>` to fetch and replace the complete credential snapshot. Reload stops active bridge/provider processes, clears the desktop-local Codex auth caches, and starts the bridge with the replacement credentials. Start or resume sessions afterward. An already inactive bridge stays stopped, and the command reports that you need to start it. A failed secret fetch leaves the existing credentials and service untouched. Older desktops whose fleet record does not include the agent secret must first register it with `desktopctl secrets add <desktop-id> /desktopctl/<env>/<region>/<owner>/agents` to rotate it. Until registered, application-secret operations preserve the existing `agents.env` rather than clearing or replacing it.
 
 `github.agent_secret` is an explicit credential source: changing the repository owner with `--github-owner` does not rewrite that configured secret path. This allows the same operator seed to bootstrap desktops for different repository owners while each desktop keeps its own refreshed auth file.
 
 With the companion `bridgectl` auth lifecycle fix installed, Codex prefers an existing account auth file, then the `CODEX_AUTH` bootstrap seed, then API-key credentials. Each desktop owns its refreshed file under its private home directory; ordinary sessions and bridge restarts preserve it. Source selection checks credential structure; a revoked account still requires renewed login or explicit credential rotation, and tasks are not replayed automatically with a different identity. Explicit `CODEX_HOME` values used by desktop secret rotation must be private absolute directories under the desktop user's home, not an EFS workspace.
 
-`secrets add`, `remove`, and `reload` coordinate across operator machines using a desktop-held lock. Overlapping commands fail immediately with a busy error; they do not queue another rotation. The lock covers the fresh fleet snapshot, remote changes, and a fenced update of only the secret-path metadata. If a command or connection is interrupted, run `desktopctl secrets reload <desktop-id>` to reconcile against the authoritative fleet list before trying add/remove again. Recovery can clear a partially injected snapshot even when that list is empty. If reload is still busy, the earlier remote operation is still running; wait for it to finish. Do not remove `~/.ai-desktops-secret-operation/lock`: its inode coordinates running processes and records unfinished rotations without storing credentials. Upgrade all CLI and control-plane processes that write fleet records; older versions bypass coordination and metadata guards. An ordinary fleet update whose snapshot became stale during rotation fails safely and can be retried after refreshing the record.
+`secrets add`, `remove`, and `reload` coordinate across operator machines using a desktop-held lock. Overlapping commands fail immediately with a busy error; they do not queue another rotation. The lock covers the fresh fleet snapshot, remote changes, and a fenced update of only the secret-path metadata. If a command or connection is interrupted, run `desktopctl secrets reload <desktop-id>` to reconcile against the authoritative fleet list before trying add/remove again. Recovery can clear a partially injected snapshot even when that list is empty. If reload is still busy, the earlier remote operation is still running; wait for it to finish. Do not remove `~/.desktopctl-secret-operation/lock`: its inode coordinates running processes and records unfinished rotations without storing credentials. Upgrade all CLI and control-plane processes that write fleet records; older versions bypass coordination and metadata guards. An ordinary fleet update whose snapshot became stale during rotation fails safely and can be retried after refreshing the record.
 
 Before rotation changes files or stops sessions, it validates the replacement `CODEX_AUTH` structure, existing auth-directory/file ownership and private permissions, and that the bridge systemd unit is loaded. Invalid credentials or unsafe cache paths leave the previous snapshot untouched. A failure after mutation has begun may leave a partial snapshot; fix the reported preconditions and use `secrets reload` to reconcile. Credential values and child-process diagnostics are not printed.
 
@@ -152,9 +154,9 @@ The configured `github.agent_secret` and secrets passed with `desktopctl create 
 Manage those per-desktop secret references after creation with:
 
 ```bash
-desktopctl secrets add d-a1b2c3d4 /ai-desktops/myorg/app
+desktopctl secrets add d-a1b2c3d4 /desktopctl/myorg/app
 desktopctl secrets reload d-a1b2c3d4
-desktopctl secrets remove d-a1b2c3d4 /ai-desktops/myorg/app
+desktopctl secrets remove d-a1b2c3d4 /desktopctl/myorg/app
 ```
 
 `secrets add` verifies each new AWS Secrets Manager path exists before injection. `secrets remove` rewrites the desktop environment files without the removed paths and clears them when no configured secrets remain. The desktop must be running and reachable over SSH for these commands.
@@ -181,7 +183,7 @@ go build -o bin/desktopctl ./cmd/desktopctl
 
 ## Releases
 
-The existing `Publish` GitHub Actions workflow accepts a patch, minor, or major release type. It updates the version files, creates a `v<version>` tag, and calls the CLI publish workflow. GoReleaser builds `desktopctl` archives for Linux, macOS, and Windows, publishes them to GitHub Releases, and writes `desktopctl-checksums.txt`. Verify that the release archives contain `desktopctl` before announcing a renamed release. Existing `ai-desktops` installations need to be removed from user `PATH` separately; the new release does not install an alias.
+The existing `Publish` GitHub Actions workflow accepts a patch, minor, or major release type. It updates the version files, creates a `v<version>` tag, and calls the CLI publish workflow. GoReleaser builds `desktopctl` archives for Linux, macOS, and Windows, publishes them to GitHub Releases, and writes `desktopctl-checksums.txt`. Verify that the release archives contain `desktopctl` before announcing a renamed release. Existing `desktopctl` installations need to be removed from user `PATH` separately; the new release does not install an alias.
 
 The public `orchael/homebrew-desktopctl` tap receives a `desktopctl` formula from GoReleaser during the same release. The `HOMEBREW_TAP_GITHUB_TOKEN` secret on `orchael/desktopctl` must be a fine-grained token with Contents read/write access to this tap; the release workflow checks the token and tap branch before creating a version tag. After the first formula is published, install it with `brew install orchael/desktopctl/desktopctl` on macOS or Linux. GitHub Releases contain the same versioned binary archives and checksums.
 
@@ -204,9 +206,9 @@ The Kubernetes control plane webapp runs outside AWS when deployed to DOKS, so i
 
 The stack creates:
 
-- IAM user `ai-desktop-user-<environment>` by default.
+- IAM user `desktopctl-user-<environment>-<region>` by default.
 - IAM access key and secret for that user.
-- IAM role `ai-desktops-control-plane-<environment>` by default.
+- IAM role `desktopctl-control-plane-<environment>-<region>` by default.
 - A user policy that only allows `sts:AssumeRole` into that role.
 - A role trust policy that requires `EXTERNAL_ID`.
 - A role policy for the fleet DynamoDB tables, EC2 lifecycle operations, SSM sessions, scoped Secrets Manager/SSM Parameter access, Route53 record updates, CloudWatch Logs, and the Pulumi S3 backend.
@@ -226,7 +228,7 @@ Run this after `desktopctl bootstrap` and `desktopctl init-foundation` have crea
 
 ```bash
 cd infra/pulumi/foundation
-pulumi stack select foundation-dev
+pulumi stack select foundation-dev-us-east-2
 ZONE_ID="$(pulumi stack output zoneId)"
 INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
 DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
@@ -237,11 +239,12 @@ cd ../control-plane-access
 
 pulumi stack init control-plane-dev
 pulumi config set aws:region us-east-2
+pulumi config set region us-east-2
 pulumi config set environment dev
-pulumi config set fleetTable ai-desktops-fleet-dev
-pulumi config set amiTable ai-desktops-ami-dev
-pulumi config set bootstrapUserName ai-desktop-user-dev
-pulumi config set roleName ai-desktops-control-plane-dev
+pulumi config set fleetTable desktopctl-fleet-dev-us-east-2
+pulumi config set amiTable desktopctl-ami-dev-us-east-2
+pulumi config set bootstrapUserName desktopctl-user-dev-us-east-2
+pulumi config set roleName desktopctl-control-plane-dev-us-east-2
 pulumi config set backendBucket <dev-pulumi-state-bucket>
 pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
 pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
@@ -262,11 +265,11 @@ CONTROL_PLANE_API_TOKEN=$(openssl rand -hex 32)
 
 ### Production access stack
 
-Use a separate Pulumi stack, production region, production backend bucket, production DNS zone, and production fleet table names. If dev and prod share one AWS account, keep the `-prod` suffixes because IAM user names are account-global. If production uses a separate AWS account and you want the literal user name requested by operations, set `bootstrapUserName` to `ai-desktop-user`.
+Use a separate Pulumi stack, production region, production backend bucket, production DNS zone, and production fleet table names. If dev and prod share one AWS account, keep the `-prod` suffixes because IAM user names are account-global. If production uses a separate AWS account and you want the literal user name requested by operations, set `bootstrapUserName` to `desktopctl-user`.
 
 ```bash
 cd infra/pulumi/foundation
-pulumi stack select foundation-prod
+pulumi stack select foundation-prod-us-east-1
 ZONE_ID="$(pulumi stack output zoneId)"
 INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
 DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
@@ -277,11 +280,12 @@ cd ../control-plane-access
 
 pulumi stack init control-plane-prod
 pulumi config set aws:region us-east-1
+pulumi config set region us-east-1
 pulumi config set environment prod
-pulumi config set fleetTable ai-desktops-fleet-prod
-pulumi config set amiTable ai-desktops-ami-prod
-pulumi config set bootstrapUserName ai-desktop-user-prod
-pulumi config set roleName ai-desktops-control-plane-prod
+pulumi config set fleetTable desktopctl-fleet-prod-us-east-1
+pulumi config set amiTable desktopctl-ami-prod-us-east-1
+pulumi config set bootstrapUserName desktopctl-user-prod-us-east-1
+pulumi config set roleName desktopctl-control-plane-prod-us-east-1
 pulumi config set backendBucket <prod-pulumi-state-bucket>
 pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
 pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
@@ -292,8 +296,8 @@ pulumi up
 Create or update the production Kubernetes Secret with:
 
 ```bash
-kubectl create secret generic ai-desktops-aws \
-  --namespace ai-desktops \
+kubectl create secret generic desktopctl-aws \
+  --namespace desktopctl \
   --from-literal=AWS_REGION="us-east-1" \
   --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output ACCESS_KEY)" \
   --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets SECRET)" \
@@ -304,7 +308,7 @@ kubectl create secret generic ai-desktops-aws \
 
 ## Configuration
 
-Create `~/.ai-desktops/config.yaml` (or pass `--config <path>`):
+Create `~/.config/desktopctl/config.yaml` (or pass `--config <path>`):
 
 ```yaml
 aws:
@@ -312,15 +316,15 @@ aws:
   profile: myprofile
 
 pulumi:
-  backend_bucket: my-ai-desktops-pulumi-state
+  backend_bucket: my-desktopctl-pulumi-state
 
 fleet:
-  table_name: ai-desktops-fleet-dev
+  table_name: desktopctl-fleet-dev-us-east-2
   environment: dev    # prod | dev | test
 
 github:
   owner: myorg
-  github_secret: /ai-desktops/myorg/github
+  github_secret: /desktopctl/dev/us-east-2/myorg/github
   # Optional: only scopes listed here resolve from GitHub Packages.
   # Leave unset so packages such as @myorg/package resolve from npmjs.
   # npm_github_scopes:
@@ -328,13 +332,13 @@ github:
 
 operator:
   # Operator-only CLI secret; not needed by desktop cloud-init.
-  secret: /ai-desktops/myorg
+  secret: /desktopctl/myorg
 
 desktop:
   instance_type: t3.xlarge
   operator_cidr: 203.0.113.42/32   # your public IP
   # profile: myorg/desktop-profile
-  # profile_secret: /ai-desktops/myorg/profiles/desktop-profile
+  # profile_secret: /desktopctl/myorg/profiles/desktop-profile
 
 agent:
   bridge_port: 9445
@@ -351,11 +355,11 @@ Set the S3 bucket name in your config file before running any infrastructure com
 
 ```yaml
 pulumi:
-  backend_bucket: <globally-unique-bucket-name>   # e.g. myorg-ai-desktops-pulumi-state
+  backend_bucket: <globally-unique-bucket-name>   # e.g. myorg-desktopctl-pulumi-state
 ```
 
 The bucket name must be globally unique across all AWS accounts. Pick something like
-`<your-org>-ai-desktops-pulumi-state`.
+`<your-org>-desktopctl-pulumi-state`.
 
 > **Enforced by the CLI**: `init-foundation`, `create`, and `terminate` check that this
 > bucket exists in AWS before doing any work. If the bucket is missing they will print
@@ -367,7 +371,7 @@ The bucket name must be globally unique across all AWS accounts. Pick something 
 desktopctl bootstrap
 ```
 
-Creates the S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Idempotent — safe to re-run. This step must complete before Pulumi can initialize.
+Creates a fresh S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Use `bootstrap --allow-existing` only for an intentional existing setup. This step must complete before Pulumi can initialize.
 
 ### 3. Initialize shared foundation infrastructure
 
@@ -395,13 +399,13 @@ TLS setup, secret injection, workspace creation, and repository cloning.
 - [Packer](https://www.packer.com/downloads) installed
 - AWS credentials configured (same profile as above)
 - A Packer variables file at `packer/variables.pkrvars.hcl` (see below)
-- The `GITHUB_NPM_TOKEN` environment variable set (see below)
+- A GitHub token with `read:packages`, stored by `desktopctl setup` in the configured regional secret or supplied as `GITHUB_NPM_TOKEN`
 
 #### Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GITHUB_NPM_TOKEN` | Yes | GitHub token used to install `@orchael/desktopctl` from GitHub Packages during the AMI build. Must have `read:packages` scope. |
+| `GITHUB_NPM_TOKEN` | No | Overrides the GitHub token stored by `desktopctl setup`. The token used for the build must have `read:packages` scope. |
 
 Create a GitHub personal access token (classic) or fine-grained token with at minimum:
 
@@ -413,7 +417,7 @@ Create a GitHub personal access token (classic) or fine-grained token with at mi
 export GITHUB_NPM_TOKEN=ghp_...
 ```
 
-The build will fail with a clear error if `GITHUB_NPM_TOKEN` is not set before running `ami build`.
+The build uses `GITHUB_NPM_TOKEN` when set; otherwise it reads `github_token` from the region and environment scoped secret created by `desktopctl setup`.
 
 #### Packer variables file
 
@@ -422,17 +426,18 @@ The CLI looks for `packer/variables.pkrvars.hcl` by default (override with `--va
 ```hcl
 # packer/variables.pkrvars.hcl
 aws_region              = "us-east-2"   # dev region; use us-east-1 for prod, us-west-2 for test
-bridgectl_version       = "v1.4.3"
+bridgectl_version       = "v1.4.6"
 tailscale_version       = "1.98.9"
-helm_version            = "v4.3.0"
+helm_version            = "v4.3.1"
+helm_sha256             = "0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
 playwright_version      = "1.63.0"
 go_version              = "1.26.0"
 uv_version              = "0.12.3"
 ```
 
-Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.4.3`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops or replace their standalone bridgectl configuration. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing.
+Keep `bridgectl_version` synchronized with `BridgectlVersion` in `internal/provision/cloudinit.go` (currently `v1.4.6`). Rebuild the CLI and the AMI together when changing this pin: pre-baked desktops report a provisioning error if the installed package differs from the CLI's expectation. Changing the pin does not upgrade existing desktops or replace their standalone bridgectl configuration. The E2E runner's explicit `--bridgectl-binary` still overrides the installed binary for branch testing. The `helm_sha256` pin must match the official `helm_version` linux-amd64 release archive.
 
-The AMI also bakes Playwright `1.63.0` and its matching Chromium and headless browser into `/opt/ai-desktops/playwright-browsers`. `PLAYWRIGHT_BROWSERS_PATH` is set for desktop logins and systemd services; project tests still use their own `@playwright/test` dependency. To reuse the baked browser without downloads, pin the project to the same Playwright version and run its normal test command. A different Playwright version may require a different browser revision; install that revision into a project-specific path or update the AMI pin and rebuild. The Packer bake launches headless Chromium as `ubuntu`, and a fresh desktop should be checked with a minimal project-local test using `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and network access disabled. Existing desktops need replacement with the new AMI. GitHub-hosted CI continues installing Chromium separately.
+The AMI also bakes Playwright `1.63.0` and its matching Chromium and headless browser into `/opt/desktopctl/playwright-browsers`. `PLAYWRIGHT_BROWSERS_PATH` is set for desktop logins and systemd services; project tests still use their own `@playwright/test` dependency. To reuse the baked browser without downloads, pin the project to the same Playwright version and run its normal test command. A different Playwright version may require a different browser revision; install that revision into a project-specific path or update the AMI pin and rebuild. The Packer bake launches headless Chromium as `ubuntu`, and a fresh desktop should be checked with a minimal project-local test using `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and network access disabled. Existing desktops need replacement with the new AMI. GitHub-hosted CI continues installing Chromium separately.
 
 The following variables are **injected automatically** by the CLI and must not be set in the vars file:
 
@@ -440,8 +445,8 @@ The following variables are **injected automatically** by the CLI and must not b
 |----------|--------|
 | `source_ami` | Resolved at build time from the latest public `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
 | `desktop_web_version` | Embedded in the CLI binary at release time |
-| `ai_desktops_version` | Embedded in the CLI binary at release time |
-| `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` environment variable |
+| `desktopctl_version` | Embedded in the CLI binary at release time |
+| `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` or the setup GitHub secret |
 
 #### Build the AMI
 
@@ -454,7 +459,6 @@ desktopctl init-foundation
 ```
 
 ```bash
-export GITHUB_NPM_TOKEN=ghp_...
 desktopctl ami build --regions us-east-2
 ```
 
@@ -476,6 +480,12 @@ Make the built AMI publicly accessible:
 desktopctl ami build --regions us-east-2 --public
 ```
 
+Public images are named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>`.
+Automatic discovery follows the running CLI's major version; `desktop.public_ami_major`
+selects another major and `desktop.active_ami.<region>` pins an exact image.
+Use [the public AMI lifecycle guide](docs/PUBLIC_AMIS.md) for the regional build,
+listing, and preview-first deletion script.
+
 #### What gets installed
 
 The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base and includes:
@@ -486,7 +496,7 @@ The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-element
 - AWS CLI v2
 - neovim (via snap)
 - Homebrew
-- Helm (via Homebrew; version from `helm_version` var)
+- Helm (verified release archive; version and SHA-256 from `helm_version` and `helm_sha256` vars)
 - tfenv (via Homebrew) with Terraform 1.16.5 installed and selected (version from `terraform_version` var)
 - Visual Studio Code stable (Microsoft's signed apt repository; version from `vscode_version` var)
 - `bridgectl` (version from `bridgectl_version` var)
@@ -502,7 +512,7 @@ On an existing desktop, `desktopctl update-web --version <version>` or
 `desktopctl update-web --local` installs the new package and updates an older
 service unit before restarting it.
 
-The built AMI is tagged with the CLI version that created it (`AiDesktopsVersion`) and the component versions for traceability.
+The built AMI is tagged with the CLI version that created it (`DesktopctlVersion`) and the component versions for traceability.
 
 #### Verify the AMI
 
@@ -672,11 +682,11 @@ The CLI connects directly to the desktop via SSH. The bridge is accessed over `l
 
 ### 11. Optional private network and step-ca registration
 
-Attach a desktop to Tailscale by passing `--tailscale` and providing an auth key through the local environment or an existing integration secret. When `TAILSCALE_AUTHKEY` is set, the CLI stores it in AWS Secrets Manager and cloud-init retrieves it at boot. If `TAILSCALE_AUTHKEY` is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/tailscale/<tailnet>` when it contains `TS_AUTHKEY`.
+Attach a desktop to Tailscale by passing `--tailscale` and providing an auth key through the local environment or an existing integration secret. When `TAILSCALE_AUTHKEY` is set, the CLI stores it in AWS Secrets Manager and cloud-init retrieves it at boot. If `TAILSCALE_AUTHKEY` is not set, the CLI reuses the existing secret at `/desktopctl/<env>/<region>/<owner>/tailscale/<tailnet>` when it contains `TS_AUTHKEY`.
 
-When `TAILSCALE_API_KEY` is set during create, the CLI stores it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`. This key is not used by desktop startup; it is used later by `terminate` to remove the desktop's Tailscale machine record.
+When `TAILSCALE_API_KEY` is set during create, the CLI stores it in the operator-only secret at `/desktopctl/<env>/<region>/<owner>` as `TAILSCALE_API_KEY`. This key is not used by desktop startup; it is used later by `terminate` to remove the desktop's Tailscale machine record.
 
-Operator secrets are tagged with `ai-desktops-scope=operator`; the foundation instance role denies desktop instances from reading secrets with that tag.
+Operator secrets are tagged with `desktopctl-scope=operator`; the foundation instance role denies desktop instances from reading secrets with that tag.
 
 ```bash
 export TAILSCALE_AUTHKEY=tskey-auth-...
@@ -694,20 +704,20 @@ Desktops join Tailscale with Tailscale SSH enabled. The tailnet policy must stil
 ```json
 {
   "tagOwners": {
-    "tag:ai-desktop": ["autogroup:admin"]
+    "tag:desktopctl": ["autogroup:admin"]
   },
   "ssh": [
     {
       "action": "accept",
       "src": ["autogroup:admin"],
-      "dst": ["tag:ai-desktop"],
+      "dst": ["tag:desktopctl"],
       "users": ["ubuntu"]
     }
   ]
 }
 ```
 
-Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/ai-desktops/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
+Register the bridgectl agent server with a step-ca server by passing the CA DNS name. If the CA is only reachable on Tailscale, use `--tailscale` too; cloud-init waits for Tailscale to be running and for the CA DNS name to resolve before configuring step-ca. When `STEP_CA_PROVISIONER_PASSWORD` is set, the CLI stores it in AWS Secrets Manager. If it is not set, the CLI reuses the existing secret at `/desktopctl/<env>/<region>/<owner>/step-ca/<server>` when it contains `STEP_CA_PROVISIONER_PASSWORD`. A CA fingerprint is required and can be supplied with `--step-ca-fingerprint`, `STEP_CA_FINGERPRINT`, or `pki.step_ca_fingerprint`.
 
 When both Tailscale and step-ca are enabled, cloud-init also rewrites `~/.config/bridgectl/config.yaml` so `server.listen` binds to the desktop's Tailscale IPv4 address on the configured bridge port, and `server.san` includes the desktop's Tailscale DNS name. Tailscale-only desktops keep the safer localhost-only listener.
 
@@ -807,7 +817,7 @@ desktopctl terminate d-a1b2c3d4
 
 Runs `pulumi destroy` and marks the record `terminated`. If destroy fails, the instance is left running for debugging and the record is marked `failed`.
 
-For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also tries to remove the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access, or store it in the operator-only secret at `/ai-desktops/<owner>` as `TAILSCALE_API_KEY`, to enable this cleanup. If the key is not set or cleanup fails, the CLI warns and continues with infrastructure termination; remove the stale Tailscale machine manually from the admin console or API.
+For desktops created with `--tailscale` or `--tailscale-network`, `terminate` also tries to remove the matching Tailscale machine before destroying the Pulumi stack. Set `TAILSCALE_API_KEY` to a Tailscale API key with device management access, or store it in the operator-only secret at `/desktopctl/<env>/<region>/<owner>` as `TAILSCALE_API_KEY`, to enable this cleanup. If the key is not set or cleanup fails, the CLI warns and continues with infrastructure termination; remove the stale Tailscale machine manually from the admin console or API.
 
 ## Updating existing desktops
 
@@ -818,7 +828,7 @@ The desktop configuration—including Homebrew setup, GitHub known_hosts, and to
 desktopctl ssh d-a1b2c3d4
 
 # Inside the desktop, re-run the Ansible playbook
-ansible-playbook /opt/ai-desktops/desktop-setup.yml \
+ansible-playbook /opt/desktopctl/desktop-setup.yml \
   -i localhost, -c local
 ```
 

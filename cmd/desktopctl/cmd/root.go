@@ -24,6 +24,14 @@ desktops. Each desktop is a browser-accessible Linux environment designed for
 AI coding agents (Codex, Claude, Gemini) with human operator access for
 supervision and debugging.`,
 	SilenceUsage: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if cfgFile != "" && cmd.Name() != "setup" {
+			if _, err := os.Stat(cfgFile); err != nil {
+				return fmt.Errorf("explicit config %q: %w", cfgFile, err)
+			}
+		}
+		return nil
+	},
 }
 
 // Execute runs the root command.
@@ -37,7 +45,7 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $HOME/.ai-desktops/config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $XDG_CONFIG_HOME/desktopctl/config.yaml, or ~/.config/desktopctl/config.yaml)")
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "AWS profile")
 	rootCmd.PersistentFlags().StringVar(&region, "region", "", "AWS region (overrides config)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "output as JSON")
@@ -55,6 +63,6 @@ func initConfig() {
 		cfg.AWS.Profile = profile
 	}
 	if region != "" {
-		cfg.AWS.Region = region
+		cfg.SetRegion(region)
 	}
 }

@@ -71,7 +71,7 @@ External users may need access to the application surface later, but they are no
 
 ## Product Shape
 
-`ai-desktops` is a fleet manager for remote AI coding desktops.
+`desktopctl` is a fleet manager for remote AI coding desktops.
 
 Each managed desktop includes:
 
@@ -92,7 +92,7 @@ its own lifecycle and may survive desktop termination.
 
 ## Operator Workflow
 
-1. The operator invokes an `ai-desktops` CLI command to create a new desktop.
+1. The operator invokes an `desktopctl` CLI command to create a new desktop.
 2. The CLI accepts the desktop profile, target GitHub owner, optional repository list to clone into the workspace, and optional desktop/workspace names.
 3. The system provisions a remote host and configures it with `novnc-desktop`, `bridgectl`, and the standard toolchain.
 4. The system returns the desktop identifier, browser access URL, and SSH connection details.
@@ -123,18 +123,18 @@ its own lifecycle and may survive desktop termination.
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-1.1 | `ai-desktops create --github-owner <owner> --json` exits 0 and returns `desktop_id`, `novnc_url`, and `ssh_target` | `TestFR1_CreateOutput` |
+| AC-1.1 | `desktopctl create --github-owner <owner> --json` exits 0 and returns `desktop_id`, `novnc_url`, and `ssh_target` | `TestFR1_CreateOutput` |
 | AC-1.2 | DynamoDB `lifecycle_state` is `ready` immediately after create completes | `TestFR1_StateReady` |
-| AC-1.3 | `ai-desktops list --json` output includes the created desktop ID | `TestFR1_List` |
-| AC-1.4 | `ai-desktops status <id> --json` returns all required fields: id, state, hostname, novnc_url, ssh_target, github_owner, instance_id, stack_name | `TestFR1_StatusFields` |
-| AC-1.5 | `ai-desktops stop <id>` exits 0, hibernates the instance, and transitions `lifecycle_state` to `stopped` | `TestFR7_01_Stop` |
-| AC-1.6 | `ai-desktops start <id>` exits 0 and transitions `lifecycle_state` back to `ready` | `TestFR7_02_Start` |
-| AC-1.7 | After `ai-desktops terminate <id>`, the desktop no longer appears in `list` output | TestMain cleanup |
+| AC-1.3 | `desktopctl list --json` output includes the created desktop ID | `TestFR1_List` |
+| AC-1.4 | `desktopctl status <id> --json` returns all required fields: id, state, hostname, novnc_url, ssh_target, github_owner, instance_id, stack_name | `TestFR1_StatusFields` |
+| AC-1.5 | `desktopctl stop <id>` exits 0, hibernates the instance, and transitions `lifecycle_state` to `stopped` | `TestFR7_01_Stop` |
+| AC-1.6 | `desktopctl start <id>` exits 0 and transitions `lifecycle_state` back to `ready` | `TestFR7_02_Start` |
+| AC-1.7 | After `desktopctl terminate <id>`, the desktop no longer appears in `list` output | TestMain cleanup |
 | AC-1.8 | `create` without `--github-owner` fails with a clear error message | `TestFR1_CreateRejectsWithoutOwner` |
-| AC-1.9 | `ai-desktops list --all` includes terminated desktop records | Unit and manual CLI verification |
-| AC-1.10 | `ai-desktops purge --dry-run` previews terminated records without deleting them | Unit and manual CLI verification |
-| AC-1.11 | `ai-desktops purge` deletes terminated records and reports the number deleted | Unit and manual CLI verification |
-| AC-1.12 | `ai-desktops create --name orchael-factory-dev --preview` records and displays the requested desktop name without changing the generated `desktop_id` contract | Unit and manual CLI verification |
+| AC-1.9 | `desktopctl list --all` includes terminated desktop records | Unit and manual CLI verification |
+| AC-1.10 | `desktopctl purge --dry-run` previews terminated records without deleting them | Unit and manual CLI verification |
+| AC-1.11 | `desktopctl purge` deletes terminated records and reports the number deleted | Unit and manual CLI verification |
+| AC-1.12 | `desktopctl create --name orchael-factory-dev --preview` records and displays the requested desktop name without changing the generated `desktop_id` contract | Unit and manual CLI verification |
 
 ### FR-2 — Desktop access
 
@@ -159,10 +159,10 @@ its own lifecycle and may survive desktop termination.
 | ID | Requirement |
 | --- | --- |
 | FR-3.1 | Every managed desktop must use `novnc-desktop` as the browser desktop substrate. |
-| FR-3.2 | `novnc-desktop` must be configured to use the `elementary` desktop environment for `ai-desktops` managed hosts. |
+| FR-3.2 | `novnc-desktop` must be configured to use the `elementary` desktop environment for `desktopctl` managed hosts. |
 | FR-3.3 | Failure to provision the required desktop substrate must fail desktop creation clearly rather than producing a partially usable desktop. |
 | FR-3.4 | Runtime cloud-init must persist a secret-free bootstrap lifecycle artifact with `running`, `succeeded`, or `failed` state and useful timestamps. |
-| FR-3.5 | `ai-desktops doctor` must report the persisted bootstrap state and remain backward compatible with desktops created before the artifact existed. |
+| FR-3.5 | `desktopctl doctor` must report the persisted bootstrap state and remain backward compatible with desktops created before the artifact existed. |
 | FR-3.6 | CloudWatch monitoring is optional: an inactive agent must be reported as a non-blocking warning with actionable service diagnostics rather than making an otherwise healthy desktop fail doctor. |
 
 **Acceptance criteria:**
@@ -196,8 +196,8 @@ its own lifecycle and may survive desktop termination.
 | --- | --- | --- |
 | AC-4.1 | `systemctl --user is-active bridgectl` returns `active` via SSH | `TestFR4_BridgeServiceActive` |
 | AC-4.2 | Bridge listens on `127.0.0.1:9445`, not `0.0.0.0:9445` | `TestFR4_BridgeLocalhostOnly` |
-| AC-4.3 | `ai-desktops agent <id> status` completes without error | `TestFR4_AgentStatusCommand` |
-| AC-4.4 | `ai-desktops agent <id> providers` output includes codex, claude, and gemini | `TestFR4_AgentProvidersCommand` |
+| AC-4.3 | `desktopctl agent <id> status` completes without error | `TestFR4_AgentStatusCommand` |
+| AC-4.4 | `desktopctl agent <id> providers` output includes codex, claude, and gemini | `TestFR4_AgentProvidersCommand` |
 
 ### FR-5 — Base toolchain
 
@@ -270,10 +270,10 @@ its own lifecycle and may survive desktop termination.
 | AC-7.3 | After `stop`, `lifecycle_state` is `stopped`; after `start`, it is `ready` | `TestFR7_01_Stop`, `TestFR7_02_Start` |
 | AC-7.4 | The root EBS volume is encrypted and hibernation is configured at instance launch time | Infrastructure review |
 | AC-7.5 | Normal desktops default to 100 GiB and mobile/AVD desktops to 200 GiB; `--volume-size` overrides `desktop.volume_size`, which overrides the defaults | `TestDefaultVolumeSizes`, `TestResolveVolumeSize`; manual CLI verification |
-| AC-7.6 | `ai-desktops resize --help` exits 0 and describes `--instance-type` | Unit/smoke help verification |
+| AC-7.6 | `desktopctl resize --help` exits 0 and describes `--instance-type` | Unit/smoke help verification |
 | AC-7.7 | Resize validation rejects empty, unchanged, Spot, and nested-virtualization-incompatible target instance types | Unit tests |
-| AC-7.8 | `ai-desktops create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |
-| AC-7.9 | `ai-desktops create --workspace-mode efs --workspace-name orchael-factory-dev --preview` configures `/workspace` as an EFS mount and preserves the named workspace after desktop termination | Unit and live acceptance |
+| AC-7.8 | `desktopctl create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |
+| AC-7.9 | `desktopctl create --workspace-mode efs --workspace-name orchael-factory-dev --preview` configures `/workspace` as an EFS mount and preserves the named workspace after desktop termination | Unit and live acceptance |
 
 ### FR-8 — External access posture
 
@@ -293,24 +293,26 @@ its own lifecycle and may survive desktop termination.
 | FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
-| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (via Linuxbrew at a pinned, verified version), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
-| FR-9.6 | A CLI command `ai-desktops ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
+| FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (from a release archive with a pinned version and SHA-256), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
+| FR-9.6 | A CLI command `desktopctl ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI and Git editor `vim`, `EDITOR`, `VISUAL`, and `GIT_EDITOR` set to `vim` for new desktop sessions, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
 | FR-9.10 | Both the pre-baked AMI and cloud-init must set `check_for_update_on_startup = false` in bridgectl's Codex home (`/home/ubuntu/.config/bridgectl/codex-home/config.toml`) before Codex sessions start. Provisioning must preserve existing valid TOML settings, reject unsafe paths, and be idempotent. The desktop CLI doctor and AMI doctor must report a missing or incorrect setting. Codex version upgrades are delivered through the pinned bridgectl provider runtime. |
 | FR-9.11 | New pre-baked AMIs must install a pinned Playwright package and its matching Chromium and headless browser with Linux dependencies in a shared, readable browser directory. Login sessions and systemd-launched agents must receive `PLAYWRIGHT_BROWSERS_PATH`. The bake must launch headless Chromium as `ubuntu` without downloading a browser. Projects retain their own matching Playwright dependency; other revisions may need their own browser install. Existing desktops gain this capability only after replacement with the new AMI. |
 | FR-9.12 | The pre-baked AMI must install a pinned stable Visual Studio Code package from Microsoft's signed apt repository and expose its desktop launcher. The build must verify the package version, CLI binary, and launcher entry. |
+| FR-9.13 | Public AMIs must be named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>` and retain the full CLI and desktop web versions as tags. Automatic public image discovery must select only the running CLI's major version unless config sets `desktop.public_ami_major` or pins `desktop.active_ami.<region>`. |
+| FR-9.14 | Operators must have a regional public AMI build, list, and deletion script. Deletion must preview by default and verify the AWS account, publisher ownership, image name, management tag, active config pin, and live instance use before removal. |
 
 **Acceptance criteria:**
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-9.1 | `ai-desktops ami build --help` exits 0 and mentions packer or ami | `TestFR9_AMIBuildCommandExists` |
-| AC-9.2 | `ai-desktops ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
+| AC-9.1 | `desktopctl ami build --help` exits 0 and mentions packer or ami | `TestFR9_AMIBuildCommandExists` |
+| AC-9.2 | `desktopctl ami list --help` exits 0 | `TestFR9_AMIListCommandExists` |
 | AC-9.3 | `create --preview --ami <id>` output references the provided AMI ID | `TestFR9_CreateAMIFlagOverride` |
-| AC-9.4 | Full `ami build` succeeds and config is updated (gated on `AI_DESKTOPS_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
-| AC-9.5 | The AMI playbook installs Helm with Linuxbrew and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsHelmWithHomebrew`, `TestAMIConfigurationPinsHelmVersion` |
+| AC-9.4 | Full `ami build` succeeds and config is updated (gated on `DESKTOPCTL_RUN_AMI_BUILD=true`) | `TestFR9_AMIBuildFull` |
+| AC-9.5 | The AMI playbook verifies the pinned Helm release archive checksum before installation and fails if the installed version differs from the configured pin | `TestAMIPlaybookInstallsPinnedHelmArchive`, `TestAMIConfigurationPinsHelmVersion` |
 | AC-9.6 | The AMI playbook and rendered cloud-init both enforce a private native Codex home | `TestAMIPlaybookCreatesPrivateCodexHome`, `TestRenderCloudInit_createsPrivateCodexHome` |
 | AC-9.7 | `sudo -u ubuntu -H nvim --headless '+qa'` exits successfully without an interactive bootstrap prompt and the effective NvChad theme is Catppuccin | Static role validation and live AMI integration test |
 | AC-9.8 | `sudo -u ubuntu -H gh config get editor` and `git config --global core.editor` print `vim`; new desktop login sessions expose `EDITOR=vim`, `VISUAL=vim`, and `GIT_EDITOR=vim`; managed terminal files and plugin directories are owned by `ubuntu:ubuntu` | Static playbook validation and live AMI integration test |
@@ -323,6 +325,8 @@ its own lifecycle and may survive desktop termination.
 | AC-9.15 | As `ubuntu`, a project-local test using the supported version launches headless Chromium with network/browser downloads disabled and no sudo or browser installation at test time | AMI bake smoke and live desktop test |
 | AC-9.16 | The AMI build downloads the exact pinned Microsoft `code` package from its apt repository, verifies its SHA-256 before installing with apt, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 | AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
+| AC-9.18 | A `0.7.0` CLI discovers only public `desktopctl-v0-*` images by default; a configured major or exact active AMI overrides that choice, and Packer receives the CLI major and UTC build date | `TestPublicAMINamePattern`, `TestRunPassesMajorAndUTCDate`; live image discovery after publication |
+| AC-9.19 | The public AMI script builds each selected region and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`; live read-only list and prune preview |
 
 ### FR-11 — GitHub developer tooling
 
@@ -380,8 +384,8 @@ its own lifecycle and may survive desktop termination.
 
 | ID | Criterion | Integration test |
 | --- | --- | --- |
-| AC-12.1 | `ai-desktops workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/desktopctl --json` returns a workspace record with `workspace_mode=efs` and no attached desktop | New unit and live acceptance |
-| AC-12.2 | `ai-desktops create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --json` returns a ready desktop whose `workspace_path` is `/workspace` and whose metadata references the EFS workspace | New unit and live acceptance |
+| AC-12.1 | `desktopctl workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/desktopctl --json` returns a workspace record with `workspace_mode=efs` and no attached desktop | New unit and live acceptance |
+| AC-12.2 | `desktopctl create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --json` returns a ready desktop whose `workspace_path` is `/workspace` and whose metadata references the EFS workspace | New unit and live acceptance |
 | AC-12.3 | A second `create` against the same attached EFS workspace fails before provisioning a new EC2 instance | New unit test |
 | AC-12.4 | After terminating an EFS-backed desktop, the workspace record remains listable and can be attached to a replacement desktop | Live acceptance |
 | AC-12.5 | Deleting an attached EFS workspace fails with a clear error; deleting a detached EFS workspace requires an explicit workspace delete command | Unit and manual CLI verification |
@@ -465,7 +469,7 @@ The MVP does not include:
 
 - The initial infrastructure target is AWS-backed remote hosts, carried forward from the prior project direction.
 - Managed desktops run on Ubuntu 24.04 LTS (Noble) hosts compatible with `novnc-desktop` and the required toolchain.
-- `ai-desktops` will reuse existing first-party components rather than reimplementing noVNC desktop provisioning or agent process supervision from scratch.
+- `desktopctl` will reuse existing first-party components rather than reimplementing noVNC desktop provisioning or agent process supervision from scratch.
 
 If any of these assumptions are wrong, the PRD should be updated before implementation work proceeds.
 
@@ -553,7 +557,7 @@ The operator workflow must support updating the owner-scoped agent credential se
 - AUTH-4b: Successful reload must preserve the existing safe mode of `.bashrc` when adding the shell-source hook; credential snapshots remain private. In-memory desktop records must isolate all slice fields from caller mutations on create, read/list, update, and secret-operation snapshots.
 - AUTH-4c: A present empty or whitespace-only `CODEX_AUTH` string in the merged replacement snapshot must fail preflight without changing credential files, caches, shell configuration, or services, even if an API key is also supplied. An absent `CODEX_AUTH` remains valid for API-key-only rotation; operators must remove the seed key rather than blank it to disable that source.
 - AUTH-4d: Coordinated secret operations must return an allowlisted, non-secret failure category for known preflight and runtime failures. Raw child stdout, stderr, commands, paths supplied through secrets, and credential values must remain suppressed.
-- AUTH-5: Pin the managed desktop `bridgectl` package to release `v1.4.4` in both the default Packer variables and CLI cloud-init expectation. Tests must keep these pins synchronized. Verify the release package digest before rollout. Pre-baked AMIs must be rebuilt with the matching package so new desktops can enroll in the Bridge production control plane; this change does not upgrade existing desktops, replace their standalone bridgectl configuration, or remove the E2E runner's explicit branch-binary override.
+- AUTH-5: Pin the managed desktop `bridgectl` package to release `v1.4.6` in both the default Packer variables and CLI cloud-init expectation. Tests must keep these pins synchronized. Verify the release package digest before rollout. Pre-baked AMIs must be rebuilt with the matching package so new desktops can enroll in the Bridge production control plane; this change does not upgrade existing desktops, replace their standalone bridgectl configuration, or remove the E2E runner's explicit branch-binary override.
 - AUTH-5a: Managed desktops run only the `bridgectl.service` user unit, which supplies desktop configuration and credentials. Image builds and cloud-init must mask the package's `bridge.service` user unit so it cannot start a second server after a package install or upgrade. Operators upgrading an existing desktop must restart `bridgectl.service` to load the new executable; installation alone does not restart it.
 - E2E-1: A reusable opt-in AWS E2E runner creates a uniquely named retained EFS workspace and desktop for this checkout's repository (default from the Git remote; currently `orchael/desktopctl`), waits for readiness, and executes selectable scenarios. The Codex auth scenario exercises real bridge authentication and validates credential persistence and explicit reload.
 - E2E-2: Successful runs terminate their desktop before deleting their workspace. Failed runs retain resources and report their identifiers. A keep-resources option also retains successful runs; a reuse option runs scenarios on those same resources for debugging. Cleanup may target only resources recorded as created by the runner.
@@ -582,11 +586,11 @@ Persistent desktops imply ongoing cloud cost. Failed desktop creation should lea
 
 ### Pre-baked AMI provisioning
 
-Desktop provisioning performance is critical for interactive operator workflows. `ai-desktops`
+Desktop provisioning performance is critical for interactive operator workflows. `desktopctl`
 uses pre-baked AMIs built with Packer so package installation and toolchain setup do not run during
 desktop creation. This reduces boot time and removes package-install failures from the runtime path.
 
-The `ai-desktops ami build` command invokes Packer to build one or more regions sequentially.
+The `desktopctl ami build` command invokes Packer to build one or more regions sequentially.
 Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
 `config.yaml`. The baked image includes the baseline development toolchain, `novnc-desktop`, and
 `bridgectl`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via
@@ -603,7 +607,7 @@ certbot, nginx reverse-proxy configuration, secret injection, workspace setup, a
 ## Desktop profiles
 
 An operator may select a desktop setup profile with `desktop.profile` in
-`~/.ai-desktops/config.yaml`; `create --desktop-profile` overrides that default for one
+`~/.config/desktopctl/config.yaml`; `create --desktop-profile` overrides that default for one
 desktop. The reference format is `owner/repository[:subdirectory]`. An empty
 selection keeps the standard desktop setup. Profiles may configure any desktop
 tool or user environment, not only AI agents.
@@ -636,8 +640,20 @@ not change an already-created desktop.
 The source repository is `orchael/desktopctl`. Its Go module path is
 `github.com/orchael/desktopctl`; nested Pulumi modules use the same repository
 prefix. The desktop web runtime package is `@orchael/desktopctl` in GitHub
-Packages. The `ai-desktops` CLI command and existing cloud resource names remain
-stable for deployed operators.
+Packages. New installations use `desktopctl` CLI, tags, secrets, and AWS
+resource names. Existing `ai-desktops` resources are not adopted automatically.
+
+### Fresh environment and region identity
+
+The operator config defaults to `$XDG_CONFIG_HOME/desktopctl/config.yaml` on
+Linux, or `~/.config/desktopctl/config.yaml` when `XDG_CONFIG_HOME` is unset.
+An explicit `--config` selects a separate file and must exist for operational
+commands. New foundation stacks and tables are scoped by environment and AWS
+region. A fresh bootstrap or foundation initialization refuses an existing
+state bucket or fleet table unless an operator explicitly opts into reuse.
+Production in ca-central-1 uses `config-ca-central-1.yaml` under the XDG config
+directory. New users may discover a public desktopctl AMI from a configured,
+trusted publisher account; publishing that AMI remains an operator step.
 
 The control plane is built from this source and deployed by an operator. Release
 automation must not publish its container images. Deployment instructions must

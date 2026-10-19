@@ -1,5 +1,5 @@
 // Package awsx provides thin wrappers around the AWS SDK v2 for operations
-// used by the ai-desktops CLI. All functions accept a context.Context.
+// used by the desktopctl CLI. All functions accept a context.Context.
 package awsx
 
 import (
@@ -67,16 +67,22 @@ func BucketExists(ctx context.Context, cfg aws.Config, bucket string) (bool, err
 
 // EnsureBucket creates the S3 bucket if it does not already exist, then
 // configures versioning, SSE, and public-access-block.
-func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) error {
+func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string, allowExisting bool) error {
 	c := s3.NewFromConfig(cfg)
 
 	_, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	if err == nil && !allowExisting {
+		return fmt.Errorf("state bucket %q already exists; fresh bootstrap refuses reuse", bucket)
+	}
 	if err != nil {
 		var notFound *s3types.NotFound
 		var noSuchBucket *s3types.NoSuchBucket
 		var httpErr *smithyhttp.ResponseError
 		if errors.As(err, &httpErr) && httpErr.HTTPStatusCode() == 301 {
-			// Bucket exists in a different region — nothing to create.
+			if !allowExisting {
+				return fmt.Errorf("state bucket %q already exists in another region; fresh bootstrap refuses reuse", bucket)
+			}
+			// Intentional reuse across regions.
 			return nil
 		}
 		if !errors.As(err, &notFound) && !errors.As(err, &noSuchBucket) {
@@ -132,8 +138,8 @@ func EnsureBucket(ctx context.Context, cfg aws.Config, bucket, region string) er
 	// Merge desired tags into the existing tag set so we don't overwrite tags
 	// applied by other tools (e.g. cost allocation tags set by Pulumi or AWS).
 	desiredTags := map[string]string{
-		"managed-by":  "ai-desktops",
-		"ai-desktops": "true",
+		"managed-by": "desktopctl",
+		"desktopctl": "true",
 	}
 	existing, err := c.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(bucket)})
 	var mergedTags []s3types.Tag
@@ -227,6 +233,7 @@ type AMIInfo struct {
 	Name        string
 	Description string
 	CreatedAt   string
+	Public      bool
 }
 
 // DescribeAMI returns metadata for the given AMI ID.
@@ -247,21 +254,26 @@ func DescribeAMI(ctx context.Context, cfg aws.Config, amiID string) (*AMIInfo, e
 		Name:        aws.ToString(img.Name),
 		Description: aws.ToString(img.Description),
 		CreatedAt:   aws.ToString(img.CreationDate),
+		Public:      aws.ToBool(img.Public),
 	}, nil
 }
 
 // FindLatestAMI returns the most-recent AMI matching the given name pattern and
 // owner. namePattern supports the EC2 wildcard syntax (e.g. "my-ami-v1.2.*").
-func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner string) (string, error) {
+func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner string, publicOnly ...bool) (string, error) {
 	c := ec2.NewFromConfig(cfg)
+	filters := []ec2types.Filter{
+		{Name: aws.String("name"), Values: []string{namePattern}},
+		{Name: aws.String("root-device-type"), Values: []string{"ebs"}},
+		{Name: aws.String("virtualization-type"), Values: []string{"hvm"}},
+		{Name: aws.String("state"), Values: []string{"available"}},
+	}
+	if len(publicOnly) > 0 && publicOnly[0] {
+		filters = append(filters, ec2types.Filter{Name: aws.String("is-public"), Values: []string{"true"}})
+	}
 	out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
-		Owners: []string{owner},
-		Filters: []ec2types.Filter{
-			{Name: aws.String("name"), Values: []string{namePattern}},
-			{Name: aws.String("root-device-type"), Values: []string{"ebs"}},
-			{Name: aws.String("virtualization-type"), Values: []string{"hvm"}},
-			{Name: aws.String("state"), Values: []string{"available"}},
-		},
+		Owners:  []string{owner},
+		Filters: filters,
 	})
 	if err != nil {
 		return "", fmt.Errorf("describe images: %w", err)
@@ -280,7 +292,7 @@ func FindLatestAMI(ctx context.Context, cfg aws.Config, namePattern, owner strin
 }
 
 // FindSubnetByTag returns the subnet ID of the first subnet tagged with
-// Name=ai-desktops-subnet and environment=<environment>. This locates the
+// Name=desktopctl-subnet and environment=<environment>. This locates the
 // subnet created by the foundation Pulumi stack so Packer can launch its
 // build instance inside the project VPC rather than requiring a default VPC.
 // Returns ("", nil) when no matching subnet is found so the caller can decide
@@ -289,7 +301,7 @@ func FindSubnetByTag(ctx context.Context, cfg aws.Config, environment string) (s
 	c := ec2.NewFromConfig(cfg)
 	out, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		Filters: []ec2types.Filter{
-			{Name: aws.String("tag:Name"), Values: []string{"ai-desktops-subnet"}},
+			{Name: aws.String("tag:Name"), Values: []string{"desktopctl-subnet"}},
 			{Name: aws.String("tag:environment"), Values: []string{environment}},
 			{Name: aws.String("state"), Values: []string{"available"}},
 		},

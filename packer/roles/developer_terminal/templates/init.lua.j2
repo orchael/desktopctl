@@ -3,7 +3,7 @@ vim.g.mapleader = " "
 
 local lazypath = vim.fn.stdpath "data" .. "/lazy/lazy.nvim"
 if not vim.uv.fs_stat(lazypath) then
-  error("ai-desktops AMI is missing pinned lazy.nvim bootstrap")
+  error("desktopctl AMI is missing pinned lazy.nvim bootstrap")
 end
 vim.opt.rtp:prepend(lazypath)
 

@@ -36,16 +36,25 @@ func (f *fakeCloud) DeleteWorkspace(context.Context, string) error {
 
 func fixture(t *testing.T) (*state, *fakeCloud) {
 	t.Helper()
-	s := &state{Version: 1, RunID: "0123456789abcdef", Name: "e2e-ai-desktops-0123456789abcdef", Environment: "dev", Owner: "orchael", Repo: "orchael/desktopctl", DesktopID: "d-test", WorkspaceID: "ws-test", AccessPointID: "fsap-test", WorkspaceCreated: true, DesktopCreated: true, Path: t.TempDir() + "/state.json"}
+	s := &state{Version: 1, RunID: "0123456789abcdef", Name: "e2e-desktopctl-0123456789abcdef", Environment: "dev", Owner: "orchael", Repo: "orchael/desktopctl", DesktopID: "d-test", WorkspaceID: "ws-test", AccessPointID: "fsap-test", WorkspaceCreated: true, DesktopCreated: true, Path: t.TempDir() + "/state.json"}
 	f := &fakeCloud{w: store.Workspace{WorkspaceID: s.WorkspaceID, WorkspaceName: s.Name, WorkspaceMode: "efs", Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}, EFSAccessPointID: s.AccessPointID, AttachedDesktopID: s.DesktopID}, d: store.Desktop{DesktopID: s.DesktopID, DesktopName: s.Name, WorkspaceName: s.Name, WorkspaceID: s.WorkspaceID, Environment: s.Environment, GitHubOwner: s.Owner, Repos: []string{s.Repo}}}
 	return s, f
 }
 
 func TestLegacyStateCanStillBeCleanedUp(t *testing.T) {
-	s, _ := fixture(t)
+	s, f := fixture(t)
+	s.Name = "e2e-ai-desktops-" + s.RunID
 	s.Repo = "orchael/ai-desktops"
+	f.w.WorkspaceName = s.Name
+	f.w.Repos = []string{s.Repo}
+	f.d.DesktopName = s.Name
+	f.d.WorkspaceName = s.Name
+	f.d.Repos = []string{s.Repo}
 	if err := s.validate(); err != nil {
 		t.Fatalf("legacy run state must remain valid for cleanup: %v", err)
+	}
+	if err := cleanup(context.Background(), f, s); err != nil {
+		t.Fatalf("legacy run cleanup: %v", err)
 	}
 }
 

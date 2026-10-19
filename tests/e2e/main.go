@@ -126,16 +126,17 @@ func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("e2e", flag.ContinueOnError)
 	binary := flags.String("cli", "./bin/desktopctl", "locally built desktopctl binary")
 	bridge := flags.String("bridgectl-binary", "", "locally built Linux amd64 bridgectl to install on the test desktop (required for a new run)")
-	configPath := flags.String("config", "", "ai-desktops config (defaults to the normal operator config)")
+	configPath := flags.String("config", "", "desktopctl config (defaults to the XDG operator config)")
 	profile := flags.String("profile", "", "AWS profile override")
 	region := flags.String("region", "", "AWS region override")
+	noDNS := flags.Bool("no-dns", false, "create desktop without Route53 DNS")
 	repo := flags.String("repo", "", "GitHub owner/desktopctl (defaults to this checkout's origin)")
 	key := flags.String("ssh-key", "", "SSH private key; must identify the same file as desktop.ssh_key_path in config")
 	statePath := flags.String("state", "", "new state file; defaults to a unique directory under /tmp")
 	reuse := flags.String("reuse", "", "reuse resources from this runner's state file")
 	clean := flags.String("cleanup", "", "terminate/delete only resources owned by this runner state file")
 	keep := flags.Bool("keep", false, "retain desktop and workspace after success (failures always retain)")
-	scenario := flags.String("scenario", "codex-auth", "scenario to run (codex-auth)")
+	scenario := flags.String("scenario", "codex-auth", "scenario to run (ssh-login or codex-auth)")
 	timeout := flags.Duration("timeout", 30*time.Minute, "maximum time for create/readiness/scenario; cleanup gets a separate 15 minutes")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -146,10 +147,10 @@ func run(ctx context.Context, args []string) error {
 	if *reuse != "" && *clean != "" {
 		return errors.New("--reuse and --cleanup are mutually exclusive")
 	}
-	if *scenario != "codex-auth" {
+	if *scenario != "codex-auth" && *scenario != "ssh-login" {
 		return fmt.Errorf("unknown scenario %q", *scenario)
 	}
-	if *reuse == "" && *clean == "" && *bridge == "" {
+	if *scenario == "codex-auth" && *reuse == "" && *clean == "" && *bridge == "" {
 		return errors.New("--bridgectl-binary is required so new runs test the auth fix")
 	}
 	var s *state
@@ -163,7 +164,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		if *configPath != "" || *profile != "" || *region != "" || *statePath != "" || *repo != "" {
+		if *configPath != "" || *profile != "" || *region != "" || *statePath != "" || *repo != "" || *noDNS {
 			return errors.New("reuse/cleanup use the persisted config/profile/region; do not override resource identity")
 		}
 		if *key != "" {
@@ -184,11 +185,11 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("--repo must identify a GitHub owner/desktopctl checkout")
 		}
 		if *configPath == "" {
-			home, e := os.UserHomeDir()
+			defaultPath, e := config.DefaultPath()
 			if e != nil {
 				return e
 			}
-			*configPath = filepath.Join(home, ".ai-desktops", "config.yaml")
+			*configPath = defaultPath
 		}
 		*configPath, err = filepath.Abs(*configPath)
 		if err != nil {
@@ -219,7 +220,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		runID := hex.EncodeToString(id[:])
 		if *statePath == "" {
-			dir, e := os.MkdirTemp("", "ai-desktops-e2e-")
+			dir, e := os.MkdirTemp("", "desktopctl-e2e-")
 			if e != nil {
 				return e
 			}
@@ -231,7 +232,7 @@ func run(ctx context.Context, args []string) error {
 			return e
 		}
 		f.Close()
-		s = &state{Version: 1, RunID: runID, Name: "e2e-ai-desktops-" + runID, Environment: "dev", Owner: strings.Split(*repo, "/")[0], Repo: *repo, StartedAt: time.Now().UTC().Format(time.RFC3339), Config: *configPath, Profile: *profile, Region: *region, SSHKey: *key, Path: *statePath, Result: "creating"}
+		s = &state{Version: 1, RunID: runID, Name: "e2e-desktopctl-" + runID, Environment: cfg.Environment(), Owner: strings.Split(*repo, "/")[0], Repo: *repo, StartedAt: time.Now().UTC().Format(time.RFC3339), Config: *configPath, Profile: *profile, Region: *region, SSHKey: *key, NoDNS: *noDNS, Path: *statePath, Result: "creating"}
 		if err = s.save(); err != nil {
 			return err
 		}
@@ -262,7 +263,7 @@ func run(ctx context.Context, args []string) error {
 		if (!s.WorkspaceCreated && !s.WorkspaceCreateAttempted) || s.DesktopTerminated || s.WorkspaceDeleted {
 			return errors.New("state has no reusable desktop/workspace")
 		}
-		if !s.DesktopCreated && *bridge == "" {
+		if !s.DesktopCreated && *scenario == "codex-auth" && *bridge == "" {
 			return errors.New("--bridgectl-binary is required when resuming a workspace to create its desktop")
 		}
 		err = resume(ctx, c, s)
@@ -445,7 +446,11 @@ func recoverDesktop(ctx context.Context, c *cli, s *state) error {
 
 func createDesktop(ctx context.Context, c *cli, s *state) error {
 	logStage("create desktop " + s.Name)
-	b, err := c.call(ctx, "create", "--env", s.Environment, "--name", s.Name, "--github-owner", s.Owner, "--workspace-mode", "efs", "--workspace-name", s.Name, "--repo", s.Repo, "--instance-type", "m7i.large", "--json")
+	args := []string{"create", "--env", s.Environment, "--name", s.Name, "--github-owner", s.Owner, "--workspace-mode", "efs", "--workspace-name", s.Name, "--repo", s.Repo, "--instance-type", "m7i.large", "--json"}
+	if s.NoDNS {
+		args = append(args, "--no-dns")
+	}
+	b, err := c.call(ctx, args...)
 	var d store.Desktop
 	if err == nil {
 		// create emits a presentation map (some fields are strings whereas
@@ -515,13 +520,24 @@ func exercise(ctx context.Context, c *cli, bridge, scenario string) error {
 		if len(data) < 5 || string(data[:4]) != "\x7fELF" {
 			return errors.New("bridgectl binary must be a Linux ELF executable")
 		}
-		_, err = c.remote(ctx, host, "set -e; install -d -m 700 /home/ubuntu/.local/share/ai-desktops-e2e; dd of=/home/ubuntu/.local/share/ai-desktops-e2e/bridgectl status=none; chmod 700 /home/ubuntu/.local/share/ai-desktops-e2e/bridgectl; sudo install -m 755 /home/ubuntu/.local/share/ai-desktops-e2e/bridgectl /usr/local/bin/bridgectl; XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart bridgectl", data)
+		_, err = c.remote(ctx, host, "set -e; install -d -m 700 /home/ubuntu/.local/share/desktopctl-e2e; dd of=/home/ubuntu/.local/share/desktopctl-e2e/bridgectl status=none; chmod 700 /home/ubuntu/.local/share/desktopctl-e2e/bridgectl; sudo install -m 755 /home/ubuntu/.local/share/desktopctl-e2e/bridgectl /usr/local/bin/bridgectl; XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart bridgectl", data)
 		if err != nil {
 			return err
 		}
 	}
 	if scenario == "codex-auth" {
 		return codexScenario(ctx, c, host)
+	}
+	if scenario == "ssh-login" {
+		logStage("verify SSH login and desktop identity")
+		out, err := c.remote(ctx, host, "test \"$(id -un)\" = ubuntu && test -f /var/lib/cloud/instance/boot-finished && printf 'PASS ssh-login'", nil)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(out)) != "PASS ssh-login" {
+			return errors.New("SSH login did not confirm desktop readiness")
+		}
+		return nil
 	}
 	return fmt.Errorf("unimplemented scenario %s", scenario)
 }
@@ -531,8 +547,8 @@ func codexScenario(ctx context.Context, c *cli, host string) (result error) {
 	if err != nil {
 		return err
 	}
-	remotePath := "/home/ubuntu/.local/share/ai-desktops-e2e/codex-test.py"
-	_, err = c.remote(ctx, host, "install -d -m 700 /home/ubuntu/.local/share/ai-desktops-e2e && dd of="+shellQuote(remotePath)+" status=none", script)
+	remotePath := "/home/ubuntu/.local/share/desktopctl-e2e/codex-test.py"
+	_, err = c.remote(ctx, host, "install -d -m 700 /home/ubuntu/.local/share/desktopctl-e2e && dd of="+shellQuote(remotePath)+" status=none", script)
 	if err != nil {
 		return err
 	}

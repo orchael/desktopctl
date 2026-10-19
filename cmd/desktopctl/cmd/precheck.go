@@ -32,7 +32,7 @@ func requireBackend(ctx context.Context) error {
 	if cfg.Pulumi.BackendBucket == "" {
 		return fmt.Errorf(`pulumi.backend_bucket is not set in your config.
 
-Add it to ~/.ai-desktops/config.yaml:
+Add it to ~/.config/desktopctl/config.yaml:
 
   pulumi:
     backend_bucket: <globally-unique-bucket-name>
@@ -60,8 +60,8 @@ Run the following to create it:
 
   desktopctl bootstrap
 
-bootstrap creates the S3 bucket with versioning, encryption, and
-public-access block enabled. It is safe to re-run.`, cfg.Pulumi.BackendBucket)
+bootstrap creates a fresh S3 bucket with versioning, encryption, and
+public-access block enabled.`, cfg.Pulumi.BackendBucket)
 	}
 	return nil
 }

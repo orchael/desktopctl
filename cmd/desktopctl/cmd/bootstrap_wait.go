@@ -46,7 +46,7 @@ func (r *ssmProfileBootstrapRunner) Start(ctx context.Context, instanceID string
 	out, err := r.client.SendCommand(ctx, &ssm.SendCommandInput{
 		InstanceIds:  []string{instanceID},
 		DocumentName: aws.String("AWS-RunShellScript"),
-		Comment:      aws.String("Wait for ai-desktops desktop profile bootstrap"),
+		Comment:      aws.String("Wait for desktopctl desktop profile bootstrap"),
 		Parameters: map[string][]string{
 			"commands":         {"cloud-init status --wait >/dev/null 2>&1"},
 			"executionTimeout": {"900"},

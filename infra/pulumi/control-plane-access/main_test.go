@@ -22,10 +22,10 @@ func TestAssumeOnlyPolicyScopesToRole(t *testing.T) {
 
 func TestDefaultNamesIncludeEnvironment(t *testing.T) {
 	t.Parallel()
-	if got, want := defaultBootstrapUserName("dev"), "ai-desktop-user-dev"; got != want {
+	if got, want := defaultBootstrapUserName("dev-ca-central-1"), "desktopctl-user-dev-ca-central-1"; got != want {
 		t.Fatalf("defaultBootstrapUserName = %q, want %q", got, want)
 	}
-	if got, want := defaultRoleName("prod"), "ai-desktops-control-plane-prod"; got != want {
+	if got, want := defaultRoleName("prod-ca-central-1"), "desktopctl-control-plane-prod-ca-central-1"; got != want {
 		t.Fatalf("defaultRoleName = %q, want %q", got, want)
 	}
 }
@@ -33,12 +33,12 @@ func TestDefaultNamesIncludeEnvironment(t *testing.T) {
 func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 	t.Parallel()
 	raw, err := controlPlaneRolePolicy(
-		"ai-desktops-fleet-dev",
-		"ai-desktops-ami-dev",
+		"desktopctl-fleet-dev",
+		"desktopctl-ami-dev",
 		"state-bucket",
 		"arn:aws:route53:::hostedzone/Z123",
 		"arn:aws:iam::123456789012:role/desktop",
-		"/ai-desktops/",
+		"/desktopctl/",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 		t.Fatalf("policy is not JSON: %v", err)
 	}
 	for _, want := range []string{
-		"ai-desktops-fleet-dev",
+		"desktopctl-fleet-dev",
 		"state-bucket",
 		"arn:aws:route53:::hostedzone/Z123",
 		"arn:aws:route53:::change/*",
@@ -63,8 +63,8 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"arn:aws:secretsmanager:*:*:secret:/ai-desktops/*",
-		"arn:aws:ssm:*:*:parameter/ai-desktops/*",
+		"arn:aws:secretsmanager:*:*:secret:/desktopctl/*",
+		"arn:aws:ssm:*:*:parameter/desktopctl/*",
 		"EC2FleetDescribe",
 		"EC2FleetLaunch",
 		"EC2FleetLifecycle",

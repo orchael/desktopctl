@@ -421,7 +421,7 @@ func buildSecretsReloadScript(agentSecretPath string, desktopSecretPaths []strin
 		Region       string   `json:"region"`
 		ReplaceAgent bool     `json:"replace_agent"`
 	}{agentSecretPath, desktopSecretPaths, region, replaceAgent})
-	return "set -euo pipefail\npython3 - '" + base64.StdEncoding.EncodeToString(request) + "' <<'AI_DESKTOPS_ROTATE_PY'\n" + secretsReloadPython + "\nAI_DESKTOPS_ROTATE_PY\n"
+	return "set -euo pipefail\npython3 - '" + base64.StdEncoding.EncodeToString(request) + "' <<'DESKTOPCTL_ROTATE_PY'\n" + secretsReloadPython + "\nDESKTOPCTL_ROTATE_PY\n"
 }
 
 //go:embed scripts/reload-secrets.py

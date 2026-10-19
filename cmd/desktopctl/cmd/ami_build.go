@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/orchael/desktopctl/internal/awsx"
+	"github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/packer"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/orchael/desktopctl/internal/version"
@@ -44,10 +47,29 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	if err := requireTools("packer"); err != nil {
 		return err
 	}
-	if os.Getenv("GITHUB_NPM_TOKEN") == "" {
-		return fmt.Errorf("GITHUB_NPM_TOKEN is not set; a GitHub token with read:packages scope is required to install @orchael/desktopctl during the AMI build")
-	}
 	ctx := context.Background()
+	if os.Getenv("GITHUB_NPM_TOKEN") == "" {
+		if cfg.GitHub.GitHubSecret == "" {
+			return fmt.Errorf("run desktopctl setup or set GITHUB_NPM_TOKEN with read:packages scope before building an AMI")
+		}
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config for GitHub Packages token: %w", err)
+		}
+		values, err := fetchSecretMap(ctx, awsCfg, cfg.GitHub.GitHubSecret)
+		if err != nil {
+			return fmt.Errorf("read setup GitHub secret: %w", err)
+		}
+		token := values["github_token"]
+		if token == "" {
+			return fmt.Errorf("GitHub secret %q has no github_token; run desktopctl setup or set GITHUB_NPM_TOKEN with read:packages scope", cfg.GitHub.GitHubSecret)
+		}
+		if err := os.Setenv("GITHUB_NPM_TOKEN", token); err != nil {
+			return fmt.Errorf("set Packer token environment: %w", err)
+		}
+		defer os.Unsetenv("GITHUB_NPM_TOKEN")
+		fmt.Fprintf(os.Stderr, "Using GitHub Packages token from setup secret %s\n", cfg.GitHub.GitHubSecret)
+	}
 
 	regions, err := parseAMIRegions(amiRegions, cfg.AWS.Region)
 	if err != nil {
@@ -55,6 +77,13 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	}
 	if err := validateAMIRegionSelection(regions, amiBaseAMI); err != nil {
 		return err
+	}
+	if amiPublic {
+		for _, region := range regions {
+			if err := checkPublicAMISharing(ctx, region); err != nil {
+				return err
+			}
+		}
 	}
 	if err := preflightAMIStore(ctx); err != nil {
 		return err
@@ -116,11 +145,11 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 	// Save config (only active_ami now, history is in DynamoDB)
 	configPath := cfgFile
 	if configPath == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		configPath, err = config.DefaultPath()
 		if err != nil {
-			return fmt.Errorf("get home dir: %w", err)
+			return err
 		}
-		configPath = filepath.Join(home, ".ai-desktops", "config.yaml")
 	}
 
 	if err := cfg.Save(configPath); err != nil {
@@ -129,6 +158,28 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Config and AMI history saved\n")
 	return nil
+}
+
+func checkPublicAMISharing(ctx context.Context, region string) error {
+	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
+	if err != nil {
+		return fmt.Errorf("load AWS config for AMI public access check in %s: %w", region, err)
+	}
+	out, err := ec2.NewFromConfig(awsCfg).GetImageBlockPublicAccessState(ctx, &ec2.GetImageBlockPublicAccessStateInput{})
+	if err != nil {
+		return fmt.Errorf("check AMI block public access in %s before building: %w", region, err)
+	}
+	return requirePublicAMISharing(region, aws.ToString(out.ImageBlockPublicAccessState), string(out.ManagedBy))
+}
+
+func requirePublicAMISharing(region, state, managedBy string) error {
+	if state == "unblocked" {
+		return nil
+	}
+	if state == "block-new-sharing" {
+		return fmt.Errorf("public AMI build in %s cannot proceed: AMI Block Public Access is enabled (managed by %s); review the regional account setting before publishing", region, managedBy)
+	}
+	return fmt.Errorf("public AMI build in %s cannot proceed: unexpected AMI Block Public Access state %q (managed by %s)", region, state, managedBy)
 }
 
 func preflightAMIStore(ctx context.Context) error {

@@ -4,16 +4,16 @@
 //
 // Acceptance criteria tested here:
 //
-//	AC-9.1  `ai-desktops ami build` command exists and can be invoked
-//	AC-9.1  `ai-desktops ami build --help` succeeds (confirms command registration)
+//	AC-9.1  `desktopctl ami build` command exists and can be invoked
+//	AC-9.1  `desktopctl ami build --help` succeeds (confirms command registration)
 //	AC-9.3  `create --preview --ami <id>` references the supplied AMI in output
-//	AC-9.5  Helm is installed in the AMI through Linuxbrew
+//	AC-9.5  Helm is installed in the AMI from a verified release archive
 //	AC-9.16 VS Code stable package and desktop launcher are installed
 //	AC-9.17 tfenv installs and selects the pinned Terraform release
 //
 // Note: AC-9.1 full smoke (actually running Packer to build AMIs) is an
 // expensive long-running operation.  The full AMI build test only runs when
-// AI_DESKTOPS_RUN_AMI_BUILD=true is set.  The default test validates the
+// DESKTOPCTL_RUN_AMI_BUILD=true is set.  The default test validates the
 // command is wired and config round-trips correctly.
 package integration_test
 
@@ -50,7 +50,7 @@ func TestFR9_AMIListCommandExists(t *testing.T) {
 	}
 }
 
-// TestFR9_HelmInstalled verifies that Helm is present at the Linuxbrew path in
+// TestFR9_HelmInstalled verifies that Helm is present at the pinned path in
 // the built AMI and can report its version (AC-9.5).
 func TestFR9_HelmInstalled(t *testing.T) {
 	if !fx.ownedByTest {
@@ -60,9 +60,9 @@ func TestFR9_HelmInstalled(t *testing.T) {
 		t.Skip("no SSH key — cannot verify Helm")
 	}
 	out, err := sshRunE(fx.SSHTarget, fx.SSHKey,
-		"/home/linuxbrew/.linuxbrew/bin/brew list --versions helm >/dev/null && /home/linuxbrew/.linuxbrew/bin/helm version --short")
+		"/usr/local/bin/helm version --short")
 	if err != nil {
-		t.Fatalf("Helm is not installed through Linuxbrew: %v\noutput: %s", err, out)
+		t.Fatalf("Pinned Helm is not installed: %v\noutput: %s", err, out)
 	}
 	variables, err := os.ReadFile(filepath.Join(moduleRootPath, "packer", "variables.pkrvars.hcl"))
 	if err != nil {
@@ -143,12 +143,12 @@ func TestFR9_VSCodeInstalled(t *testing.T) {
 // TestFR9_CreateAMIFlagOverride verifies that `create --preview --ami <id>`
 // references the explicitly supplied AMI ID in its output.
 //
-// This test requires that AI_DESKTOPS_AMI_ID is set to a known AMI ID for
+// This test requires that DESKTOPCTL_AMI_ID is set to a known AMI ID for
 // the test region. If not set, the test is skipped.
 func TestFR9_CreateAMIFlagOverride(t *testing.T) {
-	amiID := os.Getenv("AI_DESKTOPS_AMI_ID")
+	amiID := os.Getenv("DESKTOPCTL_AMI_ID")
 	if amiID == "" {
-		t.Skip("AI_DESKTOPS_AMI_ID not set — skipping AMI flag-override test")
+		t.Skip("DESKTOPCTL_AMI_ID not set — skipping AMI flag-override test")
 	}
 
 	out, err := runCLI(context.Background(), 30*time.Second,
@@ -164,11 +164,11 @@ func TestFR9_CreateAMIFlagOverride(t *testing.T) {
 }
 
 // TestFR9_AMIBuildFull runs the full `ami build` command.  It is guarded
-// behind AI_DESKTOPS_RUN_AMI_BUILD=true because the Packer build takes
+// behind DESKTOPCTL_RUN_AMI_BUILD=true because the Packer build takes
 // 15–20 minutes and incurs cloud cost (AC-9.4).
 func TestFR9_AMIBuildFull(t *testing.T) {
-	if os.Getenv("AI_DESKTOPS_RUN_AMI_BUILD") != "true" {
-		t.Skip("set AI_DESKTOPS_RUN_AMI_BUILD=true to run full AMI build test")
+	if os.Getenv("DESKTOPCTL_RUN_AMI_BUILD") != "true" {
+		t.Skip("set DESKTOPCTL_RUN_AMI_BUILD=true to run full AMI build test")
 	}
 	_, err := runCLI(context.Background(), 45*time.Minute,
 		"ami", "build", "--config", configPath)

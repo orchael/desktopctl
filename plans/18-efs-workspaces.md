@@ -31,10 +31,10 @@ Only one active desktop may attach a given EFS workspace at a time.
 ### Default local workspace, unchanged
 
 ```bash
-ai-desktops create \
+desktopctl create \
   --name orchael-factory-dev \
   --github-owner orchael \
-  --repo orchael/ai-desktops
+  --repo orchael/desktopctl
 ```
 
 This keeps `/workspace` on the desktop root EBS volume. `terminate` destroys the workspace with the
@@ -43,10 +43,10 @@ desktop, matching current behavior.
 ### Create a retained EFS workspace
 
 ```bash
-ai-desktops workspace create \
+desktopctl workspace create \
   --name orchael-factory-dev \
   --github-owner orchael \
-  --repo orchael/ai-desktops \
+  --repo orchael/desktopctl \
   --repo orchael/other-repo
 ```
 
@@ -57,8 +57,8 @@ desktop.
 ### Change a detached workspace repo set
 
 ```bash
-ai-desktops workspace add-repo orchael-factory-dev --repo orchael/new-service
-ai-desktops workspace remove-repo orchael-factory-dev --repo orchael/old-service
+desktopctl workspace add-repo orchael-factory-dev --repo orchael/new-service
+desktopctl workspace remove-repo orchael-factory-dev --repo orchael/old-service
 ```
 
 Repo membership changes are metadata-only operations and are allowed only while the workspace is
@@ -68,7 +68,7 @@ from EFS.
 ### Attach an existing EFS workspace to a desktop
 
 ```bash
-ai-desktops create \
+desktopctl create \
   --name orchael-factory-dev \
   --github-owner orchael \
   --workspace-mode efs \
@@ -81,13 +81,13 @@ non-terminated desktop.
 ### Maintain a second workspace for the same repos
 
 ```bash
-ai-desktops workspace create \
+desktopctl workspace create \
   --name orchael-factory-update \
   --github-owner orchael \
-  --repo orchael/ai-desktops \
+  --repo orchael/desktopctl \
   --repo orchael/other-repo
 
-ai-desktops create \
+desktopctl create \
   --name orchael-factory-update \
   --github-owner orchael \
   --workspace-mode efs \
@@ -99,9 +99,9 @@ The two workspaces clone the same repos but keep separate working trees and arti
 ### Replace compute while retaining workspace
 
 ```bash
-ai-desktops terminate orchael-factory-dev
+desktopctl terminate orchael-factory-dev
 
-ai-desktops create \
+desktopctl create \
   --name orchael-factory-dev-2 \
   --github-owner orchael \
   --workspace-mode efs \
@@ -118,7 +118,7 @@ compute.
 ### Desktop create additions
 
 ```bash
-ai-desktops create \
+desktopctl create \
   --name <desktop-name> \
   --workspace-mode local|efs \
   --workspace-name <workspace-name>
@@ -134,13 +134,13 @@ ai-desktops create \
 ### Workspace command group
 
 ```bash
-ai-desktops workspace create --name <name> --github-owner <owner> [--repo <repo>...]
-ai-desktops workspace list [--github-owner <owner>] [--all]
-ai-desktops workspace status <name>
-ai-desktops workspace add-repo <name> --repo <repo>...
-ai-desktops workspace remove-repo <name> --repo <repo>...
-ai-desktops workspace delete <name>
-ai-desktops workspace detach <name> --force
+desktopctl workspace create --name <name> --github-owner <owner> [--repo <repo>...]
+desktopctl workspace list [--github-owner <owner>] [--all]
+desktopctl workspace status <name>
+desktopctl workspace add-repo <name> --repo <repo>...
+desktopctl workspace remove-repo <name> --repo <repo>...
+desktopctl workspace delete <name>
+desktopctl workspace detach <name> --force
 ```
 
 `detach --force` is an operator recovery command for stale metadata after failed provisioning or
@@ -271,8 +271,8 @@ persistence from retained EFS persistence.
 | --- | --- |
 | `PRD.md` | FR-12 requirements and acceptance criteria |
 | `plans/18-efs-workspaces.md` | Implementation plan and confirmed workflow decisions |
-| `cmd/ai-desktops/cmd/create.go` | `--name`, `--workspace-mode`, and `--workspace-name` validation |
-| `cmd/ai-desktops/cmd/workspace.go` | New workspace command group |
+| `cmd/desktopctl/cmd/create.go` | `--name`, `--workspace-mode`, and `--workspace-name` validation |
+| `cmd/desktopctl/cmd/workspace.go` | New workspace command group |
 | `internal/store` | Workspace record model and conditional attachment updates |
 | `internal/desktop` | Desktop name and workspace storage config in records |
 | `internal/pulumi` | Workspace stack and desktop stack config plumbing |
@@ -288,10 +288,10 @@ persistence from retained EFS persistence.
 
 ```bash
 go test ./internal/store ./internal/desktop ./internal/pulumi ./internal/provision ./internal/health
-go test ./cmd/ai-desktops/cmd -run 'Workspace|Create'
-go run ./cmd/ai-desktops create --workspace-mode local --preview
-go run ./cmd/ai-desktops workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/ai-desktops --preview
-go run ./cmd/ai-desktops create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --github-owner orchael --preview
+go test ./cmd/desktopctl/cmd -run 'Workspace|Create'
+go run ./cmd/desktopctl create --workspace-mode local --preview
+go run ./cmd/desktopctl workspace create --name orchael-factory-dev --github-owner orchael --repo orchael/desktopctl --preview
+go run ./cmd/desktopctl create --name orchael-factory-dev --workspace-mode efs --workspace-name orchael-factory-dev --github-owner orchael --preview
 ```
 
 Live acceptance should create an EFS workspace, attach a desktop, write a sentinel file under

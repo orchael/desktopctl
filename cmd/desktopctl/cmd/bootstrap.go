@@ -13,9 +13,9 @@ import (
 
 var bootstrapCmd = &cobra.Command{
 	Use:   "bootstrap",
-	Short: "Create or verify the S3 Pulumi state backend",
-	Long: `bootstrap ensures the S3 bucket for Pulumi state exists and is correctly
-configured (versioning, SSE, public-access block). The command is idempotent.
+	Short: "Create a fresh S3 Pulumi state backend",
+	Long: `bootstrap creates an S3 bucket for Pulumi state with versioning, SSE,
+and public-access block. An existing bucket requires --allow-existing.
 
 The DynamoDB fleet table is owned by the foundation stack; run init-foundation
 to create it.`,
@@ -23,7 +23,10 @@ to create it.`,
 	RunE: runBootstrap,
 }
 
+var bootstrapAllowExisting bool
+
 func init() {
+	bootstrapCmd.Flags().BoolVar(&bootstrapAllowExisting, "allow-existing", false, "explicitly reuse an existing Pulumi state bucket")
 	rootCmd.AddCommand(bootstrapCmd)
 }
 
@@ -44,9 +47,8 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("AWS config: %w", err)
 	}
-
 	fmt.Fprintf(os.Stderr, "Ensuring S3 bucket %s ...\n", bcfg.BackendBucket)
-	if err := awsx.EnsureBucket(ctx, awsCfg, bcfg.BackendBucket, bcfg.Region); err != nil {
+	if err := awsx.EnsureBucket(ctx, awsCfg, bcfg.BackendBucket, bcfg.Region, bootstrapAllowExisting); err != nil {
 		return fmt.Errorf("S3 bucket: %w", err)
 	}
 

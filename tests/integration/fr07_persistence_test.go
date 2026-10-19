@@ -33,7 +33,7 @@ import (
 // to "stopped" (FR-1.3 / AC-1.3 / AC-7.1).
 func TestFR7_01_Stop(t *testing.T) {
 	if fx.ownedByTest == false {
-		t.Skip("skipping stop/start mutation on adopted desktop (set AI_DESKTOPS_EXISTING_ID to skip)")
+		t.Skip("skipping stop/start mutation on adopted desktop (set DESKTOPCTL_EXISTING_ID to skip)")
 	}
 
 	_, err := runCLI(context.Background(), 5*time.Minute,

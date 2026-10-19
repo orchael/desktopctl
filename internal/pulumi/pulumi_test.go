@@ -9,15 +9,37 @@ import (
 )
 
 func TestFoundationStackRef(t *testing.T) {
-	ref := FoundationStackRef("s3://my-bucket", "dev", "/infra/pulumi/foundation")
+	ref := FoundationStackRef("s3://my-bucket", "dev", "ca-central-1", "/infra/pulumi/foundation")
 	if ref.Project != "foundation" {
 		t.Errorf("project: got %q", ref.Project)
 	}
-	if ref.StackName != "foundation-dev" {
+	if ref.StackName != "foundation-dev-ca-central-1" {
 		t.Errorf("stack: got %q", ref.StackName)
 	}
-	if ref.FullName() != "foundation/foundation-dev" {
+	if ref.FullName() != "foundation/foundation-dev-ca-central-1" {
 		t.Errorf("full name: got %q", ref.FullName())
+	}
+}
+
+func TestStackExists(t *testing.T) {
+	for _, tt := range []struct {
+		name, output string
+		exit         int
+		want         bool
+		wantErr      bool
+	}{
+		{name: "present", want: true},
+		{name: "absent", output: "error: no stack named foundation-prod-ca-central-1 found", exit: 1},
+		{name: "backend failure", output: "AccessDenied", exit: 1, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fakePulumiDir(t, tt.exit, tt.output)
+			ref := FoundationStackRef("s3://bucket", "prod", "ca-central-1", t.TempDir())
+			got, err := NewRunner().StackExists(context.Background(), ref)
+			if got != tt.want || (err != nil) != tt.wantErr {
+				t.Fatalf("StackExists = %v, %v", got, err)
+			}
+		})
 	}
 }
 
@@ -131,7 +153,7 @@ func TestDesktopConfig_efsWorkspace(t *testing.T) {
 }
 
 func TestFoundationConfig(t *testing.T) {
-	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "ai-desktops-fleet", "0.0.0.0/0", "dev", "", "my-state-bucket")
+	cfg := FoundationConfig("us-east-1", "desktops.orchael.dev", "desktopctl-fleet", "0.0.0.0/0", "dev", "", "my-state-bucket")
 	if cfg["zone"] != "desktops.orchael.dev" {
 		t.Errorf("zone: got %q", cfg["zone"])
 	}
@@ -212,6 +234,22 @@ func TestNewRunner(t *testing.T) {
 	}
 }
 
+func TestRunnerPassesSelectedRegionToBackend(t *testing.T) {
+	r := &Runner{AWSProfile: "operator", AWSRegion: "ca-central-1"}
+	env := r.env("s3://fresh-bucket")
+	for _, want := range []string{"AWS_PROFILE=operator", "AWS_REGION=ca-central-1", "AWS_DEFAULT_REGION=ca-central-1"} {
+		found := false
+		for _, value := range env {
+			if value == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("environment missing %q", want)
+		}
+	}
+}
+
 func TestRunnerUp_Success(t *testing.T) {
 	fakePulumiDir(t, 0, `{}`)
 	workDir := t.TempDir()
@@ -247,7 +285,7 @@ func TestRunnerSetConfig_Success(t *testing.T) {
 func TestRunnerPreview_Success(t *testing.T) {
 	fakePulumiDir(t, 0, "")
 	workDir := t.TempDir()
-	ref := FoundationStackRef("s3://bucket", "dev", workDir)
+	ref := FoundationStackRef("s3://bucket", "dev", "us-east-1", workDir)
 	if err := NewRunner().Preview(context.Background(), ref, StackConfig{}, nil); err != nil {
 		t.Fatalf("Preview: %v", err)
 	}

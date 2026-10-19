@@ -41,10 +41,10 @@ func TestDefaults(t *testing.T) {
 	if c.Fleet.Environment != EnvDev {
 		t.Errorf("default env: got %q", c.Fleet.Environment)
 	}
-	if c.Fleet.TableName != DefaultFleetTablePrefix+"-"+EnvDev {
+	if c.Fleet.TableName != DefaultFleetTablePrefix+"-"+EnvDev+"-us-east-1" {
 		t.Errorf("default table: got %q", c.Fleet.TableName)
 	}
-	if c.Fleet.AMITableName != DefaultAMITablePrefix+"-"+EnvDev {
+	if c.Fleet.AMITableName != DefaultAMITablePrefix+"-"+EnvDev+"-us-east-1" {
 		t.Errorf("default AMI table: got %q", c.Fleet.AMITableName)
 	}
 	if c.Agent.BridgePort != DefaultBridgePort {
@@ -60,6 +60,33 @@ func TestDefaults(t *testing.T) {
 	}
 	if c.PKI.StepCAProvisioner != "admin" {
 		t.Errorf("default step-ca provisioner: got %q", c.PKI.StepCAProvisioner)
+	}
+}
+
+func TestXDGDefaultPathAndRegionIsolation(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(base, "desktopctl", "config.yaml") {
+		t.Fatalf("default path = %q", path)
+	}
+	c := &Config{GitHub: GitHubConfig{Owner: "orchael"}}
+	c.Defaults()
+	c.SetRegion("ca-central-1")
+	if c.Fleet.TableName != "desktopctl-fleet-dev-ca-central-1" || c.Fleet.AMITableName != "desktopctl-ami-dev-ca-central-1" || c.Pool.TableName != "desktopctl-pool-dev-ca-central-1" {
+		t.Fatalf("region-specific names = %+v", c)
+	}
+	if c.GitHub.GitHubSecret != "/desktopctl/dev/ca-central-1/orchael/github" || c.GitHub.AgentSecret != "/desktopctl/dev/ca-central-1/orchael/agents" || c.Operator.Secret != "/desktopctl/dev/ca-central-1/orchael" {
+		t.Fatalf("region-specific secrets = %+v", c)
+	}
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("saved config permissions = %v, %v", info, err)
 	}
 }
 
@@ -106,7 +133,8 @@ func TestValidateSaaSModeAllowsScopedEnvironmentWithoutDNSZone(t *testing.T) {
 }
 
 func TestLoadOrDefault_noFile(t *testing.T) {
-	c, err := LoadOrDefault("/nonexistent/path/config.yaml")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	c, err := LoadOrDefault("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,7 +155,7 @@ aws:
   profile: myprofile
 desktop:
   profile: markcallen/ai-desktop-profile
-  profile_secret: /ai-desktops/acme/profiles/personal
+  profile_secret: /desktopctl/acme/profiles/personal
 pulumi:
   backend_bucket: my-state-bucket
 fleet:
@@ -141,7 +169,7 @@ github:
 network:
   tailscale_network: acme-tailnet
 operator:
-  secret: /ai-desktops/acme-ops
+  secret: /desktopctl/acme-ops
 pki:
   step_ca_server: ca.acme-tailnet.ts.net
   step_ca_provisioner: ops
@@ -167,7 +195,7 @@ pki:
 	if c.AWS.Region != "us-west-2" {
 		t.Errorf("region: got %q", c.AWS.Region)
 	}
-	if c.Desktop.Profile != "markcallen/ai-desktop-profile" || c.Desktop.ProfileSecret != "/ai-desktops/acme/profiles/personal" {
+	if c.Desktop.Profile != "markcallen/ai-desktop-profile" || c.Desktop.ProfileSecret != "/desktopctl/acme/profiles/personal" {
 		t.Errorf("desktop profile: got %q, secret %q", c.Desktop.Profile, c.Desktop.ProfileSecret)
 	}
 	if c.Pulumi.BackendBucket != "my-state-bucket" {
@@ -182,7 +210,7 @@ pki:
 	if c.Network.TailscaleNetwork != "acme-tailnet" {
 		t.Errorf("tailscale network: got %q", c.Network.TailscaleNetwork)
 	}
-	if c.Operator.Secret != "/ai-desktops/acme-ops" {
+	if c.Operator.Secret != "/desktopctl/acme-ops" {
 		t.Errorf("operator secret: got %q", c.Operator.Secret)
 	}
 	if len(c.GitHub.NPMGitHubScopes) != 1 || c.GitHub.NPMGitHubScopes[0] != "private-tools" {
@@ -236,7 +264,7 @@ func TestSave_roundTrip(t *testing.T) {
 			},
 		},
 		Network:  NetworkConfig{TailscaleNetwork: "acme-tailnet"},
-		Operator: OperatorConfig{Secret: "/ai-desktops/acme"},
+		Operator: OperatorConfig{Secret: "/desktopctl/acme"},
 		PKI: PKIConfig{
 			StepCAServer:      "ca.acme-tailnet.ts.net",
 			StepCAProvisioner: "admin",
@@ -290,7 +318,7 @@ func TestSave_roundTrip(t *testing.T) {
 	if loaded.Network.TailscaleNetwork != "acme-tailnet" {
 		t.Errorf("tailscale network round-trip: got %q", loaded.Network.TailscaleNetwork)
 	}
-	if loaded.Operator.Secret != "/ai-desktops/acme" {
+	if loaded.Operator.Secret != "/desktopctl/acme" {
 		t.Errorf("operator secret round-trip: got %q", loaded.Operator.Secret)
 	}
 	if loaded.PKI.StepCAServer != "ca.acme-tailnet.ts.net" {
@@ -342,34 +370,34 @@ func TestConfigExampleVolumeSizeMatchesDefault(t *testing.T) {
 }
 
 func TestDefaults_GitHubSecret(t *testing.T) {
-	// No owner: fall back to legacy path
+	// No owner: do not select an unscoped legacy secret.
 	c := &Config{}
 	c.Defaults()
-	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+	if c.GitHub.GitHubSecret != "" {
 		t.Errorf("no-owner default: got %q", c.GitHub.GitHubSecret)
 	}
 
 	// Owner set: derive per-owner path
 	c = &Config{GitHub: GitHubConfig{Owner: "myorg"}}
 	c.Defaults()
-	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
+	if c.GitHub.GitHubSecret != "/desktopctl/dev/us-east-1/myorg/github" {
 		t.Errorf("owner default: got %q", c.GitHub.GitHubSecret)
 	}
-	if c.Operator.Secret != "/ai-desktops/myorg" {
+	if c.Operator.Secret != "/desktopctl/dev/us-east-1/myorg" {
 		t.Errorf("operator secret default: got %q", c.Operator.Secret)
 	}
 
 	// Legacy pat_secret migrates to github_secret
-	c = &Config{GitHub: GitHubConfig{PATSecret: "/ai-desktops/github/pat"}}
+	c = &Config{GitHub: GitHubConfig{PATSecret: "/desktopctl/github/pat"}}
 	c.Defaults()
-	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+	if c.GitHub.GitHubSecret != "/desktopctl/github/pat" {
 		t.Errorf("migration: got %q", c.GitHub.GitHubSecret)
 	}
 
 	// Explicit github_secret takes priority
-	c = &Config{GitHub: GitHubConfig{GitHubSecret: "/ai-desktops/myorg/github", Owner: "myorg"}}
+	c = &Config{GitHub: GitHubConfig{GitHubSecret: "/desktopctl/myorg/github", Owner: "myorg"}}
 	c.Defaults()
-	if c.GitHub.GitHubSecret != "/ai-desktops/myorg/github" {
+	if c.GitHub.GitHubSecret != "/desktopctl/myorg/github" {
 		t.Errorf("explicit: got %q", c.GitHub.GitHubSecret)
 	}
 }
@@ -378,7 +406,7 @@ func TestLoad_LegacyPATSecret(t *testing.T) {
 	yaml := `
 github:
   owner: myorg
-  pat_secret: /ai-desktops/github/pat
+  pat_secret: /desktopctl/github/pat
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -391,7 +419,7 @@ github:
 		t.Fatalf("Load: %v", err)
 	}
 	// Legacy pat_secret should be migrated to github_secret
-	if c.GitHub.GitHubSecret != "/ai-desktops/github/pat" {
+	if c.GitHub.GitHubSecret != "/desktopctl/github/pat" {
 		t.Errorf("legacy migration: got %q", c.GitHub.GitHubSecret)
 	}
 }

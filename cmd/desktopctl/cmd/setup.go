@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,30 +34,33 @@ import (
 
 // githubAPIBase is the GitHub REST API base URL. Overridden in tests.
 var githubAPIBase = "https://api.github.com"
+var publicIPURL = "https://checkip.amazonaws.com"
 
 var (
-	setupConfigOut string
+	setupConfigOut     string
+	setupAllowExisting bool
 )
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Interactive configuration wizard (safe to re-run)",
-	Long: `setup walks through configuring ~/.ai-desktops/config.yaml and provisioning
+	Short: "Interactive configuration wizard for a fresh setup",
+	Long: `setup walks through configuring ~/.config/desktopctl/config.yaml and provisioning
 GitHub credentials (token + SSH key) in AWS Secrets Manager.
 
 When run on an existing configuration all current values are used as defaults.
-The GitHub token and SSH key are only rotated when explicitly requested.
+Existing AWS secrets and EC2 key pairs require --allow-existing to update.
 
 The wizard will:
   1. Collect AWS and GitHub configuration interactively
   2. Optionally validate and rotate the GitHub token + SSH key
   3. Store updated credentials in AWS Secrets Manager
-  4. Write ~/.ai-desktops/config.yaml (or --config-out path)`,
+  4. Write ~/.config/desktopctl/config.yaml (or --config-out path)`,
 	RunE: runSetup,
 }
 
 func init() {
-	setupCmd.Flags().StringVar(&setupConfigOut, "config-out", "", "write config to this path instead of ~/.ai-desktops/config.yaml")
+	setupCmd.Flags().StringVar(&setupConfigOut, "config-out", "", "write config to this path instead of ~/.config/desktopctl/config.yaml")
+	setupCmd.Flags().BoolVar(&setupAllowExisting, "allow-existing", false, "explicitly update existing AWS secrets and EC2 key pair")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -73,19 +78,60 @@ type setupAnswers struct {
 	GeminiKey     string
 	SSHKeyPath    string
 	SSHKeyName    string
+	OperatorCIDR  string
+}
+
+func setupSameIdentity(current *config.Config, region, environment, owner string) bool {
+	return current != nil && current.AWS.Region == region && current.Fleet.Environment == environment && current.GitHub.Owner == owner
+}
+
+func detectPublicIPv4(ctx context.Context) (netip.Addr, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPURL, nil)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return netip.Addr{}, fmt.Errorf("public IP service returned HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	ip, err := netip.ParseAddr(strings.TrimSpace(string(body)))
+	if err != nil || !ip.Is4() || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return netip.Addr{}, fmt.Errorf("public IP service did not return a public IPv4 address")
+	}
+	return ip, nil
+}
+
+func validateOperatorCIDR(value string) error {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil || !prefix.Addr().Is4() || !prefix.Addr().IsGlobalUnicast() || prefix.Addr().IsPrivate() || prefix.Bits() != 32 {
+		return fmt.Errorf("SSH source must be a public IPv4 address with /32, for example 203.0.113.42/32")
+	}
+	return nil
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("get home dir: %w", err)
-	}
 	cfgPath := setupConfigOut
 	if cfgPath == "" {
-		cfgPath = filepath.Join(home, ".ai-desktops", "config.yaml")
+		cfgPath = cfgFile
+	}
+	if cfgPath == "" {
+		var err error
+		cfgPath, err = config.DefaultPath()
+		if err != nil {
+			return err
+		}
 	}
 
 	_, statErr := os.Stat(cfgPath)
@@ -147,6 +193,24 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Println("── SSH (Desktop Access) ─────────────────────────────")
+	fmt.Println("The security group needs the public IPv4 address of the machine that will run desktopctl.")
+	fmt.Println("SSH access will be limited to that address; update it if the machine's public IP changes.")
+	currentCIDR := ""
+	if ip, err := detectPublicIPv4(ctx); err == nil {
+		currentCIDR = ip.String() + "/32"
+		fmt.Printf("Detected this machine's public IPv4: %s\n", ip)
+	} else {
+		fmt.Printf("Could not detect public IPv4 automatically: %v\n", err)
+	}
+	defaultCIDR := currentCIDR
+	if defaultCIDR == "" && cfg != nil {
+		defaultCIDR = cfg.Desktop.OperatorCIDR
+	}
+	a.OperatorCIDR = prompt(reader, fmt.Sprintf("SSH source IPv4 CIDR [%s]", defaultCIDR), defaultCIDR)
+	if err := validateOperatorCIDR(a.OperatorCIDR); err != nil {
+		return err
+	}
+	fmt.Printf("Only %s will be allowed to connect to desktop SSH.\n", a.OperatorCIDR)
 
 	// Detect existing SSH key path from config or auto-detect from ~/.ssh.
 	existingSSHKeyPath := ""
@@ -182,7 +246,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			// Offer to register the public key as an EC2 key pair.
 			// a.GitHubOwner hasn't been prompted yet (GitHub section follows
 			// SSH), so use existingOwner from the loaded config as the suffix.
-			defaultKeyName := "ai-desktops-" + existingOwner
+			keyOwner := existingOwner
+			if keyOwner == "" {
+				keyOwner = "operator"
+			}
+			defaultKeyName := fmt.Sprintf("desktopctl-%s-%s-%s", a.Environment, a.AWSRegion, keyOwner)
 			if existingSSHKeyName != "" {
 				defaultKeyName = existingSSHKeyName
 			}
@@ -207,8 +275,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 						a.SSHKeyName = existingSSHKeyName
 					} else {
 						fmt.Printf("Registering EC2 key pair %q in %s... ", a.SSHKeyName, a.AWSRegion)
-						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes))); err != nil {
+						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes)), !setupAllowExisting); err != nil {
 							fmt.Println("✗")
+							if !setupAllowExisting {
+								return fmt.Errorf("register fresh EC2 key pair: %w", err)
+							}
 							fmt.Printf("  Warning: %v\n  EC2 key pair not registered — set ssh_key_name manually if needed.\n", err)
 							a.SSHKeyName = existingSSHKeyName
 						} else {
@@ -244,12 +315,39 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		gitUserEmailLabel = fmt.Sprintf("Git commit author email [%s]", existingGitUserEmail)
 	}
 	a.GitUserEmail = prompt(reader, gitUserEmailLabel, existingGitUserEmail)
+	sameIdentity := setupSameIdentity(cfg, a.AWSRegion, a.Environment, a.GitHubOwner)
 
-	secretPath := "/ai-desktops/" + a.GitHubOwner + "/github"
+	secretPath := fmt.Sprintf("/desktopctl/%s/%s/%s/github", a.Environment, a.AWSRegion, a.GitHubOwner)
+	githubSecretExists := false
+	{
+		awsCfg, err := awscfg.LoadDefaultConfig(ctx,
+			awscfg.WithRegion(a.AWSRegion),
+			awscfg.WithSharedConfigProfile(a.AWSProfile),
+		)
+		if err != nil {
+			return fmt.Errorf("load AWS config for fresh setup: %w", err)
+		}
+		for _, path := range []string{
+			secretPath,
+			fmt.Sprintf("/desktopctl/%s/%s/%s/agents", a.Environment, a.AWSRegion, a.GitHubOwner),
+			fmt.Sprintf("/desktopctl/%s/%s/%s", a.Environment, a.AWSRegion, a.GitHubOwner),
+		} {
+			exists, err := setupSecretExists(ctx, awsCfg, path)
+			if err != nil {
+				return err
+			}
+			if path == secretPath {
+				githubSecretExists = exists
+			}
+			if exists && !setupAllowExisting {
+				return fmt.Errorf("AWS secret %q already exists; fresh setup refuses to reuse it", path)
+			}
+		}
+	}
 
 	// On an existing setup ask whether to rotate the token; on first run always collect it.
-	updateToken := true
-	if isExisting {
+	updateToken := !githubSecretExists
+	if isExisting && githubSecretExists {
 		fmt.Print("\nUpdate GitHub token and SSH key? [y/N]: ")
 		answer, _ := reader.ReadString('\n')
 		updateToken = strings.TrimSpace(strings.ToLower(answer)) == "y"
@@ -275,9 +373,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Println("  • workflow          (GitHub Actions)")
 		fmt.Println("  • read:user         (identity)")
 		fmt.Println("  • read:org          (optional; gh CLI org features)")
-		fmt.Println("  • read:packages     (optional; only needed for npm_github_scopes)")
+		fmt.Println("  • read:packages     (required if you will build the public desktopctl AMI)")
 		fmt.Println()
 		fmt.Println("Create the token at: https://github.com/settings/tokens/new")
+		fmt.Println("Use a classic token with those scopes. Setup stores it in AWS Secrets Manager;")
+		fmt.Println("ami build can use this stored token; GITHUB_NPM_TOKEN can override it.")
 		fmt.Print("Paste the token here (input hidden): ")
 
 		tokenBytes, err := term.ReadPassword(int(syscall.Stdin)) //nolint:gosec
@@ -311,7 +411,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		// Register SSH key with GitHub
 		fmt.Printf("Registering SSH public key with GitHub account '%s'... ", a.GitHubOwner)
-		if err := registerGitHubSSHKey(ctx, a.GitHubToken, "ai-desktops/"+a.GitHubOwner, pub); err != nil {
+		if err := registerGitHubSSHKey(ctx, a.GitHubToken, "desktopctl/"+a.GitHubOwner, pub); err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("register SSH key: %w", err)
 		}
@@ -348,12 +448,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	// Collect AI provider API keys.
 	// Preserve any existing custom secret path; only derive the default on first run.
-	agentSecretPath := "/ai-desktops/" + a.GitHubOwner + "/agents"
-	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+	agentSecretPath := fmt.Sprintf("/desktopctl/%s/%s/%s/agents", a.Environment, a.AWSRegion, a.GitHubOwner)
+	if sameIdentity && cfg.GitHub.AgentSecret != "" {
 		agentSecretPath = cfg.GitHub.AgentSecret
 	}
 	updateAgentKeys := true
-	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+	if sameIdentity && cfg.GitHub.AgentSecret != "" {
 		fmt.Println()
 		fmt.Print("Update AI provider API keys? [y/N]: ")
 		answer, _ := reader.ReadString('\n')
@@ -446,13 +546,27 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if newCfg == nil {
 		newCfg = &config.Config{}
 	}
-	newCfg.AWS.Region = a.AWSRegion
+	if newCfg.GitHub.Owner != a.GitHubOwner {
+		newCfg.GitHub.GitHubSecret = ""
+		newCfg.GitHub.AgentSecret = ""
+		newCfg.Operator.Secret = ""
+	}
+	newCfg.GitHub.Owner = a.GitHubOwner
+	if newCfg.Fleet.Environment != a.Environment {
+		newCfg.Fleet.TableName = ""
+		newCfg.Fleet.AMITableName = ""
+		newCfg.Pool.TableName = ""
+		newCfg.GitHub.GitHubSecret = ""
+		newCfg.GitHub.AgentSecret = ""
+		newCfg.Operator.Secret = ""
+	}
+	newCfg.Fleet.Environment = a.Environment
+	newCfg.SetRegion(a.AWSRegion)
 	newCfg.AWS.Profile = a.AWSProfile
 	newCfg.Pulumi.BackendBucket = a.BackendBucket
-	newCfg.Fleet.Environment = a.Environment
-	newCfg.GitHub.Owner = a.GitHubOwner
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
+	newCfg.Desktop.OperatorCIDR = a.OperatorCIDR
 	if a.SSHKeyPath != "" {
 		newCfg.Desktop.SSHKeyPath = a.SSHKeyPath
 	}
@@ -481,12 +595,16 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Println("Setup complete.")
+	fmt.Printf("Config: %s\n", cfgPath)
+	fmt.Printf("AWS: profile %s, %s, environment %s\n", a.AWSProfile, a.AWSRegion, a.Environment)
+	fmt.Printf("SSH source: %s (update this if the operator machine's public IP changes)\n", a.OperatorCIDR)
 	if !isExisting {
 		fmt.Println("Next steps:")
-		fmt.Println("  desktopctl bootstrap       # create S3 Pulumi state bucket")
-		fmt.Println("  desktopctl init-foundation # deploy shared AWS infrastructure")
+		fmt.Printf("  desktopctl --config %q bootstrap\n", cfgPath)
+		fmt.Printf("  desktopctl --config %q init-foundation\n", cfgPath)
 	}
-	fmt.Printf("  desktopctl create --github-owner %s --repo <owner/repo>\n", a.GitHubOwner)
+	fmt.Printf("  desktopctl --config %q create --github-owner %s --repo <owner/repo>\n", cfgPath, a.GitHubOwner)
+	fmt.Printf("For a public AMI build, run desktopctl --config %q ami build --public; the stored token needs read:packages.\n", cfgPath)
 	return nil
 }
 
@@ -543,7 +661,7 @@ func validateGitHubToken(ctx context.Context, token string) error {
 
 // importEC2KeyPair imports a public key into AWS EC2 as a named key pair.
 // If a key pair with that name already exists it is left unchanged (treated as success).
-func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMaterial string) error {
+func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMaterial string, fresh ...bool) error {
 	svc := ec2.NewFromConfig(awsCfg)
 	_, err := svc.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
 		KeyName:           aws.String(name),
@@ -552,15 +670,18 @@ func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMat
 			{
 				ResourceType: ec2types.ResourceTypeKeyPair,
 				Tags: []ec2types.Tag{
-					{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+					{Key: aws.String("desktopctl"), Value: aws.String("true")},
 				},
 			},
 		},
 	})
 	if err != nil {
-		// InvalidKeyPair.Duplicate means the key pair already exists — not an error.
+		// Existing configurations can retain their registered key pair.
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidKeyPair.Duplicate" {
+			if len(fresh) > 0 && fresh[0] {
+				return fmt.Errorf("EC2 key pair %q already exists; fresh setup refuses reuse", name)
+			}
 			return nil
 		}
 		return err
@@ -579,7 +700,7 @@ func generateSSHKeyPair(owner string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	pubLine := strings.TrimSuffix(string(ssh.MarshalAuthorizedKey(sshPub)), "\n") + " ai-desktops/" + owner + "\n"
+	pubLine := strings.TrimSuffix(string(ssh.MarshalAuthorizedKey(sshPub)), "\n") + " desktopctl/" + owner + "\n"
 
 	privPEM, err := ssh.MarshalPrivateKey(priv, "")
 	if err != nil {
@@ -703,11 +824,23 @@ func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, er
 }
 
 func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
-	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, "AI provider API keys for ai-desktops owner: "+owner)
+	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, "AI provider API keys for desktopctl owner: "+owner)
+}
+
+func setupSecretExists(ctx context.Context, awsCfg aws.Config, path string) (bool, error) {
+	_, err := secretsmanager.NewFromConfig(awsCfg).DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(path)})
+	if err == nil {
+		return true, nil
+	}
+	var notFound *types.ResourceNotFoundException
+	if errors.As(err, &notFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check AWS secret %q: %w", path, err)
 }
 
 func storeIntegrationSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, integration string) error {
-	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, integration+" integration secret for ai-desktops owner: "+owner)
+	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, integration+" integration secret for desktopctl owner: "+owner)
 }
 
 func storeOperatorSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
@@ -738,7 +871,7 @@ func storeOperatorSecret(ctx context.Context, awsCfg aws.Config, secretID, value
 	_, err = svc.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name:         aws.String(secretID),
 		SecretString: aws.String(value),
-		Description:  aws.String("Operator-only secrets for ai-desktops owner: " + owner),
+		Description:  aws.String("Operator-only secrets for desktopctl owner: " + owner),
 		Tags:         operatorSecretTags(owner, environment),
 	})
 	return err
@@ -746,9 +879,10 @@ func storeOperatorSecret(ctx context.Context, awsCfg aws.Config, secretID, value
 
 func operatorSecretTags(owner, environment string) []types.Tag {
 	return []types.Tag{
-		{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+		{Key: aws.String("desktopctl"), Value: aws.String("true")},
 		{Key: aws.String("github-owner"), Value: aws.String(owner)},
 		{Key: aws.String("environment"), Value: aws.String(environment)},
+		{Key: aws.String("desktopctl-scope"), Value: aws.String("operator")},
 		{Key: aws.String("ai-desktops-scope"), Value: aws.String("operator")},
 	}
 }
@@ -777,7 +911,7 @@ func storeDescribedSecret(ctx context.Context, awsCfg aws.Config, secretID, valu
 		SecretString: aws.String(value),
 		Description:  aws.String(description),
 		Tags: []types.Tag{
-			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+			{Key: aws.String("desktopctl"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
 			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},
@@ -811,9 +945,9 @@ func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner,
 	_, err = svc.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name:         aws.String(secretID),
 		SecretString: aws.String(value),
-		Description:  aws.String("GitHub credentials for ai-desktops owner: " + owner),
+		Description:  aws.String("GitHub credentials for desktopctl owner: " + owner),
 		Tags: []types.Tag{
-			{Key: aws.String("ai-desktops"), Value: aws.String("true")},
+			{Key: aws.String("desktopctl"), Value: aws.String("true")},
 			{Key: aws.String("github-owner"), Value: aws.String(owner)},
 			{Key: aws.String("environment"), Value: aws.String(environment)},
 		},

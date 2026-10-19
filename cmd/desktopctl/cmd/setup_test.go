@@ -11,7 +11,25 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/orchael/desktopctl/internal/config"
 )
+
+func TestSetupSameIdentity(t *testing.T) {
+	current := &config.Config{AWS: config.AWSConfig{Region: "ca-central-1"}, Fleet: config.FleetConfig{Environment: "prod"}, GitHub: config.GitHubConfig{Owner: "orchael", AgentSecret: "/custom/agents"}}
+	for _, tc := range []struct {
+		region, environment, owner string
+		want                       bool
+	}{
+		{"ca-central-1", "prod", "orchael", true},
+		{"us-east-1", "prod", "orchael", false},
+		{"ca-central-1", "dev", "orchael", false},
+		{"ca-central-1", "prod", "other", false},
+	} {
+		if got := setupSameIdentity(current, tc.region, tc.environment, tc.owner); got != tc.want {
+			t.Errorf("identity(%s, %s, %s) = %t, want %t", tc.region, tc.environment, tc.owner, got, tc.want)
+		}
+	}
+}
 
 func TestGenerateSSHKeyPair(t *testing.T) {
 	pub, priv, err := generateSSHKeyPair("test-owner")
@@ -22,7 +40,7 @@ func TestGenerateSSHKeyPair(t *testing.T) {
 	if !strings.HasPrefix(pub, "ssh-ed25519 ") {
 		t.Errorf("public key should start with 'ssh-ed25519 ', got: %q", pub[:min(30, len(pub))])
 	}
-	if !strings.Contains(pub, "ai-desktops/test-owner") {
+	if !strings.Contains(pub, "desktopctl/test-owner") {
 		t.Errorf("public key should contain owner comment, got: %q", pub)
 	}
 	if !strings.HasSuffix(pub, "\n") {
@@ -49,10 +67,32 @@ func TestGenerateSSHKeyPair(t *testing.T) {
 	}
 }
 
+func TestDetectPublicIPv4(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "157.230.223.137\n")
+	}))
+	defer srv.Close()
+	old := publicIPURL
+	publicIPURL = srv.URL
+	defer func() { publicIPURL = old }()
+	ip, err := detectPublicIPv4(context.Background())
+	if err != nil || ip.String() != "157.230.223.137" {
+		t.Fatalf("detected IP = %v, err = %v", ip, err)
+	}
+	for _, value := range []string{"127.0.0.1/32", "10.0.0.1/32", "0.0.0.0/0", "157.230.223.137/24", "2001:db8::1/128"} {
+		if err := validateOperatorCIDR(value); err == nil {
+			t.Errorf("accepted unsafe CIDR %q", value)
+		}
+	}
+	if err := validateOperatorCIDR(ip.String() + "/32"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuildSecretJSON(t *testing.T) {
 	token := "ghp_testtoken"
 	priv := "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n-----END OPENSSH PRIVATE KEY-----\n"
-	pub := "ssh-ed25519 AAAA ai-desktops/owner"
+	pub := "ssh-ed25519 AAAA desktopctl/owner"
 
 	out, err := buildSecretJSON(token, priv, pub)
 	if err != nil {
@@ -189,7 +229,7 @@ func TestRegisterGitHubSSHKey_Success(t *testing.T) {
 	githubAPIBase = srv.URL
 	defer func() { githubAPIBase = origURL }()
 
-	err := registerGitHubSSHKey(context.Background(), "token", "ai-desktops/owner", "ssh-ed25519 AAAA test")
+	err := registerGitHubSSHKey(context.Background(), "token", "desktopctl/owner", "ssh-ed25519 AAAA test")
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -206,7 +246,7 @@ func TestRegisterGitHubSSHKey_Failure(t *testing.T) {
 	githubAPIBase = srv.URL
 	defer func() { githubAPIBase = origURL }()
 
-	err := registerGitHubSSHKey(context.Background(), "token", "ai-desktops/owner", "ssh-ed25519 AAAA dup")
+	err := registerGitHubSSHKey(context.Background(), "token", "desktopctl/owner", "ssh-ed25519 AAAA dup")
 	if err == nil {
 		t.Fatal("expected error for non-201 response")
 	}
@@ -252,7 +292,7 @@ func TestStoreSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
+	err := storeSecret(context.Background(), cfg, "/desktopctl/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -288,7 +328,7 @@ func TestStoreSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
+	err := storeSecret(context.Background(), cfg, "/desktopctl/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -309,7 +349,7 @@ func TestStoreSecret_DescribeError(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeSecret(context.Background(), cfg, "/ai-desktops/testowner/github", `{"token":"abc"}`, "testowner", "dev")
+	err := storeSecret(context.Background(), cfg, "/desktopctl/testowner/github", `{"token":"abc"}`, "testowner", "dev")
 	if err == nil {
 		t.Fatal("expected error for non-NotFound DescribeSecret failure")
 	}
@@ -452,7 +492,7 @@ func TestStoreAgentSecret_Create(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
+	err := storeAgentSecret(context.Background(), cfg, "/desktopctl/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -494,11 +534,11 @@ func TestStoreIntegrationSecret_CreateDescription(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeIntegrationSecret(context.Background(), cfg, "/ai-desktops/testowner/tailscale/test", `{"TS_AUTHKEY":"tskey"}`, "testowner", "dev", "Tailscale")
+	err := storeIntegrationSecret(context.Background(), cfg, "/desktopctl/testowner/tailscale/test", `{"TS_AUTHKEY":"tskey"}`, "testowner", "dev", "Tailscale")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if gotDescription != "Tailscale integration secret for ai-desktops owner: testowner" {
+	if gotDescription != "Tailscale integration secret for desktopctl owner: testowner" {
 		t.Fatalf("description = %q", gotDescription)
 	}
 }
@@ -551,7 +591,7 @@ func TestStoreOperatorSecretValue_MergesExistingSecret(t *testing.T) {
 			}
 			for _, tag := range req.Tags {
 				gotTags[tag.Key] = tag.Value
-				if tag.Key == "ai-desktops-scope" {
+				if tag.Key == "desktopctl-scope" {
 					gotScopeTag = tag.Value
 				}
 			}
@@ -580,7 +620,7 @@ func TestStoreOperatorSecretValue_MergesExistingSecret(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	if err := storeOperatorSecretValue(context.Background(), cfg, "/ai-desktops/testowner", "TAILSCALE_API_KEY", "tskey-api", "testowner", "dev"); err != nil {
+	if err := storeOperatorSecretValue(context.Background(), cfg, "/desktopctl/testowner", "TAILSCALE_API_KEY", "tskey-api", "testowner", "dev"); err != nil {
 		t.Fatalf("storeOperatorSecretValue: %v", err)
 	}
 
@@ -597,7 +637,7 @@ func TestStoreOperatorSecretValue_MergesExistingSecret(t *testing.T) {
 	if gotScopeTag != "operator" {
 		t.Fatalf("operator scope tag = %q", gotScopeTag)
 	}
-	if gotTags["ai-desktops"] != "true" || gotTags["github-owner"] != "testowner" || gotTags["environment"] != "dev" {
+	if gotTags["desktopctl"] != "true" || gotTags["github-owner"] != "testowner" || gotTags["environment"] != "dev" || gotTags["ai-desktops-scope"] != "operator" {
 		t.Fatalf("operator tags = %v", gotTags)
 	}
 	if gotDescription != "" {
@@ -628,12 +668,39 @@ func TestStoreAgentSecret_Update(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeSecretsManagerConfig(srv.URL)
-	err := storeAgentSecret(context.Background(), cfg, "/ai-desktops/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
+	err := storeAgentSecret(context.Background(), cfg, "/desktopctl/testowner/agents", `{"CLAUDE_CODE_OAUTH_TOKEN":"sk"}`, "testowner", "dev")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	if !putCalled {
 		t.Error("expected PutSecretValue to be called")
+	}
+}
+
+func TestSetupSecretExists(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		status  int
+		body    string
+		want    bool
+		wantErr bool
+	}{
+		{"present", http.StatusOK, `{"ARN":"arn:aws:secretsmanager:us-east-1:123:secret:test","Name":"test"}`, true, false},
+		{"absent", http.StatusBadRequest, `{"__type":"ResourceNotFoundException","Message":"not found"}`, false, false},
+		{"denied", http.StatusForbidden, `{"__type":"AccessDeniedException","Message":"denied"}`, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			got, err := setupSecretExists(context.Background(), makeSecretsManagerConfig(srv.URL), "/desktopctl/prod/ca-central-1/orchael/github")
+			if got != tt.want || (err != nil) != tt.wantErr {
+				t.Fatalf("setupSecretExists = %v, %v", got, err)
+			}
+		})
 	}
 }
 
@@ -672,7 +739,7 @@ func TestImportEC2KeyPair_Success(t *testing.T) {
 			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <ImportKeyPairResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
   <requestId>test-id</requestId>
-  <keyName>ai-desktops-test</keyName>
+  <keyName>desktopctl-test</keyName>
   <keyFingerprint>ab:cd:ef</keyFingerprint>
 </ImportKeyPairResponse>`))
 		} else {
@@ -682,7 +749,7 @@ func TestImportEC2KeyPair_Success(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeEC2Config(srv.URL)
-	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -705,7 +772,7 @@ func TestImportEC2KeyPair_Duplicate(t *testing.T) {
   <Errors>
     <Error>
       <Code>InvalidKeyPair.Duplicate</Code>
-      <Message>The key pair &apos;ai-desktops-test&apos; already exists.</Message>
+      <Message>The key pair &apos;desktopctl-test&apos; already exists.</Message>
     </Error>
   </Errors>
   <RequestID>test-id</RequestID>
@@ -718,9 +785,12 @@ func TestImportEC2KeyPair_Duplicate(t *testing.T) {
 
 	cfg := makeEC2Config(srv.URL)
 	// Duplicate key pair should be treated as success (no error).
-	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test")
 	if err != nil {
 		t.Fatalf("expected duplicate key pair to be treated as success, got: %v", err)
+	}
+	if err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test", true); err == nil {
+		t.Fatal("fresh setup must refuse an existing EC2 key pair")
 	}
 }
 
@@ -750,7 +820,7 @@ func TestImportEC2KeyPair_Error(t *testing.T) {
 	defer srv.Close()
 
 	cfg := makeEC2Config(srv.URL)
-	err := importEC2KeyPair(context.Background(), cfg, "ai-desktops-test", "ssh-ed25519 AAAA test")
+	err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test")
 	if err == nil {
 		t.Fatal("expected an error for auth failure, got nil")
 	}

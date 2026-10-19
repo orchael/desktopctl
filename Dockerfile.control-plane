@@ -46,4 +46,4 @@ USER 65532:65532
 ENTRYPOINT ["/app/control-plane"]
 
 FROM api AS api-dev
-ENV AI_DESKTOPS_CONFIG=/app/config.example.yaml CONTROL_PLANE_MOCK_AWS=true
+ENV DESKTOPCTL_CONFIG=/app/config.example.yaml CONTROL_PLANE_MOCK_AWS=true

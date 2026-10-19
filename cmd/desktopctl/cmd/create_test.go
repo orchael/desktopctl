@@ -23,8 +23,28 @@ import (
 	"github.com/orchael/desktopctl/internal/store"
 )
 
+func TestPublicAMINamePattern(t *testing.T) {
+	for _, tc := range []struct {
+		version, override, want string
+	}{
+		{"0.7.0", "", "desktopctl-v0-*"},
+		{"1.4.2", "", "desktopctl-v1-*"},
+		{"1.4.2", "2", "desktopctl-v2-*"},
+	} {
+		got, err := publicAMINamePattern(tc.version, tc.override)
+		if err != nil || got != tc.want {
+			t.Errorf("publicAMINamePattern(%q, %q) = %q, %v; want %q", tc.version, tc.override, got, err, tc.want)
+		}
+	}
+	for _, override := range []string{"-1", "01", "1.0", "all"} {
+		if _, err := publicAMINamePattern("1.4.2", override); err == nil {
+			t.Errorf("override %q unexpectedly accepted", override)
+		}
+	}
+}
+
 func TestCreateBootstrapSecretsRenderSeparateSources(t *testing.T) {
-	const agentPath = "/ai-desktops/acme/agents"
+	const agentPath = "/desktopctl/acme/agents"
 	const desktopPath = "/application/local"
 	bootCfg := &provision.BootstrapConfig{DesktopID: "d-secrets", AWSRegion: "us-east-2"}
 	tracked := desktopSecretPaths(agentPath, []string{desktopPath, agentPath})
@@ -61,8 +81,8 @@ func TestCreateSecretPathsSaaSExcludesOperatorAgentSecret(t *testing.T) {
 }
 
 func TestCreateBootstrapProfileSecretUsesDesktopEnvironment(t *testing.T) {
-	const agentPath = "/ai-desktops/acme/agents"
-	const profilePath = "/ai-desktops/acme/profiles/personal"
+	const agentPath = "/desktopctl/acme/agents"
+	const profilePath = "/desktopctl/acme/profiles/personal"
 	bootCfg := &provision.BootstrapConfig{DesktopID: "d-profile-secret", AWSRegion: "us-east-2", DesktopProfile: "acme/personal", ProfileSecretPath: profilePath}
 	tracked := desktopSecretPaths(agentPath, []string{profilePath})
 	applyBootstrapSecretSources(bootCfg, agentPath, tracked)
@@ -479,14 +499,14 @@ func TestResolveCreateIntegrations(t *testing.T) {
 				tailscale:               true,
 				configTailscaleNetwork:  "config-tailnet",
 				configStepCA:            "ca.config.ts.net",
-				configStepCAProvisioner: "ai-desktops",
+				configStepCAProvisioner: "desktopctl",
 				configStepCAFingerprint: "config-fp",
 			},
 			wantTailnet:   "config-tailnet",
 			wantTailscale: true,
 			wantStepCA:    "ca.config.ts.net",
 			wantStepCAOn:  true,
-			wantProv:      "ai-desktops",
+			wantProv:      "desktopctl",
 			wantFP:        "config-fp",
 		},
 		{
@@ -647,17 +667,17 @@ func TestPrepareIntegrationSecrets_previewDoesNotRequireSecretEnv(t *testing.T) 
 		"dev",
 		"invalid-region-for-preview-test",
 		"invalid-profile-for-preview-test",
-		"/ai-desktops/acme",
+		"/desktopctl/acme",
 		"acme-tailnet",
 		"ca.acme-tailnet.ts.net",
 	)
 	if err != nil {
 		t.Fatalf("prepareIntegrationSecrets preview returned error: %v", err)
 	}
-	if tailscalePath != "/ai-desktops/acme/tailscale/acme-tailnet" {
+	if tailscalePath != "/desktopctl/dev/invalid-region-for-preview-test/acme/tailscale/acme-tailnet" {
 		t.Fatalf("tailscale path = %q", tailscalePath)
 	}
-	if stepCAPath != "/ai-desktops/acme/step-ca/ca.acme-tailnet.ts.net" {
+	if stepCAPath != "/desktopctl/dev/invalid-region-for-preview-test/acme/step-ca/ca.acme-tailnet.ts.net" {
 		t.Fatalf("step-ca path = %q", stepCAPath)
 	}
 }
@@ -720,7 +740,7 @@ func TestIntegrationSecretHasKey(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			got, err := integrationSecretHasKey(context.Background(), makeSecretsManagerConfig(srv.URL), "/ai-desktops/acme/tailscale/acme", "TS_AUTHKEY")
+			got, err := integrationSecretHasKey(context.Background(), makeSecretsManagerConfig(srv.URL), "/desktopctl/acme/tailscale/acme", "TS_AUTHKEY")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")

@@ -52,11 +52,11 @@ func runDestroyFoundation(cmd *cobra.Command, args []string) error {
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
-	ref := pulumi.FoundationStackRef(backendURL, env, workDir)
+	ref := pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, workDir)
 
 	fmt.Fprintf(os.Stderr, "Destroying foundation stack %s...\n", ref.FullName())
 
-	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile}
+	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		return fmt.Errorf("foundation destroy: %w", err)
 	}

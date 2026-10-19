@@ -23,7 +23,7 @@ func TestRegistryWebInstallUsesNewScopeAndMigratesService(t *testing.T) {
 func TestLocalWebInstallMigratesService(t *testing.T) {
 	script := localWebInstallScript("/tmp/orchael-desktopctl-0.6.1.tgz")
 	assertWebServiceMigration(t, script)
-	if !strings.Contains(script, "sudo npm install --prefix /opt/ai-desktops/web /tmp/orchael-desktopctl-0.6.1.tgz") {
+	if !strings.Contains(script, "sudo npm install --prefix /opt/desktopctl/web /tmp/orchael-desktopctl-0.6.1.tgz") {
 		t.Fatalf("local tarball install missing: %s", script)
 	}
 }
@@ -37,12 +37,12 @@ func assertWebServiceMigration(t *testing.T, script string) {
 	}
 	oldPath := "/node_modules/@markcallen/desktop-web/server-dist/index.js"
 	newPath := "/node_modules/@orchael/desktopctl/server-dist/index.js"
-	for _, want := range []string{oldPath, newPath, "ai-desktops-web.service.d", "sudo systemctl daemon-reload"} {
+	for _, want := range []string{oldPath, newPath, "desktopctl-web.service.d", "sudo systemctl daemon-reload"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("service migration missing %q: %s", want, script)
 		}
 	}
-	if strings.Index(script, "sudo systemctl daemon-reload") > strings.Index(script, "sudo systemctl restart ai-desktops-web") {
+	if strings.Index(script, "sudo systemctl daemon-reload") > strings.Index(script, "sudo systemctl restart desktopctl-web") {
 		t.Fatalf("service restarts before its unit is migrated: %s", script)
 	}
 }

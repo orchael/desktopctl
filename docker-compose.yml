@@ -1,13 +1,13 @@
-name: ai-desktops-control-plane
+name: desktopctl-control-plane
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ai_desktops
-      POSTGRES_USER: ai_desktops_admin
-      POSTGRES_PASSWORD: ai_desktops_admin
+      POSTGRES_DB: desktopctl
+      POSTGRES_USER: desktopctl_admin
+      POSTGRES_PASSWORD: desktopctl_admin
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ai_desktops_admin -d ai_desktops"]
+      test: ["CMD-SHELL", "pg_isready -U desktopctl_admin -d desktopctl"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -18,14 +18,14 @@ services:
     build: {context: ., dockerfile: Dockerfile.control-plane, target: web-dev}
     command: pnpm run db:migrate
     environment:
-      DATABASE_URL: postgresql://ai_desktops_admin:ai_desktops_admin@postgres:5432/ai_desktops
+      DATABASE_URL: postgresql://desktopctl_admin:desktopctl_admin@postgres:5432/desktopctl
     depends_on:
       postgres: {condition: service_healthy}
   control-plane-api:
     build: {context: ., dockerfile: Dockerfile.control-plane, target: api}
     environment:
-      AI_DESKTOPS_CONFIG: ${AI_DESKTOPS_CONFIG:-/app/config.example.yaml}
-      AI_DESKTOPS_ENVIRONMENT: ${AI_DESKTOPS_ENVIRONMENT:-dev}
+      DESKTOPCTL_CONFIG: ${DESKTOPCTL_CONFIG:-/app/config.example.yaml}
+      DESKTOPCTL_ENVIRONMENT: ${DESKTOPCTL_ENVIRONMENT:-dev}
       AWS_REGION: ${AWS_REGION:-us-east-2}
       OPERATOR_AWS_ACCESS_KEY_ID:
       OPERATOR_AWS_SECRET_ACCESS_KEY:
@@ -49,7 +49,7 @@ services:
       AUTH_URL: https://app.desktops.orchael.dev
       CONTROL_PLANE_API_TOKEN:
       CONTROL_PLANE_API_URL: http://control-plane-api:8080
-      DATABASE_URL: postgresql://ai_desktops_app:ai_desktops_app@postgres:5432/ai_desktops
+      DATABASE_URL: postgresql://desktopctl_app:desktopctl_app@postgres:5432/desktopctl
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
   nginx:

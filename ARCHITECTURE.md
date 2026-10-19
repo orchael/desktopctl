@@ -1,10 +1,10 @@
-# Architecture - ai-desktops
+# Architecture - desktopctl
 
 > This is the original single-repository design record. For the audited code and the desktopctl/Desktops split, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Compatibility names in this document describe existing deployments.
 
 ## Purpose
 
-`ai-desktops` is a CLI-driven fleet manager for persistent remote AI coding desktops. The implementation keeps the control surface small: a Go CLI owns lifecycle operations, Pulumi owns AWS infrastructure, DynamoDB stores fleet metadata, and each desktop runs a standard Ubuntu-based runtime with `novnc-desktop`, `bridgectl`, and developer tools.
+`desktopctl` is a CLI-driven fleet manager for persistent remote AI coding desktops. The implementation keeps the control surface small: a Go CLI owns lifecycle operations, Pulumi owns AWS infrastructure, DynamoDB stores fleet metadata, and each desktop runs a standard Ubuntu-based runtime with `novnc-desktop`, `bridgectl`, and developer tools.
 
 The design optimizes for a single operator in v1 while preserving a clean path to authenticated external-user access later.
 
@@ -15,7 +15,7 @@ The design optimizes for a single operator in v1 while preserving a clean path t
 ```text
 Operator terminal
   |
-  | ai-desktops CLI
+  | desktopctl CLI
   v
 Go CLI
   |
@@ -128,8 +128,8 @@ Both Pulumi programs should be written in Go so the infrastructure language matc
 Use separate Pulumi stacks for shared foundation resources and each desktop:
 
 ```text
-ai-desktops/foundation
-ai-desktops/desktop-<desktop_id>
+desktopctl/foundation
+desktopctl/desktop-<desktop_id>
 ```
 
 This keeps desktop lifecycle operations isolated. Creating, updating, stopping, starting, or destroying one desktop should not require changing the whole fleet.
@@ -198,7 +198,7 @@ Pulumi state remains the source of truth for cloud resources. DynamoDB is the op
 Table name:
 
 ```text
-ai-desktops-fleet-<env>   (e.g. ai-desktops-fleet-dev, ai-desktops-fleet-test, ai-desktops-fleet-prod)
+desktopctl-fleet-<env>   (e.g. desktopctl-fleet-dev, desktopctl-fleet-test, desktopctl-fleet-prod)
 ```
 
 Primary key:
@@ -277,12 +277,12 @@ Each desktop host uses a standard runtime contract.
 | Path or service | Purpose |
 | --- | --- |
 | `/workspace` | Persistent repository workspace. |
-| `/opt/ai-desktops` | Local runtime assets managed by this project. |
+| `/opt/desktopctl` | Local runtime assets managed by this project. |
 | `/opt/bridgectl` | Provider CLI runtime assets. |
 | `novnc-desktop` services | Browser desktop substrate and access-token service. |
 | `bridgectl.service` | Agent process supervisor. |
 | `docker.service` | Container runtime for builds and app dependencies. |
-| `ai-desktop-web.service` | Optional local service for the Vite-built desktop webapp. |
+| `desktopctl-web.service` | Optional local service for the Vite-built desktop webapp. |
 
 The root EBS volume is the persistence boundary for MVP. A later architecture can move workspace state to a separate EBS volume if snapshot and clone workflows become important.
 
@@ -313,7 +313,7 @@ apps/
 Build and deployment:
 
 - Vite builds static assets during packaging or host provisioning.
-- Assets are copied to `/opt/ai-desktops/desktop-web/dist`.
+- Assets are copied to `/opt/desktopctl/desktop-web/dist`.
 - A small local HTTP service or Nginx location serves the built app.
 - The webapp talks only to local desktop services or a same-host API shim.
 
@@ -423,7 +423,7 @@ This preserves remote control without exposing the bridge to the public internet
 2. Ensure the S3 backend bucket and DynamoDB fleet table exist.
 3. Ensure foundation stack outputs exist.
 4. Create a DynamoDB record in `creating` state.
-5. Create or select Pulumi stack `ai-desktops/desktop-<desktop_id>`.
+5. Create or select Pulumi stack `desktopctl/desktop-<desktop_id>`.
 6. Set stack config for region, profile, owner boundary, repo list, secret references, DNS, and desktop profile.
 7. Run Pulumi preview by default.
 8. Run Pulumi up through Automation API.
@@ -460,7 +460,7 @@ Minimum v1 observability:
 Recommended local run directory:
 
 ```text
-~/.ai-desktops/runs/<run_id>/
+~/.desktopctl/runs/<run_id>/
 ```
 
 The CLI should support `--json` for status and list commands so later web or automation layers can consume the same lifecycle data.
@@ -507,7 +507,7 @@ What still needs design:
 ### Milestone 1 - Repository and CLI skeleton
 
 - Go module
-- `ai-desktops` CLI skeleton
+- `desktopctl` CLI skeleton
 - config file support
 - JSON output mode
 - unit tests for config and repository owner validation

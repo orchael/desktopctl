@@ -21,27 +21,27 @@ var updateWebLocalDir string
 
 var desktopWebVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$`)
 
-const desktopWebServiceMigration = `installed=/opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
+const desktopWebServiceMigration = `installed=/opt/desktopctl/web/node_modules/@orchael/desktopctl/server-dist/index.js
 test -f "$installed"
-exec_start=$(sudo systemctl show -p ExecStart --value ai-desktops-web)
+exec_start=$(sudo systemctl show -p ExecStart --value desktopctl-web)
 case "$exec_start" in
   *"/node_modules/@orchael/desktopctl/server-dist/index.js"*) ;;
   *"/node_modules/@markcallen/desktop-web/server-dist/index.js"*)
-    sudo install -d -m 0755 /etc/systemd/system/ai-desktops-web.service.d
-    printf '%s\n' '[Service]' 'ExecStart=' 'ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js' | sudo tee /etc/systemd/system/ai-desktops-web.service.d/desktopctl-package.conf >/dev/null
+    sudo install -d -m 0755 /etc/systemd/system/desktopctl-web.service.d
+    printf '%s\n' '[Service]' 'ExecStart=' 'ExecStart=/usr/bin/node /opt/desktopctl/web/node_modules/@orchael/desktopctl/server-dist/index.js' | sudo tee /etc/systemd/system/desktopctl-web.service.d/desktopctl-package.conf >/dev/null
     sudo systemctl daemon-reload
     ;;
-  *) echo "ai-desktops-web has an unexpected ExecStart; refusing to replace it" >&2; exit 1 ;;
+  *) echo "desktopctl-web has an unexpected ExecStart; refusing to replace it" >&2; exit 1 ;;
 esac
-sudo systemctl show -p ExecStart --value ai-desktops-web | grep -Fq '/node_modules/@orchael/desktopctl/server-dist/index.js'
-sudo systemctl restart ai-desktops-web
-sudo systemctl is-active --quiet ai-desktops-web && echo "ai-desktops-web restarted successfully"`
+sudo systemctl show -p ExecStart --value desktopctl-web | grep -Fq '/node_modules/@orchael/desktopctl/server-dist/index.js'
+sudo systemctl restart desktopctl-web
+sudo systemctl is-active --quiet desktopctl-web && echo "desktopctl-web restarted successfully"`
 
 var updateWebCmd = &cobra.Command{
 	Use:   "update-web <desktop-id>",
 	Short: "Update the desktop-web app on a running desktop",
 	Long: `update-web installs a new version of @orchael/desktopctl on a running desktop
-and restarts the ai-desktops-web systemd service.
+and restarts the desktopctl-web systemd service.
 
 Two modes are available:
 
@@ -283,13 +283,13 @@ func registryWebInstallScript(version string) string {
 	return fmt.Sprintf(`set -e
 sudo tee /root/.npmrc > /dev/null
 trap 'sudo rm -f /root/.npmrc' EXIT
-sudo npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@%s
+sudo npm install --prefix /opt/desktopctl/web @orchael/desktopctl@%s
 %s`, version, desktopWebServiceMigration)
 }
 
 func localWebInstallScript(remoteTar string) string {
 	return fmt.Sprintf(`set -e
-sudo npm install --prefix /opt/ai-desktops/web %s
+sudo npm install --prefix /opt/desktopctl/web %s
 rm -f %s
 %s`, remoteTar, remoteTar, desktopWebServiceMigration)
 }

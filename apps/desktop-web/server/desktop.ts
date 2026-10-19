@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const ENV_FILE = process.env.DESKTOP_ENV_FILE ?? '/opt/ai-desktops/desktop.env';
+const ENV_FILE = process.env.DESKTOP_ENV_FILE ?? '/opt/desktopctl/desktop.env';
 const NOVNC_HTTPS_PORT = process.env.NOVNC_HTTPS_PORT ?? '8443';
 const DEFAULT_UBUNTU_RUNTIME_DIR = '/run/user/1000';
 
@@ -54,7 +54,7 @@ function serviceActive(name: string): boolean {
   try {
     if (name === 'bridgectl') {
       // bridgectl runs as a user-level systemd unit under the ubuntu user.
-      // XDG_RUNTIME_DIR must be set explicitly because ai-desktops-web runs as
+      // XDG_RUNTIME_DIR must be set explicitly because desktopctl-web runs as
       // a system service (not a user session), so the env var is absent.
       execSync('systemctl --user is-active bridgectl', {
         stdio: 'pipe',
@@ -88,7 +88,7 @@ function ubuntuRuntimeDir(): string {
 }
 
 const NOVNC_VERSION_FILE =
-  process.env.NOVNC_VERSION_FILE ?? '/opt/ai-desktops/novnc-desktop-version';
+  process.env.NOVNC_VERSION_FILE ?? '/opt/desktopctl/novnc-desktop-version';
 
 function serviceVersion(name: string): string | undefined {
   try {

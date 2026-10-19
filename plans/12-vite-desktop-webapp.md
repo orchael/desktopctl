@@ -15,7 +15,7 @@ Create:
 - `apps/desktop-web`
 - Vite app scaffold
 - build command
-- deployment into `/opt/ai-desktops/desktop-web/dist`
+- deployment into `/opt/desktopctl/desktop-web/dist`
 - minimal local service or Nginx route for serving static assets
 
 Initial UI should show:

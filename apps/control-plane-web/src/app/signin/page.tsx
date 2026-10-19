@@ -6,7 +6,7 @@ export default async function SignInPage() {
   return (
     <main className="signinPage">
       <section className="signinPanel">
-        <div className="brandMark">ai-desktops</div>
+        <div className="brandMark">desktopctl</div>
         <h1>Control your workspace.</h1>
         <p>Sign in to manage your organization’s cloud desktops.</p>
         <form

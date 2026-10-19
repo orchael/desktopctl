@@ -1,13 +1,13 @@
 [Unit]
-Description=ai-desktops desktop web server
+Description=desktopctl desktop web server
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/ai-desktops/web
+WorkingDirectory=/opt/desktopctl/web
 Environment=PORT=30080
-ExecStart=/usr/bin/node /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
+ExecStart=/usr/bin/node /opt/desktopctl/web/node_modules/@orchael/desktopctl/server-dist/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

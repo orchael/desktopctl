@@ -115,7 +115,7 @@ export function Dashboard({
     <main className="appShell">
       <header className="topbar">
         <div className="brand">
-          <strong>ai-desktops</strong>
+          <strong>desktopctl</strong>
           <span>Control Plane</span>
         </div>
         <label className="orgPicker">

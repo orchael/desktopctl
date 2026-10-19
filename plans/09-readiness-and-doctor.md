@@ -49,6 +49,6 @@ Checks:
 ```bash
 go test ./internal/health ./internal/desktop
 go test ./...
-go run ./cmd/ai-desktops doctor <desktop_id>
-go run ./cmd/ai-desktops doctor <desktop_id> --json
+go run ./cmd/desktopctl doctor <desktop_id>
+go run ./cmd/desktopctl doctor <desktop_id> --json
 ```

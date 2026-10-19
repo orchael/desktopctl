@@ -19,7 +19,7 @@ func TestRenderCloudInit(t *testing.T) {
 		Repos:            []string{"github.com/acme/app-one", "github.com/acme/app-two"},
 		WorkspacePath:    "/workspace",
 		BridgePort:       9445,
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		AWSRegion:        "us-east-1",
 		Environment:      "dev",
 	}
@@ -37,7 +37,7 @@ func TestRenderCloudInit(t *testing.T) {
 		"app-two",
 		"/workspace",
 		"9445",
-		"/ai-desktops/acme/github",
+		"/desktopctl/acme/github",
 		"us-east-1",
 		"bridgectl",
 		`config["cert_renewal_check_interval"] = "10m"`,
@@ -66,7 +66,7 @@ func TestRenderCloudInit_SaaSWithoutDNSOrGitHubSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderCloudInit: %v", err)
 	}
-	for _, forbidden := range []string{"certbot certonly", "ai-desktops-setup-tls", "aws secretsmanager get-secret-value", "gh auth setup-git"} {
+	for _, forbidden := range []string{"certbot certonly", "desktopctl-setup-tls", "aws secretsmanager get-secret-value", "gh auth setup-git"} {
 		if strings.Contains(out, forbidden) {
 			t.Errorf("SaaS cloud-init still contains %q", forbidden)
 		}
@@ -83,7 +83,7 @@ func TestRenderCloudInit_noNPMRCByDefault(t *testing.T) {
 		DesktopID:        "d-npm-default",
 		Hostname:         "d-npm-default.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -104,7 +104,7 @@ func TestRenderCloudInit_npmGitHubScopes(t *testing.T) {
 		DesktopID:        "d-npm-scopes",
 		Hostname:         "d-npm-scopes.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		NPMGitHubScopes:  []string{"@private-tools", "acme"},
 	}
 
@@ -175,7 +175,7 @@ func TestRenderCloudInit_efsWorkspace(t *testing.T) {
 		DesktopID:        "d-efs",
 		Hostname:         "d-efs.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		WorkspacePath:    "/workspace",
 		WorkspaceMode:    "efs",
 		WorkspaceName:    "factory-dev",
@@ -220,7 +220,7 @@ func TestRenderCloudInit_noSecretInOutput(t *testing.T) {
 		DesktopID:        "d-003",
 		Hostname:         "d-003.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -241,7 +241,7 @@ func TestRenderCloudInit_ghAuthUsesTokenLogin(t *testing.T) {
 		DesktopID:        "d-gh",
 		Hostname:         "d-gh.desktops.orchael.dev",
 		GitHubOwner:      "repo-org",
-		GitHubSecretPath: "/ai-desktops/repo-org/github",
+		GitHubSecretPath: "/desktopctl/repo-org/github",
 		AWSRegion:        "us-east-1",
 	}
 
@@ -287,7 +287,7 @@ func TestRenderCloudInit_bridgectlClearsGitHubTokenOverrides(t *testing.T) {
 		DesktopID:        "d-gh-env",
 		Hostname:         "d-gh-env.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		AWSRegion:        "us-east-1",
 	}
 
@@ -327,7 +327,7 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				WorkspacePath:    "/workspace",
 				AWSRegion:        "us-east-1",
 				Environment:      "dev",
-				GitHubSecretPath: "/ai-desktops/acme/github",
+				GitHubSecretPath: "/desktopctl/acme/github",
 			},
 		},
 		{
@@ -340,8 +340,8 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				WorkspacePath:    "/workspace",
 				AWSRegion:        "us-east-1",
 				Environment:      "dev",
-				GitHubSecretPath: "/ai-desktops/acme/github",
-				AgentSecretPath:  "/ai-desktops/acme/agents",
+				GitHubSecretPath: "/desktopctl/acme/github",
+				AgentSecretPath:  "/desktopctl/acme/agents",
 			},
 		},
 		{
@@ -350,8 +350,8 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				DesktopID:          "d-yaml-profile",
 				GitHubOwner:        "acme",
 				DesktopProfile:     "orchael/crew:profiles/reviewer",
-				ProfileSecretPath:  "/ai-desktops/acme/profiles/reviewer",
-				DesktopSecretPaths: []string{"/ai-desktops/acme/profiles/reviewer"},
+				ProfileSecretPath:  "/desktopctl/acme/profiles/reviewer",
+				DesktopSecretPaths: []string{"/desktopctl/acme/profiles/reviewer"},
 			},
 		},
 		{
@@ -363,12 +363,12 @@ func TestRenderCloudInit_validYAML(t *testing.T) {
 				WorkspacePath:       "/workspace",
 				AWSRegion:           "us-east-1",
 				Environment:         "dev",
-				GitHubSecretPath:    "/ai-desktops/acme/github",
+				GitHubSecretPath:    "/desktopctl/acme/github",
 				TailscaleNetwork:    "acme-tailnet",
-				TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+				TailscaleSecretPath: "/desktopctl/acme/tailscale/acme-tailnet",
 				StepCAServerDNS:     "ca.tailnet.ts.net",
-				StepCAProvisioner:   "ai-desktops",
-				StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+				StepCAProvisioner:   "desktopctl",
+				StepCASecretPath:    "/desktopctl/acme/step-ca/ca.tailnet.ts.net",
 			},
 		},
 	}
@@ -393,10 +393,10 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 		DesktopID:           "d-ts",
 		Hostname:            "d-ts.desktops.orchael.dev",
 		GitHubOwner:         "acme",
-		GitHubSecretPath:    "/ai-desktops/acme/github",
+		GitHubSecretPath:    "/desktopctl/acme/github",
 		AWSRegion:           "us-east-1",
 		TailscaleNetwork:    "acme-tailnet",
-		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+		TailscaleSecretPath: "/desktopctl/acme/tailscale/acme-tailnet",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -408,7 +408,7 @@ func TestRenderCloudInit_tailscale(t *testing.T) {
 		"tailscale.com/install.sh",
 		"TAILSCALE_INSTALL=$(mktemp)",
 		"systemctl enable tailscaled",
-		"/ai-desktops/acme/tailscale/acme-tailnet",
+		"/desktopctl/acme/tailscale/acme-tailnet",
 		"TS_AUTHKEY",
 		"tailscale up",
 		"--hostname \"$TAILSCALE_HOSTNAME\"",
@@ -433,14 +433,14 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 		DesktopID:           "d-ca",
 		Hostname:            "d-ca.desktops.orchael.dev",
 		GitHubOwner:         "acme",
-		GitHubSecretPath:    "/ai-desktops/acme/github",
+		GitHubSecretPath:    "/desktopctl/acme/github",
 		AWSRegion:           "us-east-1",
 		TailscaleNetwork:    "acme-tailnet",
-		TailscaleSecretPath: "/ai-desktops/acme/tailscale/acme-tailnet",
+		TailscaleSecretPath: "/desktopctl/acme/tailscale/acme-tailnet",
 		StepCAServerDNS:     "ca.tailnet.ts.net",
 		StepCAFingerprint:   "abcdef",
-		StepCAProvisioner:   "ai-desktops",
-		StepCASecretPath:    "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCAProvisioner:   "desktopctl",
+		StepCASecretPath:    "/desktopctl/acme/step-ca/ca.tailnet.ts.net",
 		StepCAClients: []StepCAClient{
 			{Issuer: "mark-macbook", PublicKey: "ssh-ed25519 AAAA mark", Required: true},
 		},
@@ -453,8 +453,8 @@ func TestRenderCloudInit_stepCAWaitsForDNSAndRestartsAfterTailscale(t *testing.T
 
 	checks := []string{
 		"getent hosts \"$STEP_CA\"",
-		"/opt/ai-desktops/apt-with-lock apt-get update",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
+		"/opt/desktopctl/apt-with-lock apt-get update",
+		"/opt/desktopctl/apt-with-lock apt-get install -y step-cli",
 		"packages.smallstep.com/stable/debian",
 		"STEP_CA_ROOT=\"/root/.step/certs/root_ca.crt\"",
 		"STEP_CA_API_ROOT=\"$STEP_CA_ROOT\"",
@@ -533,10 +533,10 @@ func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
 		DesktopID:        "d-apt",
 		Hostname:         "d-apt.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		AWSRegion:        "us-east-1",
 		StepCAServerDNS:  "ca.tailnet.ts.net",
-		StepCASecretPath: "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCASecretPath: "/desktopctl/acme/step-ca/ca.tailnet.ts.net",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -545,13 +545,13 @@ func TestRenderCloudInit_aptCommandsWaitForLocks(t *testing.T) {
 	}
 
 	checks := []string{
-		"cat >/opt/ai-desktops/apt-with-lock <<'SH'",
+		"cat >/opt/desktopctl/apt-with-lock <<'SH'",
 		"/var/lib/dpkg/lock-frontend",
 		"ERROR: fuser is required to wait for apt/dpkg locks",
 		"DPkg::Lock::Timeout",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"bridgectl=${EXPECTED_BRIDGE_VERSION}\"",
-		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+		"/opt/desktopctl/apt-with-lock apt-get install -y --no-install-recommends curl gpg ca-certificates",
+		"/opt/desktopctl/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends \"bridgectl=${EXPECTED_BRIDGE_VERSION}\"",
+		"/opt/desktopctl/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -569,7 +569,7 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 			Repos:                []string{"github.com/acme/repo"},
 			WorkspacePath:        "/workspace",
 			AWSRegion:            "us-east-1",
-			GitHubSecretPath:     "/ai-desktops/acme/github",
+			GitHubSecretPath:     "/desktopctl/acme/github",
 			PackagesPreInstalled: preInstalled,
 		}
 		out, err := RenderCloudInit(cfg)
@@ -599,7 +599,7 @@ func TestRenderCloudInit_runcmdEntriesAreStrings(t *testing.T) {
 
 func TestBridgectlReleasePin(t *testing.T) {
 	// AUTH-5: image builds and boot-time validation must target the same release.
-	const want = "v1.4.4"
+	const want = "v1.4.6"
 	if BridgectlVersion != want {
 		t.Errorf("CLI bridge pin = %q, want %q", BridgectlVersion, want)
 	}
@@ -619,8 +619,8 @@ func TestBridgectlReleasePin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.4"`) {
-			t.Errorf("cloud-init must require package 1.4.4 (preinstalled=%v)", preinstalled)
+		if !strings.Contains(out, `EXPECTED_BRIDGE_VERSION="1.4.6"`) {
+			t.Errorf("cloud-init must require package 1.4.6 (preinstalled=%v)", preinstalled)
 		}
 	}
 }
@@ -727,12 +727,12 @@ func TestRenderCloudInit_packagesPreInstalled(t *testing.T) {
 		t.Error("ballast update should be present when PackagesPreInstalled is true")
 	}
 
-	// ai-desktops-setup-tls should be invoked (handles TLS, nginx, certbot)
-	if !strings.Contains(out, "ai-desktops-setup-tls") {
-		t.Error("ai-desktops-setup-tls should be invoked when PackagesPreInstalled is true")
+	// desktopctl-setup-tls should be invoked (handles TLS, nginx, certbot)
+	if !strings.Contains(out, "desktopctl-setup-tls") {
+		t.Error("desktopctl-setup-tls should be invoked when PackagesPreInstalled is true")
 	}
 	if !strings.Contains(out, "NOVNC_HTTP_PORT") {
-		t.Error("NOVNC_HTTP_PORT should be set for ai-desktops-setup-tls")
+		t.Error("NOVNC_HTTP_PORT should be set for desktopctl-setup-tls")
 	}
 
 	// novnc-desktop service should still be enabled and started
@@ -762,10 +762,10 @@ func TestRenderCloudInit_agentSecretValuesAreSystemdSafe(t *testing.T) {
 		DesktopID:        "d-agent",
 		Hostname:         "d-agent.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		AWSRegion:        "us-east-1",
 		Environment:      "dev",
-		AgentSecretPath:  "/ai-desktops/acme/agents",
+		AgentSecretPath:  "/desktopctl/acme/agents",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -791,10 +791,10 @@ func TestRenderCloudInit_desktopSecretPaths(t *testing.T) {
 		DesktopID:          "d-sec",
 		Hostname:           "d-sec.desktops.orchael.dev",
 		GitHubOwner:        "acme",
-		GitHubSecretPath:   "/ai-desktops/acme/github",
+		GitHubSecretPath:   "/desktopctl/acme/github",
 		AWSRegion:          "us-east-1",
 		Environment:        "dev",
-		DesktopSecretPaths: []string{"/ai-desktops/acme/myapp", "/ai-desktops/acme/shared"},
+		DesktopSecretPaths: []string{"/desktopctl/acme/myapp", "/desktopctl/acme/shared"},
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -803,8 +803,8 @@ func TestRenderCloudInit_desktopSecretPaths(t *testing.T) {
 	}
 
 	checks := []string{
-		"/ai-desktops/acme/myapp",
-		"/ai-desktops/acme/shared",
+		"/desktopctl/acme/myapp",
+		"/desktopctl/acme/shared",
 		"environment.d",
 		"desktop-secrets.conf",
 		".desktop-secrets",
@@ -829,7 +829,7 @@ func TestRenderCloudInit_noDesktopSecretPaths(t *testing.T) {
 		DesktopID:        "d-nosec",
 		Hostname:         "d-nosec.desktops.orchael.dev",
 		GitHubOwner:      "acme",
-		GitHubSecretPath: "/ai-desktops/acme/github",
+		GitHubSecretPath: "/desktopctl/acme/github",
 		AWSRegion:        "us-east-1",
 	}
 
@@ -911,8 +911,8 @@ func TestRenderCloudInit_cloudWatch(t *testing.T) {
 
 	checks := []string{
 		"amazon-cloudwatch-agent",
-		"ai-desktops/syslog",
-		"ai-desktops/cloud-init",
+		"desktopctl/syslog",
+		"desktopctl/cloud-init",
 		"retention_in_days",
 		"mem_used_percent",
 		"disk_used_percent",
@@ -938,9 +938,9 @@ func TestRenderCloudInit_persistsBootstrapLifecycle(t *testing.T) {
 
 	for _, want := range []string{
 		"bootcmd:",
-		"/var/lib/ai-desktops/bootstrap-status.json",
+		"/var/lib/desktopctl/bootstrap-status.json",
 		`cloud-init status --wait`,
-		`systemd-run --unit=ai-desktops-bootstrap-status`,
+		`systemd-run --unit=desktopctl-bootstrap-status`,
 		`write_status succeeded`,
 		`write_status failed`,
 		`mv -f "$tmp" "$status_file"`,
@@ -953,7 +953,7 @@ func TestRenderCloudInit_persistsBootstrapLifecycle(t *testing.T) {
 	if strings.Index(out, "bootcmd:") > strings.Index(out, "package_update:") {
 		t.Error("bootstrap lifecycle watcher must start before package modules can fail")
 	}
-	if strings.Index(out, "systemd-run --unit=ai-desktops-bootstrap-status") > strings.Index(out, "runcmd:") {
+	if strings.Index(out, "systemd-run --unit=desktopctl-bootstrap-status") > strings.Index(out, "runcmd:") {
 		t.Error("bootstrap lifecycle watcher must start before runcmd")
 	}
 	if strings.Contains(out, "NvChad") || strings.Contains(out, "tmux-plugins/tpm") {
@@ -981,7 +981,7 @@ func TestRenderCloudInit_withAVDs(t *testing.T) {
 
 	checks := []string{
 		"ansible-playbook",
-		"/opt/ai-desktops/desktop-setup.yml",
+		"/opt/desktopctl/desktop-setup.yml",
 		"base64 -d",
 		"avd-vars.json",
 	}
@@ -1089,14 +1089,14 @@ func TestRenderCloudInit_bootstrapTiming(t *testing.T) {
 		DesktopID:            "d-timing",
 		Hostname:             "d-timing.desktops.orchael.dev",
 		GitHubOwner:          "acme",
-		GitHubSecretPath:     "/ai-desktops/acme/github",
+		GitHubSecretPath:     "/desktopctl/acme/github",
 		PackagesPreInstalled: true,
-		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme",
+		TailscaleSecretPath:  "/desktopctl/acme/tailscale/acme",
 		TailscaleNetwork:     "acme",
 		StepCAServerDNS:      "ca.acme.internal",
 		StepCAFingerprint:    "abc123",
 		StepCAProvisioner:    "desktop",
-		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.acme.internal",
+		StepCASecretPath:     "/desktopctl/acme/step-ca/ca.acme.internal",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -1106,14 +1106,14 @@ func TestRenderCloudInit_bootstrapTiming(t *testing.T) {
 
 	// All 7 markers must be present, including the optional Tailscale and Step-CA ones.
 	// "start" is invoked unquoted in the script-install block; the rest use quoted args.
-	if !strings.Contains(out, "ai-desktops-ts start") {
+	if !strings.Contains(out, "desktopctl-ts start") {
 		t.Error("missing bootstrap timing marker: start")
 	}
 	for _, marker := range []string{
 		"workspace_ready", "tailscale_ready",
 		"certs_issued", "repos_cloned", "services_started", "complete",
 	} {
-		want := `ai-desktops-ts "` + marker + `"`
+		want := `desktopctl-ts "` + marker + `"`
 		if !strings.Contains(out, want) {
 			t.Errorf("missing bootstrap timing marker: %s", marker)
 		}
@@ -1121,8 +1121,8 @@ func TestRenderCloudInit_bootstrapTiming(t *testing.T) {
 	if !strings.Contains(out, "bootstrap-timing.json") {
 		t.Error("bootstrap timing file path missing from output")
 	}
-	if !strings.Contains(out, "/usr/local/bin/ai-desktops-ts") {
-		t.Error("ai-desktops-ts script installation missing from output")
+	if !strings.Contains(out, "/usr/local/bin/desktopctl-ts") {
+		t.Error("desktopctl-ts script installation missing from output")
 	}
 }
 
@@ -1131,7 +1131,7 @@ func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
 		DesktopID:            "d-precheck",
 		Hostname:             "d-precheck.desktops.orchael.dev",
 		GitHubOwner:          "acme",
-		GitHubSecretPath:     "/ai-desktops/acme/github",
+		GitHubSecretPath:     "/desktopctl/acme/github",
 		WorkspacePath:        "/workspace",
 		WorkspaceMode:        "efs",
 		EFSFileSystemID:      "fs-123",
@@ -1139,11 +1139,11 @@ func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
 		AWSRegion:            "us-east-1",
 		PackagesPreInstalled: true,
 		TailscaleNetwork:     "acme-tailnet",
-		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme-tailnet",
+		TailscaleSecretPath:  "/desktopctl/acme/tailscale/acme-tailnet",
 		StepCAServerDNS:      "ca.tailnet.ts.net",
 		StepCAFingerprint:    "abcdef",
-		StepCAProvisioner:    "ai-desktops",
-		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCAProvisioner:    "desktopctl",
+		StepCASecretPath:     "/desktopctl/acme/step-ca/ca.tailnet.ts.net",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -1155,11 +1155,11 @@ func TestRenderCloudInit_preInstalledValidatesNotInstalls(t *testing.T) {
 	absent := []string{
 		"apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils",
 		"curl -fsSL https://tailscale.com/install.sh",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
-		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends python3-yaml",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y --no-install-recommends openssl",
+		"/opt/desktopctl/apt-with-lock apt-get install -y step-cli",
+		"/opt/desktopctl/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+		"/opt/desktopctl/apt-with-lock apt-get install -y --allow-downgrades --no-install-recommends",
+		"/opt/desktopctl/apt-with-lock apt-get install -y --no-install-recommends python3-yaml",
+		"/opt/desktopctl/apt-with-lock apt-get install -y --no-install-recommends openssl",
 		`wget -q --timeout=60 --tries=3 \`,
 	}
 	for _, want := range absent {
@@ -1189,7 +1189,7 @@ func TestRenderCloudInit_nonPreInstalledHasFallbackInstalls(t *testing.T) {
 		DesktopID:            "d-noprecheck",
 		Hostname:             "d-noprecheck.desktops.orchael.dev",
 		GitHubOwner:          "acme",
-		GitHubSecretPath:     "/ai-desktops/acme/github",
+		GitHubSecretPath:     "/desktopctl/acme/github",
 		WorkspacePath:        "/workspace",
 		WorkspaceMode:        "efs",
 		EFSFileSystemID:      "fs-456",
@@ -1197,11 +1197,11 @@ func TestRenderCloudInit_nonPreInstalledHasFallbackInstalls(t *testing.T) {
 		AWSRegion:            "us-east-1",
 		PackagesPreInstalled: false,
 		TailscaleNetwork:     "acme-tailnet",
-		TailscaleSecretPath:  "/ai-desktops/acme/tailscale/acme-tailnet",
+		TailscaleSecretPath:  "/desktopctl/acme/tailscale/acme-tailnet",
 		StepCAServerDNS:      "ca.tailnet.ts.net",
 		StepCAFingerprint:    "abcdef",
-		StepCAProvisioner:    "ai-desktops",
-		StepCASecretPath:     "/ai-desktops/acme/step-ca/ca.tailnet.ts.net",
+		StepCAProvisioner:    "desktopctl",
+		StepCASecretPath:     "/desktopctl/acme/step-ca/ca.tailnet.ts.net",
 	}
 
 	out, err := RenderCloudInit(cfg)
@@ -1213,8 +1213,8 @@ func TestRenderCloudInit_nonPreInstalledHasFallbackInstalls(t *testing.T) {
 	present := []string{
 		"apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends amazon-efs-utils",
 		"curl -fsSL https://tailscale.com/install.sh",
-		"/opt/ai-desktops/apt-with-lock apt-get install -y step-cli",
-		"/opt/ai-desktops/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
+		"/opt/desktopctl/apt-with-lock apt-get install -y step-cli",
+		"/opt/desktopctl/apt-with-lock dpkg -i /tmp/amazon-cloudwatch-agent.deb",
 	}
 	for _, want := range present {
 		if !strings.Contains(out, want) {
@@ -1264,7 +1264,7 @@ func TestRenderCloudInit_agentProfile(t *testing.T) {
 	out, err := RenderCloudInit(&BootstrapConfig{
 		DesktopID:        "d-profile",
 		GitHubOwner:      "markcallen",
-		GitHubSecretPath: "/ai-desktops/markcallen/github",
+		GitHubSecretPath: "/desktopctl/markcallen/github",
 		DesktopProfile:   "markcallen/ai-desktop-profile",
 	})
 	if err != nil {

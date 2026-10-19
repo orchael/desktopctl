@@ -9,7 +9,7 @@ import (
 )
 
 func TestAMIDoctorChecksPrivateCodexHome(t *testing.T) {
-	doctor, err := os.ReadFile("files/ai-desktops-doctor")
+	doctor, err := os.ReadFile("files/desktopctl-doctor")
 	if err != nil {
 		t.Fatalf("read AMI doctor: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestAMIDoctorReportsCodexUpdateSetting(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tc.contents), 0600); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command("sh", "files/ai-desktops-doctor")
+			cmd := exec.Command("sh", "files/desktopctl-doctor")
 			cmd.Env = append(os.Environ(), "CODEX_BRIDGE_HOME_DIR="+dir, "CONFIG_FILE="+filepath.Join(dir, "missing.yaml"))
 			output, _ := cmd.CombinedOutput() // Unrelated host checks can fail outside an AMI.
 			if !strings.Contains(string(output), tc.want) {
@@ -51,7 +51,7 @@ func TestAMIDoctorReportsCodexUpdateSetting(t *testing.T) {
 }
 
 func TestAMIDoctorChecksCodexUpdateSetting(t *testing.T) {
-	doctor, err := os.ReadFile("files/ai-desktops-doctor")
+	doctor, err := os.ReadFile("files/desktopctl-doctor")
 	if err != nil {
 		t.Fatal(err)
 	}

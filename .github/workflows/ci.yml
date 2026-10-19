@@ -120,16 +120,16 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build image
-        run: docker build -f Dockerfile.control-plane --target api -t ai-desktops-control-plane-api:test .
+        run: docker build -f Dockerfile.control-plane --target api -t desktopctl-control-plane-api:test .
 
       - name: Smoke image
         run: |
           docker run -d --rm \
-            --name ai-desktops-control-plane \
+            --name desktopctl-control-plane \
             -e CONTROL_PLANE_MOCK_AWS=true \
-            -e AI_DESKTOPS_CONFIG=/app/config.example.yaml \
+            -e DESKTOPCTL_CONFIG=/app/config.example.yaml \
             -p 18080:8080 \
-            ai-desktops-control-plane-api:test
+            desktopctl-control-plane-api:test
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:18080/healthz; then
               curl -fsS http://127.0.0.1:18080/readyz
@@ -138,5 +138,5 @@ jobs:
             fi
             sleep 1
           done
-          docker logs ai-desktops-control-plane
+          docker logs desktopctl-control-plane
           exit 1

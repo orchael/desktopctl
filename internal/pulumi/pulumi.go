@@ -1,4 +1,4 @@
-// Package pulumi provides helpers for managing ai-desktops Pulumi stacks.
+// Package pulumi provides helpers for managing desktopctl Pulumi stacks.
 // Stacks are driven by invoking the `pulumi` CLI as a subprocess rather than
 // using the Pulumi Automation SDK, avoiding the heavyweight SDK dependency.
 // The `pulumi` binary must be on PATH.
@@ -28,10 +28,10 @@ func (r *StackRef) FullName() string {
 }
 
 // FoundationStackRef returns the StackRef for the shared foundation stack.
-func FoundationStackRef(backendURL, env, workDir string) *StackRef {
+func FoundationStackRef(backendURL, env, region, workDir string) *StackRef {
 	return &StackRef{
 		Project:    "foundation",
-		StackName:  "foundation-" + env,
+		StackName:  "foundation-" + env + "-" + region,
 		BackendURL: backendURL,
 		WorkDir:    workDir,
 	}
@@ -56,6 +56,7 @@ type StackConfig map[string]string
 func FoundationConfig(region, zone, fleetTable, operatorCIDR, environment, vpcID, backendBucket string) StackConfig {
 	cfg := StackConfig{
 		"aws:region":          region,
+		"region":              region,
 		"zone":                zone,
 		"fleetTable":          fleetTable,
 		"operatorCIDR":        operatorCIDR,
@@ -182,10 +183,34 @@ type Runner struct {
 	PassPhrase string
 	// AWSProfile is the AWS CLI profile to pass to Pulumi via AWS_PROFILE.
 	AWSProfile string
+	// AWSRegion selects the S3 backend endpoint as well as the provider region.
+	AWSRegion string
 }
 
 // NewRunner returns a Runner with default settings.
 func NewRunner() *Runner { return &Runner{} }
+
+// StackExists checks the selected backend without creating a stack. It is used
+// before fresh foundation initialization to avoid adopting partial old state.
+func (r *Runner) StackExists(ctx context.Context, ref *StackRef) (bool, error) {
+	out, err := r.runCapture(ctx, ref.WorkDir, r.env(ref.BackendURL), "stack", "select", ref.StackName)
+	if err == nil {
+		return true, nil
+	}
+	if strings.Contains(out, "no stack named") || strings.Contains(out, "does not exist") {
+		return false, nil
+	}
+	return false, fmt.Errorf("check stack %s: %s: %w", ref.FullName(), tailOutput(out, 1000), err)
+}
+
+// RemoveEmptyStack removes preview-only state. Pulumi refuses removal when the
+// stack owns resources, so this cannot destroy an applied foundation.
+func (r *Runner) RemoveEmptyStack(ctx context.Context, ref *StackRef) error {
+	if err := r.run(ctx, ref.WorkDir, r.env(ref.BackendURL), nil, "stack", "rm", ref.StackName, "--yes", "--non-interactive"); err != nil {
+		return fmt.Errorf("remove preview stack %s: %w", ref.FullName(), err)
+	}
+	return nil
+}
 
 // Refresh syncs Pulumi state with the actual cloud provider state for the stack.
 // Use this when AWS resources have been modified outside of Pulumi.
@@ -315,6 +340,9 @@ func (r *Runner) env(backendURL string) []string {
 	)
 	if r.AWSProfile != "" {
 		e = append(e, "AWS_PROFILE="+r.AWSProfile)
+	}
+	if r.AWSRegion != "" {
+		e = append(e, "AWS_REGION="+r.AWSRegion, "AWS_DEFAULT_REGION="+r.AWSRegion)
 	}
 	return e
 }

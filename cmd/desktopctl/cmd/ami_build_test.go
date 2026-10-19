@@ -63,11 +63,23 @@ func TestValidateAMIRegionSelection(t *testing.T) {
 }
 
 func TestMissingAMITableError(t *testing.T) {
-	err := missingAMITableError("ai-desktops-ami-dev", "us-east-2", "dev")
+	err := missingAMITableError("desktopctl-ami-dev", "us-east-2", "dev")
 	msg := err.Error()
-	for _, want := range []string{"ai-desktops-ami-dev", "us-east-2", "init-foundation", "dev"} {
+	for _, want := range []string{"desktopctl-ami-dev", "us-east-2", "init-foundation", "dev"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("missingAMITableError() = %q, want it to contain %q", msg, want)
+		}
+	}
+}
+
+func TestRequirePublicAMISharing(t *testing.T) {
+	if err := requirePublicAMISharing("ca-central-1", "unblocked", "account"); err != nil {
+		t.Fatalf("unblocked region rejected: %v", err)
+	}
+	for _, state := range []string{"block-new-sharing", ""} {
+		err := requirePublicAMISharing("ca-central-1", state, "account")
+		if err == nil || !strings.Contains(err.Error(), "ca-central-1") {
+			t.Errorf("state %q should stop the build with regional context, got %v", state, err)
 		}
 	}
 }

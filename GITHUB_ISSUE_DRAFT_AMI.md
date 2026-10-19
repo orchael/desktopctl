@@ -35,7 +35,7 @@ Pre-build AMIs with specific, pinned versions of:
 
 ### Build and Distribution
 - Packer or similar tool to build AMIs per region
-- Version the AMI builds (e.g., `ai-desktops-v1.2.3-elementary`)
+- Version the AMI builds (e.g., `desktopctl-v1.2.3-elementary`)
 - Publish to a known AWS account or as public AMIs
 - Store AMI IDs in config or hardcode per region (like today)
 

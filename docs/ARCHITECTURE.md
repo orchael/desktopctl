@@ -1,6 +1,6 @@
 # desktopctl architecture and repository boundary
 
-This document records the code as audited on 2026-10-04 and the target boundary for the first Orchael Desktops slice. The executable is now `desktopctl`; `~/.ai-desktops` configuration, Pulumi stack names, AWS resource names, and on-host paths remain compatibility contracts. The repository and Go module are `orchael/desktopctl` and `github.com/orchael/desktopctl`.
+This document records the code as audited on 2026-10-04 and the target boundary for the first Orchael Desktops slice. New installations use `desktopctl` names and XDG configuration; pre-migration AWS resources are not adopted by the new foundation stack. The repository and Go module are `orchael/desktopctl` and `github.com/orchael/desktopctl`.
 
 ## Current system
 

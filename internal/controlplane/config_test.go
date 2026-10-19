@@ -30,10 +30,10 @@ func TestLoadRuntimeConfigReadsOperatorAWSVariables(t *testing.T) {
 
 func TestLoadAppConfigReadsDeploymentOverrides(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-west-2")
-	t.Setenv("AI_DESKTOPS_ENVIRONMENT", "prod")
+	t.Setenv("DESKTOPCTL_ENVIRONMENT", "prod")
 	t.Setenv("PULUMI_BACKEND_BUCKET", "prod-state")
-	t.Setenv("AI_DESKTOPS_FLEET_TABLE", "prod-fleet")
-	t.Setenv("AI_DESKTOPS_AMI_TABLE", "prod-ami")
+	t.Setenv("DESKTOPCTL_FLEET_TABLE", "prod-fleet")
+	t.Setenv("DESKTOPCTL_AMI_TABLE", "prod-ami")
 
 	cfg, err := LoadAppConfig(RuntimeConfig{ConfigPath: filepath.Join(t.TempDir(), "missing.yaml")})
 	if err != nil {

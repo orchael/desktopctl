@@ -1,6 +1,6 @@
 # AWS operator IAM
 
-`desktopctl` needs an AWS principal that can run control-plane calls from the CLI, Pulumi, and Packer. The foundation Pulumi stack creates an environment-specific IAM user, IAM role, access key, and Secrets Manager secret for that purpose.
+`desktopctl` needs an AWS principal that can run control-plane calls from the CLI, Pulumi, and Packer. The foundation Pulumi stack creates an environment-and-region-specific IAM user, IAM role, access key, and Secrets Manager secret for that purpose.
 
 An administrator profile is still required for the first `desktopctl bootstrap` and `desktopctl init-foundation` run. After foundation is applied, use the generated credentials and role profile for normal control-plane operations.
 
@@ -9,29 +9,29 @@ An administrator profile is still required for the first `desktopctl bootstrap` 
 Use the default foundation-stack secret name:
 
 ```text
-/ai-desktops/<env>/control-plane/aws-operator
+/desktopctl/<env>-<region>/control-plane/aws-operator
 ```
 
 Examples:
 
 ```text
-/ai-desktops/dev/control-plane/aws-operator
-/ai-desktops/test/control-plane/aws-operator
-/ai-desktops/prod/control-plane/aws-operator
+/desktopctl/dev-us-east-2/control-plane/aws-operator
+/desktopctl/test-us-west-2/control-plane/aws-operator
+/desktopctl/prod-ca-central-1/control-plane/aws-operator
 ```
 
-The secret is environment-specific because each foundation stack uses its own `environment` value.
+The secret is environment-and-region-specific because each foundation stack uses its own `environment` and `region` values.
 
 ## What Pulumi creates
 
 For environment `dev`, the foundation stack creates:
 
-- IAM user: `ai-desktops-control-plane-dev`
-- IAM role: `ai-desktops-control-plane-role-dev`
+- IAM user: `desktopctl-control-plane-dev-us-east-2`
+- IAM role: `desktopctl-control-plane-role-dev-us-east-2`
 - IAM access key for the user
 - User inline policy allowing only `sts:AssumeRole` into the environment role
 - Role inline policy for AWS, Pulumi, and Packer control-plane calls
-- Secrets Manager secret: `/ai-desktops/dev/control-plane/aws-operator`
+- Secrets Manager secret: `/desktopctl/dev-us-east-2/control-plane/aws-operator`
 
 The secret payload has this shape:
 
@@ -39,11 +39,11 @@ The secret payload has this shape:
 {
   "OPERATOR_AWS_ACCESS_KEY_ID": "AKIA...",
   "OPERATOR_AWS_SECRET_ACCESS_KEY": "...",
-  "OPERATOR_ROLE_ARN": "arn:aws:iam::<account-id>:role/ai-desktops-control-plane-role-dev",
-  "OPERATOR_USER_ARN": "arn:aws:iam::<account-id>:user/ai-desktops-control-plane-dev",
+  "OPERATOR_ROLE_ARN": "arn:aws:iam::<account-id>:role/desktopctl-control-plane-role-dev-us-east-2",
+  "OPERATOR_USER_ARN": "arn:aws:iam::<account-id>:user/desktopctl-control-plane-dev-us-east-2",
   "OPERATOR_ENVIRONMENT": "dev",
-  "OPERATOR_SOURCE_PROFILE": "ai-desktops-dev-user",
-  "OPERATOR_ROLE_PROFILE": "ai-desktops-dev"
+  "OPERATOR_SOURCE_PROFILE": "desktopctl-dev-us-east-2-user",
+  "OPERATOR_ROLE_PROFILE": "desktopctl-dev-us-east-2"
 }
 ```
 
@@ -61,8 +61,8 @@ desktopctl init-foundation --env dev
 To override the default secret name outside the CLI, set this Pulumi config value in `infra/pulumi/foundation` before applying the stack:
 
 ```bash
-pulumi config set pulumiBackendBucket myorg-ai-desktops-pulumi-state
-pulumi config set operatorCredentialsSecretName /ai-desktops/dev/control-plane/aws-operator
+pulumi config set pulumiBackendBucket myorg-desktopctl-pulumi-state
+pulumi config set operatorCredentialsSecretName /desktopctl/dev-us-east-2/control-plane/aws-operator
 ```
 
 The default is recommended unless you need to integrate with an existing naming convention.
@@ -74,7 +74,7 @@ Read the generated secret with the administrator profile:
 ```bash
 aws secretsmanager get-secret-value \
   --profile admin \
-  --secret-id /ai-desktops/dev/control-plane/aws-operator \
+  --secret-id /desktopctl/dev-us-east-2/control-plane/aws-operator \
   --query SecretString \
   --output text
 ```
@@ -82,13 +82,13 @@ aws secretsmanager get-secret-value \
 Put the access key on a source profile and use the role profile for `desktopctl`:
 
 ```ini
-[profile ai-desktops-dev-user]
+[profile desktopctl-dev-us-east-2-user]
 aws_access_key_id = <OPERATOR_AWS_ACCESS_KEY_ID from secret>
 aws_secret_access_key = <OPERATOR_AWS_SECRET_ACCESS_KEY from secret>
 
-[profile ai-desktops-dev]
+[profile desktopctl-dev-us-east-2]
 role_arn = <OPERATOR_ROLE_ARN from secret>
-source_profile = ai-desktops-dev-user
+source_profile = desktopctl-dev-us-east-2-user
 region = us-east-2
 ```
 
@@ -97,7 +97,7 @@ Then set the app config to use the role profile:
 ```yaml
 aws:
   region: us-east-2
-  profile: ai-desktops-dev
+  profile: desktopctl-dev-us-east-2
 ```
 
 Pulumi and the AWS SDK both use the same shared AWS profile chain, so the assumed role is used by `desktopctl init-foundation`, `desktopctl create`, lifecycle commands, and AMI builds. Keep `bootstrap` on an admin/bootstrap profile if the role has not yet been created or if the state bucket does not exist.
@@ -108,18 +108,18 @@ The role policy covers the control-plane operations used by this repository:
 
 - Pulumi S3 state backend access for the configured bucket.
 - EC2 networking, instance, AMI, snapshot, and key-pair calls used by Pulumi, lifecycle commands, nested virtualization launches, and Packer.
-- DynamoDB fleet and AMI history tables named `ai-desktops-*`.
+- DynamoDB fleet and AMI history tables named `desktopctl-*`.
 - Route53 hosted-zone lookup and desktop record changes.
-- Secrets Manager and SSM reads/writes under `/ai-desktops/*`.
+- Secrets Manager and SSM reads/writes under `/desktopctl/*`.
 - SSM Session Manager tunnel calls.
-- IAM role and instance-profile management for `ai-desktops-*` resources.
+- IAM role and instance-profile management for `desktopctl-*` resources.
 - `iam:PassRole` for the desktop instance role created by the foundation stack.
 
-The role is intentionally scoped to `ai-desktops-*` resource names where AWS supports practical resource scoping. EC2 and Route53 use broader resource scope because many of the required APIs either do not support narrow resource ARNs or need hosted-zone discovery before the exact zone ID is known.
+The role is intentionally scoped to `desktopctl-*` resource names where AWS supports practical resource scoping. EC2 and Route53 use broader resource scope because many of the required APIs either do not support narrow resource ARNs or need hosted-zone discovery before the exact zone ID is known.
 
 ## Validate
 
 ```bash
-aws sts get-caller-identity --profile ai-desktops-dev
+aws sts get-caller-identity --profile desktopctl-dev-us-east-2
 desktopctl init-foundation --env dev --preview
 ```

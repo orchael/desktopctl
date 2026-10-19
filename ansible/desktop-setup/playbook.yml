@@ -63,12 +63,12 @@
 
     - name: Inspect AMI developer terminal workflow capability
       ansible.builtin.stat:
-        path: /opt/ai-desktops/developer-terminal-workflow
+        path: /opt/desktopctl/developer-terminal-workflow
       register: developer_terminal_ami_workflow
 
     - name: Inspect managed Neovim workflow
       ansible.builtin.stat:
-        path: /home/ubuntu/.config/nvim/.ai-desktops-managed
+        path: /home/ubuntu/.config/nvim/.desktopctl-managed
       register: developer_terminal_nvim_workflow
 
     - name: Verify NvChad starts without interaction
@@ -107,7 +107,7 @@
 
     - name: Inspect managed tmux workflow
       ansible.builtin.stat:
-        path: /home/ubuntu/.tmux.conf.ai-desktops-managed
+        path: /home/ubuntu/.tmux.conf.desktopctl-managed
       register: developer_terminal_tmux_workflow
 
     - name: Verify managed tmux configuration and plugins
@@ -126,17 +126,17 @@
     - name: Verify tmux starts in detached mode
       ansible.builtin.shell: |
         set -euo pipefail
-        tmux -L ai-desktops-postboot -f /home/ubuntu/.tmux.conf new-session -d -s ai-desktops-postboot
-        trap 'tmux -L ai-desktops-postboot kill-server >/dev/null 2>&1 || true' EXIT
+        tmux -L desktopctl-postboot -f /home/ubuntu/.tmux.conf new-session -d -s desktopctl-postboot
+        trap 'tmux -L desktopctl-postboot kill-server >/dev/null 2>&1 || true' EXIT
         for attempt in $(seq 1 15); do
-          if tmux -L ai-desktops-postboot list-keys | grep -q install_plugins; then
+          if tmux -L desktopctl-postboot list-keys | grep -q install_plugins; then
             break
           fi
           sleep 1
         done
-        tmux -L ai-desktops-postboot list-keys | grep -q install_plugins
-        tmux -L ai-desktops-postboot show-options -gv status-right | grep -q gitmux
-        test "$(tmux -L ai-desktops-postboot show-options -gv prefix)" = C-a
+        tmux -L desktopctl-postboot list-keys | grep -q install_plugins
+        tmux -L desktopctl-postboot show-options -gv status-right | grep -q gitmux
+        test "$(tmux -L desktopctl-postboot show-options -gv prefix)" = C-a
       args:
         executable: /bin/bash
       become_user: ubuntu

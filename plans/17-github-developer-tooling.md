@@ -7,10 +7,10 @@ a configured git commit identity, and `python3` so that a developer can commit a
 create and merge PRs, inspect and debug GitHub Actions, manage Dependabot, and run the
 `github-health-check` skill without any additional setup.
 
-This plan also introduces a new `ai-desktops setup` command that walks the operator through
+This plan also introduces a new `desktopctl setup` command that walks the operator through
 first-time configuration: writing `config.yaml`, generating a per-owner Ed25519 SSH key pair,
 registering the public key with GitHub, and storing the key and GitHub token together in a
-single AWS Secrets Manager secret at `/ai-desktops/<owner>/github`.
+single AWS Secrets Manager secret at `/desktopctl/<owner>/github`.
 
 ## Depends On
 
@@ -54,13 +54,13 @@ pre-installed key eliminates the `.netrc` workaround used today.
 ### Current state
 
 ```
-/ai-desktops/github/pat    ← SSM Parameter Store, plain-text PAT, shared by all owners
+/desktopctl/github/pat    ← SSM Parameter Store, plain-text PAT, shared by all owners
 ```
 
 ### New state
 
 ```
-/ai-desktops/<owner>/github  ← AWS Secrets Manager, JSON, one secret per GitHub owner
+/desktopctl/<owner>/github  ← AWS Secrets Manager, JSON, one secret per GitHub owner
 ```
 
 **Secret JSON schema:**
@@ -69,7 +69,7 @@ pre-installed key eliminates the `.netrc` workaround used today.
 {
   "github_token":    "ghp_...",
   "ssh_private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
-  "ssh_public_key":  "ssh-ed25519 AAAA... ai-desktops/<owner>"
+  "ssh_public_key":  "ssh-ed25519 AAAA... desktopctl/<owner>"
 }
 ```
 
@@ -101,11 +101,11 @@ The token stored in the secret must have all of the following scopes:
 | `security_events` | Code scanning and secret scanning APIs |
 | `read:user` | `gh auth status` identity check |
 
-The operator creates this token once per GitHub owner during `ai-desktops setup`.
+The operator creates this token once per GitHub owner during `desktopctl setup`.
 
 ---
 
-## New Command: `ai-desktops setup`
+## New Command: `desktopctl setup`
 
 A new interactive wizard command that replaces the current manual `config.yaml` editing step.
 It is the recommended first command for a new installation.
@@ -113,15 +113,15 @@ It is the recommended first command for a new installation.
 ### Wizard flow
 
 ```
-$ ai-desktops setup
+$ desktopctl setup
 
-Welcome to ai-desktops setup.
-This wizard will create ~/.ai-desktops/config.yaml and provision your GitHub credentials.
+Welcome to desktopctl setup.
+This wizard will create ~/.desktopctl/config.yaml and provision your GitHub credentials.
 
 ── AWS ──────────────────────────────────────────────
 AWS region [us-east-1]: us-east-2
 AWS profile [default]: myprofile
-Pulumi state S3 bucket: myorg-ai-desktops-pulumi-state
+Pulumi state S3 bucket: myorg-desktopctl-pulumi-state
 Fleet environment (dev/prod) [dev]: dev
 
 ── GitHub ───────────────────────────────────────────
@@ -140,23 +140,23 @@ Paste the token here (input hidden): ****
 ── Generating SSH key ───────────────────────────────
 Generating Ed25519 SSH key pair for owner: orchael
   Private key: (stored in AWS Secrets Manager only)
-  Public key:  ssh-ed25519 AAAA... ai-desktops/orchael
+  Public key:  ssh-ed25519 AAAA... desktopctl/orchael
 
 Registering SSH public key with GitHub account 'orchael'...  ✓
 
 ── Storing secret ───────────────────────────────────
-Storing secret at /ai-desktops/orchael/github in us-east-2...  ✓
+Storing secret at /desktopctl/orchael/github in us-east-2...  ✓
 
 ── Writing config ───────────────────────────────────
-Writing ~/.ai-desktops/config.yaml...  ✓
+Writing ~/.desktopctl/config.yaml...  ✓
 
 Setup complete. Next steps:
-  ai-desktops bootstrap       # create S3 Pulumi state bucket
-  ai-desktops init-foundation # deploy shared AWS infrastructure
-  ai-desktops create --github-owner orchael --repo myorg/myrepo
+  desktopctl bootstrap       # create S3 Pulumi state bucket
+  desktopctl init-foundation # deploy shared AWS infrastructure
+  desktopctl create --github-owner orchael --repo myorg/myrepo
 ```
 
-### Implementation: `cmd/ai-desktops/cmd/setup.go`
+### Implementation: `cmd/desktopctl/cmd/setup.go`
 
 ```go
 // Wizard steps:
@@ -168,9 +168,9 @@ Setup complete. Next steps:
 // 6. Marshal private key as OpenSSH PEM (golang.org/x/crypto/ssh)
 // 7. Format public key as authorized_keys line
 // 8. Register public key via POST https://api.github.com/user/keys
-//    {"title": "ai-desktops/<owner>", "key": "<public key line>"}
-// 9. Store JSON secret in AWS Secrets Manager at /ai-desktops/<owner>/github
-// 10. Write config.yaml with GitHubSecret: /ai-desktops/<owner>/github
+//    {"title": "desktopctl/<owner>", "key": "<public key line>"}
+// 9. Store JSON secret in AWS Secrets Manager at /desktopctl/<owner>/github
+// 10. Write config.yaml with GitHubSecret: /desktopctl/<owner>/github
 // 11. Print next-steps summary
 ```
 
@@ -179,13 +179,13 @@ if the token is wrong or missing a required scope.
 
 ### Re-run behaviour
 
-If `~/.ai-desktops/config.yaml` already exists, `setup` prompts:
+If `~/.desktopctl/config.yaml` already exists, `setup` prompts:
 ```
 config.yaml already exists. Overwrite? [y/N]:
 ```
-If a secret already exists at `/ai-desktops/<owner>/github`, `setup` prompts:
+If a secret already exists at `/desktopctl/<owner>/github`, `setup` prompts:
 ```
-Secret /ai-desktops/orchael/github already exists. Rotate keys? [y/N]:
+Secret /desktopctl/orchael/github already exists. Rotate keys? [y/N]:
 ```
 Rotation generates a new key pair and updates the secret atomically; it does not delete the old
 key from GitHub (the operator should remove the old key manually from GitHub settings).
@@ -204,15 +204,15 @@ type GitHubConfig struct {
     Owner         string `yaml:"owner"`
     // GitHubSecret is the AWS Secrets Manager secret path holding the JSON blob
     // with github_token, ssh_private_key, and ssh_public_key.
-    // Default: /ai-desktops/<owner>/github (populated by Defaults() using Owner).
+    // Default: /desktopctl/<owner>/github (populated by Defaults() using Owner).
     GitHubSecret  string `yaml:"github_secret"`
     // PATSecret is the legacy field name. Loaded if github_secret is absent.
-    // Deprecated: use github_secret set by `ai-desktops setup`.
+    // Deprecated: use github_secret set by `desktopctl setup`.
     PATSecret     string `yaml:"pat_secret,omitempty"`
 }
 ```
 
-In `Defaults()`, replace the hardcoded `/ai-desktops/github/pat` default:
+In `Defaults()`, replace the hardcoded `/desktopctl/github/pat` default:
 
 ```go
 if c.GitHub.GitHubSecret == "" {
@@ -220,9 +220,9 @@ if c.GitHub.GitHubSecret == "" {
         // Migrate legacy config: treat pat_secret as the secret path
         c.GitHub.GitHubSecret = c.GitHub.PATSecret
     } else if c.GitHub.Owner != "" {
-        c.GitHub.GitHubSecret = "/ai-desktops/" + c.GitHub.Owner + "/github"
+        c.GitHub.GitHubSecret = "/desktopctl/" + c.GitHub.Owner + "/github"
     } else {
-        c.GitHub.GitHubSecret = "/ai-desktops/github/pat" // fallback for zero-config
+        c.GitHub.GitHubSecret = "/desktopctl/github/pat" // fallback for zero-config
     }
 }
 ```
@@ -232,16 +232,16 @@ if c.GitHub.GitHubSecret == "" {
 Replace:
 
 ```yaml
-  pat_secret: /ai-desktops/github/pat
+  pat_secret: /desktopctl/github/pat
 ```
 
 with:
 
 ```yaml
   # AWS Secrets Manager secret path for this GitHub owner's credentials.
-  # Created automatically by `ai-desktops setup`. Contains github_token,
+  # Created automatically by `desktopctl setup`. Contains github_token,
   # ssh_private_key, and ssh_public_key as a JSON document.
-  github_secret: /ai-desktops/myorg/github
+  github_secret: /desktopctl/myorg/github
 ```
 
 ---
@@ -392,7 +392,7 @@ func checkPython3(ctx context.Context, c *ssh.Client) CheckResult {
 
 ## Integration Tests
 
-New file `integration/github_tooling_test.go` (gated by `AI_DESKTOPS_RUN_INTEGRATION=true`):
+New file `integration/github_tooling_test.go` (gated by `DESKTOPCTL_RUN_INTEGRATION=true`):
 
 | Test | SSH command | Pass condition |
 |---|---|---|
@@ -417,8 +417,8 @@ New file `integration/github_tooling_test.go` (gated by `AI_DESKTOPS_RUN_INTEGRA
 
 | File | Change |
 |---|---|
-| `cmd/ai-desktops/cmd/setup.go` | **New** — interactive setup wizard |
-| `cmd/ai-desktops/cmd/root.go` | Register `setup` subcommand |
+| `cmd/desktopctl/cmd/setup.go` | **New** — interactive setup wizard |
+| `cmd/desktopctl/cmd/root.go` | Register `setup` subcommand |
 | `internal/config/config.go` | `PATSecret` → `GitHubSecret`; backward-compat migration in `Defaults()` |
 | `internal/config/config_test.go` | Tests for migration, new default path |
 | `config.example.yaml` | Replace `pat_secret` with `github_secret` |
@@ -446,9 +446,9 @@ A desktop passes FR-11 when all of the following hold after `create` completes:
 
 Setup is complete when:
 
-8. `ai-desktops setup` writes a valid `~/.ai-desktops/config.yaml` with `github_secret: /ai-desktops/<owner>/github`.
+8. `desktopctl setup` writes a valid `~/.desktopctl/config.yaml` with `github_secret: /desktopctl/<owner>/github`.
 9. The SSH public key appears in the GitHub account's SSH key list after `setup` completes.
-10. The secret at `/ai-desktops/<owner>/github` in AWS Secrets Manager contains `github_token`, `ssh_private_key`, and `ssh_public_key` fields.
+10. The secret at `/desktopctl/<owner>/github` in AWS Secrets Manager contains `github_token`, `ssh_private_key`, and `ssh_public_key` fields.
 
 ---
 
@@ -458,7 +458,7 @@ Setup is complete when:
 
 2. **Token rotation**: The plan stores the initial registration token permanently as the ongoing API token. If the operator wants to use a narrower token for day-to-day operations (dropping `admin:public_key` after setup), the secret JSON could be updated manually. Should `setup` offer to generate a second, narrower token for runtime use?
 
-3. **Old `pat_secret` configs**: Existing `~/.ai-desktops/config.yaml` files using `pat_secret` will silently migrate via `Defaults()`. The old SSM parameter at `/ai-desktops/github/pat` is not deleted automatically. Should the `setup` command warn when it detects a legacy config and offer to clean up the old parameter?
+3. **Old `pat_secret` configs**: Existing `~/.desktopctl/config.yaml` files using `pat_secret` will silently migrate via `Defaults()`. The old SSM parameter at `/desktopctl/github/pat` is not deleted automatically. Should the `setup` command warn when it detects a legacy config and offer to clean up the old parameter?
 
 4. **`StrictHostKeyChecking accept-new`**: This trusts github.com's host key on first connect. The known alternative is pre-seeding `known_hosts` with GitHub's published host keys in the AMI. Pre-seeding is more secure (eliminates a TOFU window) but adds an AMI maintenance step. Preference?
 
@@ -473,10 +473,10 @@ Setup is complete when:
 go test ./internal/config/... ./internal/health/... ./internal/provision/...
 
 # Integration tests (requires a live desktop fixture)
-AI_DESKTOPS_RUN_INTEGRATION=true go test ./integration/... -run TestFR11 -v
+DESKTOPCTL_RUN_INTEGRATION=true go test ./integration/... -run TestFR11 -v
 
 # Manual setup wizard test
-go run ./cmd/ai-desktops setup
+go run ./cmd/desktopctl setup
 
 # Manual spot-check on a running desktop
 ssh ubuntu@<hostname> '
@@ -484,6 +484,6 @@ ssh ubuntu@<hostname> '
   python3 --version
   git config --global user.name
   ls -la ~/.ssh/github_ed25519
-  sudo -u ubuntu gh api /repos/orchael/ai-desktops/dependabot/alerts?state=open&per_page=1
+  sudo -u ubuntu gh api /repos/orchael/desktopctl/dependabot/alerts?state=open&per_page=1
 '
 ```

@@ -1,5 +1,5 @@
 ---
-- name: Install ai-desktops toolchain on novnc-desktop base AMI
+- name: Install desktopctl toolchain on novnc-desktop base AMI
   hosts: all
   become: true
 
@@ -54,6 +54,11 @@
       ansible.builtin.assert:
         that: helm_version is defined and helm_version | length > 0
         fail_msg: "helm_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
+
+    - name: Require helm_sha256
+      ansible.builtin.assert:
+        that: helm_sha256 is defined and helm_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: "helm_sha256 must be a SHA-256 hex digest set via --extra-vars"
 
     - name: Require terraform_version
       ansible.builtin.assert:
@@ -492,11 +497,42 @@
         creates: /home/linuxbrew/.linuxbrew/bin/ballast
       become: false
 
-    - name: Install Helm via Homebrew
-      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install helm
-      args:
-        creates: /home/linuxbrew/.linuxbrew/bin/helm
-      become: false
+    - name: Download pinned Helm release
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        checksum: "sha256:{{ helm_sha256 }}"
+        mode: "0644"
+
+    - name: Create Helm extraction directory
+      ansible.builtin.file:
+        path: /tmp/desktopctl-helm
+        state: directory
+        mode: "0755"
+
+    - name: Extract pinned Helm release
+      ansible.builtin.unarchive:
+        src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: /tmp/desktopctl-helm
+        remote_src: true
+        creates: /tmp/desktopctl-helm/linux-amd64/helm
+
+    - name: Install pinned Helm binary
+      ansible.builtin.copy:
+        src: /tmp/desktopctl-helm/linux-amd64/helm
+        dest: /usr/local/bin/helm
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Remove Helm build files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        - /tmp/desktopctl-helm
 
     - name: Install tfenv via Homebrew
       ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/brew install tfenv
@@ -708,8 +744,8 @@
 
     - name: Write developer terminal workflow capability marker
       ansible.builtin.copy:
-        content: "ai-desktops managed developer terminal workflow\n"
-        dest: /opt/ai-desktops/developer-terminal-workflow
+        content: "desktopctl managed developer terminal workflow\n"
+        dest: /opt/desktopctl/developer-terminal-workflow
         owner: root
         group: root
         mode: "0644"
@@ -729,29 +765,29 @@
 
     - name: Create shared Playwright browser directory
       ansible.builtin.file:
-        path: /opt/ai-desktops/playwright-browsers
+        path: /opt/desktopctl/playwright-browsers
         state: directory
         owner: root
         group: root
         mode: "0755"
 
     - name: Install pinned Playwright package for AMI browser provisioning
-      ansible.builtin.command: npm install --prefix /opt/ai-desktops/playwright --no-save --package-lock=false --ignore-scripts playwright@{{ playwright_version }}
+      ansible.builtin.command: npm install --prefix /opt/desktopctl/playwright --no-save --package-lock=false --ignore-scripts playwright@{{ playwright_version }}
       args:
-        creates: /opt/ai-desktops/playwright/node_modules/.bin/playwright
+        creates: /opt/desktopctl/playwright/node_modules/.bin/playwright
       environment:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
     - name: Install Playwright Chromium binaries and Linux dependencies
-      ansible.builtin.command: /opt/ai-desktops/playwright/node_modules/.bin/playwright install --with-deps chromium
+      ansible.builtin.command: /opt/desktopctl/playwright/node_modules/.bin/playwright install --with-deps chromium
       environment:
-        PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers
+        PLAYWRIGHT_BROWSERS_PATH: /opt/desktopctl/playwright-browsers
 
     - name: Add shared Playwright browser path to login environments
       ansible.builtin.lineinfile:
         path: /etc/environment
         regexp: '^PLAYWRIGHT_BROWSERS_PATH='
-        line: 'PLAYWRIGHT_BROWSERS_PATH="/opt/ai-desktops/playwright-browsers"'
+        line: 'PLAYWRIGHT_BROWSERS_PATH="/opt/desktopctl/playwright-browsers"'
 
     - name: Create systemd manager configuration directories
       ansible.builtin.file:
@@ -764,17 +800,17 @@
 
     - name: Provide shared Playwright browser path to systemd services
       ansible.builtin.copy:
-        dest: "/etc/systemd/{{ item }}.conf.d/ai-desktops-playwright.conf"
+        dest: "/etc/systemd/{{ item }}.conf.d/desktopctl-playwright.conf"
         content: |
           [Manager]
-          DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/ai-desktops/playwright-browsers
+          DefaultEnvironment=PLAYWRIGHT_BROWSERS_PATH=/opt/desktopctl/playwright-browsers
         mode: "0644"
       loop:
         - system
         - user
 
     - name: Verify pinned Playwright version
-      ansible.builtin.command: node -p "require('/opt/ai-desktops/playwright/node_modules/playwright/package.json').version"
+      ansible.builtin.command: node -p "require('/opt/desktopctl/playwright/node_modules/playwright/package.json').version"
       register: playwright_installed_version
       changed_when: false
       failed_when: playwright_installed_version.stdout != playwright_version
@@ -796,12 +832,12 @@
           - node
           - -e
           - >-
-            const fs = require('fs'); const { chromium } = require('/opt/ai-desktops/playwright/node_modules/playwright');
+            const fs = require('fs'); const { chromium } = require('/opt/desktopctl/playwright/node_modules/playwright');
             if (!fs.existsSync(chromium.executablePath())) throw new Error('Chromium executable missing');
             chromium.launch({headless: true, timeout: 90000}).then(browser => browser.close()).catch(error => { console.error(error); process.exit(1); });
       become_user: ubuntu
       environment:
-        PLAYWRIGHT_BROWSERS_PATH: /opt/ai-desktops/playwright-browsers
+        PLAYWRIGHT_BROWSERS_PATH: /opt/desktopctl/playwright-browsers
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         HOME: /home/ubuntu
       register: playwright_launch_result
@@ -858,7 +894,7 @@
     - name: Download pinned Visual Studio Code stable package
       ansible.builtin.get_url:
         url: "https://packages.microsoft.com/repos/code/pool/main/c/code/code_{{ vscode_version }}_amd64.deb"
-        dest: /opt/ai-desktops/vscode.deb
+        dest: /opt/desktopctl/vscode.deb
         checksum: "sha256:{{ vscode_sha256 }}"
         owner: root
         group: root
@@ -866,11 +902,11 @@
 
     - name: Install pinned Visual Studio Code stable package
       ansible.builtin.apt:
-        deb: /opt/ai-desktops/vscode.deb
+        deb: /opt/desktopctl/vscode.deb
 
     - name: Remove downloaded Visual Studio Code package
       ansible.builtin.file:
-        path: /opt/ai-desktops/vscode.deb
+        path: /opt/desktopctl/vscode.deb
         state: absent
 
     - name: Install desktop launcher validator
@@ -1031,13 +1067,13 @@
     - name: Install shared Codex home config updater
       ansible.builtin.copy:
         src: ../internal/provision/codex_home_config.py
-        dest: /usr/local/bin/ai-desktops-codex-home-config
+        dest: /usr/local/bin/desktopctl-codex-home-config
         owner: root
         group: root
         mode: "0755"
 
     - name: Configure bridgectl Codex home update setting
-      ansible.builtin.command: python3 /usr/local/bin/ai-desktops-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml
+      ansible.builtin.command: python3 /usr/local/bin/desktopctl-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml
       become_user: ubuntu
       register: codex_home_config_result
       changed_when: "'updated' in codex_home_config_result.stdout"
@@ -1153,7 +1189,7 @@
         import re, sys
 
         nginx_site = "/etc/nginx/sites-available/novnc"
-        marker = "# ai-desktops port reconfiguration"
+        marker = "# desktopctl port reconfiguration"
 
         with open(nginx_site) as fh:
             content = fh.read()
@@ -1205,7 +1241,7 @@
         # Validate the edits actually took effect before writing the marker.
         # If the upstream nginx config changed format and neither edit matched,
         # we must fail loudly rather than silently mark the step as done and
-        # let ai-desktops-setup-tls skip runtime reconfiguration.
+        # let desktopctl-setup-tls skip runtime reconfiguration.
         if re.search(r'\blisten\s+(\[::\]:)?443\b', content):
             print("ERROR: port 443 still present in listen directives after edits; "
                   "upstream nginx config may have changed — aborting", file=sys.stderr)
@@ -1215,7 +1251,7 @@
                   "upstream nginx config may have changed — aborting", file=sys.stderr)
             sys.exit(1)
 
-        # Inject the port-reconfiguration marker so ai-desktops-setup-tls step 1
+        # Inject the port-reconfiguration marker so desktopctl-setup-tls step 1
         # detects the change as already applied and skips it.
         content = "# " + marker + "\n" + content
 
@@ -1229,18 +1265,18 @@
       register: nginx_preconfigure_result
       changed_when: '"already applied" not in nginx_preconfigure_result.stdout'
 
-    - name: Install ai-desktops-setup-tls wrapper script
+    - name: Install desktopctl-setup-tls wrapper script
       ansible.builtin.copy:
-        src: files/ai-desktops-setup-tls
-        dest: /usr/local/bin/ai-desktops-setup-tls
+        src: files/desktopctl-setup-tls
+        dest: /usr/local/bin/desktopctl-setup-tls
         owner: root
         group: root
         mode: "0755"
 
-    - name: Install ai-desktops-doctor script
+    - name: Install desktopctl-doctor script
       ansible.builtin.copy:
-        src: files/ai-desktops-doctor
-        dest: /usr/local/bin/ai-desktops-doctor
+        src: files/desktopctl-doctor
+        dest: /usr/local/bin/desktopctl-doctor
         owner: root
         group: root
         mode: "0755"
@@ -1253,9 +1289,9 @@
         group: root
         mode: "0755"
 
-    - name: Create /opt/ai-desktops/web directory
+    - name: Create /opt/desktopctl/web directory
       ansible.builtin.file:
-        path: /opt/ai-desktops/web
+        path: /opt/desktopctl/web
         state: directory
         owner: ubuntu
         group: ubuntu
@@ -1264,7 +1300,7 @@
     - name: Write novnc-desktop version file
       ansible.builtin.copy:
         content: "{{ novnc_desktop_version }}"
-        dest: /opt/ai-desktops/novnc-desktop-version
+        dest: /opt/desktopctl/novnc-desktop-version
         owner: root
         group: root
         mode: "0644"
@@ -1282,13 +1318,13 @@
 
     - name: Install @orchael/desktopctl from GitHub Packages
       ansible.builtin.shell: |
-        npm install --prefix /opt/ai-desktops/web @orchael/desktopctl@{{ desktop_web_version }}
+        npm install --prefix /opt/desktopctl/web @orchael/desktopctl@{{ desktop_web_version }}
       args:
-        creates: /opt/ai-desktops/web/node_modules/@orchael/desktopctl/server-dist/index.js
+        creates: /opt/desktopctl/web/node_modules/@orchael/desktopctl/server-dist/index.js
 
-    - name: Set ownership of /opt/ai-desktops/web
+    - name: Set ownership of /opt/desktopctl/web
       ansible.builtin.file:
-        path: /opt/ai-desktops/web
+        path: /opt/desktopctl/web
         state: directory
         owner: ubuntu
         group: ubuntu
@@ -1312,17 +1348,17 @@
         executable: /bin/bash
         creates: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent
 
-    - name: Install ai-desktops-web systemd service
+    - name: Install desktopctl-web systemd service
       ansible.builtin.copy:
-        src: files/ai-desktops-web.service
-        dest: /etc/systemd/system/ai-desktops-web.service
+        src: files/desktopctl-web.service
+        dest: /etc/systemd/system/desktopctl-web.service
         owner: root
         group: root
         mode: "0644"
 
-    - name: Enable ai-desktops-web service
+    - name: Enable desktopctl-web service
       ansible.builtin.systemd:
-        name: ai-desktops-web
+        name: desktopctl-web
         enabled: true
         daemon_reload: true
 
@@ -1573,7 +1609,7 @@
         msg: "Ballast version: {{ ballast_ver_out.stdout }}"
 
     - name: Verify Helm is installed
-      ansible.builtin.command: /home/linuxbrew/.linuxbrew/bin/helm version --short
+      ansible.builtin.command: /usr/local/bin/helm version --short
       register: helm_ver_out
       changed_when: false
       become: false
@@ -1634,7 +1670,7 @@
 
     - name: Write AMI version marker
       ansible.builtin.copy:
-        dest: /opt/ai-desktops/ami-version
+        dest: /opt/desktopctl/ami-version
         owner: root
         group: root
         mode: "0644"
@@ -1646,7 +1682,7 @@
           helm_version={{ helm_version }}
           terraform_version={{ terraform_version }}
           playwright_version={{ playwright_version }}
-          playwright_browsers_path=/opt/ai-desktops/playwright-browsers
+          playwright_browsers_path=/opt/desktopctl/playwright-browsers
           desktop_web_version={{ desktop_web_version }}
           novnc_desktop_version={{ novnc_desktop_version }}
           packages_pre_installed=true

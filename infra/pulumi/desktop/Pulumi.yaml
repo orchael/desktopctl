@@ -1,6 +1,6 @@
 name: desktop
 runtime: go
-description: ai-desktops per-desktop stack — single EC2 instance with EBS persistence
+description: desktopctl per-desktop stack — single EC2 instance with EBS persistence
 
 config:
   aws:region:

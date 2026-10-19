@@ -30,7 +30,7 @@ Desktop stack owns:
 
 ## Requirements
 
-- One Pulumi stack per desktop: `ai-desktops/desktop-<desktop_id>`.
+- One Pulumi stack per desktop: `desktopctl/desktop-<desktop_id>`.
 - Hostname format: `<desktop_id>.desktops.orchael.com` or `<desktop_id>.desktops.orchael.dev`.
 - Root EBS volume must persist across stop/start.
 - Termination destroys the root EBS volume unless snapshot support is explicitly added later.
@@ -41,11 +41,11 @@ Desktop stack owns:
 
 - Desktop stack preview succeeds with valid foundation outputs.
 - Stack exports desktop ID, instance ID, hostname, noVNC base URL, SSH target, workspace path, and GitHub owner.
-- Generated tags include `managed-by=ai-desktops`, desktop ID, GitHub owner, and environment.
+- Generated tags include `managed-by=desktopctl`, desktop ID, GitHub owner, and environment.
 
 ## Verification
 
 ```bash
 go test ./...
-go run ./cmd/ai-desktops create --env dev --github-owner <owner> --repo github.com/<owner>/<repo> --preview
+go run ./cmd/desktopctl create --env dev --github-owner <owner> --repo github.com/<owner>/<repo> --preview
 ```

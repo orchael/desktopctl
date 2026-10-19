@@ -10,27 +10,27 @@
 //
 //	make test-integration
 //
-// Required environment variables (when not using AI_DESKTOPS_TEST_CONFIG):
+// Required environment variables (when not using DESKTOPCTL_TEST_CONFIG):
 //
-//	AI_DESKTOPS_TEST_BUCKET   — globally-unique S3 bucket name for Pulumi state
+//	DESKTOPCTL_TEST_BUCKET   — globally-unique S3 bucket name for Pulumi state
 //	                            (created if it doesn't exist; never touches prod/dev buckets)
-//	AI_DESKTOPS_GITHUB_OWNER  — GitHub org or user whose repos will be used
+//	DESKTOPCTL_GITHUB_OWNER  — GitHub org or user whose repos will be used
 //
 // AWS credentials are taken from the environment in the standard order:
 // AWS_PROFILE, AWS_ACCESS_KEY_ID/SECRET/SESSION, or the default credential chain.
 //
 // Optional:
 //
-//	AI_DESKTOPS_TEST_CONFIG — path to a pre-existing config file (e.g. tests/integration/config.yaml).
-//	                          When set, AI_DESKTOPS_TEST_BUCKET and AI_DESKTOPS_GITHUB_OWNER are read
+//	DESKTOPCTL_TEST_CONFIG — path to a pre-existing config file (e.g. tests/integration/config.yaml).
+//	                          When set, DESKTOPCTL_TEST_BUCKET and DESKTOPCTL_GITHUB_OWNER are read
 //	                          from the config file and SSH key generation is skipped when ssh_key_path
 //	                          in the config already points to an existing file.
-//	AI_DESKTOPS_TEST_REPO   — a valid repo URL (e.g. "owner/repo") for FR-6/7 workspace
+//	DESKTOPCTL_TEST_REPO   — a valid repo URL (e.g. "owner/repo") for FR-6/7 workspace
 //	                          tests. When unset, TestFR6_ReposPresent and
 //	                          TestFR7_WorkspacePersistence are skipped. Set this variable
 //	                          to exercise repository cloning and workspace persistence,
 //	                          which are core acceptance paths for this project.
-//	AI_DESKTOPS_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
+//	DESKTOPCTL_EXISTING_ID — adopt an already-running desktop (skip create/terminate)
 package integration_test
 
 import (
@@ -45,6 +45,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/orchael/desktopctl/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -93,10 +94,10 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	testRepo := os.Getenv("AI_DESKTOPS_TEST_REPO")
+	testRepo := os.Getenv("DESKTOPCTL_TEST_REPO")
 
 	// All generated files live in a temp dir that is cleaned up on exit.
-	tmpDir, err := os.MkdirTemp("", "ai-desktops-integration-*")
+	tmpDir, err := os.MkdirTemp("", "desktopctl-integration-*")
 	if err != nil {
 		fatalf("create temp dir: %v", err)
 	}
@@ -108,13 +109,13 @@ func TestMain(m *testing.M) {
 	}
 	moduleRootPath = moduleRoot
 
-	// AI_DESKTOPS_TEST_CONFIG: use a pre-existing config file (e.g. generated
+	// DESKTOPCTL_TEST_CONFIG: use a pre-existing config file (e.g. generated
 	// by `make setup-integration`) rather than deriving one from env vars.
 	// When set, ssh key generation is skipped if ssh_key_path in the config
 	// already points to an existing file.
 	var sshKey string
 	var owner string
-	if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
+	if preExistingConfig := os.Getenv("DESKTOPCTL_TEST_CONFIG"); preExistingConfig != "" {
 		fmt.Fprintf(os.Stderr, "integration: using pre-existing config %s\n", preExistingConfig)
 
 		// Load config to discover owner, bucket, and ssh_key_path.
@@ -146,7 +147,7 @@ func TestMain(m *testing.M) {
 		configPath = resolvedConfig
 
 		// Print startup banner.
-		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "\n=== desktopctl integration test suite ===\n")
 		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
 		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
 		fmt.Fprintf(os.Stderr, "  owner       : %s\n", owner)
@@ -154,11 +155,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "==========================================\n\n")
 	} else {
 		// Derive config from environment variables (original behaviour).
-		owner = requireEnv("AI_DESKTOPS_GITHUB_OWNER")
-		bucket := requireEnv("AI_DESKTOPS_TEST_BUCKET")
+		owner = requireEnv("DESKTOPCTL_GITHUB_OWNER")
+		bucket := requireEnv("DESKTOPCTL_TEST_BUCKET")
 
 		// Print startup banner.
-		fmt.Fprintf(os.Stderr, "\n=== ai-desktops integration test suite ===\n")
+		fmt.Fprintf(os.Stderr, "\n=== desktopctl integration test suite ===\n")
 		fmt.Fprintf(os.Stderr, "  region      : %s\n", testRegion)
 		fmt.Fprintf(os.Stderr, "  environment : %s\n", testEnv)
 		fmt.Fprintf(os.Stderr, "  bucket      : %s\n", bucket)
@@ -196,7 +197,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// Adopt or create the test desktop.
-	if existingID := os.Getenv("AI_DESKTOPS_EXISTING_ID"); existingID != "" {
+	if existingID := os.Getenv("DESKTOPCTL_EXISTING_ID"); existingID != "" {
 		fx, err = adoptDesktop(existingID, sshKey, owner)
 	} else {
 		repos := []string{}
@@ -208,18 +209,11 @@ func TestMain(m *testing.M) {
 		// exercises the secret-injection path (issue #90).  This secret already
 		// exists in Secrets Manager — it is required for the desktop to clone
 		// repos at all.
-		secretPath := fmt.Sprintf("/ai-desktops/%s/github", owner)
-		if preExistingConfig := os.Getenv("AI_DESKTOPS_TEST_CONFIG"); preExistingConfig != "" {
-			parsedCfg, cfgErr := loadConfigYAML(preExistingConfig)
-			if cfgErr != nil {
-				fmt.Fprintf(os.Stderr, "integration: WARNING: re-parse of %s failed (%v); using default secret path %s\n",
-					preExistingConfig, cfgErr, secretPath)
-			} else if parsedCfg != nil && parsedCfg.GitHub.GitHubSecret != "" {
-				secretPath = parsedCfg.GitHub.GitHubSecret
-			}
+		parsedCfg, cfgErr := loadConfigYAML(configPath)
+		if cfgErr != nil || parsedCfg == nil || parsedCfg.GitHub.GitHubSecret == "" {
+			fatalf("effective integration config %s has no GitHub secret: %v", configPath, cfgErr)
 		}
-
-		fx, err = createDesktop(owner, sshKey, repos, []string{secretPath})
+		fx, err = createDesktop(owner, sshKey, repos, []string{parsedCfg.GitHub.GitHubSecret})
 	}
 	if err != nil {
 		fatalf("fixture setup: %v", err)
@@ -278,7 +272,7 @@ func fatalf(format string, args ...any) {
 // provisioned with it.
 func generateSSHKey(dir string) (string, error) {
 	privKey := filepath.Join(dir, "id_ed25519")
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", privKey, "-N", "", "-C", "ai-desktops-integration-test")
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", privKey, "-N", "", "-C", "desktopctl-integration-test")
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -292,6 +286,8 @@ func generateSSHKey(dir string) (string, error) {
 // It uses test-specific resource names so it never touches prod/dev state.
 func writeTestConfig(dir, moduleRoot, bucket, sshKeyPath, owner string) (string, error) {
 	awsProfile := os.Getenv("AWS_PROFILE")
+	identity := &config.Config{AWS: config.AWSConfig{Region: testRegion}, Fleet: config.FleetConfig{Environment: testEnv}, GitHub: config.GitHubConfig{Owner: owner}}
+	identity.Defaults()
 
 	cfg := fmt.Sprintf(`aws:
   region: %s
@@ -300,19 +296,20 @@ pulumi:
   backend_bucket: %s
   infra_dir: %s
 fleet:
-  table_name: ai-desktops-fleet-test
+  table_name: %s
+  ami_table_name: %s
   environment: %s
 github:
   owner: %s
-  github_secret: /ai-desktops/%s/github
-  agent_secret: /ai-desktops/%s/agents
+  github_secret: /desktopctl/%s/%s/%s/github
+  agent_secret: /desktopctl/%s/%s/%s/agents
 desktop:
   instance_type: t3.large
   operator_cidr: 0.0.0.0/0
   ssh_key_path: %s
 agent:
   bridge_port: 9445
-`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, owner, owner, sshKeyPath)
+`, testRegion, awsProfile, bucket, moduleRoot, identity.Fleet.TableName, identity.Fleet.AMITableName, testEnv, owner, testEnv, testRegion, owner, testEnv, testRegion, owner, sshKeyPath)
 
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
@@ -326,13 +323,13 @@ agent:
 // `init-foundation` (deploys VPC, IAM, DynamoDB, security groups).
 func setupFoundation() error {
 	fmt.Fprintln(os.Stderr, "integration: bootstrapping S3 backend...")
-	if _, err := runCLI(context.Background(), 5*time.Minute, "bootstrap", "--config", configPath); err != nil {
+	if _, err := runCLI(context.Background(), 5*time.Minute, "bootstrap", "--config", configPath, "--allow-existing"); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	fmt.Fprintln(os.Stderr, "integration: deploying foundation stack (env=test)...")
 	if _, err := runCLI(context.Background(), 30*time.Minute,
-		"init-foundation", "--config", configPath, "--env", testEnv); err != nil {
+		"init-foundation", "--config", configPath, "--env", testEnv, "--allow-existing"); err != nil {
 		return fmt.Errorf("init-foundation: %w", err)
 	}
 	return nil
@@ -739,7 +736,7 @@ func runCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte,
 }
 
 // minimalConfig holds the fields from config.yaml that TestMain needs when
-// reading a pre-existing config via AI_DESKTOPS_TEST_CONFIG.
+// reading a pre-existing config via DESKTOPCTL_TEST_CONFIG.
 type minimalConfig struct {
 	AWS struct {
 		Region string `yaml:"region"`

@@ -60,8 +60,11 @@ func resolveTailscaleAPIKey(ctx context.Context, owner string) (string, error) {
 	}
 
 	secretID := strings.TrimSpace(cfg.Operator.Secret)
+	if owner != cfg.GitHub.Owner && secretID == defaultOperatorSecretPath(cfg.GitHub.Owner, cfg.Environment(), cfg.AWS.Region) {
+		secretID = ""
+	}
 	if secretID == "" {
-		secretID = defaultOperatorSecretPath(owner)
+		secretID = defaultOperatorSecretPath(owner, cfg.Environment(), cfg.AWS.Region)
 	}
 	if secretID == "" {
 		return "", errTailscaleAPIKeyMissing
@@ -86,12 +89,12 @@ func tailscaleAPIKeyFromOperatorSecret(ctx context.Context, awsCfg aws.Config, s
 	return apiKey, nil
 }
 
-func defaultOperatorSecretPath(owner string) string {
+func defaultOperatorSecretPath(owner, environment, region string) string {
 	owner = strings.TrimSpace(owner)
-	if owner == "" {
+	if owner == "" || environment == "" || region == "" {
 		return ""
 	}
-	return "/ai-desktops/" + owner
+	return "/desktopctl/" + environment + "/" + region + "/" + owner
 }
 
 type tailscaleAPIClient struct {

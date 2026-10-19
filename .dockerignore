@@ -1,6 +1,6 @@
 .git
 .worktrees
-ai-desktops
+desktopctl
 coverage.out
 apps/*/node_modules
 apps/*/dist

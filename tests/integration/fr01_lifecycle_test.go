@@ -71,7 +71,7 @@ func TestFR1_StateReady(t *testing.T) {
 	}
 }
 
-// TestFR1_List verifies that `ai-desktops list` includes the test desktop
+// TestFR1_List verifies that `desktopctl list` includes the test desktop
 // (AC-1.3).
 func TestFR1_List(t *testing.T) {
 	out, err := runCLI(context.Background(), 30*time.Second,

@@ -1,13 +1,13 @@
-# ai-desktops Agent-Host Guide
+# desktopctl Agent-Host Guide
 
-This guide covers provisioning, operating, and troubleshooting `bridgectl` on an **ai-desktops** Ubuntu 24.04 host — a machine where the bridge runs as a user-level systemd service and spawns AI agent CLIs against repositories under `/workspace`.
+This guide covers provisioning, operating, and troubleshooting `bridgectl` on an **desktopctl** Ubuntu 24.04 host — a machine where the bridge runs as a user-level systemd service and spawns AI agent CLIs against repositories under `/workspace`.
 
 ---
 
 ## Architecture and Security Boundary
 
 ```
-ai-desktops host (Ubuntu 24.04)
+desktopctl host (Ubuntu 24.04)
 ┌─────────────────────────────────────────────────────┐
 │                                                     │
 │  /workspace/<repo>       ← agent working directories │
@@ -45,7 +45,7 @@ Install `bridgectl` from the apt repository:
 curl -fsSL https://orchael.github.io/bridgectl/install.sh | sudo bash
 ```
 
-The package installs a provider-neutral daemon and a generic `bridge.service` user unit. On an ai-desktops host, configure the desktop-specific `bridgectl.service` below instead of enabling the generic unit. The image and cloud-init mask `bridge.service` for the `ubuntu` user to prevent a second server from competing for the same endpoint.
+The package installs a provider-neutral daemon and a generic `bridge.service` user unit. On an desktopctl host, configure the desktop-specific `bridgectl.service` below instead of enabling the generic unit. The image and cloud-init mask `bridge.service` for the `ubuntu` user to prevent a second server from competing for the same endpoint.
 
 **What the package installs:**
 
@@ -87,7 +87,7 @@ To verify an existing installation without making changes:
 sudo env INSTALL_DIR=/opt/bridgectl /usr/lib/bridgectl/install-provider-runtime --verify
 ```
 
-### 2. Apply the ai-desktops Config
+### 2. Apply the desktopctl Config
 
 Copy and customize the example config:
 
@@ -109,7 +109,7 @@ sudo install -o ubuntu -g ubuntu -m 0644 packer/files/bridgectl.service \
 sudo ln -sfn /dev/null /home/ubuntu/.config/systemd/user/bridge.service
 ```
 
-Run the `install` command from a desktopctl source checkout. The ai-desktops AMI installs this unit as `bridgectl.service` with:
+Run the `install` command from a desktopctl source checkout. The desktopctl AMI installs this unit as `bridgectl.service` with:
 - `ExecStart=bridgectl server start --config %h/.config/bridgectl/config.yaml`
 - `EnvironmentFile=-%h/.config/bridgectl/agents.env`
 - `EnvironmentFile=-%h/.config/bridgectl/display.env`
@@ -296,7 +296,7 @@ The `install-provider-runtime` step re-copies the updated manifest and reinstall
 Run the included readiness check to confirm the host is correctly configured as an agent-host before or after provisioning:
 
 ```bash
-sudo /usr/local/bin/ai-desktops-doctor
+sudo /usr/local/bin/desktopctl-doctor
 ```
 
 ### Managed terminal workflow
@@ -310,7 +310,7 @@ New pre-baked AMIs configure the `ubuntu` user with a ready-to-use terminal envi
 - TPM loads pinned `tmux-sensible`, Catppuccin, CPU, kubectx, resurrect, and continuum plugins. Continuum restores sessions automatically.
 - `gitmux` is installed from a checksum-verified release and is invoked only when the command is present.
 
-The AMI owns configurations marked with `.ai-desktops-managed`. The build role preserves an existing unmarked `~/.config/nvim` or `~/.tmux.conf` instead of replacing it. This workflow is an AMI capability; fallback cloud-init installs the base `nvim` and `tmux` binaries but does not install these configurations.
+The AMI owns configurations marked with `.desktopctl-managed`. The build role preserves an existing unmarked `~/.config/nvim` or `~/.tmux.conf` instead of replacing it. This workflow is an AMI capability; fallback cloud-init installs the base `nvim` and `tmux` binaries but does not install these configurations.
 
 New AMIs also include a pinned stable Visual Studio Code package from Microsoft's signed apt repository. Launch **Visual Studio Code** from the desktop application menu or run `code` in a terminal. The Packer build verifies the package version, CLI, and packaged `com.microsoft.VSCode.desktop` launcher; graphical launch is checked on a desktop created from the built AMI.
 
@@ -335,10 +335,10 @@ The script checks twelve items and prints `[OK]`, `[FAIL]`, or `[WARN]` for each
 
 The script exits `0` if all checks pass and `1` if any `[FAIL]` item is found. `[WARN]` items are informational and do not cause a non-zero exit.
 
-Bridgectl sessions run the Codex copy under `/opt/bridgectl/node_modules`. The AMI and fallback cloud-init disable Codex's startup update prompt in bridgectl's separate `codex-home/config.toml`, preserving other valid TOML keys. Upgrade Codex by rebuilding the pinned bridgectl provider runtime. If doctor reports the update prompt setting as missing, run `sudo -u ubuntu python3 /usr/local/bin/ai-desktops-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml` on an AMI desktop, or use the same updater at `/opt/ai-desktops/codex_home_config.py` on a fallback desktop.
+Bridgectl sessions run the Codex copy under `/opt/bridgectl/node_modules`. The AMI and fallback cloud-init disable Codex's startup update prompt in bridgectl's separate `codex-home/config.toml`, preserving other valid TOML keys. Upgrade Codex by rebuilding the pinned bridgectl provider runtime. If doctor reports the update prompt setting as missing, run `sudo -u ubuntu python3 /usr/local/bin/desktopctl-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml` on an AMI desktop, or use the same updater at `/opt/desktopctl/codex_home_config.py` on a fallback desktop.
 
 ```
-ai-desktops bridge doctor
+desktopctl bridge doctor
 =========================
 
 [OK]   Package version: bridgectl 1.4.3
@@ -437,7 +437,7 @@ sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) journalctl --user -
 
 By default the bridge binds to `127.0.0.1:9445`. All connections originate from the same host. There is no encryption or authentication required for localhost-only use.
 
-For ai-desktops created with both Tailscale and step-ca enabled, cloud-init changes the bridgectl listener to the desktop's Tailscale IPv4 address on the configured bridge port and adds the desktop's Tailscale DNS name to `server.san`. This enables direct `bridgectl` access over the tailnet while avoiding exposure on the public EC2 interface. Tailscale-only desktops remain localhost-only.
+For desktopctl created with both Tailscale and step-ca enabled, cloud-init changes the bridgectl listener to the desktop's Tailscale IPv4 address on the configured bridge port and adds the desktop's Tailscale DNS name to `server.san`. This enables direct `bridgectl` access over the tailnet while avoiding exposure on the public EC2 interface. Tailscale-only desktops remain localhost-only.
 
 Known remote `bridgectl` clients can be preloaded at provisioning time. Configure `pki.step_ca_clients` or repeat `--step-ca-client issuer=<name>,public-key-path=<path>,required=true`; the CLI copies each JWT public key to `/home/ubuntu/.config/bridgectl/certs/jwt-clients/<issuer>.pub` and renders matching `step_ca.clients` entries into `/home/ubuntu/.config/bridgectl/config.yaml`.
 

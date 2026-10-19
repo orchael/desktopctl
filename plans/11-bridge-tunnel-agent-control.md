@@ -15,7 +15,7 @@ Create:
 
 - `internal/tunnel`
 - `internal/agent`
-- `ai-desktops agent <id> ...` command group
+- `desktopctl agent <id> ...` command group
 
 Minimum agent commands:
 
@@ -51,5 +51,5 @@ Tunnel modes:
 ```bash
 go test ./internal/tunnel ./internal/agent
 go test ./...
-go run ./cmd/ai-desktops agent <desktop_id> status
+go run ./cmd/desktopctl agent <desktop_id> status
 ```
