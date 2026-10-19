@@ -81,6 +81,10 @@ type setupAnswers struct {
 	OperatorCIDR  string
 }
 
+func setupSameIdentity(current *config.Config, region, environment, owner string) bool {
+	return current != nil && current.AWS.Region == region && current.Fleet.Environment == environment && current.GitHub.Owner == owner
+}
+
 func detectPublicIPv4(ctx context.Context) (netip.Addr, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicIPURL, nil)
@@ -311,6 +315,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		gitUserEmailLabel = fmt.Sprintf("Git commit author email [%s]", existingGitUserEmail)
 	}
 	a.GitUserEmail = prompt(reader, gitUserEmailLabel, existingGitUserEmail)
+	sameIdentity := setupSameIdentity(cfg, a.AWSRegion, a.Environment, a.GitHubOwner)
 
 	secretPath := fmt.Sprintf("/desktopctl/%s/%s/%s/github", a.Environment, a.AWSRegion, a.GitHubOwner)
 	githubSecretExists := false
@@ -444,11 +449,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	// Collect AI provider API keys.
 	// Preserve any existing custom secret path; only derive the default on first run.
 	agentSecretPath := fmt.Sprintf("/desktopctl/%s/%s/%s/agents", a.Environment, a.AWSRegion, a.GitHubOwner)
-	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+	if sameIdentity && cfg.GitHub.AgentSecret != "" {
 		agentSecretPath = cfg.GitHub.AgentSecret
 	}
 	updateAgentKeys := true
-	if isExisting && cfg != nil && cfg.GitHub.AgentSecret != "" {
+	if sameIdentity && cfg.GitHub.AgentSecret != "" {
 		fmt.Println()
 		fmt.Print("Update AI provider API keys? [y/N]: ")
 		answer, _ := reader.ReadString('\n')

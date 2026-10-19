@@ -56,10 +56,10 @@ setup-integration: check-deps build
 	./$(BINARY) setup --config tests/integration/config.yaml --config-out tests/integration/config.yaml
 	@echo ""
 	@echo "setup-integration: bootstrapping S3 backend..."
-	./$(BINARY) bootstrap --config tests/integration/config.yaml
+	./$(BINARY) bootstrap --config tests/integration/config.yaml --allow-existing
 	@echo ""
 	@echo "setup-integration: deploying foundation stack (env=test)..."
-	./$(BINARY) init-foundation --config tests/integration/config.yaml --env test
+	./$(BINARY) init-foundation --config tests/integration/config.yaml --env test --allow-existing
 	@echo ""
 	@echo "setup-integration: done. Run 'make test-integration' to execute the suite."
 
@@ -224,7 +224,7 @@ clean-integration: build
 	}
 	@which jq > /dev/null 2>&1 || { echo "ERROR: jq is required but not found"; exit 1; }
 	@tmpconf=$$(mktemp /tmp/desktopctl-clean-XXXXXX.yaml); \
-	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: desktopctl-fleet-test\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /desktopctl/%s/github\n  agent_secret: /desktopctl/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
+	printf 'aws:\n  region: us-west-2\n  profile: %s\npulumi:\n  backend_bucket: %s\n  infra_dir: %s\nfleet:\n  table_name: desktopctl-fleet-test-us-west-2\n  ami_table_name: desktopctl-ami-test-us-west-2\n  environment: test\ngithub:\n  owner: %s\n  github_secret: /desktopctl/test/us-west-2/%s/github\n  agent_secret: /desktopctl/test/us-west-2/%s/agents\ndesktop:\n  instance_type: t3.large\n  operator_cidr: 0.0.0.0/0\nagent:\n  bridge_port: 9445\n' \
 	  "$(AWS_PROFILE)" "$(DESKTOPCTL_TEST_BUCKET)" "$$(pwd)" "$(DESKTOPCTL_GITHUB_OWNER)" \
 	  "$(DESKTOPCTL_GITHUB_OWNER)" "$(DESKTOPCTL_GITHUB_OWNER)" \
 	  > "$$tmpconf"; \

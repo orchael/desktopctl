@@ -342,6 +342,15 @@ func run(ctx *pulumi.Context) error {
         "secretsmanager:ResourceTag/desktopctl-scope": "operator"
       }
     }
+  }, {
+    "Effect": "Deny",
+    "Action": "secretsmanager:GetSecretValue",
+    "Resource": "*",
+    "Condition": {
+      "StringEquals": {
+        "secretsmanager:ResourceTag/ai-desktops-scope": "operator"
+      }
+    }
   }]
 }`
 		if _, err := iam.NewRolePolicy(ctx, "desktopctl-secrets-policy", &iam.RolePolicyArgs{
@@ -489,6 +498,7 @@ func run(ctx *pulumi.Context) error {
 				"managed-by":       pulumi.String("desktopctl"),
 				"environment":      pulumi.String(environment),
 				"desktopctl-scope": pulumi.String("operator"),
+				"ai-desktops-scope": pulumi.String("operator"),
 			},
 		})
 		if err != nil {

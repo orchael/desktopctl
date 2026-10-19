@@ -11,7 +11,25 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/orchael/desktopctl/internal/config"
 )
+
+func TestSetupSameIdentity(t *testing.T) {
+	current := &config.Config{AWS: config.AWSConfig{Region: "ca-central-1"}, Fleet: config.FleetConfig{Environment: "prod"}, GitHub: config.GitHubConfig{Owner: "orchael", AgentSecret: "/custom/agents"}}
+	for _, tc := range []struct {
+		region, environment, owner string
+		want                       bool
+	}{
+		{"ca-central-1", "prod", "orchael", true},
+		{"us-east-1", "prod", "orchael", false},
+		{"ca-central-1", "dev", "orchael", false},
+		{"ca-central-1", "prod", "other", false},
+	} {
+		if got := setupSameIdentity(current, tc.region, tc.environment, tc.owner); got != tc.want {
+			t.Errorf("identity(%s, %s, %s) = %t, want %t", tc.region, tc.environment, tc.owner, got, tc.want)
+		}
+	}
+}
 
 func TestGenerateSSHKeyPair(t *testing.T) {
 	pub, priv, err := generateSSHKeyPair("test-owner")

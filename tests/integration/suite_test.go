@@ -45,6 +45,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/orchael/desktopctl/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -292,6 +293,8 @@ func generateSSHKey(dir string) (string, error) {
 // It uses test-specific resource names so it never touches prod/dev state.
 func writeTestConfig(dir, moduleRoot, bucket, sshKeyPath, owner string) (string, error) {
 	awsProfile := os.Getenv("AWS_PROFILE")
+	identity := &config.Config{AWS: config.AWSConfig{Region: testRegion}, Fleet: config.FleetConfig{Environment: testEnv}, GitHub: config.GitHubConfig{Owner: owner}}
+	identity.Defaults()
 
 	cfg := fmt.Sprintf(`aws:
   region: %s
@@ -300,19 +303,20 @@ pulumi:
   backend_bucket: %s
   infra_dir: %s
 fleet:
-  table_name: desktopctl-fleet-test
+  table_name: %s
+  ami_table_name: %s
   environment: %s
 github:
   owner: %s
-  github_secret: /desktopctl/%s/github
-  agent_secret: /desktopctl/%s/agents
+  github_secret: /desktopctl/%s/%s/%s/github
+  agent_secret: /desktopctl/%s/%s/%s/agents
 desktop:
   instance_type: t3.large
   operator_cidr: 0.0.0.0/0
   ssh_key_path: %s
 agent:
   bridge_port: 9445
-`, testRegion, awsProfile, bucket, moduleRoot, testEnv, owner, owner, owner, sshKeyPath)
+`, testRegion, awsProfile, bucket, moduleRoot, identity.Fleet.TableName, identity.Fleet.AMITableName, testEnv, owner, testEnv, testRegion, owner, testEnv, testRegion, owner, sshKeyPath)
 
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
@@ -326,13 +330,13 @@ agent:
 // `init-foundation` (deploys VPC, IAM, DynamoDB, security groups).
 func setupFoundation() error {
 	fmt.Fprintln(os.Stderr, "integration: bootstrapping S3 backend...")
-	if _, err := runCLI(context.Background(), 5*time.Minute, "bootstrap", "--config", configPath); err != nil {
+	if _, err := runCLI(context.Background(), 5*time.Minute, "bootstrap", "--config", configPath, "--allow-existing"); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	fmt.Fprintln(os.Stderr, "integration: deploying foundation stack (env=test)...")
 	if _, err := runCLI(context.Background(), 30*time.Minute,
-		"init-foundation", "--config", configPath, "--env", testEnv); err != nil {
+		"init-foundation", "--config", configPath, "--env", testEnv, "--allow-existing"); err != nil {
 		return fmt.Errorf("init-foundation: %w", err)
 	}
 	return nil

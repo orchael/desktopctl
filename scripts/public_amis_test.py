@@ -31,6 +31,7 @@ class PublicAMIScriptTest(unittest.TestCase):
         self.config = root / "config.yaml"
         self.config.write_text("aws:\n  region: ca-central-1\n")
         self.calls = root / "cli-calls"
+        self.confirm = root / "cli-confirm"
         self.aws_calls = root / "aws-calls"
         self.block_state = root / "block-state.json"
         self.block_state.write_text(json.dumps({"ImageBlockPublicAccessState": "unblocked", "ManagedBy": "account"}))
@@ -60,6 +61,10 @@ class PublicAMIScriptTest(unittest.TestCase):
             "#!/usr/bin/env python3\n"
             "import os,sys\n"
             "with open(os.environ['FAKE_CLI_CALLS'],'a') as f: f.write(' '.join(sys.argv[1:])+'\\n')\n"
+            "if 'delete' in sys.argv:\n"
+            "  answer=sys.stdin.readline().strip()\n"
+            "  with open(os.environ['FAKE_CLI_CONFIRM'],'w') as f: f.write(answer)\n"
+            "  if answer != 'yes': sys.exit(4)\n"
         )
         self.cli.chmod(0o755)
         self.env = os.environ.copy()
@@ -68,16 +73,25 @@ class PublicAMIScriptTest(unittest.TestCase):
             FAKE_ACCOUNT=ACCOUNT,
             FAKE_IMAGES=str(self.images),
             FAKE_CLI_CALLS=str(self.calls),
+            FAKE_CLI_CONFIRM=str(self.confirm),
             FAKE_AWS_CALLS=str(self.aws_calls),
             FAKE_BLOCK_STATE=str(self.block_state),
         )
 
-    def run_script(self, action, *args):
+    def run_script(self, action, *args, input=None):
         return subprocess.run(
             [str(SCRIPT), action, "--config", str(self.config), "--cli", str(self.cli),
              "--profile", "marka", "--regions", "ca-central-1", "--account-id", ACCOUNT, *args],
-            cwd=self.tmp.name, env=self.env, text=True, capture_output=True, check=False,
+            cwd=self.tmp.name, env=self.env, text=True, capture_output=True, check=False, input=input,
         )
+
+    def test_delete_passes_operator_confirmation_to_cli(self):
+        self.images.write_text(json.dumps({"Images": [
+            image("ami-old0", "desktopctl-v0-20261017-100", "2026-10-17T00:00:00Z"),
+        ]}))
+        result = self.run_script("delete", "--ami", "ami-old0", "--apply", input="yes\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.confirm.read_text(), "yes")
 
     def test_list_needs_no_config_or_cli(self):
         self.images.write_text(json.dumps({"Images": [
@@ -181,7 +195,7 @@ class PublicAMIScriptTest(unittest.TestCase):
         self.assertIn("Refusing to delete", result.stderr)
         self.assertFalse(self.calls.exists())
         self.env["FAKE_INSTANCES"] = ""
-        deleted = self.run_script("delete", "--ami", "ami-in-use", "--apply")
+        deleted = self.run_script("delete", "--ami", "ami-in-use", "--apply", input="yes\n")
         self.assertEqual(deleted.returncode, 0, deleted.stderr)
         self.assertIn("ami delete ami-in-use", self.calls.read_text())
 

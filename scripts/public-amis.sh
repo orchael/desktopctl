@@ -187,7 +187,7 @@ for region in "${regions[@]}"; do
   fi
 
   if [[ -z "$candidates" ]]; then echo 'No deletion candidates.'; continue; fi
-  while IFS=$'\t' read -r candidate_id candidate_name candidate_date; do
+  while IFS=$'\t' read -r candidate_id candidate_name candidate_date <&3; do
     [[ -n "$candidate_id" ]] || continue
     echo "Candidate: $candidate_id  $candidate_name  $candidate_date"
     if [[ "$apply" == true ]]; then
@@ -201,6 +201,6 @@ for region in "${regions[@]}"; do
       fi
       "$cli" --config "$config_path" --profile "$profile" --region "$region" ami delete "$candidate_id"
     fi
-  done <<< "$candidates"
+  done 3<<< "$candidates"
   if [[ "$apply" == false ]]; then echo 'Preview only. Pass --apply to request deletion.'; fi
 done

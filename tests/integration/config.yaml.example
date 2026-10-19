@@ -29,7 +29,8 @@ pulumi:
 fleet:
   # Use a dedicated test fleet table so integration tests never touch the
   # production fleet records.
-  table_name: desktopctl-fleet-test
+  table_name: desktopctl-fleet-test-us-west-2
+  ami_table_name: desktopctl-ami-test-us-west-2
 
   # test environment uses the dev DNS zone (desktops.orchael.dev).
   environment: test
@@ -39,10 +40,10 @@ github:
 
   # AWS Secrets Manager secret path created by `desktopctl setup`.
   # Contains github_token, ssh_private_key, and ssh_public_key as JSON.
-  github_secret: /desktopctl/myorg/github
+  github_secret: /desktopctl/test/us-west-2/myorg/github
 
   # Agent API keys secret path created by `desktopctl setup`.
-  agent_secret: /desktopctl/myorg/agents
+  agent_secret: /desktopctl/test/us-west-2/myorg/agents
 
   # Git identity written to the desktop's global git config.
   git_user_name: Your Name
