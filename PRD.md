@@ -290,7 +290,7 @@ its own lifecycle and may survive desktop termination.
 | ID | Requirement |
 | --- | --- |
 | FR-9.1 | The system must support building per-region machine images with the base toolchain pre-installed using Packer. |
-| FR-9.2 | The AMI build process must produce identical toolchain versions across all supported regions. |
+| FR-9.2 | The AMI build process must build once in the first selected region and copy the resulting image to other selected regions so all regions receive identical toolchain versions. |
 | FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
 | FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (from a release archive with a pinned version and SHA-256), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
@@ -326,7 +326,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.16 | The AMI build downloads the exact pinned Microsoft `code` package from its apt repository, verifies its SHA-256 before installing with apt, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 | AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
 | AC-9.18 | A `0.7.0` CLI discovers only public `desktopctl-v0-*` images by default; a configured major or exact active AMI overrides that choice, and Packer receives the CLI major and UTC build date | `TestPublicAMINamePattern`, `TestRunPassesMajorAndUTCDate`; live image discovery after publication |
-| AC-9.19 | The public AMI script builds each selected region and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`; live read-only list and prune preview |
+| AC-9.19 | The public AMI script builds once in the first selected region, copies to the others, and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`; live read-only list and prune preview |
 
 ### FR-11 — GitHub developer tooling
 
@@ -590,7 +590,7 @@ Desktop provisioning performance is critical for interactive operator workflows.
 uses pre-baked AMIs built with Packer so package installation and toolchain setup do not run during
 desktop creation. This reduces boot time and removes package-install failures from the runtime path.
 
-The `desktopctl ami build` command invokes Packer to build one or more regions sequentially.
+The `desktopctl ami build` command invokes Packer once in the first selected region and copies the resulting AMI to the remaining regions.
 Version pins are maintained in `packer/variables.pkrvars.hcl`, and resulting AMI IDs are stored in
 `config.yaml`. The baked image includes the baseline development toolchain, `novnc-desktop`, and
 `bridgectl`. Cloud-init is reduced to runtime-only steps: TLS certificate generation via

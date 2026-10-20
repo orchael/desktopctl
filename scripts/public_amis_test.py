@@ -136,7 +136,7 @@ class PublicAMIScriptTest(unittest.TestCase):
             self.assertNotIn("Candidate: " + excluded, result.stdout)
         self.assertFalse(self.calls.exists())
 
-    def test_delete_rejects_unmanaged_and_builds_each_region(self):
+    def test_delete_rejects_unmanaged_and_builds_once_for_all_regions(self):
         self.images.write_text(json.dumps({"Images": [
             image("ami-unmanaged", "desktopctl-v0-20261017-100", "2026-10-17T00:00:00Z", managed=False),
         ]}))
@@ -151,8 +151,8 @@ class PublicAMIScriptTest(unittest.TestCase):
         )
         self.assertEqual(built.returncode, 0, built.stderr)
         calls = self.calls.read_text()
-        self.assertIn("ami build --regions ca-central-1 --public", calls)
-        self.assertIn("ami build --regions us-east-1 --public", calls)
+        self.assertEqual(calls.count("ami build"), 1)
+        self.assertIn("ami build --regions ca-central-1,us-east-1 --public", calls)
 
     def test_build_enables_public_sharing_in_approved_region(self):
         self.block_state.write_text(json.dumps({"ImageBlockPublicAccessState": "block-new-sharing", "ManagedBy": "account"}))

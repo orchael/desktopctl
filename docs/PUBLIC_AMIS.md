@@ -37,8 +37,9 @@ the account before any other AWS operation.
 Build, delete, and prune also require a config file and desktopctl binary;
 list reads EC2 directly and needs neither. AWS CLI is required for all actions,
 and `jq` for list, delete, and prune. Build invokes `desktopctl ami build --public`
-once per region and saves each successful
-region's active image in the selected config. The GitHub Packages token can
+once for the selected region list. Packer builds in the first region and copies
+the finished image to the others; the CLI saves every region's AMI ID in config.
+The GitHub Packages token can
 come from the regional secret created by `desktopctl setup`.
 Before starting Packer, a public build checks the region's account-level AMI
 Block Public Access state. In ca-central-1, us-east-1, us-east-2, us-west-1,
@@ -61,8 +62,8 @@ scripts/public-amis.sh list \
   --regions ca-central-1,us-east-1
 ```
 
-Each build region needs a launchable noVNC base AMI and a usable Packer subnet
-or default VPC. The CLI records AMI history in the control region's DynamoDB
+The first build region needs a launchable noVNC base AMI and a usable Packer subnet
+or default VPC. Copy targets do not need a noVNC base AMI. The AWS principal needs `ec2:CopyImage` in the target regions; existing generated operator roles gain it after reapplying `desktopctl init-foundation`. The CLI records AMI history in the control region's DynamoDB
 table. `list` shows only available, public, account-owned AMIs with the exact
 new name pattern and `ManagedBy=desktopctl-packer` tag.
 

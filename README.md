@@ -52,7 +52,7 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 - `TAILSCALE_API_KEY` in the local environment, or in the `/desktopctl/<env>/<region>/<owner>` operator secret, lets `terminate` remove the matching Tailscale machine when the desktop record has `tailscale_network` set. If it is absent, termination continues and the Tailscale machine must be removed manually.
 
 **AMI build/list/delete (`ami` commands):**
-- `ec2:DescribeImages`, `ec2:DescribeSubnets`, `ec2:CreateImage`, `ec2:ModifyImageAttribute`, `ec2:DeregisterImage`, `ec2:DeleteSnapshot`
+- `ec2:DescribeImages`, `ec2:DescribeSubnets`, `ec2:CreateImage`, `ec2:CopyImage`, `ec2:ModifyImageAttribute`, `ec2:DeregisterImage`, `ec2:DeleteSnapshot`
 - Packer also needs EC2 launch, tagging, stop, and terminate permissions for its build instance.
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:Scan`, `dynamodb:DeleteItem` on the AMI history table.
 
@@ -443,7 +443,8 @@ The following variables are **injected automatically** by the CLI and must not b
 
 | Variable | Source |
 |----------|--------|
-| `source_ami` | Resolved at build time from the latest public `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
+| `source_ami` | Resolved in the first build region from the latest `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
+| `ami_regions` | All requested regions after the first; Packer copies the built AMI to them |
 | `desktop_web_version` | Embedded in the CLI binary at release time |
 | `desktopctl_version` | Embedded in the CLI binary at release time |
 | `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` or the setup GitHub secret |
@@ -462,13 +463,13 @@ desktopctl init-foundation
 desktopctl ami build --regions us-east-2
 ```
 
-Build all three regions:
+Build once in the first region and copy the completed AMI to the other regions:
 
 ```bash
 desktopctl ami build --regions us-east-1,us-east-2,us-west-2
 ```
 
-Use an explicit base AMI instead of the auto-lookup (single region only):
+Use an explicit base AMI in the first build region instead of the auto-lookup:
 
 ```bash
 desktopctl ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
@@ -488,7 +489,7 @@ listing, and preview-first deletion script.
 
 #### What gets installed
 
-The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base and includes:
+The AMI is built on top of the latest `novnc-desktop-ubuntu-24.04-elementary` base in the first region, then copied to the remaining regions. Each region receives its own AMI ID. The image includes:
 
 - Docker
 - Go (version from `go_version` var)

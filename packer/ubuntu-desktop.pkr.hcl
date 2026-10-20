@@ -87,8 +87,14 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
+variable "ami_regions" {
+  type        = list(string)
+  default     = []
+  description = "Additional regions to copy the built AMI to"
+}
+
 # source_ami is always required. The desktopctl CLI resolves the correct AMI
-# before invoking packer (either from the vars file or via an EC2 lookup) and
+# before invoking packer (either from --base-ami or via an EC2 lookup) and
 # passes it via -var source_ami=<id>.
 variable "source_ami" {
   type        = string
@@ -132,6 +138,7 @@ source "amazon-ebs" "ubuntu" {
   ami_description = "desktopctl AMI - novnc-desktop elementary base with desktopctl toolchain"
   instance_type   = "c6i.xlarge"
   region          = var.aws_region
+  ami_regions     = var.ami_regions
   source_ami      = var.source_ami
 
   ami_groups = var.ami_public ? ["all"] : []

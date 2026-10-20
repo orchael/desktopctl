@@ -53,12 +53,17 @@ func TestParseAMIRegions(t *testing.T) {
 	}
 }
 
-func TestValidateAMIRegionSelection(t *testing.T) {
-	if err := validateAMIRegionSelection([]string{"us-east-1"}, "ami-123"); err != nil {
-		t.Fatalf("single region override: %v", err)
+func TestSelectedRegionAMIs(t *testing.T) {
+	manifest := map[string]string{"us-east-1": "ami-primary", "us-west-2": "ami-copy", "eu-west-1": "ami-unrequested"}
+	selected, err := selectedRegionAMIs(manifest, []string{"us-east-1", "us-west-2"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := validateAMIRegionSelection([]string{"us-east-1", "us-west-2"}, "ami-123"); err == nil {
-		t.Fatal("expected multi-region base AMI override error")
+	if !reflect.DeepEqual(selected, map[string]string{"us-east-1": "ami-primary", "us-west-2": "ami-copy"}) {
+		t.Fatalf("selected AMIs = %#v", selected)
+	}
+	if _, err := selectedRegionAMIs(manifest, []string{"us-east-1", "ca-central-1"}); err == nil || !strings.Contains(err.Error(), "ca-central-1") {
+		t.Fatalf("missing copy should fail with region context: %v", err)
 	}
 }
 
