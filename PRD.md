@@ -291,10 +291,10 @@ its own lifecycle and may survive desktop termination.
 | --- | --- |
 | FR-9.1 | The system must support building per-region machine images with the base toolchain pre-installed using Packer. |
 | FR-9.2 | The AMI build process must build once in the first selected region and copy the resulting image to other selected regions so all regions receive identical toolchain versions. |
-| FR-9.3 | Built AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. |
+| FR-9.3 | Private build AMI IDs must be persisted in operator config (`config.yaml`) and used by subsequent desktop creates. Public publisher builds must print the regional IDs without requiring an existing desktopctl foundation or config, and may update active pins in an explicitly supplied config. |
 | FR-9.4 | Cloud-init user-data must be reduced to runtime-only concerns: secret injection, workspace setup, and repository cloning. |
 | FR-9.5 | The base AMI must be built from Ubuntu 24.04 LTS (Noble) and pre-install: `docker`, `git`, `nvim`, `tmux`, `uv`, `go`, `brew` (Linuxbrew), `helm` (from a release archive with a pinned version and SHA-256), `tfenv` (via Linuxbrew) with Terraform 1.16.5 installed and selected for `ubuntu`, `bridgectl` (pinned version). |
-| FR-9.6 | A CLI command `desktopctl ami build` must invoke Packer and automatically update `config.yaml` with the resulting AMI IDs per region. |
+| FR-9.6 | A CLI command `desktopctl ami build` must invoke Packer. Private builds update `config.yaml` and AMI history with resulting IDs per region; public builds print the IDs, skip AMI history, and update config only when explicitly supplied. |
 | FR-9.7 | Desktop creation must prefer pre-baked AMI IDs from config over the hardcoded default Ubuntu AMI map. |
 | FR-9.8 | Both the pre-baked AMI and cloud-init fallback must create the native ubuntu Codex home (`/home/ubuntu/.codex`) as an ubuntu-owned `0700` directory before Codex can initialize it under a permissive login umask. |
 | FR-9.9 | The pre-baked AMI must provide an ubuntu-owned, pinned, non-interactive terminal workflow: NvChad using Catppuccin, GitHub CLI and Git editor `vim`, `EDITOR`, `VISUAL`, and `GIT_EDITOR` set to `vim` for new desktop sessions, tmux using the approved key bindings and enabled plugins, automatic session restore, and guarded gitmux status integration. Existing user-managed Neovim or tmux configuration must not be replaced. The cloud-init fallback must not install or configure this workflow. |
@@ -326,7 +326,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.16 | The AMI build downloads the exact pinned Microsoft `code` package from its apt repository, verifies its SHA-256 before installing with apt, verifies the installed version and its packaged `com.microsoft.VSCode.desktop` launcher, and a desktop launched from the AMI can start VS Code from the graphical session | `TestAMIPlaybookInstallsPinnedVSCode`, `TestFR9_VSCodeInstalled`; live graphical validation after AMI build |
 | AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
 | AC-9.18 | A `0.7.0` CLI discovers only public `desktopctl-v0-*` images by default; a configured major or exact active AMI overrides that choice, and Packer receives the CLI major and UTC build date | `TestPublicAMINamePattern`, `TestRunPassesMajorAndUTCDate`; live image discovery after publication |
-| AC-9.19 | The public AMI script builds once in the first selected region, copies to the others, and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`; live read-only list and prune preview |
+| AC-9.19 | The public AMI script builds once in the first selected region without a config or foundation, copies to the others, and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`, `TestPublicAMIBuildSkipsStoreAndConfig`; live read-only list and prune preview |
 
 ### FR-11 — GitHub developer tooling
 

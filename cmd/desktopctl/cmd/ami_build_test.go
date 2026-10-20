@@ -1,10 +1,80 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/store"
 )
+
+func TestPublicAMIBuildSkipsStoreAndConfig(t *testing.T) {
+	previousCfg := cfg
+	cfg = &config.Config{Fleet: config.FleetConfig{AMITableName: "missing-table"}}
+	t.Cleanup(func() { cfg = previousCfg })
+	amiStore, err := openBuildAMIStore(context.Background(), true)
+	if err != nil || amiStore != nil {
+		t.Fatalf("public build opened an AMI store: store=%v err=%v", amiStore, err)
+	}
+	var output bytes.Buffer
+	regions := []string{"us-east-1", "ca-central-1"}
+	amiIDs := map[string]string{"us-east-1": "ami-primary", "ca-central-1": "ami-copy"}
+	if err := finishAMIBuild(context.Background(), regions, amiIDs, "20261020-000000", true, nil, cfg, "", &output); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Desktop.ActiveAMI != nil {
+		t.Fatal("public build should not set active AMI pins")
+	}
+	for _, want := range []string{"us-east-1: ami-primary (public)", "ca-central-1: ami-copy (public)"} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("public build output missing %q: %s", want, output.String())
+		}
+	}
+}
+
+func TestPublicAMIBuildWithConfigSavesPinsWithoutStore(t *testing.T) {
+	buildCfg := &config.Config{}
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	var output bytes.Buffer
+	if err := finishAMIBuild(context.Background(), []string{"us-east-1"}, map[string]string{"us-east-1": "ami-public"}, "20261020-000000", true, nil, buildCfg, configPath, &output); err != nil {
+		t.Fatal(err)
+	}
+	if buildCfg.Desktop.ActiveAMI["us-east-1"] != "ami-public" {
+		t.Fatalf("active AMI = %q", buildCfg.Desktop.ActiveAMI["us-east-1"])
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("public build did not write explicit config: %v", err)
+	}
+	if saved.Desktop.ActiveAMI["us-east-1"] != "ami-public" {
+		t.Fatalf("saved active AMI = %q", saved.Desktop.ActiveAMI["us-east-1"])
+	}
+}
+
+func TestPrivateAMIBuildPersistsResults(t *testing.T) {
+	ctx := context.Background()
+	amiStore := store.NewInMemoryAMIStore()
+	buildCfg := &config.Config{}
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	var output bytes.Buffer
+	if err := finishAMIBuild(ctx, []string{"us-east-1"}, map[string]string{"us-east-1": "ami-private"}, "20261020-000000", false, amiStore, buildCfg, configPath, &output); err != nil {
+		t.Fatal(err)
+	}
+	if buildCfg.Desktop.ActiveAMI["us-east-1"] != "ami-private" {
+		t.Fatalf("active AMI = %q", buildCfg.Desktop.ActiveAMI["us-east-1"])
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("private build did not write config: %v", err)
+	}
+	if _, err := amiStore.GetAMI(ctx, "us-east-1", "ami-private"); err != nil {
+		t.Fatalf("private build did not record AMI history: %v", err)
+	}
+}
 
 func TestNovncVersionFromAMIName(t *testing.T) {
 	tests := []struct {

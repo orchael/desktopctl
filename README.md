@@ -445,15 +445,15 @@ The following variables are **injected automatically** by the CLI and must not b
 |----------|--------|
 | `source_ami` | Resolved in the first build region from the latest `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
 | `ami_regions` | All requested regions after the first; Packer copies the built AMI to them |
+| `aws_profile` | Selected CLI AWS profile; Packer uses the same account as the CLI lookup |
 | `desktop_web_version` | Embedded in the CLI binary at release time |
 | `desktopctl_version` | Embedded in the CLI binary at release time |
 | `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` or the setup GitHub secret |
 
 #### Build the AMI
 
-The foundation stack must already be applied for the configured environment and
-AWS control region because `ami build` records AMI history in the foundation
-DynamoDB AMI history table:
+Private `ami build` records AMI history and active pins in the desktopctl
+foundation and config, so initialize the foundation before a private build:
 
 ```bash
 desktopctl init-foundation
@@ -475,12 +475,16 @@ Use an explicit base AMI in the first build region instead of the auto-lookup:
 desktopctl ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
 ```
 
-Make the built AMI publicly accessible:
+Make the built AMI publicly accessible without a desktopctl foundation or
+config. Supply `GITHUB_NPM_TOKEN` with `read:packages` when no setup secret is
+configured; pass `--subnet-id` if the first region has no default VPC:
 
 ```bash
 desktopctl ami build --regions us-east-2 --public
 ```
 
+Public builds print each regional AMI ID and do not use AMI history. They save
+active pins only when `--config` is explicitly supplied.
 Public images are named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>`.
 Automatic discovery follows the running CLI's major version; `desktop.public_ami_major`
 selects another major and `desktop.active_ami.<region>` pins an exact image.
