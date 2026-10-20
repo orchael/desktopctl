@@ -443,7 +443,8 @@ The following variables are **injected automatically** by the CLI and must not b
 
 | Variable | Source |
 |----------|--------|
-| `source_ami` | Resolved at build time from the latest public `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
+| `source_ami` | Resolved in the first build region from the latest `novnc-desktop-ubuntu-24.04-elementary` AMI (or `--base-ami`) |
+| `ami_regions` | All requested regions after the first; Packer copies the built AMI to them |
 | `desktop_web_version` | Embedded in the CLI binary at release time |
 | `desktopctl_version` | Embedded in the CLI binary at release time |
 | `github_npm_token` | Mapped from `GITHUB_NPM_TOKEN` or the setup GitHub secret |
@@ -462,13 +463,13 @@ desktopctl init-foundation
 desktopctl ami build --regions us-east-2
 ```
 
-Build all three regions:
+Build once in the first region and copy the completed AMI to the other regions:
 
 ```bash
 desktopctl ami build --regions us-east-1,us-east-2,us-west-2
 ```
 
-Use an explicit base AMI instead of the auto-lookup (single region only):
+Use an explicit base AMI in the first build region instead of the auto-lookup:
 
 ```bash
 desktopctl ami build --regions us-east-2 --base-ami ami-0123456789abcdef0
@@ -488,7 +489,7 @@ listing, and preview-first deletion script.
 
 #### What gets installed
 
-The AMI is built on top of the latest public `novnc-desktop-ubuntu-24.04-elementary` base and includes:
+The AMI is built on top of the latest `novnc-desktop-ubuntu-24.04-elementary` base in the first region, then copied to the remaining regions. Each region receives its own AMI ID. The image includes:
 
 - Docker
 - Go (version from `go_version` var)

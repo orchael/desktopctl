@@ -162,13 +162,16 @@ ensure_public_sharing() {
 # shellcheck disable=SC2016
 managed_filter='[.Images[] | select(.Public == true and .OwnerId == $account and any(.Tags[]?; .Key == "ManagedBy" and .Value == "desktopctl-packer") and (.Name | test("^desktopctl-v(0|[1-9][0-9]*)-[0-9]{8}-[0-9]+$")))]'
 
+if [[ "$action" == build ]]; then
+  for region in "${regions[@]}"; do
+    ensure_public_sharing "$region"
+  done
+  "$cli" --config "$config_path" --profile "$profile" ami build --regions "$regions_csv" --public
+  exit
+fi
+
 for region in "${regions[@]}"; do
   echo "Account $account_id, region $region, action $action"
-  if [[ "$action" == build ]]; then
-    ensure_public_sharing "$region"
-    "$cli" --config "$config_path" --profile "$profile" ami build --regions "$region" --public
-    continue
-  fi
 
   images=$(image_json "$region")
   if [[ "$action" == list ]]; then
