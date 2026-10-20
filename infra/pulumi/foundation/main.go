@@ -647,6 +647,7 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
         "ec2:AttachInternetGateway",
         "ec2:AuthorizeSecurityGroupEgress",
         "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:CopyImage",
         "ec2:CreateImage",
         "ec2:CreateInternetGateway",
         "ec2:CreateKeyPair",

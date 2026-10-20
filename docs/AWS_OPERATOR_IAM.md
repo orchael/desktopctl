@@ -107,7 +107,7 @@ Pulumi and the AWS SDK both use the same shared AWS profile chain, so the assume
 The role policy covers the control-plane operations used by this repository:
 
 - Pulumi S3 state backend access for the configured bucket.
-- EC2 networking, instance, AMI, snapshot, and key-pair calls used by Pulumi, lifecycle commands, nested virtualization launches, and Packer.
+- EC2 networking, instance, AMI, snapshot, and key-pair calls used by Pulumi, lifecycle commands, nested virtualization launches, and Packer. Multi-region AMI builds require `ec2:CopyImage` in the generated role policy; reapply `desktopctl init-foundation` after upgrading to grant it to an existing role.
 - DynamoDB fleet and AMI history tables named `desktopctl-*`.
 - Route53 hosted-zone lookup and desktop record changes.
 - Secrets Manager and SSM reads/writes under `/desktopctl/*`.

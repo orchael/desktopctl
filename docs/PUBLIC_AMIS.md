@@ -63,7 +63,7 @@ scripts/public-amis.sh list \
 ```
 
 The first build region needs a launchable noVNC base AMI and a usable Packer subnet
-or default VPC. Copy targets do not need a noVNC base AMI. The CLI records AMI history in the control region's DynamoDB
+or default VPC. Copy targets do not need a noVNC base AMI. The AWS principal needs `ec2:CopyImage` in the target regions; existing generated operator roles gain it after reapplying `desktopctl init-foundation`. The CLI records AMI history in the control region's DynamoDB
 table. `list` shows only available, public, account-owned AMIs with the exact
 new name pattern and `ManagedBy=desktopctl-packer` tag.
 
