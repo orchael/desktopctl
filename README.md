@@ -7,7 +7,89 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
-For a fresh production setup in ca-central-1, use the [migration and first desktop guide](docs/CA_CENTRAL_MIGRATION.md).
+## Quick start: production in ca-central-1
+
+This path uses AWS account `819363892004`, profile `marka`, environment `prod`,
+owner `orchael`, and the named config at
+`~/.config/desktopctl/config-ca-central-1.yaml`. The account has no
+`desktops.orchael.com` hosted zone, so use `--no-dns` for both the foundation
+and desktops. The public AMI `ami-0d0b8cccb4d7077fd` is available in this
+region and is pinned in the existing config; an AMI build is unnecessary.
+
+1. **Check the target and local tools.** Run these from this repository:
+
+   ```sh
+   CONFIG="$HOME/.config/desktopctl/config-ca-central-1.yaml"
+   aws sts get-caller-identity --profile marka
+   make build
+   ./bin/desktopctl --config "$CONFIG" check
+   ```
+
+   Confirm the AWS account is `819363892004`. The config's region must be
+   `ca-central-1`, its fleet environment `prod`, and its state bucket a new,
+   dedicated bucket name. Keep the config outside Git.
+
+2. **Recover names after a previous teardown, if applicable.** If the
+   `/desktopctl/prod/ca-central-1/orchael/github` and `.../agents` secrets are
+   scheduled for deletion, restore them before reusing those names:
+
+   ```sh
+   aws secretsmanager restore-secret --profile marka --region ca-central-1 \
+     --secret-id /desktopctl/prod/ca-central-1/orchael/github
+   aws secretsmanager restore-secret --profile marka --region ca-central-1 \
+     --secret-id /desktopctl/prod/ca-central-1/orchael/agents
+   ```
+
+   Skip this step in an account without scheduled secrets. Restoring retains
+   their previous values until setup rotates or updates them.
+
+3. **Run the interactive setup.** Have a GitHub classic token ready with
+   `admin:public_key`, `repo`, `read:user`, and `workflow`; add `read:packages`
+   for future AMI builds. Setup accepts the token through hidden terminal
+   input. Confirm the detected public IPv4 `/32`, register your local SSH
+   public key as the EC2 key pair, and choose whether to rotate the GitHub
+   token and agent keys. After restoring secrets, use `--allow-existing`:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" setup --allow-existing
+   ```
+
+   Omit `--allow-existing` for a first installation with no existing secrets
+   or key pair.
+   Accept the existing `ca-central-1`, `marka`, `prod`, `orchael`, and bucket
+   defaults if they are still correct. If GitHub setup creates a replacement
+   SSH key, verify it before removing the old key from GitHub.
+
+4. **Create the state backend and preview the foundation.** The bucket was
+   removed by the previous teardown, so `bootstrap` must recreate it. Review
+   the Pulumi preview before applying the foundation:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" bootstrap
+   ./bin/desktopctl --config "$CONFIG" init-foundation --no-dns --preview
+   ./bin/desktopctl --config "$CONFIG" init-foundation --no-dns
+   ```
+
+   The foundation creates AWS resources, including networking, DynamoDB,
+   IAM, and EFS. Verify its reported IDs and the fleet table before creating
+   a desktop.
+
+5. **Preview and create the first desktop.** EC2 and EBS charges begin when
+   the desktop is created. Use a repository you can access; the example uses
+   this repository:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" create --no-dns \
+     --repo orchael/desktopctl --preview
+   ./bin/desktopctl --config "$CONFIG" create --no-dns \
+     --repo orchael/desktopctl
+   ./bin/desktopctl --config "$CONFIG" list
+   ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
+   ```
+
+   Use the desktop ID printed by `create` for the SSH command. See the
+   [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
+   for the opt-in SSH login test and teardown steps.
 
 This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
 

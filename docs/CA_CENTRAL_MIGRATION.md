@@ -7,7 +7,10 @@ the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
 `--config` to every command when using the named file.
 
 Run `desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml setup`
-on the machine that will access desktop SSH. The wizard detects its current
+on the machine that will access desktop SSH. If reusing the two secret names
+after the October 2026 teardown, restore those scheduled secrets first and
+pass `setup --allow-existing` as shown in the [quick start](../README.md#quick-start-production-in-ca-central-1).
+The wizard detects its current
 public IPv4 address and confirms the `/32` security group rule. It also lists
 the exact GitHub classic token scopes, accepts the token with hidden input,
 and explains the `read:packages` scope needed to build the public AMI. The AMI
@@ -32,30 +35,12 @@ Do not point this config at an old backend bucket or legacy secret path.
 
 ## AMI and first desktop
 
-`desktop.public_ami_owner` lets a new user launch the latest public
-`desktopctl-v<CLI major>-*` AMI from a trusted AWS account in the configured region. The
-image must be published in that region first. Read-only checks found no
-`novnc-desktop-ubuntu-24.04-elementary-*` base or `desktopctl-*` image in
-ca-central-1. Account 819363892004 owns a public noVNC base in us-east-1,
-`ami-04b234a7966d2ab99`. The approved copy in ca-central-1 is
-`ami-0db78418f8538fb8f` (private, available). A maintainer can build the desktopctl
-image with `scripts/public-amis.sh build`; this requires
-the pinned build inputs and a GitHub Packages token. A user can instead set
-`desktop.active_ami.ca-central-1` to a launchable image ID or pass `create --ami`.
-Image discovery checks that the selected image is public.
-
-```sh
-aws ec2 copy-image --profile marka --region ca-central-1 \
-  --source-region us-east-1 --source-image-id ami-04b234a7966d2ab99 \
-  --name novnc-desktop-ubuntu-24.04-elementary-20260710-140357
-scripts/public-amis.sh build \
-  --config ~/.config/desktopctl/config-ca-central-1.yaml \
-  --profile marka --regions ca-central-1 --enable-public-sharing
-```
-
-The copy returns a new regional AMI ID. Wait for `image-available` before the
-build. The source image is public; the regional copy can stay private because
-Packer runs in the publishing account. The resulting desktopctl image is public.
+The existing config pins public AMI `ami-0d0b8cccb4d7077fd`, which was
+verified available in ca-central-1 on 2026-10-20. Check that it is still
+available before creating a desktop. `desktop.public_ami_owner` can instead
+discover the newest public `desktopctl-v<CLI major>-*` image from a trusted
+account. A maintainer who needs a new image can follow the
+[public AMI build guide](PUBLIC_AMIS.md); this setup does not require a build.
 
 The account currently has no `desktops.orchael.com` hosted zone, so this
 configuration uses `--no-dns` for the foundation and desktops. It still creates
