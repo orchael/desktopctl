@@ -21,9 +21,10 @@ release is incompatible while the project remains below version 1.
 
 The default major is the running CLI's major version. Set
 `desktop.public_ami_major: "1"` to discover another major, or set
-`desktop.active_ami.<region>` to pin an exact image. A publisher build writes
-its new image to `active_ami` in the publisher's config; consumer configs can
-leave that map empty to follow the newest image in their chosen major lane.
+`desktop.active_ami.<region>` to pin an exact image. A public publisher build
+prints each regional AMI ID and updates active pins only when `--config` is
+explicitly supplied; consumer configs can
+leave `active_ami` empty to follow the newest image in their chosen major lane.
 Old images named after the bridge version do not participate in automatic
 discovery.
 
@@ -34,13 +35,15 @@ account ID through STS using that profile. Pass `--account-id` when you want an
 additional check against using the wrong account. The script resolves and checks
 the account before any other AWS operation.
 
-Build, delete, and prune also require a config file and desktopctl binary;
-list reads EC2 directly and needs neither. AWS CLI is required for all actions,
-and `jq` for list, delete, and prune. Build invokes `desktopctl ami build --public`
+Build requires a desktopctl binary but no desktopctl config or foundation stack.
+Provide a GitHub Packages token with `read:packages` through `GITHUB_NPM_TOKEN`.
+An optional `--config` lets the CLI use a stored setup secret or find a foundation
+subnet and saves active AMI pins there. Public builds never use an AMI history table.
+Delete and prune still require a config so they can protect active AMI pins.
+List reads EC2 directly and needs neither config nor binary. AWS CLI and `jq`
+are required for all script actions. Build invokes `desktopctl ami build --public`
 once for the selected region list. Packer builds in the first region and copies
-the finished image to the others; the CLI saves every region's AMI ID in config.
-The GitHub Packages token can
-come from the regional secret created by `desktopctl setup`.
+the finished image to the others; the CLI prints every region's AMI ID.
 Before starting Packer, a public build checks the region's account-level AMI
 Block Public Access state. In ca-central-1, us-east-1, us-east-2, us-west-1,
 and us-west-2, pass `--enable-public-sharing` to let the script disable the
@@ -53,9 +56,8 @@ and stops before provisioning when public sharing is blocked.
 ```bash
 make build
 scripts/public-amis.sh build \
-  --config ~/.config/desktopctl/config-ca-central-1.yaml \
   --profile marka \
-  --regions ca-central-1 --enable-public-sharing
+  --regions us-east-1,ca-central-1,us-east-2
 
 scripts/public-amis.sh list \
   --profile marka \
@@ -63,8 +65,11 @@ scripts/public-amis.sh list \
 ```
 
 The first build region needs a launchable noVNC base AMI and a usable Packer subnet
-or default VPC. Copy targets do not need a noVNC base AMI. The AWS principal needs `ec2:CopyImage` in the target regions; existing generated operator roles gain it after reapplying `desktopctl init-foundation`. The CLI records AMI history in the control region's DynamoDB
-table. `list` shows only available, public, account-owned AMIs with the exact
+or default VPC. Pass `--subnet-id <id>` when using a subnet outside a desktopctl
+foundation and no default VPC is available. Copy targets do not need a noVNC
+base AMI. The AWS principal needs `ec2:CopyImage` in the target regions;
+existing generated operator roles gain it after reapplying `desktopctl init-foundation`.
+`list` shows only available, public, account-owned AMIs with the exact
 new name pattern and `ManagedBy=desktopctl-packer` tag.
 
 ## Delete old images

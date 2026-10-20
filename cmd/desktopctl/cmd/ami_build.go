@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,13 +25,14 @@ var (
 	amiVarsFile  string
 	amiPackerDir string
 	amiBaseAMI   string
+	amiSubnetID  string
 	amiPublic    bool
 )
 
 var amiBuildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build pre-baked AMIs using Packer",
-	Long:  `Build a pre-baked AMI in the first specified region and copy it to the remaining regions. Packer manifest is parsed and AMI IDs are stored in config.`,
+	Long:  `Build a pre-baked AMI in the first specified region and copy it to the remaining regions. Public builds print the resulting AMI IDs without requiring a desktopctl foundation; an explicit --config also receives active AMI pins. Private builds store AMI history and update config.`,
 	RunE:  runAmiBuild,
 }
 
@@ -39,6 +41,7 @@ func init() {
 	amiBuildCmd.Flags().StringVar(&amiVarsFile, "vars-file", "variables.pkrvars.hcl", "path to Packer variables file (relative to --packer-dir)")
 	amiBuildCmd.Flags().StringVar(&amiPackerDir, "packer-dir", "packer", "path to Packer configuration directory")
 	amiBuildCmd.Flags().StringVar(&amiBaseAMI, "base-ami", "", "explicit source AMI ID in the first build region (skips noVNC AMI lookup)")
+	amiBuildCmd.Flags().StringVar(&amiSubnetID, "subnet-id", "", "subnet for the build instance in the first region (defaults to a foundation subnet or default VPC)")
 	amiBuildCmd.Flags().BoolVar(&amiPublic, "public", false, "make the built AMI publicly accessible")
 	amiCmd.AddCommand(amiBuildCmd)
 }
@@ -82,7 +85,8 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	if err := preflightAMIStore(ctx); err != nil {
+	amiStore, err := openBuildAMIStore(ctx, amiPublic)
+	if err != nil {
 		return err
 	}
 
@@ -108,41 +112,17 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("packer init failed: %w", err)
 	}
 
-	// Open AMI store to save history
-	amiStore, err := openAMIStore(ctx)
-	if err != nil {
-		return fmt.Errorf("open AMI store: %w", err)
-	}
-
-	// Initialize ActiveAMI in config if needed
-	if cfg.Desktop.ActiveAMI == nil {
-		cfg.Desktop.ActiveAMI = make(map[string]string)
-	}
-
 	primaryRegion := regions[0]
 	amiIDs, novncVersion, err := buildAMIForRegions(ctx, absPackerDir, absVarsFile, regions)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Built in %s and copied to %d additional region(s)\n", primaryRegion, len(regions)-1)
-	for _, region := range regions {
-		amiID := amiIDs[region]
-		record := &store.AMIRecord{
-			Region:       region,
-			AMIID:        amiID,
-			NovncVersion: novncVersion,
-		}
-
-		if err := amiStore.SaveAMI(ctx, record); err != nil {
-			return fmt.Errorf("save AMI to store: %w", err)
-		}
-
-		// Set as active AMI for this region in config
-		cfg.Desktop.ActiveAMI[region] = amiID
-		fmt.Fprintf(os.Stderr, "  %s: %s (active)\n", region, amiID)
+	// Public publisher builds do not need a desktopctl foundation or AMI store.
+	if amiPublic {
+		return finishAMIBuild(ctx, regions, amiIDs, novncVersion, true, nil, cfg, cfgFile, os.Stdout)
 	}
-
-	// Save config (only active_ami now, history is in DynamoDB)
+	// Private builds retain the existing AMI history and active config pins.
 	configPath := cfgFile
 	if configPath == "" {
 		var err error
@@ -152,11 +132,58 @@ func runAmiBuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := cfg.Save(configPath); err != nil {
+	return finishAMIBuild(ctx, regions, amiIDs, novncVersion, false, amiStore, cfg, configPath, os.Stderr)
+}
+
+func openBuildAMIStore(ctx context.Context, public bool) (store.AMIStore, error) {
+	if public {
+		return nil, nil
+	}
+	if err := preflightAMIStore(ctx); err != nil {
+		return nil, err
+	}
+	amiStore, err := openAMIStore(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open AMI store: %w", err)
+	}
+	return amiStore, nil
+}
+
+func finishAMIBuild(ctx context.Context, regions []string, amiIDs map[string]string, novncVersion string, public bool, amiStore store.AMIStore, buildCfg *config.Config, configPath string, out io.Writer) error {
+	if public {
+		for _, region := range regions {
+			fmt.Fprintf(out, "%s: %s (public)\n", region, amiIDs[region])
+		}
+		if configPath != "" {
+			if buildCfg.Desktop.ActiveAMI == nil {
+				buildCfg.Desktop.ActiveAMI = make(map[string]string)
+			}
+			for _, region := range regions {
+				buildCfg.Desktop.ActiveAMI[region] = amiIDs[region]
+			}
+			if err := buildCfg.Save(configPath); err != nil {
+				return fmt.Errorf("save public AMI pins to config: %w", err)
+			}
+			fmt.Fprintln(out, "Active AMI pins saved to config")
+		}
+		return nil
+	}
+	if buildCfg.Desktop.ActiveAMI == nil {
+		buildCfg.Desktop.ActiveAMI = make(map[string]string)
+	}
+	for _, region := range regions {
+		amiID := amiIDs[region]
+		record := &store.AMIRecord{Region: region, AMIID: amiID, NovncVersion: novncVersion}
+		if err := amiStore.SaveAMI(ctx, record); err != nil {
+			return fmt.Errorf("save AMI to store: %w", err)
+		}
+		buildCfg.Desktop.ActiveAMI[region] = amiID
+		fmt.Fprintf(out, "  %s: %s (active)\n", region, amiID)
+	}
+	if err := buildCfg.Save(configPath); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-
-	fmt.Fprintf(os.Stderr, "Config and AMI history saved\n")
+	fmt.Fprintln(out, "Config and AMI history saved")
 	return nil
 }
 
@@ -272,15 +299,19 @@ func buildAMIForRegions(ctx context.Context, packerDir, varsFile string, regions
 	}
 	fmt.Fprintf(os.Stderr, "novnc-desktop version: %s\n", novncDesktopVersion)
 
-	subnetID, err := awsx.FindSubnetByTag(ctx, awsCfg, cfg.Fleet.Environment)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: subnet lookup failed for %s: %v; Packer will rely on the default VPC\n", region, err)
-		subnetID = ""
-	} else if subnetID != "" {
+	subnetID := amiSubnetID
+	if subnetID == "" {
+		subnetID, err = awsx.FindSubnetByTag(ctx, awsCfg, cfg.Fleet.Environment)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: subnet lookup failed for %s: %v; Packer will rely on the default VPC\n", region, err)
+			subnetID = ""
+		}
+	}
+	if subnetID != "" {
 		fmt.Fprintf(os.Stderr, "Packer build subnet: %s\n", subnetID)
 	}
 
-	if err := packer.Run(ctx, packerDir, varsFile, region, regions[1:], baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, subnetID, amiPublic, os.Stderr); err != nil {
+	if err := packer.Run(ctx, packerDir, varsFile, region, cfg.AWS.Profile, regions[1:], baseAMI, version.Version, version.DesktopWebVersion, novncDesktopVersion, subnetID, amiPublic, os.Stderr); err != nil {
 		return nil, "", fmt.Errorf("packer build in %s: %w", region, err)
 	}
 	manifest, err := packer.ParseManifest(filepath.Join(packerDir, "manifest.json"))

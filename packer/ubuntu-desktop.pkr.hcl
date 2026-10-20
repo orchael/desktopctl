@@ -87,6 +87,12 @@ variable "aws_region" {
   description = "AWS region for the source and target AMI"
 }
 
+variable "aws_profile" {
+  type        = string
+  default     = ""
+  description = "AWS shared credentials profile selected by desktopctl"
+}
+
 variable "ami_regions" {
   type        = list(string)
   default     = []
@@ -138,6 +144,7 @@ source "amazon-ebs" "ubuntu" {
   ami_description = "desktopctl AMI - novnc-desktop elementary base with desktopctl toolchain"
   instance_type   = "c6i.xlarge"
   region          = var.aws_region
+  profile         = var.aws_profile != "" ? var.aws_profile : null
   ami_regions     = var.ami_regions
   source_ami      = var.source_ami
 

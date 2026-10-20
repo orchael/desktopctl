@@ -8,8 +8,9 @@ Usage: scripts/public-amis.sh <build|list|delete|prune> \
   --profile PROFILE --regions REGION[,REGION...] [options]
 
 Options:
-  --config PATH   desktopctl config (required for build, delete, and prune)
+  --config PATH   desktopctl config (optional for build; required for delete and prune)
   --cli PATH      desktopctl binary (default: repository bin/desktopctl; not needed for list)
+  --subnet-id ID  Packer build subnet in the first region (build only)
   --account-id ID Expected AWS account ID (optional safety check)
   --enable-public-sharing  Allow build to disable AMI Block Public Access in approved regions
   --ami ID        AMI ID for delete (delete requires one region)
@@ -34,6 +35,7 @@ case "$action" in build|list|delete|prune) ;; *) usage >&2; exit 2 ;; esac
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cli="$repo_root/bin/desktopctl"
 config_path=''
+subnet_id=''
 profile=''
 regions_csv=''
 account_id=''
@@ -44,10 +46,11 @@ enable_public_sharing=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --config|--profile|--regions|--account-id|--ami|--keep|--cli)
+    --config|--profile|--regions|--account-id|--ami|--keep|--cli|--subnet-id)
       if [[ $# -lt 2 ]]; then echo "Missing value for $1" >&2; exit 2; fi
       case "$1" in
         --config) config_path=$2 ;;
+        --subnet-id) subnet_id=$2 ;;
         --profile) profile=$2 ;;
         --regions) regions_csv=$2 ;;
         --account-id) account_id=$2 ;;
@@ -72,17 +75,24 @@ if [[ -n "$account_id" && ! "$account_id" =~ ^[0-9]{12}$ ]]; then
   exit 2
 fi
 if [[ "$action" != list ]]; then
-  if [[ ! -f "$config_path" || ! -x "$cli" ]]; then
-    echo 'A readable --config and executable --cli are required for build, delete, and prune.' >&2
+  if [[ ! -x "$cli" ]]; then
+    echo 'An executable --cli is required for build, delete, and prune.' >&2
     exit 2
   fi
-  config_path="$(cd "$(dirname "$config_path")" && pwd -P)/$(basename "$config_path")"
+  if [[ ( "$action" != build && -z "$config_path" ) || ( -n "$config_path" && ! -r "$config_path" ) ]]; then
+    echo 'Delete and prune require a readable --config; a supplied build config must also be readable.' >&2
+    exit 2
+  fi
+  if [[ -n "$config_path" ]]; then
+    config_path="$(cd "$(dirname "$config_path")" && pwd -P)/$(basename "$config_path")"
+  fi
   cli="$(cd "$(dirname "$cli")" && pwd -P)/$(basename "$cli")"
 fi
 if [[ ! "$keep" =~ ^[1-9][0-9]*$ ]]; then echo '--keep must be at least 1.' >&2; exit 2; fi
 if [[ "$action" == delete && -z "$ami_id" ]]; then echo 'delete requires --ami.' >&2; exit 2; fi
 if [[ "$action" != delete && -n "$ami_id" ]]; then echo '--ami is only valid for delete.' >&2; exit 2; fi
 if [[ "$action" != build && "$enable_public_sharing" == true ]]; then echo '--enable-public-sharing is only valid for build.' >&2; exit 2; fi
+if [[ "$action" != build && -n "$subnet_id" ]]; then echo '--subnet-id is only valid for build.' >&2; exit 2; fi
 
 tools=(aws jq)
 for tool in "${tools[@]}"; do
@@ -166,7 +176,11 @@ if [[ "$action" == build ]]; then
   for region in "${regions[@]}"; do
     ensure_public_sharing "$region"
   done
-  "$cli" --config "$config_path" --profile "$profile" ami build --regions "$regions_csv" --public
+  cli_args=(--profile "$profile")
+  if [[ -n "$config_path" ]]; then cli_args+=(--config "$config_path"); fi
+  cli_args+=(ami build --regions "$regions_csv" --public)
+  if [[ -n "$subnet_id" ]]; then cli_args+=(--subnet-id "$subnet_id"); fi
+  "$cli" "${cli_args[@]}"
   exit
 fi
 

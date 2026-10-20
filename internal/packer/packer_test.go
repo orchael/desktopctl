@@ -348,7 +348,7 @@ func TestRun_Success(t *testing.T) {
 
 	workDir := t.TempDir()
 	var buf bytes.Buffer
-	if err := Run(context.Background(), workDir, "", "us-east-1", nil, "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf); err != nil {
+	if err := Run(context.Background(), workDir, "", "us-east-1", "", nil, "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !strings.Contains(buf.String(), filepath.Join(workDir, "build-logs", "packer-us-east-1-")) {
@@ -369,7 +369,7 @@ func TestRun_Failure(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var buf bytes.Buffer
-	err := Run(context.Background(), t.TempDir(), "", "us-east-1", nil, "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf)
+	err := Run(context.Background(), t.TempDir(), "", "us-east-1", "", nil, "ami-base", "0.0.0", "0.0.0", "20260101-000000", "", false, &buf)
 	if err == nil {
 		t.Fatal("expected error from Run")
 	}
@@ -390,7 +390,7 @@ func TestRun_WithVarsFileAndPublic(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := Run(context.Background(), workDir, varsFile, "us-west-2", nil, "ami-base2", "0.0.0", "0.0.0", "20260101-000000", "", true, &buf); err != nil {
+	if err := Run(context.Background(), workDir, varsFile, "us-west-2", "", nil, "ami-base2", "0.0.0", "0.0.0", "20260101-000000", "", true, &buf); err != nil {
 		t.Fatalf("Run with vars and public: %v", err)
 	}
 }
@@ -405,14 +405,14 @@ func TestRunPassesMajorAndUTCDate(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("PACKER_ARGS_FILE", argsPath)
 	var buf bytes.Buffer
-	if err := Run(context.Background(), t.TempDir(), "", "ca-central-1", []string{"us-east-1", "us-west-2"}, "ami-base", "12.3.4", "12.3.4", "20260710-140357", "", true, &buf); err != nil {
+	if err := Run(context.Background(), t.TempDir(), "", "ca-central-1", "marka", []string{"us-east-1", "us-west-2"}, "ami-base", "12.3.4", "12.3.4", "20260710-140357", "", true, &buf); err != nil {
 		t.Fatal(err)
 	}
 	args, err := os.ReadFile(argsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"desktopctl_major=12", "build_date=" + time.Now().UTC().Format("20060102"), "ami_public=true", `ami_regions=["us-east-1","us-west-2"]`} {
+	for _, want := range []string{"desktopctl_major=12", "build_date=" + time.Now().UTC().Format("20060102"), "ami_public=true", `ami_regions=["us-east-1","us-west-2"]`, "aws_profile=marka"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("packer args missing %q: %s", want, args)
 		}
@@ -429,7 +429,7 @@ func TestRunPassesEmptyCopyRegions(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("PACKER_ARGS_FILE", argsPath)
 	var buf bytes.Buffer
-	if err := Run(context.Background(), t.TempDir(), "", "ca-central-1", nil, "ami-base", "0.7.0", "0.7.0", "20260710-140357", "", false, &buf); err != nil {
+	if err := Run(context.Background(), t.TempDir(), "", "ca-central-1", "", nil, "ami-base", "0.7.0", "0.7.0", "20260710-140357", "", false, &buf); err != nil {
 		t.Fatal(err)
 	}
 	args, err := os.ReadFile(argsPath)

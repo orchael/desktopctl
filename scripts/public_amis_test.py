@@ -152,7 +152,29 @@ class PublicAMIScriptTest(unittest.TestCase):
         self.assertEqual(built.returncode, 0, built.stderr)
         calls = self.calls.read_text()
         self.assertEqual(calls.count("ami build"), 1)
+        self.assertIn("--config " + str(self.config), calls)
         self.assertIn("ami build --regions ca-central-1,us-east-1 --public", calls)
+
+    def test_build_without_config_uses_explicit_subnet(self):
+        result = subprocess.run(
+            [str(SCRIPT), "build", "--cli", str(self.cli), "--profile", "marka",
+             "--regions", "us-east-1,ca-central-1", "--subnet-id", "subnet-123"],
+            cwd=self.tmp.name, env=self.env, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls.read_text()
+        self.assertNotIn("--config", calls)
+        self.assertIn("ami build --regions us-east-1,ca-central-1 --public --subnet-id subnet-123", calls)
+
+    def test_delete_still_requires_config(self):
+        result = subprocess.run(
+            [str(SCRIPT), "delete", "--cli", str(self.cli), "--profile", "marka",
+             "--regions", "ca-central-1", "--ami", "ami-old0"],
+            cwd=self.tmp.name, env=self.env, text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("require a readable --config", result.stderr)
+        self.assertFalse(self.calls.exists())
 
     def test_build_enables_public_sharing_in_approved_region(self):
         self.block_state.write_text(json.dumps({"ImageBlockPublicAccessState": "block-new-sharing", "ManagedBy": "account"}))

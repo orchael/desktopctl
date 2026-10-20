@@ -151,13 +151,14 @@ func Init(ctx context.Context, packerDir string, w io.Writer) error {
 
 // Run executes packer build in the given directory.
 // baseAMI is always required; the caller must resolve it before invoking Run.
+// awsProfile is passed to the Amazon builder so it uses the CLI-selected account.
 // copyRegions receive copies of the primary region's completed AMI.
 // cliVersion is the desktopctl CLI version baked into the AMI tag.
 // desktopWebVersion is the @orchael/desktopctl npm package version to install.
 // novncDesktopVersion is the version string extracted from the base novnc-desktop AMI name.
 // subnetID is the subnet for the Packer build instance; pass "" to rely on the default VPC.
 // public controls whether the built AMI has public launch permissions.
-func Run(ctx context.Context, packerDir string, varsFile string, region string, copyRegions []string, baseAMI string, cliVersion string, desktopWebVersion string, novncDesktopVersion string, subnetID string, public bool, w io.Writer) error {
+func Run(ctx context.Context, packerDir string, varsFile string, region string, awsProfile string, copyRegions []string, baseAMI string, cliVersion string, desktopWebVersion string, novncDesktopVersion string, subnetID string, public bool, w io.Writer) error {
 	major, err := version.Major(cliVersion)
 	if err != nil {
 		return err
@@ -169,6 +170,7 @@ func Run(ctx context.Context, packerDir string, varsFile string, region string, 
 	if region != "" {
 		args = append(args, "-var", "aws_region="+region)
 	}
+	args = append(args, "-var", "aws_profile="+awsProfile)
 	regionsJSON, err := json.Marshal(append([]string{}, copyRegions...))
 	if err != nil {
 		return fmt.Errorf("encode AMI copy regions: %w", err)
