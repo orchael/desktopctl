@@ -32,7 +32,43 @@ can discover its newest compatible public AMI in this region.
    Have a local SSH private key and its
    matching `.pub` file, and identify this machine's public IPv4 `/32`.
 
-2. **Run setup using either mode.** The new config has no saved identity, but
+2. **Prepare the GitHub token and bridgectl agent credentials.** For a new
+   installation, open [GitHub's classic token page](https://github.com/settings/tokens/new)
+   (Settings → Developer settings → Personal access tokens → Tokens (classic) →
+   Generate new token). Name the token, set an expiration, and select `repo`,
+   `workflow`, `admin:public_key`, and `read:user`. Add `read:packages` if you
+   will build a public AMI or install from GitHub Packages, and `read:org` if
+   you use GitHub organization features. Generate and copy the token; setup
+   stores it in AWS Secrets Manager. See [GitHub's token instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic).
+
+   Choose the agent credentials you plan to use with bridgectl:
+
+   | Agent | How to obtain the credential | Setup input |
+   | --- | --- | --- |
+   | Claude Code | Sign in to the Claude CLI, then run `claude setup-token` on your operator machine and copy the printed token. | `CLAUDE_CODE_OAUTH_TOKEN` |
+   | Codex with an API key | Create a key on the [OpenAI API keys page](https://platform.openai.com/api-keys). | `OPENAI_API_KEY` |
+   | Gemini CLI | Create a key in [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key). | `GEMINI_API_KEY` |
+   | Codex with ChatGPT sign-in | Run `codex login` on your operator machine. After setup, use the agent auth helper below to copy the local auth file to the agent secret. | `CODEX_AUTH` through the helper |
+
+   The agent credentials are optional; provide only those you intend to use.
+   For interactive setup, paste the GitHub token and agent credentials into
+   the hidden prompts. For scripted setup, read each new value into its named
+   environment variable without placing it in shell history or command
+   arguments. For example:
+
+   ```sh
+   read -rsp 'GitHub token: ' DESKTOPCTL_GITHUB_TOKEN; printf '\n'
+   export DESKTOPCTL_GITHUB_TOKEN
+   read -rsp 'Claude Code token (optional): ' CLAUDE_CODE_OAUTH_TOKEN; printf '\n'
+   export CLAUDE_CODE_OAUTH_TOKEN
+   # Repeat for OPENAI_API_KEY and GEMINI_API_KEY if using those agents.
+   ```
+
+   If this setup reuses the existing regional secrets, leave credentials
+   unspecified to keep their stored values. Never put token values in the
+   config file or commit them to Git.
+
+3. **Run setup using either mode.** The new config has no saved identity, but
    this account still has secret names from the earlier installation. Use
    `--allow-existing` to authorize their reuse. Setup restores the GitHub and
    agent secrets if they are scheduled for deletion, retains unspecified
@@ -82,7 +118,26 @@ can discover its newest compatible public AMI in this region.
    If the EC2 key pair name already exists, setup checks its registered public
    key against the local `.pub` file and stops on a mismatch.
 
-3. **Check local tools and AWS access.** Run the check against the config
+   Scripted setup reads the exported credentials from step 2. Remove them
+   from this shell after setup with `unset DESKTOPCTL_GITHUB_TOKEN
+   CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY`. If using Codex
+   ChatGPT sign-in, run the helper after setup to merge your local Codex auth
+   into the same agent secret without replacing other provider keys:
+
+   ```sh
+   scripts/update-agent-auth.sh --profile marka --region ca-central-1 \
+     --environment prod --owner orchael --skip-claude
+   ./bin/desktopctl --config "$CONFIG" setup --non-interactive
+   ```
+
+   Omit `--skip-claude` if you also want the helper to guide you through
+   entering a new Claude Code token. The helper reads
+   `${CODEX_HOME:-$HOME/.codex}/auth.json`; run `codex login` first if that
+   file does not exist. The second setup command records the newly created
+   agent secret path in the config so new desktops receive it. It reuses the
+   saved identity and credentials, so `--allow-existing` is unnecessary.
+
+4. **Check local tools and AWS access.** Run the check against the config
    created by setup:
 
    ```sh
@@ -93,14 +148,14 @@ can discover its newest compatible public AMI in this region.
    report `OK`, and that `aws-credentials` resolves to account
    `819363892004`. Fix any failed check before continuing.
 
-4. **Reuse the state backend.** The earlier bootstrap already created this
+5. **Reuse the state backend.** The earlier bootstrap already created this
    bucket. Explicitly adopt it from the new config:
 
    ```sh
    ./bin/desktopctl --config "$CONFIG" bootstrap --allow-existing
    ```
 
-5. **Delegate the desktop DNS zone.** Setup printed the Route 53 name servers.
+6. **Delegate the desktop DNS zone.** Setup printed the Route 53 name servers.
    At the DNS provider hosting `markcallen.dev`, add an **NS** record for
    `desktops.markcallen.dev` with all four values printed by setup.
    Re-run `dns setup` to display the same values if needed. Check the public
@@ -115,7 +170,7 @@ can discover its newest compatible public AMI in this region.
    `setup --dns-zone desktops.example.com` and delegates it at their parent
    domain's DNS provider. Creating a public Route 53 zone can incur AWS charges.
 
-6. **Preview and apply the foundation.** Review the Pulumi preview before
+7. **Preview and apply the foundation.** Review the Pulumi preview before
    applying it:
 
    ```sh
@@ -130,7 +185,7 @@ can discover its newest compatible public AMI in this region.
    available versioned name, and Pulumi keeps that choice for later updates.
    The old scheduled secret can finish its deletion independently.
 
-7. **Preview and create the first desktop.** The preview selects the newest
+8. **Preview and create the first desktop.** The preview selects the newest
    compatible public AMI in ca-central-1; check the reported AMI ID. EC2 and
    EBS charges begin when the desktop is created. Use a repository you can
    access; the example uses this repository:
