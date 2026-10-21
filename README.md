@@ -9,48 +9,74 @@ A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
 ## Quick start: production in ca-central-1
 
-This path uses AWS account `819363892004`, profile `marka`, environment `prod`,
-owner `orchael`, and the named config at
-`~/.config/desktopctl/config-ca-central-1.yaml`. The account has no
-`desktops.orchael.com` hosted zone, so use `--no-dns` for both the foundation
-and desktops. The public AMI `ami-0d0b8cccb4d7077fd` is available in this
-region and is pinned in the existing config; an AMI build is unnecessary.
+This path starts with a new config at
+`~/.config/desktopctl/config-prod-ca-central-1.yaml` in AWS account
+`819363892004`, using profile `marka`, environment `prod`, and owner `orchael`.
+The account has no `desktops.orchael.com` hosted zone, so use `--no-dns` for
+both the foundation and desktops. Public AMI `ami-0d0b8cccb4d7077fd` can
+be passed explicitly when creating a desktop; a new config does not pin it.
 
 1. **Check the target and local tools.** Run these from this repository:
 
    ```sh
-   CONFIG="$HOME/.config/desktopctl/config-ca-central-1.yaml"
-   aws sts get-caller-identity --profile marka
+   CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1.yaml"
+   aws sts get-caller-identity --profile marka --region ca-central-1
    make build
+   ```
+
+   Confirm the AWS account is `819363892004`. The config file need not exist
+   yet; setup creates it outside Git. Have a local SSH private key and its
+   matching `.pub` file, and identify this machine's public IPv4 `/32`.
+
+2. **Run setup using either mode.** The new config has no saved identity, but
+   this account still has secret names from the earlier installation. Use
+   `--allow-existing` to authorize their reuse. Setup restores the GitHub and
+   agent secrets if they are scheduled for deletion, retains unspecified
+   credential values, registers the local public key as an EC2 key pair, and
+   writes the new config. Choose one command:
+
+   Scripted setup, using the saved credentials and this machine's verified
+   public IPv4 address:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+     setup --non-interactive --allow-existing \
+     --environment prod \
+     --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
+     --github-owner orchael \
+     --operator-cidr 157.230.223.137/32 \
+     --ssh-key-path "$HOME/.ssh/id_ed25519"
+   ```
+
+   Interactive setup, starting from the same empty config path:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+     setup --allow-existing
+   ```
+
+   In the wizard, enter `marka-desktopctl-prod-ca-central-1-819363892004`
+   for the state bucket, `prod` for the environment, and `orchael` for the
+   GitHub owner. Confirm the detected public IPv4 `/32`, select
+   `/home/marka/.ssh/id_ed25519` for desktop SSH, and register its `.pub` file as
+   EC2 key pair `desktopctl-prod-ca-central-1-orchael`. Choose whether to
+   update the GitHub token, rotate its GitHub SSH key, or update agent keys.
+   If supplying a new GitHub classic token, grant `admin:public_key`, `repo`,
+   `read:user`, and `workflow`; add `read:packages` for future AMI builds.
+   Verify a replacement GitHub SSH key before removing the old one.
+
+   Replace the example CIDR in the scripted command if this machine's public
+   IP has changed. Supply new credentials through environment variables such
+   as `DESKTOPCTL_GITHUB_TOKEN` or `OPENAI_API_KEY`; see
+   [noninteractive setup](#noninteractive-setup). Once this config has been
+   saved, subsequent setup runs with the same region, environment, and owner
+   can reuse these resources without `--allow-existing`. Check the result:
+
+   ```sh
    ./bin/desktopctl --config "$CONFIG" check
    ```
 
-   Confirm the AWS account is `819363892004`. The config's region must be
-   `ca-central-1`, its fleet environment `prod`, and its state bucket a new,
-   dedicated bucket name. Keep the config outside Git.
-
-2. **Prepare credentials.** Have a GitHub classic token ready with
-   `admin:public_key`, `repo`, `read:user`, and `workflow`; add `read:packages`
-   for future AMI builds. Have a local SSH key pair for desktop access. Setup
-   automatically restores the configured GitHub and agent secrets if they are
-   still within their deletion recovery window, then preserves or updates
-   their values. It accepts a new token through hidden terminal input.
-
-3. **Run the interactive setup.** Confirm the detected public IPv4 `/32`,
-   register your local SSH public key as the EC2 key pair, and choose whether
-   to update the GitHub token, rotate its SSH key, or update agent keys:
-
-   ```sh
-   ./bin/desktopctl --config "$CONFIG" setup
-   ```
-
-   Accept the existing `ca-central-1`, `marka`, `prod`, `orchael`, and bucket
-   defaults if they are still correct. A matching configured identity can
-   reuse existing secrets and the EC2 key pair without `--allow-existing`.
-   If GitHub setup creates a replacement SSH key, verify it before removing
-   the old key from GitHub. For scripted setup, see [noninteractive setup](#noninteractive-setup).
-
-4. **Create the state backend and preview the foundation.** The bucket was
+3. **Create the state backend and preview the foundation.** The bucket was
    removed by the previous teardown, so `bootstrap` must recreate it. Review
    the Pulumi preview before applying the foundation:
 
@@ -62,17 +88,22 @@ region and is pinned in the existing config; an AMI build is unnecessary.
 
    The foundation creates AWS resources, including networking, DynamoDB,
    IAM, and EFS. Verify its reported IDs and the fleet table before creating
-   a desktop.
+   a desktop. If the old foundation-managed operator secret
+   `/desktopctl/prod-ca-central-1/control-plane/aws-operator` is still
+   scheduled for deletion, resolve that name before applying a new foundation
+   stack; restoring the two setup secrets does not restore this Pulumi resource.
 
-5. **Preview and create the first desktop.** EC2 and EBS charges begin when
-   the desktop is created. Use a repository you can access; the example uses
-   this repository:
+4. **Preview and create the first desktop.** Verify that the listed AMI is
+   still available in ca-central-1. EC2 and EBS charges begin when the desktop
+   is created. Use a repository you can access; the example uses this repository:
 
    ```sh
+   aws ec2 describe-images --profile marka --region ca-central-1 \
+     --image-ids ami-0d0b8cccb4d7077fd
    ./bin/desktopctl --config "$CONFIG" create --no-dns \
-     --repo orchael/desktopctl --preview
+     --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl --preview
    ./bin/desktopctl --config "$CONFIG" create --no-dns \
-     --repo orchael/desktopctl
+     --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl
    ./bin/desktopctl --config "$CONFIG" list
    ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
    ```
@@ -160,7 +191,7 @@ Recommended token scopes (required scopes are marked):
 Run `desktopctl setup` to configure credentials. The wizard:
 
 1. Collects your AWS region/profile, GitHub owner, and git identity.
-2. Generates an Ed25519 SSH key pair and registers the public key with GitHub.
+2. Generates and registers a GitHub Ed25519 SSH key pair when one is missing or rotation is requested.
 3. Stores a JSON secret in AWS Secrets Manager at `/desktopctl/<env>/<region>/<owner>/github`:
    ```json
    {
@@ -170,7 +201,7 @@ Run `desktopctl setup` to configure credentials. The wizard:
    }
    ```
 4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/desktopctl/<env>/<region>/<owner>/agents`.
-5. Writes `~/.config/desktopctl/config.yaml` on Linux (or under `XDG_CONFIG_HOME`).
+5. Writes the selected config path, or `~/.config/desktopctl/config.yaml` by default on Linux.
 
 Run `desktopctl setup` before running `create`. For the same configured region,
 environment, and GitHub owner, setup reuses matching secrets and the EC2 key
@@ -183,18 +214,20 @@ requires `setup --allow-existing`.
 
 `setup --non-interactive` takes values from command flags, environment
 variables, then the existing config, in that order. It never prompts. The
-region and profile use the root `--region` and `--profile` flags. A fresh
-configuration requires a GitHub token, SSH private key path with a matching
-`.pub` file, public IPv4 `/32`, bucket, environment, owner, region, and profile.
+region and profile use the root `--region` and `--profile` flags. A new AWS
+installation requires a GitHub token. Every scripted setup needs an SSH private
+key path with a matching `.pub` file, public IPv4 `/32`, bucket, environment,
+owner, region, and profile.
 An existing GitHub secret can supply the token and SSH key when no replacement
-is provided. Set `DESKTOPCTL_GITHUB_TOKEN` to replace only the token; pass
+is provided; use `--allow-existing` when starting from a new config and reusing
+those AWS names. Set `DESKTOPCTL_GITHUB_TOKEN` to replace only the token; pass
 `--rotate-github-ssh-key` to generate and register a new GitHub SSH key too.
 
 ```sh
-CONFIG="$HOME/.config/desktopctl/config-ca-central-1.yaml"
+CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1.yaml"
 # Supply DESKTOPCTL_GITHUB_TOKEN through your secret source when rotating it.
 ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
-  setup --non-interactive --environment prod \
+  setup --non-interactive --allow-existing --environment prod \
   --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
   --github-owner orchael --operator-cidr 203.0.113.42/32 \
   --ssh-key-path "$HOME/.ssh/id_ed25519"

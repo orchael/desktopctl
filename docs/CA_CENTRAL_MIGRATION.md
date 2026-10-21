@@ -1,44 +1,47 @@
 # Fresh ca-central-1 setup
 
 The migration uses `desktopctl` names throughout. A setup is identified by its
-AWS account, environment, and region. The production config for this checkout
-is `~/.config/desktopctl/config-ca-central-1.yaml` on Linux; an example is at
-the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
+AWS account, environment, and region. The fresh production config for this
+checkout is `~/.config/desktopctl/config-prod-ca-central-1.yaml` on Linux; an
+example is at the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
 `--config` to every command when using the named file.
 
-Run `desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml setup`
-on the machine that will access desktop SSH. When the configured owner,
-environment, and region match, setup automatically restores the two scheduled
-secrets before reusing or updating them. For unattended runs, use the
-[noninteractive setup guide](../README.md#noninteractive-setup). The wizard
-detects its current public IPv4 address and confirms the `/32` security group rule. It also lists
-the exact GitHub classic token scopes, accepts the token with hidden input,
-and explains the `read:packages` scope needed to build the public AMI. The AMI
-build reads the token from that regional secret unless `GITHUB_NPM_TOKEN` is set.
-Verify the
-AWS profile resolves to the intended account and check that the bucket name
+Start with the [README quick start](../README.md#quick-start-production-in-ca-central-1),
+which gives both scripted and interactive commands for a new config. Use
+`--allow-existing` on the first run if reusing AWS secret names from the prior
+installation. Setup automatically restores the GitHub and agent secrets if
+they are scheduled for deletion. Later setup runs with a matching saved
+owner, environment, and region can reuse them without that flag. The wizard
+detects its current public IPv4 address and confirms the `/32` security group
+rule. It also lists the GitHub classic token scopes and accepts a replacement
+token with hidden input. The AMI build reads the token from that regional
+secret unless `GITHUB_NPM_TOKEN` is set. Verify the AWS profile resolves to
+the intended account and check that the bucket name
 is globally available. The example uses account 819363892004,
 profile `marka`, environment `prod`, and region `ca-central-1`.
 
 ```sh
 aws sts get-caller-identity --profile marka
-desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml bootstrap
-desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml init-foundation --no-dns --preview
-desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml init-foundation --no-dns
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml bootstrap
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml init-foundation --no-dns --preview
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml init-foundation --no-dns
 ```
 
 `bootstrap` refuses an existing state bucket. `init-foundation` refuses an
 existing fleet table in the selected region. Updating an intentionally existing
 setup requires the command's `--allow-existing` flag. The new foundation stack
 is `foundation-prod-ca-central-1`; fleet and AMI tables include both dimensions.
-Do not point this config at an old backend bucket or legacy secret path.
+Do not point this config at another live installation's backend bucket or a
+legacy secret path. The deleted dedicated bucket name from the prior setup can
+be reused after confirming it is still available.
 
 ## AMI and first desktop
 
-The existing config pins public AMI `ami-0d0b8cccb4d7077fd`, which was
+The new config has no pinned AMI. Public AMI `ami-0d0b8cccb4d7077fd` was
 verified available in ca-central-1 on 2026-10-20. Check that it is still
-available before creating a desktop. `desktop.public_ami_owner` can instead
-discover the newest public `desktopctl-v<CLI major>-*` image from a trusted
+available and pass it with `create --ami ami-0d0b8cccb4d7077fd`.
+`desktop.public_ami_owner` can instead discover the newest public
+`desktopctl-v<CLI major>-*` image from a trusted
 account. A maintainer who needs a new image can follow the
 [public AMI build guide](PUBLIC_AMIS.md); this setup does not require a build.
 
@@ -47,13 +50,15 @@ configuration uses `--no-dns` for the foundation and desktops. It still creates
 EFS workspace resources and supports SSH access. After
 `desktopctl --config <path> setup` has stored GitHub credentials and registered
 an EC2 SSH key, create a desktop with
-`desktopctl --config <path> create --no-dns --repo orchael/desktopctl`.
+`desktopctl --config <path> create --no-dns --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl`.
 The opt-in runner then covers workspace and desktop creation, cloud-init,
-SSH login, and teardown:
+SSH login, and teardown. It reads the active AMI from the config and has no
+`--ami` override, so first set `desktop.active_ami.ca-central-1` to the
+verified AMI ID in the new config:
 
 ```sh
 make build
-scripts/e2e.sh --config ~/.config/desktopctl/config-ca-central-1.yaml \
+scripts/e2e.sh --config ~/.config/desktopctl/config-prod-ca-central-1.yaml \
   --scenario ssh-login --no-dns --cli ./bin/desktopctl
 ```
 
@@ -71,7 +76,7 @@ preview the foundation and state cleanup using the same config and AWS account:
 ```sh
 make build
 python3 scripts/cleanup-installation.py \
-  --config ~/.config/desktopctl/config-ca-central-1.yaml \
+  --config ~/.config/desktopctl/config-prod-ca-central-1.yaml \
   --account-id 819363892004
 ```
 
