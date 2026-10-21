@@ -15,9 +15,9 @@ To restart the setup while preserving the earlier config, use a new file at
 This path uses `desktops.markcallen.dev` for desktop hostnames. Setup creates
 the public Route 53 zone, then prints the NS records to add at the DNS provider
 for `markcallen.dev`. Foundation and desktop commands refuse to apply or start
-until public NS resolution matches the Route 53 zone. Public AMI
-`ami-0d0b8cccb4d7077fd` can be passed explicitly when creating a desktop;
-a new config does not pin it.
+until public NS resolution matches the Route 53 zone. Setup configures trusted
+public AMI publisher account `819363892004` by default, so desktop creation
+can discover its newest compatible public AMI in this region.
 
 1. **Check the target and local tools.** Run these from this repository:
 
@@ -63,7 +63,8 @@ a new config does not pin it.
 
    In the wizard, enter `marka-desktopctl-prod-ca-central-1-819363892004`
    for the state bucket, `prod` for the environment,
-   `desktops.markcallen.dev` for the desktop DNS zone, and `orchael` for the
+   `desktops.markcallen.dev` for the desktop DNS zone, keep the default public
+   AMI publisher account, and enter `orchael` for the
    GitHub owner. Confirm the detected public IPv4 `/32`, select
    `/home/marka/.ssh/id_ed25519` for desktop SSH, and register its `.pub` file as
    EC2 key pair `desktopctl-prod-ca-central-1-orchael`. Choose whether to
@@ -129,17 +130,16 @@ a new config does not pin it.
    available versioned name, and Pulumi keeps that choice for later updates.
    The old scheduled secret can finish its deletion independently.
 
-7. **Preview and create the first desktop.** Verify that the listed AMI is
-   still available in ca-central-1. EC2 and EBS charges begin when the desktop
-   is created. Use a repository you can access; the example uses this repository:
+7. **Preview and create the first desktop.** The preview selects the newest
+   compatible public AMI in ca-central-1; check the reported AMI ID. EC2 and
+   EBS charges begin when the desktop is created. Use a repository you can
+   access; the example uses this repository:
 
    ```sh
-   aws ec2 describe-images --profile marka --region ca-central-1 \
-     --image-ids ami-0d0b8cccb4d7077fd
    ./bin/desktopctl --config "$CONFIG" create \
-     --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl --preview
+     --repo orchael/desktopctl --preview
    ./bin/desktopctl --config "$CONFIG" create \
-     --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl
+     --repo orchael/desktopctl
    ./bin/desktopctl --config "$CONFIG" list
    ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
    ```
@@ -150,13 +150,15 @@ a new config does not pin it.
    [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
    for the opt-in SSH login test and teardown steps.
 
-   To follow the newest compatible public image instead of supplying `--ami`,
-   add `public_ami_owner: "819363892004"` under `desktop:` in this config and
-   omit `--ami` from both create commands. Discovery only considers available,
-   public `desktopctl-v<CLI major>-*` images from that AWS account in
+   Setup writes `desktop.public_ami_owner: "819363892004"` by default.
+   Discovery only considers available, public `desktopctl-v<CLI major>-*`
+   images from that AWS account in
    ca-central-1. An explicit `--ami` or `desktop.active_ami.ca-central-1` pin
    takes precedence. A local `ami build` can set that pin when run with
-   `--config`; remove the pin to return to public discovery.
+   `--config`; remove the pin to return to public discovery. Supply a different
+   trusted 12-digit account with `setup --non-interactive --public-ami-owner
+   <account-id>` or `DESKTOPCTL_PUBLIC_AMI_OWNER`, or choose it in the wizard.
+   An explicit empty flag or environment value disables discovery.
 
 For an SSH-only installation without DNS, use `--no-dns` on both
 `init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
@@ -308,6 +310,7 @@ and merges supplied agent keys without clearing other stored keys.
 | AWS region and profile | `--region`, `--profile` | `DESKTOPCTL_REGION`, `DESKTOPCTL_PROFILE` |
 | Environment and state bucket | `--environment`, `--backend-bucket` | `DESKTOPCTL_ENVIRONMENT`, `DESKTOPCTL_BACKEND_BUCKET` |
 | Desktop DNS zone | `--dns-zone` | `DESKTOPCTL_DNS_ZONE` |
+| Trusted public AMI publisher (defaults to `819363892004`) | `--public-ami-owner` | `DESKTOPCTL_PUBLIC_AMI_OWNER` |
 | GitHub owner and token | `--github-owner`, `--github-token` | `DESKTOPCTL_GITHUB_OWNER`, `DESKTOPCTL_GITHUB_TOKEN` |
 | Git author | `--git-user-name`, `--git-user-email` | `DESKTOPCTL_GIT_USER_NAME`, `DESKTOPCTL_GIT_USER_EMAIL` |
 | Desktop SSH | `--operator-cidr`, `--ssh-key-path`, `--ssh-key-name` | `DESKTOPCTL_OPERATOR_CIDR`, `DESKTOPCTL_SSH_KEY_PATH`, `DESKTOPCTL_SSH_KEY_NAME` |

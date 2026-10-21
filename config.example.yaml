@@ -87,10 +87,10 @@ desktop:
   #   us-east-2: ami-0123456789abcdef1
   #   us-west-2: ami-0123456789abcdef2
 
-  # Optional trusted AWS publisher account. When active_ami has no entry for
-  # the current region, create discovers the newest public AMI for this CLI's
-  # major version (desktopctl-v<major>-<UTC date>-<timestamp>).
-  # public_ami_owner: "123456789012"
+  # Setup writes this trusted public AMI publisher account by default. When
+  # active_ami has no entry for the current region, create discovers the newest
+  # public AMI for this CLI's major version.
+  # public_ami_owner: "819363892004"
   # public_ami_major: "1"  # optional override of the CLI major version
 
   # Android Virtual Devices to create at desktop boot.

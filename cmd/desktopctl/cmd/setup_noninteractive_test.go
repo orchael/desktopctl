@@ -35,17 +35,21 @@ func TestNonInteractiveAnswersPrecedenceAndIdentity(t *testing.T) {
 	t.Setenv("DESKTOPCTL_BACKEND_BUCKET", "env-desktopctl-state")
 	t.Setenv("DESKTOPCTL_DNS_ZONE", "env.example.com")
 	t.Setenv("DESKTOPCTL_GITHUB_TOKEN", "env-token")
+	t.Setenv("DESKTOPCTL_PUBLIC_AMI_OWNER", "123456789012")
 	if err := c.Flags().Set("backend-bucket", "flag-desktopctl-state"); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Flags().Set("dns-zone", "Desktops.Example.Com."); err != nil {
 		t.Fatal(err)
 	}
+	if err := c.Flags().Set("public-ami-owner", "210987654321"); err != nil {
+		t.Fatal(err)
+	}
 	a, err := nonInteractiveAnswers(c, current)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.BackendBucket != "flag-desktopctl-state" || a.DNSZone != "desktops.example.com" || a.GitHubToken != "env-token" || a.AWSRegion != "ca-central-1" || a.SSHKeyName != "desktopctl-prod-ca-central-1-orchael" {
+	if a.BackendBucket != "flag-desktopctl-state" || a.DNSZone != "desktops.example.com" || a.PublicAMIOwner != "210987654321" || a.GitHubToken != "env-token" || a.AWSRegion != "ca-central-1" || a.SSHKeyName != "desktopctl-prod-ca-central-1-orchael" {
 		t.Fatalf("unexpected resolved answers: bucket=%q token_present=%t region=%q key=%q", a.BackendBucket, a.GitHubToken != "", a.AWSRegion, a.SSHKeyName)
 	}
 	if err := c.Flags().Set("github-owner", "another"); err != nil {
@@ -57,6 +61,44 @@ func TestNonInteractiveAnswersPrecedenceAndIdentity(t *testing.T) {
 	}
 	if a.SSHKeyName != "desktopctl-prod-ca-central-1-another" {
 		t.Fatalf("wrong key name for changed owner: %q", a.SSHKeyName)
+	}
+}
+
+func TestNonInteractiveAnswersDefaultsPublicAMIOwner(t *testing.T) {
+	current := &config.Config{AWS: config.AWSConfig{Region: "ca-central-1", Profile: "marka"}, Pulumi: config.PulumiConfig{BackendBucket: "desktopctl-state"}, Fleet: config.FleetConfig{Environment: "prod"}, GitHub: config.GitHubConfig{Owner: "orchael"}, Desktop: config.DesktopConfig{OperatorCIDR: "157.230.223.137/32", SSHKeyPath: "/tmp/key"}}
+	cmd := setupInputCommand()
+	a, err := nonInteractiveAnswers(cmd, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PublicAMIOwner != defaultPublicAMIOwner {
+		t.Fatalf("public AMI owner=%q, want %q", a.PublicAMIOwner, defaultPublicAMIOwner)
+	}
+	current.Desktop.PublicAMIOwner = "123456789012"
+	a, err = nonInteractiveAnswers(cmd, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PublicAMIOwner != "123456789012" {
+		t.Fatalf("existing publisher account was not preserved: %q", a.PublicAMIOwner)
+	}
+	t.Setenv("DESKTOPCTL_PUBLIC_AMI_OWNER", "210987654321")
+	a, err = nonInteractiveAnswers(cmd, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PublicAMIOwner != "210987654321" {
+		t.Fatalf("environment publisher account did not take precedence: %q", a.PublicAMIOwner)
+	}
+	if err := cmd.Flags().Set("public-ami-owner", ""); err != nil {
+		t.Fatal(err)
+	}
+	a, err = nonInteractiveAnswers(cmd, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PublicAMIOwner != "" {
+		t.Fatalf("explicit empty owner should disable discovery: owner=%q", a.PublicAMIOwner)
 	}
 }
 
@@ -87,6 +129,7 @@ func TestNonInteractiveAnswersRejectsUnsafeOrMissingValues(t *testing.T) {
 		{"missing key path", "ssh-key-path", ""},
 		{"invalid environment", "environment", "staging"},
 		{"invalid DNS zone", "dns-zone", "bad/zone"},
+		{"invalid public AMI owner", "public-ami-owner", "amazon"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := setupInputCommand()

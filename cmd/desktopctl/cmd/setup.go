@@ -38,6 +38,8 @@ import (
 var githubAPIBase = "https://api.github.com"
 var publicIPURL = "https://checkip.amazonaws.com"
 
+const defaultPublicAMIOwner = "819363892004"
+
 var (
 	setupConfigOut          string
 	setupAllowExisting      bool
@@ -79,6 +81,7 @@ func init() {
 	for _, f := range []struct{ name, help string }{
 		{"environment", "fleet environment (dev|prod|test)"},
 		{"dns-zone", "desktop DNS zone to create or reuse in Route 53 (DESKTOPCTL_DNS_ZONE)"},
+		{"public-ami-owner", "trusted public desktop AMI publisher AWS account (DESKTOPCTL_PUBLIC_AMI_OWNER)"},
 		{"backend-bucket", "dedicated S3 bucket for Pulumi state"},
 		{"github-owner", "GitHub organization or user"},
 		{"github-token", "GitHub token (prefer DESKTOPCTL_GITHUB_TOKEN to keep it out of process arguments)"},
@@ -106,21 +109,22 @@ func init() {
 }
 
 type setupAnswers struct {
-	AWSRegion     string
-	AWSProfile    string
-	BackendBucket string
-	Environment   string
-	DNSZone       string
-	GitHubOwner   string
-	GitHubToken   string
-	GitUserName   string
-	GitUserEmail  string
-	AnthropicKey  string
-	OpenAIKey     string
-	GeminiKey     string
-	SSHKeyPath    string
-	SSHKeyName    string
-	OperatorCIDR  string
+	AWSRegion      string
+	AWSProfile     string
+	BackendBucket  string
+	Environment    string
+	DNSZone        string
+	PublicAMIOwner string
+	GitHubOwner    string
+	GitHubToken    string
+	GitUserName    string
+	GitUserEmail   string
+	AnthropicKey   string
+	OpenAIKey      string
+	GeminiKey      string
+	SSHKeyPath     string
+	SSHKeyName     string
+	OperatorCIDR   string
 }
 
 func setupSameIdentity(current *config.Config, region, environment, owner string) bool {
@@ -156,6 +160,21 @@ func validateOperatorCIDR(value string) error {
 	prefix, err := netip.ParsePrefix(value)
 	if err != nil || !prefix.Addr().Is4() || !prefix.Addr().IsGlobalUnicast() || prefix.Addr().IsPrivate() || prefix.Bits() != 32 {
 		return fmt.Errorf("SSH source must be a public IPv4 address with /32, for example 203.0.113.42/32")
+	}
+	return nil
+}
+
+func validatePublicAMIOwner(value string) error {
+	if value == "" {
+		return nil // An explicit empty value disables public AMI discovery.
+	}
+	if len(value) != 12 {
+		return fmt.Errorf("public AMI owner must be a 12-digit AWS account ID")
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return fmt.Errorf("public AMI owner must be a 12-digit AWS account ID")
+		}
 	}
 	return nil
 }
@@ -246,6 +265,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("desktop DNS zone: %w", err)
 		}
+	}
+	publicAMIOwner := defaultPublicAMIOwner
+	if cfg != nil && cfg.Desktop.PublicAMIOwner != "" {
+		publicAMIOwner = cfg.Desktop.PublicAMIOwner
+	}
+	a.PublicAMIOwner = prompt(reader, fmt.Sprintf("Trusted public desktop AMI publisher account [%s]", publicAMIOwner), publicAMIOwner)
+	if err := validatePublicAMIOwner(a.PublicAMIOwner); err != nil {
+		return err
 	}
 
 	fmt.Println()
@@ -633,6 +660,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
 	newCfg.Desktop.OperatorCIDR = a.OperatorCIDR
+	newCfg.Desktop.PublicAMIOwner = a.PublicAMIOwner
 	if a.SSHKeyPath != "" {
 		newCfg.Desktop.SSHKeyPath = a.SSHKeyPath
 	}

@@ -44,12 +44,12 @@ legacy secret path.
 
 ## AMI and first desktop
 
-The new config has no pinned AMI. Public AMI `ami-0d0b8cccb4d7077fd` was
-verified available in ca-central-1 on 2026-10-20. Check that it is still
-available and pass it with `create --ami ami-0d0b8cccb4d7077fd`.
-`desktop.public_ami_owner` can instead discover the newest public
-`desktopctl-v<CLI major>-*` image from a trusted
-account. A maintainer who needs a new image can follow the
+The new config has no pinned AMI. Setup writes publisher account `819363892004`
+to `desktop.public_ami_owner`, so `create` discovers the newest available public
+`desktopctl-v<CLI major>-*` image in ca-central-1. Review the chosen AMI ID
+with `create --preview` before creating a desktop. Pass `--ami <id>` to pin a
+specific image for one create, or set `desktop.active_ami.ca-central-1` to pin
+it for subsequent creates. A maintainer who needs a new image can follow the
 [public AMI build guide](PUBLIC_AMIS.md); this setup does not require a build.
 
 The selected zone is `desktops.markcallen.dev`; the first desktop hostname is
@@ -58,7 +58,7 @@ delegated at the provider for `markcallen.dev` using every printed NS value.
 `dns check` reports when public resolution matches the Route 53 delegation
 set. Foundation apply and desktop creation also verify delegation. Once setup
 has stored GitHub credentials and registered an EC2 SSH key, create a desktop
-with `desktopctl --config <path> create --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl`.
+with `desktopctl --config <path> create --repo orchael/desktopctl`.
 
 If you intentionally choose `--no-dns`, use it for both foundation and desktop
 creation. The hostname is only `<desktop-id>`, Certbot is skipped, and no

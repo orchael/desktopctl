@@ -15,7 +15,7 @@ import (
 )
 
 var setupValueFlags = []string{
-	"environment", "dns-zone", "backend-bucket", "github-owner", "github-token", "git-user-name",
+	"environment", "dns-zone", "public-ami-owner", "backend-bucket", "github-owner", "github-token", "git-user-name",
 	"git-user-email", "operator-cidr", "ssh-key-path", "ssh-key-name",
 	"claude-oauth-token", "openai-api-key", "gemini-api-key",
 }
@@ -67,6 +67,14 @@ func nonInteractiveAnswers(cmd *cobra.Command, current *config.Config) (*setupAn
 	a.BackendBucket = setupInput(cmd, "backend-bucket", "DESKTOPCTL_BACKEND_BUCKET", current.Pulumi.BackendBucket)
 	a.Environment = setupInput(cmd, "environment", "DESKTOPCTL_ENVIRONMENT", current.Environment())
 	a.DNSZone = setupInput(cmd, "dns-zone", "DESKTOPCTL_DNS_ZONE", current.DNS.Zone)
+	publicAMIOwner := current.Desktop.PublicAMIOwner
+	if publicAMIOwner == "" {
+		publicAMIOwner = defaultPublicAMIOwner
+	}
+	a.PublicAMIOwner = setupInput(cmd, "public-ami-owner", "DESKTOPCTL_PUBLIC_AMI_OWNER", publicAMIOwner)
+	if err := validatePublicAMIOwner(a.PublicAMIOwner); err != nil {
+		return nil, err
+	}
 	if a.DNSZone != "" {
 		var err error
 		a.DNSZone, err = dnszone.Normalize(a.DNSZone)
@@ -227,6 +235,7 @@ func runNonInteractiveSetup(cmd *cobra.Command) error {
 	updated.GitHub.GitUserName = a.GitUserName
 	updated.GitHub.GitUserEmail = a.GitUserEmail
 	updated.Desktop.OperatorCIDR = a.OperatorCIDR
+	updated.Desktop.PublicAMIOwner = a.PublicAMIOwner
 	updated.Desktop.SSHKeyPath = a.SSHKeyPath
 	updated.Desktop.SSHKeyName = a.SSHKeyName
 	if !sameIdentity {
