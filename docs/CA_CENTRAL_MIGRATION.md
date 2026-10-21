@@ -20,6 +20,12 @@ the intended account and reuse the existing bucket with `bootstrap --allow-exist
 The example uses account 819363892004,
 profile `marka`, environment `prod`, and region `ca-central-1`.
 
+The control-plane operator secret belongs to the foundation, separately from
+the two setup secrets. When a previous foundation secret is still scheduled
+for deletion, a fresh `init-foundation` picks the next available versioned
+name and stores it in the new Pulumi stack. Review the printed name in the
+preview; the stale secret needs no manual deletion or restoration.
+
 ```sh
 aws sts get-caller-identity --profile marka
 desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml bootstrap --allow-existing

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/pulumi"
@@ -112,6 +113,17 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
+	if !stackExists && !foundationSaaS {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config for operator secret: %w", err)
+		}
+		name, err := selectFreshOperatorSecretName(ctx, secretsmanager.NewFromConfig(awsCfg), env, cfg.AWS.Region)
+		if err != nil {
+			return err
+		}
+		stackCfg["operatorCredentialsSecretName"] = name
+	}
 	if foundationSaaS {
 		if cfg.SaaSInstanceProfileName == "" {
 			return fmt.Errorf("saas_instance_profile_name is required for --saas foundation")
@@ -125,6 +137,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Pulumi backend         : %s\n", backendURL)
 	fmt.Fprintf(os.Stderr, "Stack                  : %s\n", ref.FullName())
 	fmt.Fprintf(os.Stderr, "Work dir               : %s\n", workDir)
+	if name := stackCfg["operatorCredentialsSecretName"]; name != "" {
+		fmt.Fprintf(os.Stderr, "New operator secret    : %s\n", name)
+	}
 
 	if foundationPreview {
 		previewErr := runner.Preview(ctx, ref, stackCfg, os.Stderr)

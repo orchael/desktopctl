@@ -595,6 +595,10 @@ The final installation cleanup removes the configured Route 53 hosted zone
 after all desktop records are gone, using the saved hosted zone ID and name.
 It must reject zones with remaining non-default records and leave deletion of
 the parent NS delegation to the external DNS provider.
+A recreated foundation must choose a fresh operator credentials secret name
+when an earlier installation still occupies the default name, including while
+that earlier secret is scheduled for deletion. Its new IAM credentials must
+not be written into the earlier installation's secret.
 
 ### Pre-baked AMI provisioning
 

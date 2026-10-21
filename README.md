@@ -122,10 +122,10 @@ a new config does not pin it.
 
    The foundation creates AWS resources, including networking, DynamoDB,
    IAM, and EFS. Verify its reported IDs and the fleet table before creating
-   a desktop. If the old foundation-managed operator secret
-   `/desktopctl/prod-ca-central-1/control-plane/aws-operator` is still
-   scheduled for deletion, resolve that name before applying a new foundation
-   stack; restoring the two setup secrets does not restore this Pulumi resource.
+   a desktop. A fresh foundation checks whether an old control-plane operator
+   secret occupies the default name. If it does, the preview selects the next
+   available versioned name, and Pulumi keeps that choice for later updates.
+   The old scheduled secret can finish its deletion independently.
 
 7. **Preview and create the first desktop.** Verify that the listed AMI is
    still available in ca-central-1. EC2 and EBS charges begin when the desktop
@@ -187,7 +187,7 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
 - `iam:CreateUser`, `iam:CreateAccessKey`, `iam:CreateRole`, `iam:PutUserPolicy`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*`/`Tag*` variants
 - `route53:GetHostedZone`, `route53:ListHostedZones`
-- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/desktopctl/<env>-<region>/control-plane/aws-operator`
+- `secretsmanager:DescribeSecret`, `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/desktopctl/<env>-<region>/control-plane/aws-operator*`
 - Full Pulumi S3 state backend access on the bootstrap bucket
 
 **Desktop lifecycle (`create`, `stop`, `start`, `terminate`):**
