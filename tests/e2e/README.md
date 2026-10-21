@@ -7,12 +7,15 @@ active AMI. It creates an isolated retained EFS workspace and desktop, each name
 `--repo owner/desktopctl`). It does not use `eos-dev`, build AMIs,
 or create/destroy shared foundation infrastructure. These tests incur AWS costs.
 
-For the ca-central-1 production setup, use the named XDG config and the SSH
-scenario. It needs no separate bridgectl binary and cleans up after success:
+For a ca-central-1 setup with a resolving desktop DNS zone, use the named XDG
+config and the SSH scenario. It needs no separate bridgectl binary and cleans
+up after success. The runner uses direct SSH and cannot test `--no-dns`
+desktops, whose hostname ends in `.invalid`. Set
+`desktop.active_ami.ca-central-1` in the config before running it:
 
 ```bash
-scripts/e2e.sh --config ~/.config/desktopctl/config-ca-central-1.yaml \
-  --scenario ssh-login --no-dns --cli ./bin/desktopctl
+scripts/e2e.sh --config ~/.config/desktopctl/config-prod-ca-central-1.yaml \
+  --scenario ssh-login --cli ./bin/desktopctl
 ```
 
 ## Run Codex authentication

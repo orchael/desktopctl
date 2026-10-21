@@ -46,27 +46,21 @@ account. A maintainer who needs a new image can follow the
 [public AMI build guide](PUBLIC_AMIS.md); this setup does not require a build.
 
 The account currently has no `desktops.orchael.com` hosted zone, so this
-configuration uses `--no-dns` for the foundation and desktops. It still creates
-EFS workspace resources and supports SSH access. After
-`desktopctl --config <path> setup` has stored GitHub credentials and registered
-an EC2 SSH key, create a desktop with
+configuration uses `--no-dns` for the foundation and desktops. This records
+`<desktop-id>.invalid` as a placeholder hostname, creates no Route 53 record,
+and skips Certbot. The printed noVNC URL and direct SSH target will not
+resolve. For browser access with a trusted certificate, configure and delegate
+the Route 53 zone and omit `--no-dns` for both foundation and desktops. EFS
+workspace resources remain available in no-DNS mode. Use
+`desktopctl --config <path> ssh --tunnel ssm <desktop-id>` for SSH after
+creation, provided Session Manager is available. Once setup has stored GitHub
+credentials and registered an EC2 SSH key, create a desktop with
 `desktopctl --config <path> create --no-dns --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl`.
-The opt-in runner then covers workspace and desktop creation, cloud-init,
-SSH login, and teardown. It reads the active AMI from the config and has no
-`--ami` override, so first set `desktop.active_ami.ca-central-1` to the
-verified AMI ID in the new config:
-
-```sh
-make build
-scripts/e2e.sh --config ~/.config/desktopctl/config-prod-ca-central-1.yaml \
-  --scenario ssh-login --no-dns --cli ./bin/desktopctl
-```
-
-The runner saves a private state file, and retains resources on failure for
-diagnosis. Pass `--cleanup <state-file>` after fixing the failure. A successful
-run terminates its desktop and deletes its EFS workspace. The runner assumes
-the foundation and AMI already exist; it does not destroy the shared foundation
-or backend bucket.
+The opt-in SSH login runner currently connects to the desktop hostname
+directly, so it cannot test no-DNS desktops. Use it only after configuring a
+resolving zone and setting `desktop.active_ami.ca-central-1` in the new config.
+See [AWS desktop E2E scenarios](../tests/e2e/README.md) for its lifecycle and
+cleanup behavior.
 
 ## Remove an installation
 

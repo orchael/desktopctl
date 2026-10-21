@@ -12,9 +12,14 @@ A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 This path starts with a new config at
 `~/.config/desktopctl/config-prod-ca-central-1.yaml` in AWS account
 `819363892004`, using profile `marka`, environment `prod`, and owner `orchael`.
-The account has no `desktops.orchael.com` hosted zone, so use `--no-dns` for
-both the foundation and desktops. Public AMI `ami-0d0b8cccb4d7077fd` can
-be passed explicitly when creating a desktop; a new config does not pin it.
+The account has no `desktops.orchael.com` hosted zone. The `--no-dns` path below
+creates the fleet without a public desktop hostname or trusted browser URL:
+desktops are recorded as `<desktop-id>.invalid`, and Certbot is skipped. For
+browser access with a trusted certificate, configure and delegate the
+`desktops.orchael.com` Route 53 hosted zone before creating the foundation,
+then omit `--no-dns` from both foundation and desktop commands. Public AMI
+`ami-0d0b8cccb4d7077fd` can be passed explicitly when creating a desktop;
+a new config does not pin it.
 
 1. **Check the target and local tools.** Run these from this repository:
 
@@ -112,10 +117,13 @@ be passed explicitly when creating a desktop; a new config does not pin it.
    ./bin/desktopctl --config "$CONFIG" create --no-dns \
      --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl
    ./bin/desktopctl --config "$CONFIG" list
-   ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
+   ./bin/desktopctl --config "$CONFIG" ssh --tunnel ssm <desktop-id>
    ```
 
-   Use the desktop ID printed by `create` for the SSH command. See the
+   Use the desktop ID printed by `create` for the SSH command. This mode's
+   printed `novnc_url` and direct SSH hostname end in `.invalid` and cannot
+   resolve. The SSM tunnel requires AWS Session Manager support on the operator
+   machine and instance. See the
    [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
    for the opt-in SSH login test and teardown steps.
 
