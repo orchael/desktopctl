@@ -455,6 +455,9 @@ func ValidateFoundationOutputs(outputs map[string]string) error {
 }
 
 func ValidateFoundationOutputsForMode(outputs map[string]string, noDNS bool) error {
+	if noDNS && outputs[OutputZoneID] != "" {
+		return fmt.Errorf("--no-dns requires a no-DNS foundation; this foundation has a Route 53 zone")
+	}
 	required := []string{OutputSubnetID, OutputSGID, OutputInstanceProfile}
 	if !noDNS {
 		required = append(required, OutputZoneID)

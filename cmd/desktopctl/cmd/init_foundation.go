@@ -71,6 +71,11 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		if !foundationPreview {
+			if err := requireDesktopDNS(ctx, cfg.AWS.Region); err != nil {
+				return err
+			}
+		}
 	}
 
 	if err := requireBackend(ctx); err != nil {
@@ -106,6 +111,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	}
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
+	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
 	if foundationSaaS {
 		if cfg.SaaSInstanceProfileName == "" {
 			return fmt.Errorf("saas_instance_profile_name is required for --saas foundation")

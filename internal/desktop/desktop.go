@@ -53,6 +53,9 @@ func StackName(desktopID string) string {
 
 // Hostname returns the DNS hostname for the given desktop ID and zone.
 func Hostname(desktopID, zone string) string {
+	if zone == "" {
+		return desktopID
+	}
 	return desktopID + "." + zone
 }
 
@@ -101,7 +104,7 @@ func (r *CreateRequest) Validate() error {
 	if r.GitHubOwner == "" {
 		return fmt.Errorf("github_owner is required")
 	}
-	if r.Zone == "" {
+	if r.Zone == "" && !r.NoDNS {
 		return fmt.Errorf("zone is required")
 	}
 	if r.BackendBucket == "" {
@@ -128,7 +131,15 @@ func (r *CreateRequest) Validate() error {
 // CreateRecord initialises a fleet record in the creating state.
 func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateRequest) error {
 	zone := req.Zone
+	if req.NoDNS {
+		zone = ""
+	}
 	hostname := Hostname(id, zone)
+	noVNCURL, sshTarget := "", ""
+	if !req.NoDNS {
+		noVNCURL = NoVNCURL(hostname)
+		sshTarget = SSHTarget(hostname)
+	}
 	d := &store.Desktop{
 		DesktopID:      id,
 		OrganizationID: req.OrganizationID,
@@ -140,8 +151,8 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		State:          store.StateCreating,
 		Hostname:       hostname,
 		NoDNS:          req.NoDNS,
-		NoVNCURL:       NoVNCURL(hostname),
-		SSHTarget:      SSHTarget(hostname),
+		NoVNCURL:       noVNCURL,
+		SSHTarget:      sshTarget,
 		AMIID:          req.AMIID,
 		InstanceType:   req.InstanceType,
 		NestedVirt:     req.NestedVirt,

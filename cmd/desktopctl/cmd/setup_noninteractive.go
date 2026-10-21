@@ -10,11 +10,12 @@ import (
 
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/dnszone"
 	"github.com/spf13/cobra"
 )
 
 var setupValueFlags = []string{
-	"environment", "backend-bucket", "github-owner", "github-token", "git-user-name",
+	"environment", "dns-zone", "backend-bucket", "github-owner", "github-token", "git-user-name",
 	"git-user-email", "operator-cidr", "ssh-key-path", "ssh-key-name",
 	"claude-oauth-token", "openai-api-key", "gemini-api-key",
 }
@@ -65,6 +66,14 @@ func nonInteractiveAnswers(cmd *cobra.Command, current *config.Config) (*setupAn
 	a.AWSProfile = setupInput(cmd, "profile", "DESKTOPCTL_PROFILE", current.AWS.Profile)
 	a.BackendBucket = setupInput(cmd, "backend-bucket", "DESKTOPCTL_BACKEND_BUCKET", current.Pulumi.BackendBucket)
 	a.Environment = setupInput(cmd, "environment", "DESKTOPCTL_ENVIRONMENT", current.Environment())
+	a.DNSZone = setupInput(cmd, "dns-zone", "DESKTOPCTL_DNS_ZONE", current.DNS.Zone)
+	if a.DNSZone != "" {
+		var err error
+		a.DNSZone, err = dnszone.Normalize(a.DNSZone)
+		if err != nil {
+			return nil, fmt.Errorf("desktop DNS zone: %w", err)
+		}
+	}
 	a.GitHubOwner = setupInput(cmd, "github-owner", "DESKTOPCTL_GITHUB_OWNER", current.GitHub.Owner)
 	a.GitHubToken = setupInput(cmd, "github-token", "DESKTOPCTL_GITHUB_TOKEN", "")
 	a.GitUserName = setupInput(cmd, "git-user-name", "DESKTOPCTL_GIT_USER_NAME", current.GitHub.GitUserName)
@@ -208,6 +217,7 @@ func runNonInteractiveSetup(cmd *cobra.Command) error {
 	updated.SetRegion(a.AWSRegion)
 	updated.AWS.Profile = a.AWSProfile
 	updated.Pulumi.BackendBucket = a.BackendBucket
+	updated.DNS.Zone = a.DNSZone
 	updated.GitHub.GitHubSecret = githubPath
 	if agentExists || newAgentValues {
 		updated.GitHub.AgentSecret = agentPath
@@ -226,6 +236,9 @@ func runNonInteractiveSetup(cmd *cobra.Command) error {
 		updated.Operator.Secret = ""
 	}
 	updated.Defaults()
+	if err := ensureSetupDNS(ctx, a, &updated); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}

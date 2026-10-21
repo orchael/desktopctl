@@ -206,6 +206,9 @@ func TestValidateFoundationOutputs(t *testing.T) {
 	if err := ValidateFoundationOutputsForMode(noDNS, false); err == nil {
 		t.Error("standard foundation must still require a hosted zone")
 	}
+	if err := ValidateFoundationOutputsForMode(good, true); err == nil {
+		t.Error("no-DNS desktop must not use a DNS-backed foundation")
+	}
 }
 
 // fakePulumiDir writes a shell script named "pulumi" into a temp directory

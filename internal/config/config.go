@@ -71,9 +71,18 @@ type Config struct {
 	Operator                OperatorConfig `yaml:"operator,omitempty"`
 	Desktop                 DesktopConfig  `yaml:"desktop"`
 	Agent                   AgentConfig    `yaml:"agent"`
+	DNS                     DNSConfig      `yaml:"dns,omitempty"`
 	Network                 NetworkConfig  `yaml:"network,omitempty"`
 	PKI                     PKIConfig      `yaml:"pki,omitempty"`
 	Pool                    PoolConfig     `yaml:"pool,omitempty"`
+}
+
+// DNSConfig selects the public Route 53 zone used for desktop hostnames.
+// HostedZoneID pins the exact zone so delegation checks cannot adopt another
+// hosted zone with the same name.
+type DNSConfig struct {
+	Zone         string `yaml:"zone,omitempty"`
+	HostedZoneID string `yaml:"hosted_zone_id,omitempty"`
 }
 
 // PoolConfig controls the warm compute pool. Set PoolSize to 0 (the default)
@@ -281,6 +290,9 @@ func SupportsNestedVirt(instanceType string) bool {
 // DNSZone returns the Route53 hosted zone name for the configured environment.
 // The test environment shares the dev zone so no separate hosted zone is needed.
 func (c *Config) DNSZone() (string, error) {
+	if c.DNS.Zone != "" {
+		return strings.TrimSuffix(strings.ToLower(c.DNS.Zone), "."), nil
+	}
 	switch c.Environment() {
 	case EnvProd:
 		return ZoneProd, nil

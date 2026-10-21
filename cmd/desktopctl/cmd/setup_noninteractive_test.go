@@ -28,19 +28,24 @@ func TestNonInteractiveAnswersPrecedenceAndIdentity(t *testing.T) {
 		AWS:     config.AWSConfig{Region: "ca-central-1", Profile: "marka"},
 		Fleet:   config.FleetConfig{Environment: "prod"},
 		Pulumi:  config.PulumiConfig{BackendBucket: "old-desktopctl-state"},
+		DNS:     config.DNSConfig{Zone: "old.example.com"},
 		GitHub:  config.GitHubConfig{Owner: "orchael"},
 		Desktop: config.DesktopConfig{OperatorCIDR: "157.230.223.137/32", SSHKeyPath: "/tmp/ssh-key", SSHKeyName: "desktopctl-prod-ca-central-1-orchael"},
 	}
 	t.Setenv("DESKTOPCTL_BACKEND_BUCKET", "env-desktopctl-state")
+	t.Setenv("DESKTOPCTL_DNS_ZONE", "env.example.com")
 	t.Setenv("DESKTOPCTL_GITHUB_TOKEN", "env-token")
 	if err := c.Flags().Set("backend-bucket", "flag-desktopctl-state"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Flags().Set("dns-zone", "Desktops.Example.Com."); err != nil {
 		t.Fatal(err)
 	}
 	a, err := nonInteractiveAnswers(c, current)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.BackendBucket != "flag-desktopctl-state" || a.GitHubToken != "env-token" || a.AWSRegion != "ca-central-1" || a.SSHKeyName != "desktopctl-prod-ca-central-1-orchael" {
+	if a.BackendBucket != "flag-desktopctl-state" || a.DNSZone != "desktops.example.com" || a.GitHubToken != "env-token" || a.AWSRegion != "ca-central-1" || a.SSHKeyName != "desktopctl-prod-ca-central-1-orchael" {
 		t.Fatalf("unexpected resolved answers: bucket=%q token_present=%t region=%q key=%q", a.BackendBucket, a.GitHubToken != "", a.AWSRegion, a.SSHKeyName)
 	}
 	if err := c.Flags().Set("github-owner", "another"); err != nil {
@@ -81,6 +86,7 @@ func TestNonInteractiveAnswersRejectsUnsafeOrMissingValues(t *testing.T) {
 		{"unsafe CIDR", "operator-cidr", "0.0.0.0/0"},
 		{"missing key path", "ssh-key-path", ""},
 		{"invalid environment", "environment", "staging"},
+		{"invalid DNS zone", "dns-zone", "bad/zone"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := setupInputCommand()

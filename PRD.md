@@ -533,7 +533,15 @@ be able to clear stale attachments after failed provisioning or manual AWS clean
 
 ### DNS and TLS
 
-v1 requires Route53-backed DNS. Production desktops use `desktops.orchael.com`; local and development desktops use `desktops.orchael.dev`. Per-desktop hostnames should be created under the selected zone.
+Browser-accessible desktops require a public Route 53 zone selected by each
+installation. The CLI creates or reuses that zone and prints its name servers
+for delegation at the parent domain's DNS provider. Foundation apply, desktop
+creation, and desktop start must verify that public NS resolution matches the
+assigned Route 53 name servers before launching DNS-backed desktops. Each
+desktop receives `<desktop-id>.<selected-zone>` and a Certbot certificate.
+An explicitly requested no-DNS installation uses only `<desktop-id>` as its
+display hostname, skips Certbot and public browser URLs, and uses an SSM tunnel
+for SSH.
 
 ### Access control
 

@@ -1,4 +1,4 @@
-# Copy to ~/.config/desktopctl/config-ca-central-1.yaml on Linux.
+# Copy to ~/.config/desktopctl/config-prod-ca-central-1.yaml on Linux.
 # This is a new production identity in AWS account 819363892004.
 # The named bucket and resources must be absent before bootstrap.
 aws:
@@ -11,6 +11,10 @@ fleet:
   environment: prod
   table_name: desktopctl-fleet-prod-ca-central-1
   ami_table_name: desktopctl-ami-prod-ca-central-1
+dns:
+  # Run `desktopctl dns setup --zone desktops.markcallen.dev` to create or
+  # reuse the zone, save its hosted_zone_id, and print NS records for delegation.
+  zone: desktops.markcallen.dev
 github:
   owner: orchael
 desktop:

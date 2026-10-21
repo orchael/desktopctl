@@ -26,8 +26,11 @@ func run(ctx *pulumi.Context) error {
 	desktopID := cfg.Require("desktopId")
 	desktopName := cfg.Get("desktopName")
 	githubOwner := cfg.Require("githubOwner")
-	zone := cfg.Require("zone")
+	zone := cfg.Get("zone")
 	dnsEnabled := cfg.Get("dnsEnabled") != "false"
+	if dnsEnabled && zone == "" {
+		return fmt.Errorf("zone is required when DNS is enabled")
+	}
 	instanceType := cfg.Get("instanceType")
 	if instanceType == "" {
 		instanceType = "t3.large"
@@ -95,7 +98,10 @@ func run(ctx *pulumi.Context) error {
 	// watch for a new minor that adds NestedVirtualization to InstanceCpuOptionsArgs.
 	importInstanceID := cfg.Get("importInstanceId")
 
-	hostname := fmt.Sprintf("%s.%s", desktopID, zone)
+	hostname := desktopID
+	if dnsEnabled {
+		hostname = fmt.Sprintf("%s.%s", desktopID, zone)
+	}
 
 	// Provisioning logic lives in the CLI so the stack only owns infrastructure.
 	// Prefer gzip-compressed base64 user data so large cloud-init payloads stay
@@ -206,8 +212,13 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("desktopId", pulumi.String(desktopID))
 	ctx.Export("instanceId", instance.ID())
 	ctx.Export("hostname", pulumi.String(hostname))
-	ctx.Export("novncUrl", pulumi.Sprintf("https://%s:%d/novnc/vnc.html", hostname, novncHTTPSPort))
-	ctx.Export("sshTarget", pulumi.Sprintf("ubuntu@%s", hostname))
+	if dnsEnabled {
+		ctx.Export("novncUrl", pulumi.Sprintf("https://%s:%d/novnc/vnc.html", hostname, novncHTTPSPort))
+		ctx.Export("sshTarget", pulumi.Sprintf("ubuntu@%s", hostname))
+	} else {
+		ctx.Export("novncUrl", pulumi.String(""))
+		ctx.Export("sshTarget", pulumi.String(""))
+	}
 	ctx.Export("workspacePath", pulumi.String("/workspace"))
 	ctx.Export("workspaceMode", pulumi.String(workspaceMode))
 	ctx.Export("workspaceName", pulumi.String(workspaceName))

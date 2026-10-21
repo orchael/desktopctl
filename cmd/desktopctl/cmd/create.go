@@ -376,11 +376,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	zone := "invalid"
+	zone := ""
 	if !createNoDNS {
 		zone, err = cfg.DNSZone()
 		if err != nil {
 			return err
+		}
+		if !createPreview {
+			if err := requireDesktopDNS(ctx, cfg.AWS.Region); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -914,12 +919,17 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if nestedVirt {
 		nestedVirtStr = "true"
 	}
+	noVNCURL, sshTarget := "", ""
+	if !createNoDNS {
+		noVNCURL = desktop.NoVNCURL(hostname)
+		sshTarget = desktop.SSHTarget(hostname)
+	}
 	result := map[string]string{
 		"desktop_id":            desktopID,
 		"desktop_name":          createName,
 		"hostname":              hostname,
-		"novnc_url":             desktop.NoVNCURL(hostname),
-		"ssh_target":            desktop.SSHTarget(hostname),
+		"novnc_url":             noVNCURL,
+		"ssh_target":            sshTarget,
 		"stack":                 desktop.StackName(desktopID),
 		"ami_id":                amiID,
 		"region":                cfg.AWS.Region,

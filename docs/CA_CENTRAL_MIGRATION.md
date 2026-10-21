@@ -2,7 +2,7 @@
 
 The migration uses `desktopctl` names throughout. A setup is identified by its
 AWS account, environment, and region. The fresh production config for this
-checkout is `~/.config/desktopctl/config-prod-ca-central-1.yaml` on Linux; an
+checkout is `~/.config/desktopctl/config-prod-ca-central-1-dns.yaml` on Linux; an
 example is at the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
 `--config` to every command when using the named file.
 
@@ -16,24 +16,25 @@ detects its current public IPv4 address and confirms the `/32` security group
 rule. It also lists the GitHub classic token scopes and accepts a replacement
 token with hidden input. The AMI build reads the token from that regional
 secret unless `GITHUB_NPM_TOKEN` is set. Verify the AWS profile resolves to
-the intended account and check that the bucket name
-is globally available. The example uses account 819363892004,
+the intended account and reuse the existing bucket with `bootstrap --allow-existing`.
+The example uses account 819363892004,
 profile `marka`, environment `prod`, and region `ca-central-1`.
 
 ```sh
 aws sts get-caller-identity --profile marka
-desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml bootstrap
-desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml init-foundation --no-dns --preview
-desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1.yaml init-foundation --no-dns
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml bootstrap --allow-existing
+# Setup prints NS records for desktops.markcallen.dev; add them at the markcallen.dev DNS provider.
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml dns check
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml init-foundation --preview
+desktopctl --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml init-foundation
 ```
 
-`bootstrap` refuses an existing state bucket. `init-foundation` refuses an
+`bootstrap` refuses an existing state bucket without `--allow-existing`. `init-foundation` refuses an
 existing fleet table in the selected region. Updating an intentionally existing
 setup requires the command's `--allow-existing` flag. The new foundation stack
 is `foundation-prod-ca-central-1`; fleet and AMI tables include both dimensions.
 Do not point this config at another live installation's backend bucket or a
-legacy secret path. The deleted dedicated bucket name from the prior setup can
-be reused after confirming it is still available.
+legacy secret path.
 
 ## AMI and first desktop
 
@@ -45,20 +46,22 @@ available and pass it with `create --ami ami-0d0b8cccb4d7077fd`.
 account. A maintainer who needs a new image can follow the
 [public AMI build guide](PUBLIC_AMIS.md); this setup does not require a build.
 
-The account currently has no `desktops.orchael.com` hosted zone, so this
-configuration uses `--no-dns` for the foundation and desktops. This records
-`<desktop-id>.invalid` as a placeholder hostname, creates no Route 53 record,
-and skips Certbot. The printed noVNC URL and direct SSH target will not
-resolve. For browser access with a trusted certificate, configure and delegate
-the Route 53 zone and omit `--no-dns` for both foundation and desktops. EFS
-workspace resources remain available in no-DNS mode. Use
-`desktopctl --config <path> ssh --tunnel ssm <desktop-id>` for SSH after
-creation, provided Session Manager is available. Once setup has stored GitHub
-credentials and registered an EC2 SSH key, create a desktop with
-`desktopctl --config <path> create --no-dns --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl`.
+The selected zone is `desktops.markcallen.dev`; the first desktop hostname is
+`<desktop-id>.desktops.markcallen.dev`. A new public Route 53 zone must be
+delegated at the provider for `markcallen.dev` using every printed NS value.
+`dns check` reports when public resolution matches the Route 53 delegation
+set. Foundation apply and desktop creation also verify delegation. Once setup
+has stored GitHub credentials and registered an EC2 SSH key, create a desktop
+with `desktopctl --config <path> create --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl`.
+
+If you intentionally choose `--no-dns`, use it for both foundation and desktop
+creation. The hostname is only `<desktop-id>`, Certbot is skipped, and no
+public noVNC URL is returned. `desktopctl ssh <desktop-id>` automatically uses
+an SSM tunnel for these desktops, and the foundation opens no inbound desktop
+ports. This mode does not provide a trusted browser URL.
 The opt-in SSH login runner currently connects to the desktop hostname
-directly, so it cannot test no-DNS desktops. Use it only after configuring a
-resolving zone and setting `desktop.active_ami.ca-central-1` in the new config.
+directly, so it cannot test no-DNS desktops. Set
+`desktop.active_ami.ca-central-1` in the new config before running it.
 See [AWS desktop E2E scenarios](../tests/e2e/README.md) for its lifecycle and
 cleanup behavior.
 

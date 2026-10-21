@@ -10,7 +10,7 @@ or create/destroy shared foundation infrastructure. These tests incur AWS costs.
 For a ca-central-1 setup with a resolving desktop DNS zone, use the named XDG
 config and the SSH scenario. It needs no separate bridgectl binary and cleans
 up after success. The runner uses direct SSH and cannot test `--no-dns`
-desktops, whose hostname ends in `.invalid`. Set
+desktops, whose hostname is only the short desktop ID. Set
 `desktop.active_ami.ca-central-1` in the config before running it:
 
 ```bash

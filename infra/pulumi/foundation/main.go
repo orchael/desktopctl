@@ -25,6 +25,7 @@ func run(ctx *pulumi.Context) error {
 
 	zone := cfg.Get("zone")
 	saasMode := cfg.GetBool("saasMode")
+	noDNSMode := cfg.GetBool("noDNSMode")
 	environment := cfg.Get("environment")
 	if environment == "" {
 		environment = "dev"
@@ -190,7 +191,7 @@ func run(ctx *pulumi.Context) error {
 
 	// --- Security group ---
 	ingress := ec2.SecurityGroupIngressArray{}
-	if !saasMode {
+	if !saasMode && !noDNSMode {
 		ingress = ec2.SecurityGroupIngressArray{
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(22), ToPort: pulumi.Int(22), CidrBlocks: pulumi.StringArray{pulumi.String(operatorCIDR)}, Description: pulumi.String("SSH - configurable per environment")},
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(80), ToPort: pulumi.Int(80), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("HTTP - ACME challenges and service testing")},
@@ -495,9 +496,9 @@ func run(ctx *pulumi.Context) error {
 			Name:        pulumi.String(operatorCredentialsSecretName),
 			Description: pulumi.String("AWS control-plane credentials for desktopctl " + environment),
 			Tags: pulumi.StringMap{
-				"managed-by":       pulumi.String("desktopctl"),
-				"environment":      pulumi.String(environment),
-				"desktopctl-scope": pulumi.String("operator"),
+				"managed-by":        pulumi.String("desktopctl"),
+				"environment":       pulumi.String(environment),
+				"desktopctl-scope":  pulumi.String("operator"),
 				"ai-desktops-scope": pulumi.String("operator"),
 			},
 		})

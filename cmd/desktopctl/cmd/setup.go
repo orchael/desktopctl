@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	smithy "github.com/aws/smithy-go"
 	"github.com/orchael/desktopctl/internal/config"
+	"github.com/orchael/desktopctl/internal/dnszone"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
@@ -63,7 +64,8 @@ The wizard will:
   1. Collect AWS and GitHub configuration interactively
   2. Optionally update the GitHub token and rotate its SSH key
   3. Store updated credentials in AWS Secrets Manager
-  4. Write ~/.config/desktopctl/config.yaml (or --config-out path)`,
+  4. Create or reuse the desktop DNS zone, when supplied
+  5. Write ~/.config/desktopctl/config.yaml (or --config-out path)`,
 	Args: cobra.NoArgs,
 	RunE: runSetup,
 }
@@ -75,6 +77,7 @@ func init() {
 	setupCmd.Flags().BoolVar(&setupRotateGitHubSSHKey, "rotate-github-ssh-key", false, "generate and register a new GitHub SSH key (non-interactive only)")
 	for _, f := range []struct{ name, help string }{
 		{"environment", "fleet environment (dev|prod|test)"},
+		{"dns-zone", "desktop DNS zone to create or reuse in Route 53 (DESKTOPCTL_DNS_ZONE)"},
 		{"backend-bucket", "dedicated S3 bucket for Pulumi state"},
 		{"github-owner", "GitHub organization or user"},
 		{"github-token", "GitHub token (prefer DESKTOPCTL_GITHUB_TOKEN to keep it out of process arguments)"},
@@ -106,6 +109,7 @@ type setupAnswers struct {
 	AWSProfile    string
 	BackendBucket string
 	Environment   string
+	DNSZone       string
 	GitHubOwner   string
 	GitHubToken   string
 	GitUserName   string
@@ -231,6 +235,17 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	a.BackendBucket = prompt(reader, bucketLabel, existingBucket)
 	a.Environment = prompt(reader, fmt.Sprintf("Fleet environment (dev/prod/test) [%s]", existingEnv), existingEnv)
+	zoneLabel := "Desktop DNS zone (for example desktops.example.com; blank for SSH-only)"
+	if cfg != nil && cfg.DNS.Zone != "" {
+		zoneLabel = fmt.Sprintf("Desktop DNS zone [%s]", cfg.DNS.Zone)
+	}
+	a.DNSZone = prompt(reader, zoneLabel, cfg.DNS.Zone)
+	if a.DNSZone != "" {
+		a.DNSZone, err = dnszone.Normalize(a.DNSZone)
+		if err != nil {
+			return fmt.Errorf("desktop DNS zone: %w", err)
+		}
+	}
 
 	fmt.Println()
 	fmt.Println("── SSH (Desktop Access) ─────────────────────────────")
@@ -613,6 +628,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.SetRegion(a.AWSRegion)
 	newCfg.AWS.Profile = a.AWSProfile
 	newCfg.Pulumi.BackendBucket = a.BackendBucket
+	newCfg.DNS.Zone = a.DNSZone
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
 	newCfg.Desktop.OperatorCIDR = a.OperatorCIDR
@@ -631,6 +647,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		newCfg.GitHub.AgentSecret = agentSecretPath
 	}
 	newCfg.Defaults()
+	if err := ensureSetupDNS(ctx, a, newCfg); err != nil {
+		return err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -647,6 +666,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Config: %s\n", cfgPath)
 	fmt.Printf("AWS: profile %s, %s, environment %s\n", a.AWSProfile, a.AWSRegion, a.Environment)
 	fmt.Printf("SSH source: %s (update this if the operator machine's public IP changes)\n", a.OperatorCIDR)
+	if a.DNSZone != "" {
+		fmt.Printf("  desktopctl --config %q dns check\n", cfgPath)
+	}
 	if !isExisting {
 		fmt.Println("Next steps:")
 		fmt.Printf("  desktopctl --config %q bootstrap\n", cfgPath)

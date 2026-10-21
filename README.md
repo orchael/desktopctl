@@ -9,28 +9,27 @@ A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
 ## Quick start: production in ca-central-1
 
-This path starts with a new config at
-`~/.config/desktopctl/config-prod-ca-central-1.yaml` in AWS account
+To restart the setup while preserving the earlier config, use a new file at
+`~/.config/desktopctl/config-prod-ca-central-1-dns.yaml` in AWS account
 `819363892004`, using profile `marka`, environment `prod`, and owner `orchael`.
-The account has no `desktops.orchael.com` hosted zone. The `--no-dns` path below
-creates the fleet without a public desktop hostname or trusted browser URL:
-desktops are recorded as `<desktop-id>.invalid`, and Certbot is skipped. For
-browser access with a trusted certificate, configure and delegate the
-`desktops.orchael.com` Route 53 hosted zone before creating the foundation,
-then omit `--no-dns` from both foundation and desktop commands. Public AMI
+This path uses `desktops.markcallen.dev` for desktop hostnames. Setup creates
+the public Route 53 zone, then prints the NS records to add at the DNS provider
+for `markcallen.dev`. Foundation and desktop commands refuse to apply or start
+until public NS resolution matches the Route 53 zone. Public AMI
 `ami-0d0b8cccb4d7077fd` can be passed explicitly when creating a desktop;
 a new config does not pin it.
 
 1. **Check the target and local tools.** Run these from this repository:
 
    ```sh
-   CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1.yaml"
+   CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1-dns.yaml"
    aws sts get-caller-identity --profile marka --region ca-central-1
    make build
    ```
 
    Confirm the AWS account is `819363892004`. The config file need not exist
-   yet; setup creates it outside Git. Have a local SSH private key and its
+   yet; setup creates it outside Git. Keep the earlier config as a backup.
+   Have a local SSH private key and its
    matching `.pub` file, and identify this machine's public IPv4 `/32`.
 
 2. **Run setup using either mode.** The new config has no saved identity, but
@@ -38,6 +37,7 @@ a new config does not pin it.
    `--allow-existing` to authorize their reuse. Setup restores the GitHub and
    agent secrets if they are scheduled for deletion, retains unspecified
    credential values, registers the local public key as an EC2 key pair, and
+   creates or reuses the Route 53 hosted zone, prints its NS records, and
    writes the new config. Choose one command:
 
    Scripted setup, using the saved credentials and this machine's verified
@@ -47,6 +47,7 @@ a new config does not pin it.
    ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
      setup --non-interactive --allow-existing \
      --environment prod \
+     --dns-zone desktops.markcallen.dev \
      --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
      --github-owner orchael \
      --operator-cidr 157.230.223.137/32 \
@@ -61,7 +62,8 @@ a new config does not pin it.
    ```
 
    In the wizard, enter `marka-desktopctl-prod-ca-central-1-819363892004`
-   for the state bucket, `prod` for the environment, and `orchael` for the
+   for the state bucket, `prod` for the environment,
+   `desktops.markcallen.dev` for the desktop DNS zone, and `orchael` for the
    GitHub owner. Confirm the detected public IPv4 `/32`, select
    `/home/marka/.ssh/id_ed25519` for desktop SSH, and register its `.pub` file as
    EC2 key pair `desktopctl-prod-ca-central-1-orchael`. Choose whether to
@@ -88,14 +90,34 @@ a new config does not pin it.
    report `OK`, and that `aws-credentials` resolves to account
    `819363892004`. Fix any failed check before continuing.
 
-4. **Create the state backend and preview the foundation.** The bucket was
-   removed by the previous teardown, so `bootstrap` must recreate it. Review
-   the Pulumi preview before applying the foundation:
+4. **Reuse the state backend.** The earlier bootstrap already created this
+   bucket. Explicitly adopt it from the new config:
 
    ```sh
-   ./bin/desktopctl --config "$CONFIG" bootstrap
-   ./bin/desktopctl --config "$CONFIG" init-foundation --no-dns --preview
-   ./bin/desktopctl --config "$CONFIG" init-foundation --no-dns
+   ./bin/desktopctl --config "$CONFIG" bootstrap --allow-existing
+   ```
+
+5. **Delegate the desktop DNS zone.** Setup printed the Route 53 name servers.
+   At the DNS provider hosting `markcallen.dev`, add an **NS** record for
+   `desktops.markcallen.dev` with all four values printed by setup.
+   Re-run `dns setup` to display the same values if needed. Check the public
+   delegation after the provider publishes it:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" dns check
+   ```
+
+   Continue only when it reports `DNS delegation ready`. DNS caches may take
+   time to update. A different user supplies their own subdomain with
+   `setup --dns-zone desktops.example.com` and delegates it at their parent
+   domain's DNS provider. Creating a public Route 53 zone can incur AWS charges.
+
+6. **Preview and apply the foundation.** Review the Pulumi preview before
+   applying it:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" init-foundation --preview
+   ./bin/desktopctl --config "$CONFIG" init-foundation
    ```
 
    The foundation creates AWS resources, including networking, DynamoDB,
@@ -105,27 +127,33 @@ a new config does not pin it.
    scheduled for deletion, resolve that name before applying a new foundation
    stack; restoring the two setup secrets does not restore this Pulumi resource.
 
-5. **Preview and create the first desktop.** Verify that the listed AMI is
+7. **Preview and create the first desktop.** Verify that the listed AMI is
    still available in ca-central-1. EC2 and EBS charges begin when the desktop
    is created. Use a repository you can access; the example uses this repository:
 
    ```sh
    aws ec2 describe-images --profile marka --region ca-central-1 \
      --image-ids ami-0d0b8cccb4d7077fd
-   ./bin/desktopctl --config "$CONFIG" create --no-dns \
+   ./bin/desktopctl --config "$CONFIG" create \
      --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl --preview
-   ./bin/desktopctl --config "$CONFIG" create --no-dns \
+   ./bin/desktopctl --config "$CONFIG" create \
      --ami ami-0d0b8cccb4d7077fd --repo orchael/desktopctl
    ./bin/desktopctl --config "$CONFIG" list
-   ./bin/desktopctl --config "$CONFIG" ssh --tunnel ssm <desktop-id>
+   ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
    ```
 
-   Use the desktop ID printed by `create` for the SSH command. This mode's
-   printed `novnc_url` and direct SSH hostname end in `.invalid` and cannot
-   resolve. The SSM tunnel requires AWS Session Manager support on the operator
-   machine and instance. See the
+   Use the desktop ID printed by `create` for the SSH command. The hostname
+   will be `<desktop-id>.desktops.markcallen.dev`; cloud-init requests its
+   certificate through Certbot's Route 53 DNS challenge. See the
    [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
    for the opt-in SSH login test and teardown steps.
+
+For an SSH-only installation without DNS, use `--no-dns` on both
+`init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
+public noVNC URL is returned, and Certbot is skipped. `desktopctl ssh` uses an
+SSM tunnel automatically for these desktops; AWS Session Manager must be
+available. The no-DNS foundation has no inbound desktop ports. This mode does
+not provide a trusted browser URL.
 
 This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
 
@@ -151,6 +179,9 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 **Bootstrap (`bootstrap` command):**
 - `s3:CreateBucket`, `s3:ListBucket` (for `HeadBucket` checks), `s3:GetBucketTagging`, `s3:PutBucketTagging`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
 - `dynamodb:CreateTable`, `dynamodb:DescribeTable`
+
+**Desktop DNS (setup with a domain, `dns setup`, `dns check`):**
+- `route53:ListHostedZones`, `route53:GetHostedZone`; setup and `dns setup` also need `route53:CreateHostedZone` when no public zone exists.
 
 **Foundation (`init-foundation` command):**
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
@@ -180,12 +211,17 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 
 ### Route53 prerequisites
 
-A hosted zone for the desktop DNS domain must already exist before running `init-foundation`:
-
-- **Production** (`--env prod`): zone for `desktops.orchael.com`
-- **Development** (`--env dev`): zone for `desktops.orchael.dev`
-
-The foundation stack looks up the zone by domain name and exports the zone ID. If the zone is missing, `init-foundation` will fail with a clear error.
+Pass `--dns-zone desktops.example.com` to `desktopctl setup`, or answer its
+interactive DNS prompt, to create or reuse a public hosted zone. The standalone
+`desktopctl dns setup --zone desktops.example.com` can do this later. It saves `dns.zone` and
+`dns.hosted_zone_id` in the config and prints the Route 53 name servers. Add
+those values as an NS record for the subdomain at the parent domain's DNS
+provider, then run `desktopctl dns check`. The check compares publicly resolved
+NS records with the exact Route 53 delegation set. Foundation apply, desktop
+creation, and desktop start repeat this check when DNS is enabled; they stop
+before launching compute if delegation is missing or points elsewhere.
+Existing configs without `dns.zone` retain their legacy environment domain
+until updated with `dns setup`.
 
 ### GitHub credentials
 
@@ -239,10 +275,11 @@ those AWS names. Set `DESKTOPCTL_GITHUB_TOKEN` to replace only the token; pass
 `--rotate-github-ssh-key` to generate and register a new GitHub SSH key too.
 
 ```sh
-CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1.yaml"
+CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1-dns.yaml"
 # Supply DESKTOPCTL_GITHUB_TOKEN through your secret source when rotating it.
 ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
   setup --non-interactive --allow-existing --environment prod \
+  --dns-zone desktops.markcallen.dev \
   --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
   --github-owner orchael --operator-cidr 203.0.113.42/32 \
   --ssh-key-path "$HOME/.ssh/id_ed25519"
@@ -258,6 +295,7 @@ and merges supplied agent keys without clearing other stored keys.
 | --- | --- | --- |
 | AWS region and profile | `--region`, `--profile` | `DESKTOPCTL_REGION`, `DESKTOPCTL_PROFILE` |
 | Environment and state bucket | `--environment`, `--backend-bucket` | `DESKTOPCTL_ENVIRONMENT`, `DESKTOPCTL_BACKEND_BUCKET` |
+| Desktop DNS zone | `--dns-zone` | `DESKTOPCTL_DNS_ZONE` |
 | GitHub owner and token | `--github-owner`, `--github-token` | `DESKTOPCTL_GITHUB_OWNER`, `DESKTOPCTL_GITHUB_TOKEN` |
 | Git author | `--git-user-name`, `--git-user-email` | `DESKTOPCTL_GIT_USER_NAME`, `DESKTOPCTL_GIT_USER_EMAIL` |
 | Desktop SSH | `--operator-cidr`, `--ssh-key-path`, `--ssh-key-name` | `DESKTOPCTL_OPERATOR_CIDR`, `DESKTOPCTL_SSH_KEY_PATH`, `DESKTOPCTL_SSH_KEY_NAME` |
@@ -363,7 +401,9 @@ its images. See [control plane build and deployment](docs/control-plane.md#build
 | `dev`       | us-east-2   |
 | `test`      | us-west-2   |
 
-Each environment gets its own foundation stack, DynamoDB fleet table, and DNS zone. The `prod` and `dev` environments use separate hosted zones (`desktops.orchael.com` and `desktops.orchael.dev`); the `test` environment shares the `dev` zone.
+Each environment gets its own foundation stack and DynamoDB fleet table. Set
+`dns.zone` per installation with `dns setup`; existing configs without it use
+the legacy Orchael zone for their environment.
 
 ## Kubernetes control plane AWS access
 
