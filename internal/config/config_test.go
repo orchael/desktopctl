@@ -32,6 +32,14 @@ func TestDNSZone(t *testing.T) {
 	}
 }
 
+func TestDNSZoneConfigured(t *testing.T) {
+	c := &Config{Fleet: FleetConfig{Environment: EnvProd}, DNS: DNSConfig{Zone: "Desktops.MarkCallen.Dev."}}
+	zone, err := c.DNSZone()
+	if err != nil || zone != "desktops.markcallen.dev" {
+		t.Fatalf("DNSZone() = %q, %v", zone, err)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	c := &Config{}
 	c.Defaults()

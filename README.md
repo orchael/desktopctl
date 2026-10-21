@@ -7,7 +7,222 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
-For a fresh production setup in ca-central-1, use the [migration and first desktop guide](docs/CA_CENTRAL_MIGRATION.md).
+## Quick start: production in ca-central-1
+
+To restart the setup while preserving the earlier config, use a new file at
+`~/.config/desktopctl/config-prod-ca-central-1-dns.yaml` in AWS account
+`819363892004`, using profile `marka`, environment `prod`, and owner `orchael`.
+This path uses `desktops.markcallen.dev` for desktop hostnames. Setup creates
+the public Route 53 zone, then prints the NS records to add at the DNS provider
+for `markcallen.dev`. Foundation and desktop commands refuse to apply or start
+until public NS resolution matches the Route 53 zone. Setup configures trusted
+public AMI publisher account `819363892004` by default, so desktop creation
+can discover its newest compatible public AMI in this region.
+
+1. **Check the target and local tools.** Run these from this repository:
+
+   ```sh
+   CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1-dns.yaml"
+   aws sts get-caller-identity --profile marka --region ca-central-1
+   make build
+   ```
+
+   Confirm the AWS account is `819363892004`. The config file need not exist
+   yet; setup creates it outside Git. Keep the earlier config as a backup.
+   Have a local SSH private key and its
+   matching `.pub` file, and identify this machine's public IPv4 `/32`.
+
+2. **Prepare the GitHub token and bridgectl agent credentials.** For a new
+   installation, open [GitHub's classic token page](https://github.com/settings/tokens/new)
+   (Settings → Developer settings → Personal access tokens → Tokens (classic) →
+   Generate new token). Name the token, set an expiration, and select `repo`,
+   `workflow`, `admin:public_key`, and `read:user`. Add `read:packages` if you
+   will build a public AMI or install from GitHub Packages, and `read:org` if
+   you use GitHub organization features. Generate and copy the token; setup
+   stores it in AWS Secrets Manager. See [GitHub's token instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic).
+
+   Choose the agent credentials you plan to use with bridgectl:
+
+   | Agent | How to obtain the credential | Setup input |
+   | --- | --- | --- |
+   | Claude Code | Sign in to the Claude CLI, then run `claude setup-token` on your operator machine and copy the printed token. | `CLAUDE_CODE_OAUTH_TOKEN` |
+   | Codex with an API key | Create a key on the [OpenAI API keys page](https://platform.openai.com/api-keys). | `OPENAI_API_KEY` |
+   | Gemini CLI | Create a key in [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key). | `GEMINI_API_KEY` |
+   | Codex with ChatGPT sign-in | Run `codex login` on your operator machine. After setup, use the agent auth helper below to copy the local auth file to the agent secret. | `CODEX_AUTH` through the helper |
+
+   The agent credentials are optional; provide only those you intend to use.
+   For interactive setup, paste the GitHub token and agent credentials into
+   the hidden prompts. For scripted setup, read each new value into its named
+   environment variable without placing it in shell history or command
+   arguments. For example:
+
+   ```sh
+   read -rsp 'GitHub token: ' DESKTOPCTL_GITHUB_TOKEN; printf '\n'
+   export DESKTOPCTL_GITHUB_TOKEN
+   read -rsp 'Claude Code token (optional): ' CLAUDE_CODE_OAUTH_TOKEN; printf '\n'
+   export CLAUDE_CODE_OAUTH_TOKEN
+   # Repeat for OPENAI_API_KEY and GEMINI_API_KEY if using those agents.
+   ```
+
+   If this setup reuses the existing regional secrets, leave credentials
+   unspecified to keep their stored values. Never put token values in the
+   config file or commit them to Git.
+
+3. **Run setup using either mode.** The new config has no saved identity, but
+   this account still has secret names from the earlier installation. Use
+   `--allow-existing` to authorize their reuse. Setup restores the GitHub and
+   agent secrets if they are scheduled for deletion, retains unspecified
+   credential values, registers the local public key as an EC2 key pair, and
+   creates or reuses the Route 53 hosted zone, prints its NS records, and
+   writes the new config. Choose one command:
+
+   Scripted setup, using the saved credentials and this machine's verified
+   public IPv4 address:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+     setup --non-interactive --allow-existing \
+     --environment prod \
+     --dns-zone desktops.markcallen.dev \
+     --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
+     --github-owner orchael \
+     --operator-cidr 157.230.223.137/32 \
+     --ssh-key-path "$HOME/.ssh/id_ed25519"
+   ```
+
+   Interactive setup, starting from the same empty config path:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+     setup --allow-existing
+   ```
+
+   In the wizard, enter `marka-desktopctl-prod-ca-central-1-819363892004`
+   for the state bucket, `prod` for the environment,
+   `desktops.markcallen.dev` for the desktop DNS zone, keep the default public
+   AMI publisher account, and enter `orchael` for the
+   GitHub owner. Confirm the detected public IPv4 `/32`, select
+   `/home/marka/.ssh/id_ed25519` for desktop SSH, and register its `.pub` file as
+   EC2 key pair `desktopctl-prod-ca-central-1-orchael`. Choose whether to
+   update the GitHub token, rotate its GitHub SSH key, or update agent keys.
+   If supplying a new GitHub classic token, grant `admin:public_key`, `repo`,
+   `read:user`, and `workflow`; add `read:packages` for future AMI builds.
+   Verify a replacement GitHub SSH key before removing the old one.
+
+   Replace the example CIDR in the scripted command if this machine's public
+   IP has changed. Supply new credentials through environment variables such
+   as `DESKTOPCTL_GITHUB_TOKEN` or `OPENAI_API_KEY`; see
+   [noninteractive setup](#noninteractive-setup). Once this config has been
+   saved, subsequent setup runs with the same region, environment, and owner
+   can reuse these resources without `--allow-existing`.
+   If the EC2 key pair name already exists, setup checks its registered public
+   key against the local `.pub` file and stops on a mismatch.
+
+   Scripted setup reads the exported credentials from step 2. Remove them
+   from this shell after setup with `unset DESKTOPCTL_GITHUB_TOKEN
+   CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY`. If using Codex
+   ChatGPT sign-in, run the helper after setup to merge your local Codex auth
+   into the same agent secret without replacing other provider keys:
+
+   ```sh
+   scripts/update-agent-auth.sh --profile marka --region ca-central-1 \
+     --environment prod --owner orchael --skip-claude
+   ./bin/desktopctl --config "$CONFIG" setup --non-interactive
+   ```
+
+   Omit `--skip-claude` if you also want the helper to guide you through
+   entering a new Claude Code token. The helper reads
+   `${CODEX_HOME:-$HOME/.codex}/auth.json`; run `codex login` first if that
+   file does not exist. The second setup command records the newly created
+   agent secret path in the config so new desktops receive it. It reuses the
+   saved identity and credentials, so `--allow-existing` is unnecessary.
+
+4. **Check local tools and AWS access.** Run the check against the config
+   created by setup:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" check
+   ```
+
+   Confirm that `aws`, `packer`, `pulumi`, `ssh`, and `aws-credentials` all
+   report `OK`, and that `aws-credentials` resolves to account
+   `819363892004`. Fix any failed check before continuing.
+
+5. **Reuse the state backend.** The earlier bootstrap already created this
+   bucket. Explicitly adopt it from the new config:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" bootstrap --allow-existing
+   ```
+
+6. **Delegate the desktop DNS zone.** Setup printed the Route 53 name servers.
+   At the DNS provider hosting `markcallen.dev`, add an **NS** record for
+   `desktops.markcallen.dev` with all four values printed by setup.
+   Re-run `dns setup` to display the same values if needed. Check the public
+   delegation after the provider publishes it:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" dns check
+   ```
+
+   Continue only when it reports `DNS delegation ready`. DNS caches may take
+   time to update. A different user supplies their own subdomain with
+   `setup --dns-zone desktops.example.com` and delegates it at their parent
+   domain's DNS provider. Creating a public Route 53 zone can incur AWS charges.
+
+7. **Preview and apply the foundation.** Review the Pulumi preview before
+   applying it:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" init-foundation --preview
+   ./bin/desktopctl --config "$CONFIG" init-foundation
+   ```
+
+   The foundation creates AWS resources, including networking, DynamoDB,
+   IAM, and EFS. Verify its reported IDs and the fleet table before creating
+   a desktop. A fresh foundation checks whether an old control-plane operator
+   secret occupies the default name. If it does, the preview selects the next
+   available versioned name, and Pulumi keeps that choice for later updates.
+   The old scheduled secret can finish its deletion independently.
+
+8. **Preview and create the first desktop.** The preview selects the newest
+   compatible public AMI in ca-central-1; check the reported AMI ID. EC2 and
+   EBS charges begin when the desktop is created. Use a repository you can
+   access; the example uses this repository:
+
+   ```sh
+   ./bin/desktopctl --config "$CONFIG" create \
+     --repo orchael/desktopctl --preview
+   ./bin/desktopctl --config "$CONFIG" create \
+     --repo orchael/desktopctl
+   ./bin/desktopctl --config "$CONFIG" list
+   ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
+   ```
+
+   Use the desktop ID printed by `create` for the SSH command. The hostname
+   will be `<desktop-id>.desktops.markcallen.dev`; cloud-init requests its
+   certificate through Certbot's Route 53 DNS challenge. See the
+   [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
+   for the opt-in SSH login test and teardown steps.
+
+   Setup writes `desktop.public_ami_owner: "819363892004"` by default.
+   Discovery only considers available, public `desktopctl-v<CLI major>-*`
+   images from that AWS account in
+   ca-central-1. An explicit `--ami` or `desktop.active_ami.ca-central-1` pin
+   takes precedence. A local `ami build` can set that pin when run with
+   `--config`; remove the pin to return to public discovery. Supply a different
+   trusted 12-digit account with `setup --non-interactive --public-ami-owner
+   <account-id>` or `DESKTOPCTL_PUBLIC_AMI_OWNER`, or choose it in the wizard.
+   An explicit empty flag or environment value disables discovery and records
+   `desktop.public_ami_discovery_disabled: true`, so later setup runs preserve
+   that choice.
+
+For an SSH-only installation without DNS, use `--no-dns` on both
+`init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
+public noVNC URL is returned, and Certbot is skipped. `desktopctl ssh` uses an
+SSM tunnel automatically for these desktops; AWS Session Manager must be
+available. The no-DNS foundation has no inbound desktop ports. This mode does
+not provide a trusted browser URL.
 
 This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
 
@@ -34,11 +249,14 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 - `s3:CreateBucket`, `s3:ListBucket` (for `HeadBucket` checks), `s3:GetBucketTagging`, `s3:PutBucketTagging`, `s3:PutBucketVersioning`, `s3:PutEncryptionConfiguration`, `s3:PutBucketPublicAccessBlock`
 - `dynamodb:CreateTable`, `dynamodb:DescribeTable`
 
+**Desktop DNS (setup with a domain, `dns setup`, `dns check`):**
+- `route53:ListHostedZones`, `route53:GetHostedZone`; setup and `dns setup` also need `route53:CreateHostedZone` when no public zone exists.
+
 **Foundation (`init-foundation` command):**
 - `ec2:CreateVpc`, `ec2:CreateSubnet`, `ec2:CreateInternetGateway`, `ec2:CreateRouteTable`, `ec2:CreateSecurityGroup`, and associated `Describe*`/`Delete*` variants
 - `iam:CreateUser`, `iam:CreateAccessKey`, `iam:CreateRole`, `iam:PutUserPolicy`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:CreateInstanceProfile`, `iam:AddRoleToInstanceProfile`, and associated `Get*`/`List*`/`Delete*`/`Tag*` variants
 - `route53:GetHostedZone`, `route53:ListHostedZones`
-- `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/desktopctl/<env>-<region>/control-plane/aws-operator`
+- `secretsmanager:DescribeSecret`, `secretsmanager:CreateSecret`, `secretsmanager:PutSecretValue`, `secretsmanager:TagResource` for `/desktopctl/<env>-<region>/control-plane/aws-operator*`
 - Full Pulumi S3 state backend access on the bootstrap bucket
 
 **Desktop lifecycle (`create`, `stop`, `start`, `terminate`):**
@@ -62,12 +280,19 @@ these permissions. See [`docs/AWS_OPERATOR_IAM.md`](docs/AWS_OPERATOR_IAM.md).
 
 ### Route53 prerequisites
 
-A hosted zone for the desktop DNS domain must already exist before running `init-foundation`:
-
-- **Production** (`--env prod`): zone for `desktops.orchael.com`
-- **Development** (`--env dev`): zone for `desktops.orchael.dev`
-
-The foundation stack looks up the zone by domain name and exports the zone ID. If the zone is missing, `init-foundation` will fail with a clear error.
+Pass `--dns-zone desktops.example.com` to `desktopctl setup`, or answer its
+interactive DNS prompt, to create or reuse a public hosted zone. The standalone
+`desktopctl dns setup --zone desktops.example.com` can do this later. It saves `dns.zone` and
+`dns.hosted_zone_id` in the config and prints the Route 53 name servers. Add
+those values as an NS record for the subdomain at the parent domain's DNS
+provider, then run `desktopctl dns check`. The check compares publicly resolved
+NS records with the exact Route 53 delegation set. Foundation apply, desktop
+creation, and desktop start repeat this check when DNS is enabled; they stop
+before launching compute if delegation is missing or points elsewhere.
+New installations also use the saved hosted zone ID for desktop records and
+DNS refreshes, so duplicate hosted zone names cannot redirect writes.
+Existing configs without `dns.zone` retain their legacy environment domain
+until updated with `dns setup`.
 
 ### GitHub credentials
 
@@ -88,7 +313,7 @@ Recommended token scopes (required scopes are marked):
 Run `desktopctl setup` to configure credentials. The wizard:
 
 1. Collects your AWS region/profile, GitHub owner, and git identity.
-2. Generates an Ed25519 SSH key pair and registers the public key with GitHub.
+2. Generates and registers a GitHub Ed25519 SSH key pair when one is missing or rotation is requested.
 3. Stores a JSON secret in AWS Secrets Manager at `/desktopctl/<env>/<region>/<owner>/github`:
    ```json
    {
@@ -98,9 +323,59 @@ Run `desktopctl setup` to configure credentials. The wizard:
    }
    ```
 4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/desktopctl/<env>/<region>/<owner>/agents`.
-5. Writes `~/.config/desktopctl/config.yaml` on Linux (or under `XDG_CONFIG_HOME`).
+5. Writes the selected config path, or `~/.config/desktopctl/config.yaml` by default on Linux.
 
-Run `desktopctl setup` before running `create`. A fresh run refuses existing AWS secrets and EC2 key pairs. Use `setup --allow-existing` when intentionally updating the same setup; the wizard then prompts before rotating a token or SSH key.
+Run `desktopctl setup` before running `create`. For the same configured region,
+environment, and GitHub owner, setup reuses matching secrets and the EC2 key
+pair. A secret scheduled for deletion is restored before it is read or updated.
+New token and provider key values replace the corresponding stored values;
+unspecified values remain. A different identity with existing names still
+requires `setup --allow-existing`.
+
+### Noninteractive setup
+
+`setup --non-interactive` takes values from command flags, environment
+variables, then the existing config, in that order. It never prompts. The
+region and profile use the root `--region` and `--profile` flags. A new AWS
+installation requires a GitHub token. Every scripted setup needs an SSH private
+key path with a matching `.pub` file, public IPv4 `/32`, bucket, environment,
+owner, region, and profile.
+An existing GitHub secret can supply the token and SSH key when no replacement
+is provided; use `--allow-existing` when starting from a new config and reusing
+those AWS names. Set `DESKTOPCTL_GITHUB_TOKEN` to replace only the token; pass
+`--rotate-github-ssh-key` to generate and register a new GitHub SSH key too.
+
+```sh
+CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1-dns.yaml"
+# Supply DESKTOPCTL_GITHUB_TOKEN through your secret source when rotating it.
+./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+  setup --non-interactive --allow-existing --environment prod \
+  --dns-zone desktops.markcallen.dev \
+  --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
+  --github-owner orchael --operator-cidr 203.0.113.42/32 \
+  --ssh-key-path "$HOME/.ssh/id_ed25519"
+```
+
+Replace the example CIDR with the public IPv4 of the machine that will use
+desktop SSH. The CLI validates that it is a public `/32` and fails if any
+required input is missing. It imports the local public key into EC2 under the
+configured or derived key name. It also restores matching scheduled secrets
+and merges supplied agent keys without clearing other stored keys.
+
+| Input | Flag | Environment variable |
+| --- | --- | --- |
+| AWS region and profile | `--region`, `--profile` | `DESKTOPCTL_REGION`, `DESKTOPCTL_PROFILE` |
+| Environment and state bucket | `--environment`, `--backend-bucket` | `DESKTOPCTL_ENVIRONMENT`, `DESKTOPCTL_BACKEND_BUCKET` |
+| Desktop DNS zone | `--dns-zone` | `DESKTOPCTL_DNS_ZONE` |
+| Trusted public AMI publisher (defaults to `819363892004`) | `--public-ami-owner` | `DESKTOPCTL_PUBLIC_AMI_OWNER` |
+| GitHub owner and token | `--github-owner`, `--github-token` | `DESKTOPCTL_GITHUB_OWNER`, `DESKTOPCTL_GITHUB_TOKEN` |
+| Git author | `--git-user-name`, `--git-user-email` | `DESKTOPCTL_GIT_USER_NAME`, `DESKTOPCTL_GIT_USER_EMAIL` |
+| Desktop SSH | `--operator-cidr`, `--ssh-key-path`, `--ssh-key-name` | `DESKTOPCTL_OPERATOR_CIDR`, `DESKTOPCTL_SSH_KEY_PATH`, `DESKTOPCTL_SSH_KEY_NAME` |
+| Agent credentials | `--claude-oauth-token`, `--openai-api-key`, `--gemini-api-key` | `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` |
+
+Use environment variables for credentials to keep them out of shell history
+and process arguments. Setup does not print credential values. CLI input flags
+work for automation systems that provide protected command arguments.
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
@@ -198,7 +473,9 @@ its images. See [control plane build and deployment](docs/control-plane.md#build
 | `dev`       | us-east-2   |
 | `test`      | us-west-2   |
 
-Each environment gets its own foundation stack, DynamoDB fleet table, and DNS zone. The `prod` and `dev` environments use separate hosted zones (`desktops.orchael.com` and `desktops.orchael.dev`); the `test` environment shares the `dev` zone.
+Each environment gets its own foundation stack and DynamoDB fleet table. Set
+`dns.zone` per installation with `dns setup`; existing configs without it use
+the legacy Orchael zone for their environment.
 
 ## Kubernetes control plane AWS access
 
@@ -372,6 +649,16 @@ desktopctl bootstrap
 ```
 
 Creates a fresh S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Use `bootstrap --allow-existing` only for an intentional existing setup. This step must complete before Pulumi can initialize.
+
+For complete teardown of a dedicated installation, including the setup EC2 key
+pair, GitHub and agent secrets, foundation stack, configured Route 53 hosted
+zone, and versioned state bucket,
+use the preview-first [`cleanup-installation.py`](scripts/cleanup-installation.py)
+wrapper. See the [ca-central-1 cleanup guide](docs/CA_CENTRAL_MIGRATION.md#remove-an-installation)
+for prerequisites, safety checks, and the apply command. The wrapper verifies
+terminated desktop records and empty Pulumi stacks before clearing their
+versioned state. It reports custom EC2 key pair and secret names for separate
+cleanup while continuing with the foundation.
 
 ### 3. Initialize shared foundation infrastructure
 

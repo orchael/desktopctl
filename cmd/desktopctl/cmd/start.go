@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/orchael/desktopctl/internal/awsx"
@@ -49,6 +50,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if region == "" {
 		region = cfg.AWS.Region
 	}
+	if !d.NoDNS {
+		zone, err := cfg.DNSZone()
+		if err != nil {
+			return err
+		}
+		if d.Hostname != "" && !strings.HasSuffix(d.Hostname, "."+zone) {
+			return fmt.Errorf("desktop hostname %q does not belong to configured DNS zone %q", d.Hostname, zone)
+		}
+		if err := requireDesktopDNS(ctx, region); err != nil {
+			return err
+		}
+	}
 	awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile)
 	if err != nil {
 		return fmt.Errorf("AWS config: %w", err)
@@ -85,6 +98,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "Backfilled AMI ID from existing instance: %s\n", d.AMIID)
 	}
+	if d.NoDNS && (d.Hostname != id || d.NoVNCURL != "" || d.SSHTarget != "") {
+		d.Hostname = id
+		d.NoVNCURL = ""
+		d.SSHTarget = ""
+		if err := s.Update(ctx, d); err != nil {
+			return fmt.Errorf("update no-DNS desktop record: %w", err)
+		}
+	}
 
 	if !d.NoDNS {
 		zone, err := cfg.DNSZone()
@@ -106,7 +127,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
-		if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, instanceStatus.PublicIP); err != nil {
+		if err := awsx.UpsertARecord(ctx, awsCfg, zone, cfg.DNS.HostedZoneID, d.Hostname, instanceStatus.PublicIP); err != nil {
 			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
 			return err
 		}

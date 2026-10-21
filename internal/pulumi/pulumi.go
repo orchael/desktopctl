@@ -203,6 +203,34 @@ func (r *Runner) StackExists(ctx context.Context, ref *StackRef) (bool, error) {
 	return false, fmt.Errorf("check stack %s: %s: %w", ref.FullName(), tailOutput(out, 1000), err)
 }
 
+// StackHasResource reports whether an existing stack still manages a resource
+// with the given logical name. A destroyed stack can remain in the backend.
+func (r *Runner) StackHasResource(ctx context.Context, ref *StackRef, logicalName string) (bool, error) {
+	out, err := r.runCapture(ctx, ref.WorkDir, r.env(ref.BackendURL), "stack", "export", "--stack", ref.StackName)
+	if err != nil {
+		return false, fmt.Errorf("export stack %s: %w", ref.FullName(), err)
+	}
+	var snapshot struct {
+		Deployment *struct {
+			Resources []struct {
+				URN string `json:"urn"`
+			} `json:"resources"`
+		} `json:"deployment"`
+	}
+	if err := json.Unmarshal([]byte(out), &snapshot); err != nil {
+		return false, fmt.Errorf("decode stack %s: %w", ref.FullName(), err)
+	}
+	if snapshot.Deployment == nil || snapshot.Deployment.Resources == nil {
+		return false, fmt.Errorf("stack %s export has no deployment resources", ref.FullName())
+	}
+	for _, resource := range snapshot.Deployment.Resources {
+		if strings.HasSuffix(resource.URN, "::"+logicalName) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // RemoveEmptyStack removes preview-only state. Pulumi refuses removal when the
 // stack owns resources, so this cannot destroy an applied foundation.
 func (r *Runner) RemoveEmptyStack(ctx context.Context, ref *StackRef) error {
@@ -455,6 +483,9 @@ func ValidateFoundationOutputs(outputs map[string]string) error {
 }
 
 func ValidateFoundationOutputsForMode(outputs map[string]string, noDNS bool) error {
+	if noDNS && outputs[OutputZoneID] != "" {
+		return fmt.Errorf("--no-dns requires a no-DNS foundation; this foundation has a Route 53 zone")
+	}
 	required := []string{OutputSubnetID, OutputSGID, OutputInstanceProfile}
 	if !noDNS {
 		required = append(required, OutputZoneID)

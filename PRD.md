@@ -303,6 +303,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.12 | The pre-baked AMI must install a pinned stable Visual Studio Code package from Microsoft's signed apt repository and expose its desktop launcher. The build must verify the package version, CLI binary, and launcher entry. |
 | FR-9.13 | Public AMIs must be named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>` and retain the full CLI and desktop web versions as tags. Automatic public image discovery must select only the running CLI's major version unless config sets `desktop.public_ami_major` or pins `desktop.active_ami.<region>`. |
 | FR-9.14 | Operators must have a regional public AMI build, list, and deletion script. Deletion must preview by default and verify the AWS account, publisher ownership, image name, management tag, active config pin, and live instance use before removal. |
+| FR-9.15 | Interactive and scripted setup must configure trusted public AMI publisher account `819363892004` by default, allow another 12-digit account or an explicit empty value for scripted setup, persist an explicit discovery disable across later setup runs, and preserve explicit AMI pins as higher priority than discovery. |
 
 **Acceptance criteria:**
 
@@ -533,7 +534,17 @@ be able to clear stale attachments after failed provisioning or manual AWS clean
 
 ### DNS and TLS
 
-v1 requires Route53-backed DNS. Production desktops use `desktops.orchael.com`; local and development desktops use `desktops.orchael.dev`. Per-desktop hostnames should be created under the selected zone.
+Browser-accessible desktops require a public Route 53 zone selected by each
+installation. The CLI creates or reuses that zone and prints its name servers
+for delegation at the parent domain's DNS provider. Foundation apply, desktop
+creation, and desktop start must verify that public NS resolution matches the
+assigned Route 53 name servers before launching DNS-backed desktops. Each
+desktop receives `<desktop-id>.<selected-zone>` and a Certbot certificate.
+Desktop record creation and refresh must use the pinned hosted zone ID so a
+second hosted zone with the same name cannot receive those records.
+An explicitly requested no-DNS installation uses only `<desktop-id>` as its
+display hostname, skips Certbot and public browser URLs, and uses an SSM tunnel
+for SSH.
 
 ### Access control
 
@@ -583,6 +594,14 @@ The PRD says the desktop is reported ready after provisioning, but readiness mus
 ### Cost and cleanup
 
 Persistent desktops imply ongoing cloud cost. Failed desktop creation should leave the instance running by default for debugging until `doctor` is useful. Automated idle shutdown, budgets, and cost alerts can follow after MVP.
+The final installation cleanup removes the configured Route 53 hosted zone
+after all desktop records are gone, using the saved hosted zone ID and name.
+It must reject zones with remaining non-default records and leave deletion of
+the parent NS delegation to the external DNS provider.
+A recreated foundation must choose a fresh operator credentials secret name
+when an earlier installation still occupies the default name, including while
+that earlier secret is scheduled for deletion. Its new IAM credentials must
+not be written into the earlier installation's secret.
 
 ### Pre-baked AMI provisioning
 

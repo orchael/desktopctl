@@ -30,12 +30,21 @@ func init() {
 	rootCmd.AddCommand(sshCmd)
 }
 
-func runSSH(cmd *cobra.Command, args []string) error {
-	tools := []string{"ssh"}
-	if sshTunnelMode == "ssm" {
-		tools = append(tools, "aws")
+func desktopSSHMode(noDNS bool, requested string) (string, error) {
+	if requested != "" && requested != "ssm" && requested != "ssh" {
+		return "", fmt.Errorf("unknown tunnel mode %q (use 'ssm' or 'ssh')", requested)
 	}
-	if err := requireTools(tools...); err != nil {
+	if noDNS {
+		if requested == "ssh" {
+			return "", fmt.Errorf("desktop has no DNS hostname; use an SSM tunnel")
+		}
+		return "ssm", nil
+	}
+	return requested, nil
+}
+
+func runSSH(cmd *cobra.Command, args []string) error {
+	if err := requireTools("ssh"); err != nil {
 		return err
 	}
 
@@ -53,9 +62,18 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
+	mode, err := desktopSSHMode(d.NoDNS, sshTunnelMode)
+	if err != nil {
+		return fmt.Errorf("desktop %q: %w", id, err)
+	}
+	if mode == "ssm" {
+		if err := requireTools("aws"); err != nil {
+			return err
+		}
+	}
 
 	// If no tunnel mode specified, SSH directly to the hostname
-	if sshTunnelMode == "" {
+	if mode == "" {
 		sshArgs := []string{
 			"-i", cfg.Desktop.SSHKeyPath,
 			"-o", "StrictHostKeyChecking=no",
@@ -99,10 +117,10 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		Mode:       tunnel.ModeSSM,
 	}
 
-	if sshTunnelMode == "ssh" {
+	if mode == "ssh" {
 		tcfg.Mode = tunnel.ModeSSH
 		tcfg.Hostname = d.Hostname
-	} else if sshTunnelMode != "ssm" {
+	} else if mode != "ssm" {
 		return fmt.Errorf("unknown tunnel mode %q (use 'ssm' or 'ssh')", sshTunnelMode)
 	}
 

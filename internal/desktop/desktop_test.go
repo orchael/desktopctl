@@ -36,6 +36,9 @@ func TestHostname(t *testing.T) {
 	if got := Hostname("d-001", "desktops.orchael.dev"); got != "d-001.desktops.orchael.dev" {
 		t.Errorf("got %q", got)
 	}
+	if got := Hostname("d-001", ""); got != "d-001" {
+		t.Errorf("no-DNS hostname = %q", got)
+	}
 }
 
 func TestNoVNCURL(t *testing.T) {
@@ -57,6 +60,10 @@ func TestCreateRequest_Validate(t *testing.T) {
 	}
 	if r.WorkspaceMode != "local" {
 		t.Errorf("workspace mode default = %q, want local", r.WorkspaceMode)
+	}
+	noDNS := &CreateRequest{GitHubOwner: "acme", BackendBucket: "bucket", NoDNS: true}
+	if err := noDNS.Validate(); err != nil {
+		t.Errorf("no-DNS request should not require a zone: %v", err)
 	}
 
 	r.GitHubOwner = ""
@@ -127,6 +134,9 @@ func TestManager_CreateRecord(t *testing.T) {
 	}
 	if !d.NoDNS {
 		t.Error("no-DNS mode was not retained for the start lifecycle")
+	}
+	if d.Hostname != "d-test1" || d.NoVNCURL != "" || d.SSHTarget != "" {
+		t.Fatalf("no-DNS record has public address fields: hostname=%q url=%q ssh=%q", d.Hostname, d.NoVNCURL, d.SSHTarget)
 	}
 	if d.InstanceType != "m7i.xlarge" {
 		t.Errorf("instance type: got %q", d.InstanceType)
