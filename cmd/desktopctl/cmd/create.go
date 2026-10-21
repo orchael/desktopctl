@@ -728,6 +728,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		},
 	)
 	stackCfg["dnsEnabled"] = fmt.Sprintf("%t", !createNoDNS)
+	if !createNoDNS && cfg.DNS.HostedZoneID != "" {
+		stackCfg["zoneId"] = cfg.DNS.HostedZoneID
+	}
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)

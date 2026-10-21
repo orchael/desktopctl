@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -759,6 +760,14 @@ func TestImportEC2KeyPair_Success(t *testing.T) {
 }
 
 func TestImportEC2KeyPair_Duplicate(t *testing.T) {
+	localKey, _, err := generateSSHKeyPair("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, _, err := generateSSHKeyPair("other")
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -777,6 +786,12 @@ func TestImportEC2KeyPair_Duplicate(t *testing.T) {
   </Errors>
   <RequestID>test-id</RequestID>
 </Response>`))
+		} else if r.FormValue("Action") == "DescribeKeyPairs" {
+			if r.FormValue("IncludePublicKey") != "true" {
+				t.Error("expected IncludePublicKey=true")
+			}
+			w.Header().Set("Content-Type", "text/xml")
+			_, _ = w.Write([]byte(fmt.Sprintf(`<DescribeKeyPairsResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"><keySet><item><keyName>desktopctl-test</keyName><publicKey>%s</publicKey></item></keySet></DescribeKeyPairsResponse>`, strings.TrimSpace(localKey))))
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -785,11 +800,14 @@ func TestImportEC2KeyPair_Duplicate(t *testing.T) {
 
 	cfg := makeEC2Config(srv.URL)
 	// Duplicate key pair should be treated as success (no error).
-	err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test")
+	err = importEC2KeyPair(context.Background(), cfg, "desktopctl-test", localKey)
 	if err != nil {
 		t.Fatalf("expected duplicate key pair to be treated as success, got: %v", err)
 	}
-	if err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", "ssh-ed25519 AAAA test", true); err == nil {
+	if err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", otherKey); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("expected mismatched key to fail, got %v", err)
+	}
+	if err := importEC2KeyPair(context.Background(), cfg, "desktopctl-test", localKey, true); err == nil {
 		t.Fatal("fresh setup must refuse an existing EC2 key pair")
 	}
 }

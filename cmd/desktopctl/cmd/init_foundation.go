@@ -111,6 +111,9 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("foundation stack %q already exists; fresh initialization refuses to reuse it (use --allow-existing only for an intentional update)", ref.FullName())
 	}
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
+	if zone != "" && cfg.DNS.HostedZoneID != "" {
+		stackCfg["zoneId"] = cfg.DNS.HostedZoneID
+	}
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
 	if !stackExists && !foundationSaaS {

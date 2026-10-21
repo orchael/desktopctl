@@ -78,6 +78,8 @@ a new config does not pin it.
    [noninteractive setup](#noninteractive-setup). Once this config has been
    saved, subsequent setup runs with the same region, environment, and owner
    can reuse these resources without `--allow-existing`.
+   If the EC2 key pair name already exists, setup checks its registered public
+   key against the local `.pub` file and stops on a mismatch.
 
 3. **Check local tools and AWS access.** Run the check against the config
    created by setup:
@@ -220,6 +222,8 @@ provider, then run `desktopctl dns check`. The check compares publicly resolved
 NS records with the exact Route 53 delegation set. Foundation apply, desktop
 creation, and desktop start repeat this check when DNS is enabled; they stop
 before launching compute if delegation is missing or points elsewhere.
+New installations also use the saved hosted zone ID for desktop records and
+DNS refreshes, so duplicate hosted zone names cannot redirect writes.
 Existing configs without `dns.zone` retain their legacy environment domain
 until updated with `dns setup`.
 

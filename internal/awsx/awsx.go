@@ -480,8 +480,9 @@ func InstanceRunning(ctx context.Context, cfg aws.Config, instanceID string) (bo
 	return state == string(ec2types.InstanceStateNameRunning), nil
 }
 
-// UpsertARecord points hostname at ip in the public Route53 hosted zone.
-func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, hostname, ip string) error {
+// UpsertARecord points hostname at ip in the selected public Route53 hosted zone.
+// A pinned zone ID takes precedence over a name lookup for new installations.
+func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, zoneID, hostname, ip string) error {
 	if zoneName == "" {
 		return fmt.Errorf("zone name is required")
 	}
@@ -492,27 +493,9 @@ func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, hostname, ip s
 		return fmt.Errorf("IP address is required")
 	}
 	c := route53.NewFromConfig(cfg)
-	zoneDNSName := ensureTrailingDot(zoneName)
-	zones, err := c.ListHostedZonesByName(ctx, &route53.ListHostedZonesByNameInput{
-		DNSName:  aws.String(zoneDNSName),
-		MaxItems: aws.Int32(100),
-	})
+	hostedZoneID, err := selectPublicHostedZoneID(ctx, c, zoneName, zoneID)
 	if err != nil {
-		return fmt.Errorf("find Route53 zone %s: %w", zoneName, err)
-	}
-	var hostedZoneID *string
-	for _, zone := range zones.HostedZones {
-		if aws.ToString(zone.Name) != zoneDNSName {
-			continue
-		}
-		if zone.Config != nil && zone.Config.PrivateZone {
-			continue
-		}
-		hostedZoneID = zone.Id
-		break
-	}
-	if hostedZoneID == nil {
-		return fmt.Errorf("public Route53 zone %q not found", zoneName)
+		return err
 	}
 	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
 		HostedZoneId: hostedZoneID,
@@ -536,6 +519,44 @@ func UpsertARecord(ctx context.Context, cfg aws.Config, zoneName, hostname, ip s
 		return fmt.Errorf("upsert Route53 A record %s -> %s: %w", hostname, ip, err)
 	}
 	return nil
+}
+
+type hostedZoneLookup interface {
+	GetHostedZone(context.Context, *route53.GetHostedZoneInput, ...func(*route53.Options)) (*route53.GetHostedZoneOutput, error)
+	ListHostedZonesByName(context.Context, *route53.ListHostedZonesByNameInput, ...func(*route53.Options)) (*route53.ListHostedZonesByNameOutput, error)
+}
+
+func selectPublicHostedZoneID(ctx context.Context, c hostedZoneLookup, zoneName, zoneID string) (*string, error) {
+	zoneDNSName := ensureTrailingDot(zoneName)
+	var hostedZoneID *string
+	if zoneID != "" {
+		zone, err := c.GetHostedZone(ctx, &route53.GetHostedZoneInput{Id: aws.String(zoneID)})
+		if err != nil {
+			return nil, fmt.Errorf("get pinned Route53 zone %s: %w", zoneID, err)
+		}
+		if zone.HostedZone == nil || aws.ToString(zone.HostedZone.Name) != zoneDNSName || (zone.HostedZone.Config != nil && zone.HostedZone.Config.PrivateZone) {
+			return nil, fmt.Errorf("pinned Route53 zone %q does not match public zone %q", zoneID, zoneName)
+		}
+		hostedZoneID = zone.HostedZone.Id
+	} else {
+		zones, err := c.ListHostedZonesByName(ctx, &route53.ListHostedZonesByNameInput{
+			DNSName:  aws.String(zoneDNSName),
+			MaxItems: aws.Int32(100),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("find Route53 zone %s: %w", zoneName, err)
+		}
+		for _, zone := range zones.HostedZones {
+			if aws.ToString(zone.Name) == zoneDNSName && (zone.Config == nil || !zone.Config.PrivateZone) {
+				hostedZoneID = zone.Id
+				break
+			}
+		}
+	}
+	if hostedZoneID == nil {
+		return nil, fmt.Errorf("public Route53 zone %q not found", zoneName)
+	}
+	return hostedZoneID, nil
 }
 
 func ensureTrailingDot(s string) string {

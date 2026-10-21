@@ -73,7 +73,7 @@ func findZones(ctx context.Context, api API, name string) ([]types.HostedZone, e
 			return matches, nil
 		}
 		if out.NextMarker == nil || aws.ToString(out.NextMarker) == "" {
-			return nil, fmt.Errorf("Route 53 zones listing ended without a next marker")
+			return nil, fmt.Errorf("route 53 zones listing ended without a next marker")
 		}
 		marker = out.NextMarker
 	}
@@ -85,10 +85,10 @@ func describe(ctx context.Context, api API, id, name string) (Zone, error) {
 		return Zone{}, fmt.Errorf("get Route 53 zone %q: %w", id, err)
 	}
 	if out.HostedZone == nil || strings.TrimSuffix(strings.ToLower(aws.ToString(out.HostedZone.Name)), ".") != name || (out.HostedZone.Config != nil && out.HostedZone.Config.PrivateZone) {
-		return Zone{}, fmt.Errorf("Route 53 zone %q does not match public DNS zone %q", id, name)
+		return Zone{}, fmt.Errorf("route 53 zone %q does not match public DNS zone %q", id, name)
 	}
 	if out.DelegationSet == nil || len(out.DelegationSet.NameServers) == 0 {
-		return Zone{}, fmt.Errorf("Route 53 zone %q has no public name servers", id)
+		return Zone{}, fmt.Errorf("route 53 zone %q has no public name servers", id)
 	}
 	return Zone{Name: name, ID: aws.ToString(out.HostedZone.Id), NameServers: normalizeNS(out.DelegationSet.NameServers)}, nil
 }
@@ -141,7 +141,7 @@ func Ensure(ctx context.Context, api API, name string) (Zone, bool, error) {
 		return Zone{}, false, fmt.Errorf("create Route 53 zone %q: %w", name, err)
 	}
 	if out.HostedZone == nil || out.DelegationSet == nil || len(out.DelegationSet.NameServers) == 0 {
-		return Zone{}, false, fmt.Errorf("Route 53 returned no hosted zone or name servers for %q", name)
+		return Zone{}, false, fmt.Errorf("route 53 returned no hosted zone or name servers for %q", name)
 	}
 	return Zone{Name: name, ID: aws.ToString(out.HostedZone.Id), NameServers: normalizeNS(out.DelegationSet.NameServers)}, true, nil
 }

@@ -124,7 +124,7 @@ func refreshStatusDNS(ctx context.Context, s store.Store, id string, d *store.De
 	}
 
 	fmt.Fprintf(os.Stderr, "Refreshing DNS record %s -> %s ...\n", d.Hostname, status.PublicIP)
-	if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, status.PublicIP); err != nil {
+	if err := awsx.UpsertARecord(ctx, awsCfg, zone, cfg.DNS.HostedZoneID, d.Hostname, status.PublicIP); err != nil {
 		return err
 	}
 	d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)

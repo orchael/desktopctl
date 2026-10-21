@@ -539,6 +539,8 @@ for delegation at the parent domain's DNS provider. Foundation apply, desktop
 creation, and desktop start must verify that public NS resolution matches the
 assigned Route 53 name servers before launching DNS-backed desktops. Each
 desktop receives `<desktop-id>.<selected-zone>` and a Certbot certificate.
+Desktop record creation and refresh must use the pinned hosted zone ID so a
+second hosted zone with the same name cannot receive those records.
 An explicitly requested no-DNS installation uses only `<desktop-id>` as its
 display hostname, skips Certbot and public browser URLs, and uses an SSM tunnel
 for SSH.

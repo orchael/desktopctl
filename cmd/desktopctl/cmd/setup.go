@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -731,7 +732,7 @@ func validateGitHubToken(ctx context.Context, token string) error {
 }
 
 // importEC2KeyPair imports a public key into AWS EC2 as a named key pair.
-// If a key pair with that name already exists it is left unchanged (treated as success).
+// An existing named key pair is reused only when it contains the same public key.
 func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMaterial string, fresh ...bool) error {
 	svc := ec2.NewFromConfig(awsCfg)
 	_, err := svc.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
@@ -752,6 +753,24 @@ func importEC2KeyPair(ctx context.Context, awsCfg aws.Config, name, publicKeyMat
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidKeyPair.Duplicate" {
 			if len(fresh) > 0 && fresh[0] {
 				return fmt.Errorf("EC2 key pair %q already exists; fresh setup refuses reuse", name)
+			}
+			listed, err := svc.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{name}, IncludePublicKey: aws.Bool(true)})
+			if err != nil {
+				return fmt.Errorf("describe existing EC2 key pair %q: %w", name, err)
+			}
+			if len(listed.KeyPairs) != 1 || aws.ToString(listed.KeyPairs[0].PublicKey) == "" {
+				return fmt.Errorf("cannot verify public key for existing EC2 key pair %q", name)
+			}
+			provided, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKeyMaterial))
+			if err != nil {
+				return fmt.Errorf("parse local public key: %w", err)
+			}
+			registered, _, _, _, err := ssh.ParseAuthorizedKey([]byte(aws.ToString(listed.KeyPairs[0].PublicKey)))
+			if err != nil {
+				return fmt.Errorf("parse EC2 public key %q: %w", name, err)
+			}
+			if !bytes.Equal(provided.Marshal(), registered.Marshal()) {
+				return fmt.Errorf("EC2 key pair %q does not match the local SSH key; choose a new --ssh-key-name", name)
 			}
 			return nil
 		}

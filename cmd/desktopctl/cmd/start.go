@@ -127,7 +127,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
-		if err := awsx.UpsertARecord(ctx, awsCfg, zone, d.Hostname, instanceStatus.PublicIP); err != nil {
+		if err := awsx.UpsertARecord(ctx, awsCfg, zone, cfg.DNS.HostedZoneID, d.Hostname, instanceStatus.PublicIP); err != nil {
 			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
 			return err
 		}

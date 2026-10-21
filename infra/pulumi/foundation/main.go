@@ -58,8 +58,11 @@ func run(ctx *pulumi.Context) error {
 	accountID := caller.AccountId
 
 	// SaaS AssumeRole deployments do not require a customer-owned DNS zone.
-	zoneID := ""
-	if zone != "" {
+	zoneID := cfg.Get("zoneId")
+	if zone == "" && zoneID != "" {
+		return fmt.Errorf("zone is required when zoneId is set")
+	}
+	if zone != "" && zoneID == "" {
 		zoneData, err := route53.LookupZone(ctx, &route53.LookupZoneArgs{
 			Name: pulumi.StringRef(zone),
 		})
