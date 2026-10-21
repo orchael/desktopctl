@@ -7,11 +7,11 @@ the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
 `--config` to every command when using the named file.
 
 Run `desktopctl --config ~/.config/desktopctl/config-ca-central-1.yaml setup`
-on the machine that will access desktop SSH. If reusing the two secret names
-after the October 2026 teardown, restore those scheduled secrets first and
-pass `setup --allow-existing` as shown in the [quick start](../README.md#quick-start-production-in-ca-central-1).
-The wizard detects its current
-public IPv4 address and confirms the `/32` security group rule. It also lists
+on the machine that will access desktop SSH. When the configured owner,
+environment, and region match, setup automatically restores the two scheduled
+secrets before reusing or updating them. For unattended runs, use the
+[noninteractive setup guide](../README.md#noninteractive-setup). The wizard
+detects its current public IPv4 address and confirms the `/32` security group rule. It also lists
 the exact GitHub classic token scopes, accepts the token with hidden input,
 and explains the `read:packages` scope needed to build the public AMI. The AMI
 build reads the token from that regional secret unless `GITHUB_NPM_TOKEN` is set.

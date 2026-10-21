@@ -37,30 +37,67 @@ var githubAPIBase = "https://api.github.com"
 var publicIPURL = "https://checkip.amazonaws.com"
 
 var (
-	setupConfigOut     string
-	setupAllowExisting bool
+	setupConfigOut          string
+	setupAllowExisting      bool
+	setupNonInteractive     bool
+	setupRotateGitHubSSHKey bool
 )
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Interactive configuration wizard for a fresh setup",
+	Short: "Configure desktopctl and its AWS and GitHub credentials",
 	Long: `setup walks through configuring ~/.config/desktopctl/config.yaml and provisioning
 GitHub credentials (token + SSH key) in AWS Secrets Manager.
 
 When run on an existing configuration all current values are used as defaults.
-Existing AWS secrets and EC2 key pairs require --allow-existing to update.
+Secrets scheduled for deletion are restored when the configured AWS region,
+environment, and GitHub owner match. New values replace matching secret fields;
+unspecified values are kept. Unrelated existing names require --allow-existing.
+
+For scripts, pass --non-interactive and use flags or environment variables.
+Flags take precedence over environment, which takes precedence over config.
+Use environment variables for tokens and API keys to keep them out of process
+arguments and shell history.
 
 The wizard will:
   1. Collect AWS and GitHub configuration interactively
-  2. Optionally validate and rotate the GitHub token + SSH key
+  2. Optionally update the GitHub token and rotate its SSH key
   3. Store updated credentials in AWS Secrets Manager
   4. Write ~/.config/desktopctl/config.yaml (or --config-out path)`,
+	Args: cobra.NoArgs,
 	RunE: runSetup,
 }
 
 func init() {
 	setupCmd.Flags().StringVar(&setupConfigOut, "config-out", "", "write config to this path instead of ~/.config/desktopctl/config.yaml")
-	setupCmd.Flags().BoolVar(&setupAllowExisting, "allow-existing", false, "explicitly update existing AWS secrets and EC2 key pair")
+	setupCmd.Flags().BoolVar(&setupAllowExisting, "allow-existing", false, "explicitly reuse existing AWS secrets and EC2 key pair for a different configured identity")
+	setupCmd.Flags().BoolVar(&setupNonInteractive, "non-interactive", false, "use flags, environment, and existing config without prompts")
+	setupCmd.Flags().BoolVar(&setupRotateGitHubSSHKey, "rotate-github-ssh-key", false, "generate and register a new GitHub SSH key (non-interactive only)")
+	for _, f := range []struct{ name, help string }{
+		{"environment", "fleet environment (dev|prod|test)"},
+		{"backend-bucket", "dedicated S3 bucket for Pulumi state"},
+		{"github-owner", "GitHub organization or user"},
+		{"github-token", "GitHub token (prefer DESKTOPCTL_GITHUB_TOKEN to keep it out of process arguments)"},
+		{"git-user-name", "Git commit author name"},
+		{"git-user-email", "Git commit author email"},
+		{"operator-cidr", "public IPv4 /32 allowed to SSH"},
+		{"ssh-key-path", "local SSH private key path"},
+		{"ssh-key-name", "EC2 key pair name"},
+		{"claude-oauth-token", "Claude Code OAuth token (prefer CLAUDE_CODE_OAUTH_TOKEN)"},
+		{"openai-api-key", "OpenAI API key (prefer OPENAI_API_KEY)"},
+		{"gemini-api-key", "Gemini API key (prefer GEMINI_API_KEY)"},
+	} {
+		setupCmd.Flags().String(f.name, "", f.help)
+	}
+	setupCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if setupNonInteractive {
+			return runNonInteractiveSetup(cmd)
+		}
+		if setupRotateGitHubSSHKey || anySetupValueFlagChanged(cmd) {
+			return fmt.Errorf("setup input flags require --non-interactive")
+		}
+		return runSetup(cmd, args)
+	}
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -121,6 +158,10 @@ func validateOperatorCIDR(value string) error {
 func runSetup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
+	saved, err := setupSavedConfig()
+	if err != nil {
+		return fmt.Errorf("load saved setup config: %w", err)
+	}
 
 	cfgPath := setupConfigOut
 	if cfgPath == "" {
@@ -275,9 +316,10 @@ func runSetup(cmd *cobra.Command, args []string) error {
 						a.SSHKeyName = existingSSHKeyName
 					} else {
 						fmt.Printf("Registering EC2 key pair %q in %s... ", a.SSHKeyName, a.AWSRegion)
-						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes)), !setupAllowExisting); err != nil {
+						canReuse := setupAllowExisting || setupSameIdentity(saved, a.AWSRegion, a.Environment, existingOwner)
+						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes)), !canReuse); err != nil {
 							fmt.Println("✗")
-							if !setupAllowExisting {
+							if !canReuse {
 								return fmt.Errorf("register fresh EC2 key pair: %w", err)
 							}
 							fmt.Printf("  Warning: %v\n  EC2 key pair not registered — set ssh_key_name manually if needed.\n", err)
@@ -315,7 +357,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		gitUserEmailLabel = fmt.Sprintf("Git commit author email [%s]", existingGitUserEmail)
 	}
 	a.GitUserEmail = prompt(reader, gitUserEmailLabel, existingGitUserEmail)
-	sameIdentity := setupSameIdentity(cfg, a.AWSRegion, a.Environment, a.GitHubOwner)
+	sameIdentity := setupSameIdentity(saved, a.AWSRegion, a.Environment, a.GitHubOwner)
 
 	secretPath := fmt.Sprintf("/desktopctl/%s/%s/%s/github", a.Environment, a.AWSRegion, a.GitHubOwner)
 	githubSecretExists := false
@@ -339,32 +381,41 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			if path == secretPath {
 				githubSecretExists = exists
 			}
-			if exists && !setupAllowExisting {
+			if exists && !setupAllowExisting && !sameIdentity {
 				return fmt.Errorf("AWS secret %q already exists; fresh setup refuses to reuse it", path)
 			}
-		}
-	}
-
-	// On an existing setup ask whether to rotate the token; on first run always collect it.
-	updateToken := !githubSecretExists
-	if isExisting && githubSecretExists {
-		fmt.Print("\nUpdate GitHub token and SSH key? [y/N]: ")
-		answer, _ := reader.ReadString('\n')
-		updateToken = strings.TrimSpace(strings.ToLower(answer)) == "y"
-		if updateToken {
-			fmt.Println()
-			fmt.Println("WARNING: a new SSH key will be generated and registered with GitHub.")
-			fmt.Println("The previous SSH key will remain registered and should be removed manually")
-			fmt.Println("from https://github.com/settings/keys to avoid orphaned credentials.")
-			fmt.Print("Continue? [y/N]: ")
-			confirm, _ := reader.ReadString('\n')
-			if strings.TrimSpace(strings.ToLower(confirm)) != "y" {
-				fmt.Println("Credential rotation cancelled.")
-				updateToken = false
+			if exists && (path == secretPath || strings.HasSuffix(path, "/agents")) {
+				if err := restoreSetupSecretIfPending(ctx, awsCfg, path); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
+	githubAwsCfg, err := awscfg.LoadDefaultConfig(ctx,
+		awscfg.WithRegion(a.AWSRegion),
+		awscfg.WithSharedConfigProfile(a.AWSProfile),
+	)
+	if err != nil {
+		return fmt.Errorf("load AWS config for GitHub secret: %w", err)
+	}
+	githubValues := map[string]string{}
+	if githubSecretExists {
+		githubValues, err = fetchSecretMap(ctx, githubAwsCfg, secretPath)
+		if err != nil {
+			return fmt.Errorf("fetch existing GitHub secret: %w", err)
+		}
+	}
+	updateToken := !githubSecretExists || githubValues["github_token"] == ""
+	rotateGitHubKey := !githubSecretExists || githubValues["ssh_private_key"] == "" || githubValues["ssh_public_key"] == ""
+	if githubSecretExists {
+		fmt.Print("\nUpdate GitHub token? [y/N]: ")
+		answer, _ := reader.ReadString('\n')
+		updateToken = updateToken || strings.EqualFold(strings.TrimSpace(answer), "y")
+		fmt.Print("Rotate GitHub SSH key? [y/N]: ")
+		answer, _ = reader.ReadString('\n')
+		rotateGitHubKey = rotateGitHubKey || strings.EqualFold(strings.TrimSpace(answer), "y")
+	}
 	if updateToken {
 		fmt.Println()
 		fmt.Println("Before continuing, create a GitHub personal access token with these scopes:")
@@ -398,9 +449,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println("✓")
 
-		// Generate SSH key pair
+		githubValues["github_token"] = a.GitHubToken
+	}
+	if rotateGitHubKey {
 		fmt.Println()
 		fmt.Printf("── Generating SSH key ───────────────────────────────\n")
+		if githubSecretExists {
+			fmt.Println("The previous GitHub SSH key remains registered; remove it after verifying the new key.")
+		}
 		fmt.Printf("Generating Ed25519 SSH key pair for owner: %s\n", a.GitHubOwner)
 
 		pub, priv, err := generateSSHKeyPair(a.GitHubOwner)
@@ -411,39 +467,32 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		// Register SSH key with GitHub
 		fmt.Printf("Registering SSH public key with GitHub account '%s'... ", a.GitHubOwner)
-		if err := registerGitHubSSHKey(ctx, a.GitHubToken, "desktopctl/"+a.GitHubOwner, pub); err != nil {
+		if err := registerGitHubSSHKey(ctx, githubValues["github_token"], "desktopctl/"+a.GitHubOwner, pub); err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("register SSH key: %w", err)
 		}
 		fmt.Println("✓")
+		githubValues["ssh_private_key"] = priv
+		githubValues["ssh_public_key"] = strings.TrimSpace(pub)
+	}
 
+	if updateToken || rotateGitHubKey {
 		// Store/update secret in AWS Secrets Manager
 		fmt.Println()
 		fmt.Printf("── Storing secret ───────────────────────────────────\n")
 		fmt.Printf("Storing secret at %s in %s... ", secretPath, a.AWSRegion)
-
-		awsCfg, err := awscfg.LoadDefaultConfig(ctx,
-			awscfg.WithRegion(a.AWSRegion),
-			awscfg.WithSharedConfigProfile(a.AWSProfile),
-		)
-		if err != nil {
-			fmt.Println("✗")
-			return fmt.Errorf("load AWS config: %w", err)
-		}
-
-		secretValue, err := buildSecretJSON(a.GitHubToken, priv, pub)
+		secretValue, err := json.Marshal(githubValues)
 		if err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("build secret JSON: %w", err)
 		}
-
-		if err := storeSecret(ctx, awsCfg, secretPath, secretValue, a.GitHubOwner, a.Environment); err != nil {
+		if err := storeSecret(ctx, githubAwsCfg, secretPath, string(secretValue), a.GitHubOwner, a.Environment); err != nil {
 			fmt.Println("✗")
 			return fmt.Errorf("store secret: %w", err)
 		}
 		fmt.Println("✓")
 	} else {
-		fmt.Println("  GitHub token unchanged.")
+		fmt.Println("  GitHub token and SSH key unchanged.")
 	}
 
 	// Collect AI provider API keys.
@@ -824,19 +873,39 @@ func buildAgentSecretJSON(anthropicKey, openaiKey, geminiKey string) (string, er
 }
 
 func storeAgentSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
+	if err := restoreSetupSecretIfPending(ctx, awsCfg, secretID); err != nil {
+		return err
+	}
 	return storeDescribedSecret(ctx, awsCfg, secretID, value, owner, environment, "AI provider API keys for desktopctl owner: "+owner)
 }
 
 func setupSecretExists(ctx context.Context, awsCfg aws.Config, path string) (bool, error) {
-	_, err := secretsmanager.NewFromConfig(awsCfg).DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(path)})
+	exists, _, err := setupSecretStatus(ctx, awsCfg, path)
+	return exists, err
+}
+
+func setupSecretStatus(ctx context.Context, awsCfg aws.Config, path string) (bool, bool, error) {
+	out, err := secretsmanager.NewFromConfig(awsCfg).DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(path)})
 	if err == nil {
-		return true, nil
+		return true, out.DeletedDate != nil, nil
 	}
 	var notFound *types.ResourceNotFoundException
 	if errors.As(err, &notFound) {
-		return false, nil
+		return false, false, nil
 	}
-	return false, fmt.Errorf("check AWS secret %q: %w", path, err)
+	return false, false, fmt.Errorf("describe secret %q: %w", path, err)
+}
+
+func restoreSetupSecretIfPending(ctx context.Context, awsCfg aws.Config, path string) error {
+	exists, pending, err := setupSecretStatus(ctx, awsCfg, path)
+	if err != nil || !exists || !pending {
+		return err
+	}
+	_, err = secretsmanager.NewFromConfig(awsCfg).RestoreSecret(ctx, &secretsmanager.RestoreSecretInput{SecretId: aws.String(path)})
+	if err != nil {
+		return fmt.Errorf("restore scheduled setup secret %q: %w", path, err)
+	}
+	return nil
 }
 
 func storeIntegrationSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment, integration string) error {
@@ -920,6 +989,9 @@ func storeDescribedSecret(ctx context.Context, awsCfg aws.Config, secretID, valu
 }
 
 func storeSecret(ctx context.Context, awsCfg aws.Config, secretID, value, owner, environment string) error {
+	if err := restoreSetupSecretIfPending(ctx, awsCfg, secretID); err != nil {
+		return err
+	}
 	svc := secretsmanager.NewFromConfig(awsCfg)
 
 	// Check if secret already exists

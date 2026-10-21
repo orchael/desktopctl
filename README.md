@@ -29,36 +29,26 @@ region and is pinned in the existing config; an AMI build is unnecessary.
    `ca-central-1`, its fleet environment `prod`, and its state bucket a new,
    dedicated bucket name. Keep the config outside Git.
 
-2. **Recover names after a previous teardown, if applicable.** If the
-   `/desktopctl/prod/ca-central-1/orchael/github` and `.../agents` secrets are
-   scheduled for deletion, restore them before reusing those names:
-
-   ```sh
-   aws secretsmanager restore-secret --profile marka --region ca-central-1 \
-     --secret-id /desktopctl/prod/ca-central-1/orchael/github
-   aws secretsmanager restore-secret --profile marka --region ca-central-1 \
-     --secret-id /desktopctl/prod/ca-central-1/orchael/agents
-   ```
-
-   Skip this step in an account without scheduled secrets. Restoring retains
-   their previous values until setup rotates or updates them.
-
-3. **Run the interactive setup.** Have a GitHub classic token ready with
+2. **Prepare credentials.** Have a GitHub classic token ready with
    `admin:public_key`, `repo`, `read:user`, and `workflow`; add `read:packages`
-   for future AMI builds. Setup accepts the token through hidden terminal
-   input. Confirm the detected public IPv4 `/32`, register your local SSH
-   public key as the EC2 key pair, and choose whether to rotate the GitHub
-   token and agent keys. After restoring secrets, use `--allow-existing`:
+   for future AMI builds. Have a local SSH key pair for desktop access. Setup
+   automatically restores the configured GitHub and agent secrets if they are
+   still within their deletion recovery window, then preserves or updates
+   their values. It accepts a new token through hidden terminal input.
+
+3. **Run the interactive setup.** Confirm the detected public IPv4 `/32`,
+   register your local SSH public key as the EC2 key pair, and choose whether
+   to update the GitHub token, rotate its SSH key, or update agent keys:
 
    ```sh
-   ./bin/desktopctl --config "$CONFIG" setup --allow-existing
+   ./bin/desktopctl --config "$CONFIG" setup
    ```
 
-   Omit `--allow-existing` for a first installation with no existing secrets
-   or key pair.
    Accept the existing `ca-central-1`, `marka`, `prod`, `orchael`, and bucket
-   defaults if they are still correct. If GitHub setup creates a replacement
-   SSH key, verify it before removing the old key from GitHub.
+   defaults if they are still correct. A matching configured identity can
+   reuse existing secrets and the EC2 key pair without `--allow-existing`.
+   If GitHub setup creates a replacement SSH key, verify it before removing
+   the old key from GitHub. For scripted setup, see [noninteractive setup](#noninteractive-setup).
 
 4. **Create the state backend and preview the foundation.** The bucket was
    removed by the previous teardown, so `bootstrap` must recreate it. Review
@@ -182,7 +172,52 @@ Run `desktopctl setup` to configure credentials. The wizard:
 4. Optionally collects AI provider API keys (Anthropic, OpenAI, Gemini) and stores them at `/desktopctl/<env>/<region>/<owner>/agents`.
 5. Writes `~/.config/desktopctl/config.yaml` on Linux (or under `XDG_CONFIG_HOME`).
 
-Run `desktopctl setup` before running `create`. A fresh run refuses existing AWS secrets and EC2 key pairs. Use `setup --allow-existing` when intentionally updating the same setup; the wizard then prompts before rotating a token or SSH key.
+Run `desktopctl setup` before running `create`. For the same configured region,
+environment, and GitHub owner, setup reuses matching secrets and the EC2 key
+pair. A secret scheduled for deletion is restored before it is read or updated.
+New token and provider key values replace the corresponding stored values;
+unspecified values remain. A different identity with existing names still
+requires `setup --allow-existing`.
+
+### Noninteractive setup
+
+`setup --non-interactive` takes values from command flags, environment
+variables, then the existing config, in that order. It never prompts. The
+region and profile use the root `--region` and `--profile` flags. A fresh
+configuration requires a GitHub token, SSH private key path with a matching
+`.pub` file, public IPv4 `/32`, bucket, environment, owner, region, and profile.
+An existing GitHub secret can supply the token and SSH key when no replacement
+is provided. Set `DESKTOPCTL_GITHUB_TOKEN` to replace only the token; pass
+`--rotate-github-ssh-key` to generate and register a new GitHub SSH key too.
+
+```sh
+CONFIG="$HOME/.config/desktopctl/config-ca-central-1.yaml"
+# Supply DESKTOPCTL_GITHUB_TOKEN through your secret source when rotating it.
+./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
+  setup --non-interactive --environment prod \
+  --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
+  --github-owner orchael --operator-cidr 203.0.113.42/32 \
+  --ssh-key-path "$HOME/.ssh/id_ed25519"
+```
+
+Replace the example CIDR with the public IPv4 of the machine that will use
+desktop SSH. The CLI validates that it is a public `/32` and fails if any
+required input is missing. It imports the local public key into EC2 under the
+configured or derived key name. It also restores matching scheduled secrets
+and merges supplied agent keys without clearing other stored keys.
+
+| Input | Flag | Environment variable |
+| --- | --- | --- |
+| AWS region and profile | `--region`, `--profile` | `DESKTOPCTL_REGION`, `DESKTOPCTL_PROFILE` |
+| Environment and state bucket | `--environment`, `--backend-bucket` | `DESKTOPCTL_ENVIRONMENT`, `DESKTOPCTL_BACKEND_BUCKET` |
+| GitHub owner and token | `--github-owner`, `--github-token` | `DESKTOPCTL_GITHUB_OWNER`, `DESKTOPCTL_GITHUB_TOKEN` |
+| Git author | `--git-user-name`, `--git-user-email` | `DESKTOPCTL_GIT_USER_NAME`, `DESKTOPCTL_GIT_USER_EMAIL` |
+| Desktop SSH | `--operator-cidr`, `--ssh-key-path`, `--ssh-key-name` | `DESKTOPCTL_OPERATOR_CIDR`, `DESKTOPCTL_SSH_KEY_PATH`, `DESKTOPCTL_SSH_KEY_NAME` |
+| Agent credentials | `--claude-oauth-token`, `--openai-api-key`, `--gemini-api-key` | `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` |
+
+Use environment variables for credentials to keep them out of shell history
+and process arguments. Setup does not print credential values. CLI input flags
+work for automation systems that provide protected command arguments.
 
 At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private key at `/home/ubuntu/.ssh/github_ed25519`, and configures SSH to use it for `github.com`. Repos are then cloned via `git@github.com:<owner>/<repo>.git`.
 
