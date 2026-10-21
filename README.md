@@ -150,6 +150,14 @@ a new config does not pin it.
    [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
    for the opt-in SSH login test and teardown steps.
 
+   To follow the newest compatible public image instead of supplying `--ami`,
+   add `public_ami_owner: "819363892004"` under `desktop:` in this config and
+   omit `--ami` from both create commands. Discovery only considers available,
+   public `desktopctl-v<CLI major>-*` images from that AWS account in
+   ca-central-1. An explicit `--ami` or `desktop.active_ami.ca-central-1` pin
+   takes precedence. A local `ami build` can set that pin when run with
+   `--config`; remove the pin to return to public discovery.
+
 For an SSH-only installation without DNS, use `--no-dns` on both
 `init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
 public noVNC URL is returned, and Certbot is skipped. `desktopctl ssh` uses an
