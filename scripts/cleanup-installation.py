@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Preview or remove one desktopctl foundation and its dedicated Pulumi state bucket."""
+"""Preview or remove one desktopctl foundation, DNS zone, and state bucket."""
 
 import argparse
 from itertools import islice
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -88,6 +89,41 @@ def verify_setup_cleanup(profile, region, key, secrets):
             raise RuntimeError(f"setup secret remains active: {name}")
 
 
+def validate_dns_config(conf):
+    dns = conf.get("dns") or {}
+    name = (dns.get("zone") or "").rstrip(".").lower()
+    zone_id = dns.get("hosted_zone_id") or ""
+    if not name and not zone_id:
+        return None
+    if not name or not re.fullmatch(r"(?:/hostedzone/)?Z[A-Z0-9]+", zone_id):
+        raise RuntimeError("DNS cleanup requires both dns.zone and its exact dns.hosted_zone_id")
+    return name, zone_id
+
+
+def inspect_dns_zone(profile, region, dns):
+    if dns is None:
+        return False
+    name, zone_id = dns
+    try:
+        zone = aws(profile, region, "route53", "get-hosted-zone", "--id", zone_id)["HostedZone"]
+    except RuntimeError as exc:
+        if "NoSuchHostedZone" in str(exc):
+            return False  # A previous cleanup run may already have deleted it.
+        raise
+    if (zone.get("Id", "").split("/")[-1] != zone_id.split("/")[-1]
+            or zone.get("Name", "").rstrip(".").lower() != name):
+        raise RuntimeError(f"hosted zone {zone_id} does not match configured DNS name {name}")
+    if zone.get("Config", {}).get("PrivateZone"):
+        raise RuntimeError(f"hosted zone {zone_id} is private; refusing DNS cleanup")
+    records = aws(profile, region, "route53", "list-resource-record-sets", "--hosted-zone-id", zone_id)
+    extras = [f"{record.get('Name')} {record.get('Type')}" for record in records.get("ResourceRecordSets", [])
+              if (record.get("Name", "").rstrip(".").lower() != name
+                  or record.get("Type") not in ("NS", "SOA"))]
+    if extras:
+        raise RuntimeError(f"hosted zone {zone_id} still has DNS records: {', '.join(extras[:5])}; remove desktops and records first")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -114,6 +150,7 @@ def main():
     secrets = [conf["github"].get(field, "") for field in ("github_secret", "agent_secret")]
     if any(actual and actual != expected for actual, expected in zip(secrets, expected_secrets)):
         raise RuntimeError("config has a custom setup secret path; clean it up separately")
+    dns = validate_dns_config(conf)
     account = aws(profile, region, "sts", "get-caller-identity")["Account"]
     if account != args.account_id:
         raise RuntimeError(f"AWS account {account} does not match expected {args.account_id}")
@@ -123,9 +160,12 @@ def main():
         raise RuntimeError(f"bucket is in {location}, expected {region}")
     objects = list(versions(profile, region, bucket, account))
     validate_state_keys(objects, stack)
+    dns_exists = inspect_dns_zone(profile, region, dns)
     print(f"Account {account}, region {region}, stack {stack}, bucket {bucket}")
     print(f"State bucket: {len(objects)} object versions and delete markers; EC2 key pair: {key or 'none'}")
     print("Setup secrets: " + ", ".join(s for s in secrets if s))
+    if dns:
+        print(f"Route 53 hosted zone: {dns[0]} ({dns[1]}) — {'delete after foundation cleanup' if dns_exists else 'already absent'}")
     if not args.apply:
         print("Preview only. Pass --apply to destroy the foundation and delete the dedicated state bucket.")
         return
@@ -139,6 +179,9 @@ def main():
     stack_list = json.loads(run("pulumi", "--cwd", str(workdir), "stack", "ls", "--json", env=pulumi_env))
     if any(item["name"].split("/")[-1] == stack for item in stack_list):
         run("pulumi", "--cwd", str(workdir), "stack", "rm", stack, "--yes", "--non-interactive", env=pulumi_env, output=False)
+    if inspect_dns_zone(profile, region, dns):
+        aws(profile, region, "route53", "delete-hosted-zone", "--id", dns[1])
+        print(f"Deleted Route 53 hosted zone {dns[0]} ({dns[1]}). Remove its parent NS delegation at your DNS provider.")
     # Recheck after Pulumi has written its final metadata and backup objects.
     objects = list(versions(profile, region, bucket, account))
     validate_state_keys(objects, stack)

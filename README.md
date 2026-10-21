@@ -579,7 +579,8 @@ desktopctl bootstrap
 Creates a fresh S3 bucket using AWS API calls (not Pulumi). Configures versioning, encryption (SSE), and public-access block. Use `bootstrap --allow-existing` only for an intentional existing setup. This step must complete before Pulumi can initialize.
 
 For complete teardown of a dedicated installation, including the setup EC2 key
-pair, GitHub and agent secrets, foundation stack, and versioned state bucket,
+pair, GitHub and agent secrets, foundation stack, configured Route 53 hosted
+zone, and versioned state bucket,
 use the preview-first [`cleanup-installation.py`](scripts/cleanup-installation.py)
 wrapper. See the [ca-central-1 cleanup guide](docs/CA_CENTRAL_MIGRATION.md#remove-an-installation)
 for prerequisites, safety checks, and the apply command.

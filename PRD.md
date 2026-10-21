@@ -591,6 +591,10 @@ The PRD says the desktop is reported ready after provisioning, but readiness mus
 ### Cost and cleanup
 
 Persistent desktops imply ongoing cloud cost. Failed desktop creation should leave the instance running by default for debugging until `doctor` is useful. Automated idle shutdown, budgets, and cost alerts can follow after MVP.
+The final installation cleanup removes the configured Route 53 hosted zone
+after all desktop records are gone, using the saved hosted zone ID and name.
+It must reject zones with remaining non-default records and leave deletion of
+the parent NS delegation to the external DNS provider.
 
 ### Pre-baked AMI provisioning
 

@@ -73,18 +73,23 @@ preview the foundation and state cleanup using the same config and AWS account:
 ```sh
 make build
 python3 scripts/cleanup-installation.py \
-  --config ~/.config/desktopctl/config-prod-ca-central-1.yaml \
+  --config ~/.config/desktopctl/config-prod-ca-central-1-dns.yaml \
   --account-id 819363892004
 ```
 
 Add `--apply` to run it. The wrapper requires Python 3 with PyYAML, AWS CLI,
 Pulumi, and the built CLI. It checks the AWS account, bucket region, and every
 object key in the dedicated state bucket before changing anything. It refuses
-state belonging to another Pulumi stack. It then runs `destroy-foundation`,
-removes the empty Pulumi stack, deletes every version and delete marker in the
-state bucket, and deletes the bucket. If any step fails, it stops; correct the
-cause and rerun it. The wrapper does not delete AMIs, the private base AMI, or
-AWS Backup recovery points.
+state belonging to another Pulumi stack. It also verifies the exact configured
+Route 53 hosted zone ID and name, and stops if the zone still has desktop or
+other records beyond its own NS and SOA records. It then runs
+`destroy-foundation`, removes the empty Pulumi stack, deletes the hosted zone,
+deletes every version and delete marker in the state bucket, and deletes the
+bucket. If any step fails, it stops; correct the cause and rerun it. If the
+config has a DNS name without a hosted zone ID, run `dns setup` first to pin
+the zone. Remove the `desktops.markcallen.dev` parent NS record at your DNS
+provider after cleanup. The wrapper does not delete AMIs, the private base
+AMI, or AWS Backup recovery points.
 
 `destroy-foundation --yes` also deletes the setup-created EC2 key pair and
 schedules deletion of the configured GitHub and agent secrets with a seven-day
