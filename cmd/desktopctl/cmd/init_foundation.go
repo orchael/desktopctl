@@ -114,7 +114,14 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	setFoundationZoneID(stackCfg, zone, cfg.DNS.HostedZoneID)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
-	if !stackExists && !foundationSaaS {
+	operatorSecretManaged := false
+	if stackExists && !foundationSaaS {
+		operatorSecretManaged, err = runner.StackHasResource(ctx, ref, "desktopctl-control-plane-credentials")
+		if err != nil {
+			return err
+		}
+	}
+	if !foundationSaaS && !operatorSecretManaged {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			return fmt.Errorf("load AWS config for operator secret: %w", err)

@@ -43,6 +43,28 @@ func TestStackExists(t *testing.T) {
 	}
 }
 
+func TestStackHasResource(t *testing.T) {
+	for _, tc := range []struct {
+		name, export string
+		want         bool
+		wantErr      bool
+	}{
+		{"destroyed stack", `{"deployment":{"resources":[{"urn":"urn:pulumi:prod::foundation::pulumi:pulumi:Stack::foundation-prod"}]}}`, false, false},
+		{"active operator secret", `{"deployment":{"resources":[{"urn":"urn:pulumi:prod::foundation::aws:secretsmanager/secret:Secret::desktopctl-control-plane-credentials"}]}}`, true, false},
+		{"missing deployment", `{}`, false, true},
+		{"invalid export", `invalid`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakePulumiDir(t, 0, tc.export)
+			ref := FoundationStackRef("s3://bucket", "prod", "ca-central-1", t.TempDir())
+			got, err := NewRunner().StackHasResource(context.Background(), ref, "desktopctl-control-plane-credentials")
+			if got != tc.want || (err != nil) != tc.wantErr {
+				t.Fatalf("StackHasResource = %v, %v; want %v, error %v", got, err, tc.want, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestDesktopStackRef(t *testing.T) {
 	ref := DesktopStackRef("s3://my-bucket", "d-001abc", "/infra/pulumi/desktop")
 	if ref.StackName != "desktop-d-001abc" {

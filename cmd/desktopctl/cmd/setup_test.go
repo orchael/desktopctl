@@ -32,6 +32,26 @@ func TestSetupSameIdentity(t *testing.T) {
 	}
 }
 
+func TestValidateSetupSSHKeySelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, keyName string
+		verified            bool
+		wantErr             bool
+	}{
+		{"unchanged path", "/old/key", "existing-key", false, false},
+		{"changed path without registration", "/new/key", "existing-key", false, true},
+		{"changed path after verification", "/new/key", "existing-key", true, false},
+		{"changed name after registration", "/new/key", "new-key", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSetupSSHKeySelection("/old/key", "existing-key", tc.path, tc.keyName, tc.verified)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateSetupSSHKeySelection error = %v; want error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestGenerateSSHKeyPair(t *testing.T) {
 	pub, priv, err := generateSSHKeyPair("test-owner")
 	if err != nil {

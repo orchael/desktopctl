@@ -203,14 +203,14 @@ def main():
     key = conf.get("desktop", {}).get("ssh_key_name", "")
     skipped_setup = []
     if key and key != expected_key:
-        skipped_setup.append(f"custom EC2 key pair {key} requires separate cleanup")
+        skipped_setup.append("custom EC2 key pair requires separate cleanup")
         key = ""
     expected_secrets = [f"/desktopctl/{env_name}/{region}/{owner}/{suffix}" for suffix in ("github", "agents")]
     secrets = []
     for field, expected in zip(("github_secret", "agent_secret"), expected_secrets):
         actual = conf["github"].get(field, "")
         if actual and actual != expected:
-            skipped_setup.append(f"custom setup secret {actual} requires separate cleanup")
+            skipped_setup.append("custom setup secret requires separate cleanup")
         elif actual:
             secrets.append(actual)
     dns = validate_dns_config(conf)
@@ -236,7 +236,7 @@ def main():
     print(f"State bucket: {len(objects)} object versions and delete markers; EC2 key pair: {key or 'none'}")
     if desktop_stacks:
         print(f"Terminated desktop stacks: {', '.join(sorted(desktop_stacks))}")
-    print("Setup secrets: " + ", ".join(s for s in secrets if s))
+    print(f"Setup secrets selected for cleanup: {len(secrets)}")
     for item in skipped_setup:
         print(f"Skipping setup resource: {item}")
     if dns:

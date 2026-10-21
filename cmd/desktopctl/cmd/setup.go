@@ -340,6 +340,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		sshKeyPathLabel = fmt.Sprintf("Local SSH private key path [%s]", existingSSHKeyPath)
 	}
 	a.SSHKeyPath = prompt(reader, sshKeyPathLabel, existingSSHKeyPath)
+	sshKeyVerified := false
 
 	if a.SSHKeyPath != "" {
 		// Verify the key file exists.
@@ -366,28 +367,23 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				pubPath := a.SSHKeyPath + ".pub"
 				pubBytes, err := os.ReadFile(pubPath)
 				if err != nil {
-					fmt.Printf("  Warning: could not read %s: %v\n  EC2 key pair not registered.\n", pubPath, err)
-					a.SSHKeyName = existingSSHKeyName
+					return fmt.Errorf("read EC2 public key %s: %w", pubPath, err)
 				} else {
 					ec2Cfg, err := awscfg.LoadDefaultConfig(ctx,
 						awscfg.WithRegion(a.AWSRegion),
 						awscfg.WithSharedConfigProfile(a.AWSProfile),
 					)
 					if err != nil {
-						fmt.Printf("  Warning: could not load AWS config: %v\n  EC2 key pair not registered.\n", err)
-						a.SSHKeyName = existingSSHKeyName
+						return fmt.Errorf("load AWS config for EC2 key pair: %w", err)
 					} else {
 						fmt.Printf("Registering EC2 key pair %q in %s... ", a.SSHKeyName, a.AWSRegion)
 						canReuse := setupAllowExisting || setupSameIdentity(saved, a.AWSRegion, a.Environment, existingOwner)
 						if err := importEC2KeyPair(ctx, ec2Cfg, a.SSHKeyName, strings.TrimSpace(string(pubBytes)), !canReuse); err != nil {
 							fmt.Println("✗")
-							if !canReuse {
-								return fmt.Errorf("register fresh EC2 key pair: %w", err)
-							}
-							fmt.Printf("  Warning: %v\n  EC2 key pair not registered — set ssh_key_name manually if needed.\n", err)
-							a.SSHKeyName = existingSSHKeyName
+							return fmt.Errorf("register EC2 key pair: %w", err)
 						} else {
 							fmt.Println("✓")
+							sshKeyVerified = true
 						}
 					}
 				}
@@ -395,6 +391,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 				a.SSHKeyName = existingSSHKeyName
 			}
 		}
+	}
+	if err := validateSetupSSHKeySelection(existingSSHKeyPath, existingSSHKeyName, a.SSHKeyPath, a.SSHKeyName, sshKeyVerified); err != nil {
+		return err
 	}
 
 	fmt.Println()
@@ -724,6 +723,13 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("  desktopctl --config %q create --github-owner %s --repo <owner/repo>\n", cfgPath, a.GitHubOwner)
 	fmt.Printf("For a public AMI build, run desktopctl --config %q ami build --public; the stored token needs read:packages.\n", cfgPath)
+	return nil
+}
+
+func validateSetupSSHKeySelection(previousPath, previousName, selectedPath, selectedName string, verified bool) error {
+	if previousName != "" && selectedPath != previousPath && selectedName == previousName && !verified {
+		return fmt.Errorf("SSH key path changed; register the new public key as an EC2 key pair before keeping %q", previousName)
+	}
 	return nil
 }
 
