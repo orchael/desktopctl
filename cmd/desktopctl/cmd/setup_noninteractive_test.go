@@ -102,6 +102,29 @@ func TestNonInteractiveAnswersDefaultsPublicAMIOwner(t *testing.T) {
 	}
 }
 
+func TestNonInteractiveAnswersPreservesDisabledPublicAMIDiscovery(t *testing.T) {
+	current := &config.Config{AWS: config.AWSConfig{Region: "ca-central-1", Profile: "marka"}, Pulumi: config.PulumiConfig{BackendBucket: "desktopctl-state"}, Fleet: config.FleetConfig{Environment: "prod"}, GitHub: config.GitHubConfig{Owner: "orchael"}, Desktop: config.DesktopConfig{OperatorCIDR: "157.230.223.137/32", SSHKeyPath: "/tmp/key"}}
+	applySetupPublicAMIOwner(&current.Desktop, "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := current.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.LoadOrDefault(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := setupPublicAMIOwnerDefault(loaded.Desktop); got != "" {
+		t.Fatalf("interactive default=%q, want disabled", got)
+	}
+	a, err := nonInteractiveAnswers(setupInputCommand(), loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PublicAMIOwner != "" {
+		t.Fatalf("non-interactive owner=%q, want disabled", a.PublicAMIOwner)
+	}
+}
+
 func TestSetupSavedConfigIgnoresRootRegionOverride(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	original := &config.Config{AWS: config.AWSConfig{Region: "us-east-1"}, Fleet: config.FleetConfig{Environment: "prod"}, GitHub: config.GitHubConfig{Owner: "orchael"}}

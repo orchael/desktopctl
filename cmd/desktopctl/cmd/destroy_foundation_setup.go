@@ -15,10 +15,11 @@ import (
 type setupResources struct {
 	keyPair string
 	secrets []string
+	skipped []string
 }
 
-// Only delete names produced by setup for this environment and region. A custom
-// name may belong to another installation and must be handled explicitly.
+// Only delete names produced by setup for this environment and region. Custom
+// names are reported and skipped so they cannot block foundation destruction.
 func setupCleanupTargets(c *config.Config, env string) (setupResources, error) {
 	var result setupResources
 	if env != c.Environment() {
@@ -31,9 +32,10 @@ func setupCleanupTargets(c *config.Config, env string) (setupResources, error) {
 	if c.Desktop.SSHKeyName != "" {
 		want := "desktopctl-" + env + "-" + c.AWS.Region + "-" + c.GitHub.Owner
 		if c.Desktop.SSHKeyName != want {
-			return result, fmt.Errorf("EC2 key pair %q differs from setup name %q; clean it up separately", c.Desktop.SSHKeyName, want)
+			result.skipped = append(result.skipped, fmt.Sprintf("EC2 key pair %q differs from setup name %q; clean it up separately", c.Desktop.SSHKeyName, want))
+		} else {
+			result.keyPair = want
 		}
-		result.keyPair = want
 	}
 	for _, secret := range []struct{ actual, suffix string }{
 		{c.GitHub.GitHubSecret, "/github"},
@@ -44,7 +46,8 @@ func setupCleanupTargets(c *config.Config, env string) (setupResources, error) {
 		}
 		want := base + secret.suffix
 		if secret.actual != want {
-			return setupResources{}, fmt.Errorf("secret %q differs from setup path %q; clean it up separately", secret.actual, want)
+			result.skipped = append(result.skipped, fmt.Sprintf("secret %q differs from setup path %q; clean it up separately", secret.actual, want))
+			continue
 		}
 		result.secrets = append(result.secrets, want)
 	}

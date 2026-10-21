@@ -213,7 +213,9 @@ can discover its newest compatible public AMI in this region.
    `--config`; remove the pin to return to public discovery. Supply a different
    trusted 12-digit account with `setup --non-interactive --public-ami-owner
    <account-id>` or `DESKTOPCTL_PUBLIC_AMI_OWNER`, or choose it in the wizard.
-   An explicit empty flag or environment value disables discovery.
+   An explicit empty flag or environment value disables discovery and records
+   `desktop.public_ami_discovery_disabled: true`, so later setup runs preserve
+   that choice.
 
 For an SSH-only installation without DNS, use `--no-dns` on both
 `init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
@@ -653,7 +655,10 @@ pair, GitHub and agent secrets, foundation stack, configured Route 53 hosted
 zone, and versioned state bucket,
 use the preview-first [`cleanup-installation.py`](scripts/cleanup-installation.py)
 wrapper. See the [ca-central-1 cleanup guide](docs/CA_CENTRAL_MIGRATION.md#remove-an-installation)
-for prerequisites, safety checks, and the apply command.
+for prerequisites, safety checks, and the apply command. The wrapper verifies
+terminated desktop records and empty Pulumi stacks before clearing their
+versioned state. It reports custom EC2 key pair and secret names for separate
+cleanup while continuing with the foundation.
 
 ### 3. Initialize shared foundation infrastructure
 

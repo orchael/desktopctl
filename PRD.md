@@ -303,7 +303,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.12 | The pre-baked AMI must install a pinned stable Visual Studio Code package from Microsoft's signed apt repository and expose its desktop launcher. The build must verify the package version, CLI binary, and launcher entry. |
 | FR-9.13 | Public AMIs must be named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>` and retain the full CLI and desktop web versions as tags. Automatic public image discovery must select only the running CLI's major version unless config sets `desktop.public_ami_major` or pins `desktop.active_ami.<region>`. |
 | FR-9.14 | Operators must have a regional public AMI build, list, and deletion script. Deletion must preview by default and verify the AWS account, publisher ownership, image name, management tag, active config pin, and live instance use before removal. |
-| FR-9.15 | Interactive and scripted setup must configure trusted public AMI publisher account `819363892004` by default, allow another 12-digit account or an explicit empty value for scripted setup, and preserve explicit AMI pins as higher priority than discovery. |
+| FR-9.15 | Interactive and scripted setup must configure trusted public AMI publisher account `819363892004` by default, allow another 12-digit account or an explicit empty value for scripted setup, persist an explicit discovery disable across later setup runs, and preserve explicit AMI pins as higher priority than discovery. |
 
 **Acceptance criteria:**
 

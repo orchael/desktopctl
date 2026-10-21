@@ -60,6 +60,9 @@ func runDestroyFoundation(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		for _, skipped := range targets.skipped {
+			fmt.Fprintf(os.Stderr, "Skipping setup resource: %s\n", skipped)
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "Skipping setup key pair and secret cleanup: environment %q differs from configured environment %q.\n", env, cfg.Environment())
 	}

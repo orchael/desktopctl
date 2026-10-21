@@ -47,7 +47,20 @@ def versions(profile, region, bucket, account):
             raise RuntimeError("S3 returned a truncated version listing without a continuation marker")
 
 
-def validate_state_keys(objects, stack):
+def desktop_stack_from_key(key):
+    patterns = (
+        r"\.pulumi/stacks/desktop/(desktop-d-[0-9a-f]{8})\.json(?:\.bak)?",
+        r"\.pulumi/(?:backups|history)/desktop/(desktop-d-[0-9a-f]{8})/.+",
+        r"\.pulumi/locks/organization/desktop/(desktop-d-[0-9a-f]{8})/.+",
+    )
+    for pattern in patterns:
+        match = re.fullmatch(pattern, key)
+        if match:
+            return match.group(1)
+    return None
+
+
+def validate_state_keys(objects, stack, desktop_stacks=()):
     allowed = (
         f".pulumi/stacks/foundation/{stack}.json",
         f".pulumi/stacks/foundation/{stack}.json.bak",
@@ -58,13 +71,57 @@ def validate_state_keys(objects, stack):
     )
     for obj in objects:
         key = obj["Key"]
-        if key not in allowed and not key.startswith(prefixes):
+        if key not in allowed and not key.startswith(prefixes) and desktop_stack_from_key(key) not in desktop_stacks:
             raise RuntimeError(f"bucket contains an unrelated object; refusing cleanup: {key}")
 
 
-def delete_versions(profile, region, bucket, account):
+def terminated_desktops(profile, region, table, environment):
+    ids = set()
+    marker = None
     while True:
-        batch = list(islice(versions(profile, region, bucket, account), 1000))
+        args = ["dynamodb", "scan", "--table-name", table, "--limit", "100", "--no-paginate",
+                "--projection-expression", "desktop_id,lifecycle_state,#e,#r",
+                "--expression-attribute-names", '{"#e":"environment","#r":"region"}']
+        if marker:
+            args += ["--exclusive-start-key", json.dumps(marker)]
+        page = aws(profile, region, *args)
+        for item in page.get("Items", []):
+            if (item.get("lifecycle_state", {}).get("S") == "terminated"
+                    and item.get("environment", {}).get("S") == environment
+                    and item.get("region", {}).get("S") == region):
+                ids.add(item["desktop_id"]["S"])
+        marker = page.get("LastEvaluatedKey")
+        if not marker:
+            return ids
+
+
+def inspect_desktop_stacks(profile, region, environment, table, objects, workdir, pulumi_env):
+    candidates = {name for obj in objects if (name := desktop_stack_from_key(obj["Key"]))}
+    if not candidates:
+        return set(), set()
+    known_ids = terminated_desktops(profile, region, table, environment)
+    for name in candidates:
+        if name.removeprefix("desktop-") not in known_ids:
+            raise RuntimeError(f"desktop stack {name} has no terminated fleet record in {table}; refusing cleanup")
+    listed = json.loads(run("pulumi", "--cwd", str(workdir), "stack", "ls", "--json", env=pulumi_env))
+    active = {item["name"].split("/")[-1] for item in listed}
+    for name in sorted(candidates & active):
+        state = json.loads(run("pulumi", "--cwd", str(workdir), "stack", "export", "--stack", name, env=pulumi_env))
+        deployment = state.get("deployment")
+        if not isinstance(deployment, dict) or not isinstance(deployment.get("resources"), list):
+            raise RuntimeError(f"desktop stack {name} has an unreadable deployment; refusing cleanup")
+        resources = [resource for resource in deployment.get("resources", [])
+                     if resource.get("type") != "pulumi:pulumi:Stack"]
+        if resources or deployment.get("pending_operations") or deployment.get("pendingOperations"):
+            raise RuntimeError(f"desktop stack {name} still owns resources or has pending operations; terminate it first")
+    return candidates, candidates & active
+
+
+def delete_versions(profile, region, bucket, account, predicate=None):
+    while True:
+        matching = (obj for obj in versions(profile, region, bucket, account)
+                    if predicate is None or predicate(obj))
+        batch = list(islice(matching, 1000))
         if not batch:
             return
         with tempfile.NamedTemporaryFile(mode="w", prefix="desktopctl-s3-delete-", suffix=".json") as request:
@@ -144,12 +201,18 @@ def main():
     stack = f"foundation-{env_name}-{region}"
     expected_key = f"desktopctl-{env_name}-{region}-{owner}"
     key = conf.get("desktop", {}).get("ssh_key_name", "")
+    skipped_setup = []
     if key and key != expected_key:
-        raise RuntimeError(f"custom EC2 key pair {key} requires separate cleanup")
+        skipped_setup.append(f"custom EC2 key pair {key} requires separate cleanup")
+        key = ""
     expected_secrets = [f"/desktopctl/{env_name}/{region}/{owner}/{suffix}" for suffix in ("github", "agents")]
-    secrets = [conf["github"].get(field, "") for field in ("github_secret", "agent_secret")]
-    if any(actual and actual != expected for actual, expected in zip(secrets, expected_secrets)):
-        raise RuntimeError("config has a custom setup secret path; clean it up separately")
+    secrets = []
+    for field, expected in zip(("github_secret", "agent_secret"), expected_secrets):
+        actual = conf["github"].get(field, "")
+        if actual and actual != expected:
+            skipped_setup.append(f"custom setup secret {actual} requires separate cleanup")
+        elif actual:
+            secrets.append(actual)
     dns = validate_dns_config(conf)
     account = aws(profile, region, "sts", "get-caller-identity")["Account"]
     if account != args.account_id:
@@ -159,11 +222,23 @@ def main():
     if location != region:
         raise RuntimeError(f"bucket is in {location}, expected {region}")
     objects = list(versions(profile, region, bucket, account))
-    validate_state_keys(objects, stack)
+    pulumi_env = dict(os.environ, AWS_PROFILE=profile, AWS_REGION=region, AWS_DEFAULT_REGION=region,
+                      PULUMI_BACKEND_URL="s3://" + bucket, PULUMI_CONFIG_PASSPHRASE="")
+    infra_dir = Path(conf["pulumi"].get("infra_dir") or Path(__file__).resolve().parents[1])
+    desktop_dir = infra_dir / "infra/pulumi/desktop"
+    fleet_table = conf["fleet"].get("table_name") or f"desktopctl-fleet-{env_name}-{region}"
+    desktop_stacks = {name for obj in objects if (name := desktop_stack_from_key(obj["Key"]))}
+    validate_state_keys(objects, stack, desktop_stacks)
+    desktop_stacks, active_desktop_stacks = inspect_desktop_stacks(
+        profile, region, env_name, fleet_table, objects, desktop_dir, pulumi_env)
     dns_exists = inspect_dns_zone(profile, region, dns)
     print(f"Account {account}, region {region}, stack {stack}, bucket {bucket}")
     print(f"State bucket: {len(objects)} object versions and delete markers; EC2 key pair: {key or 'none'}")
+    if desktop_stacks:
+        print(f"Terminated desktop stacks: {', '.join(sorted(desktop_stacks))}")
     print("Setup secrets: " + ", ".join(s for s in secrets if s))
+    for item in skipped_setup:
+        print(f"Skipping setup resource: {item}")
     if dns:
         print(f"Route 53 hosted zone: {dns[0]} ({dns[1]}) — {'delete after foundation cleanup' if dns_exists else 'already absent'}")
     if not args.apply:
@@ -171,11 +246,21 @@ def main():
         return
     if not args.cli.is_file():
         raise RuntimeError(f"desktopctl binary missing: {args.cli}; run make build")
+    for name in sorted(active_desktop_stacks):
+        run("pulumi", "--cwd", str(desktop_dir), "stack", "rm", name,
+            "--yes", "--non-interactive", env=pulumi_env, output=False)
+    # Remove validated empty desktop state before the foundation destroys the
+    # fleet table used to prove ownership. A retry can then revalidate any
+    # remaining desktop state while that table still exists.
+    objects = list(versions(profile, region, bucket, account))
+    validate_state_keys(objects, stack, desktop_stacks)
+    delete_versions(profile, region, bucket, account,
+                    lambda obj: desktop_stack_from_key(obj["Key"]) in desktop_stacks)
+    if any(desktop_stack_from_key(obj["Key"]) for obj in versions(profile, region, bucket, account)):
+        raise RuntimeError("desktop state remains in the bucket; foundation was not destroyed")
     run(str(args.cli), "--config", str(args.config.resolve()), "destroy-foundation", "--yes", output=False)
     verify_setup_cleanup(profile, region, key, [s for s in secrets if s])
-    pulumi_env = dict(os.environ, AWS_PROFILE=profile, AWS_REGION=region, AWS_DEFAULT_REGION=region,
-                      PULUMI_BACKEND_URL="s3://" + bucket, PULUMI_CONFIG_PASSPHRASE="")
-    workdir = Path(conf["pulumi"]["infra_dir"]) / "infra/pulumi/foundation"
+    workdir = infra_dir / "infra/pulumi/foundation"
     stack_list = json.loads(run("pulumi", "--cwd", str(workdir), "stack", "ls", "--json", env=pulumi_env))
     if any(item["name"].split("/")[-1] == stack for item in stack_list):
         run("pulumi", "--cwd", str(workdir), "stack", "rm", stack, "--yes", "--non-interactive", env=pulumi_env, output=False)

@@ -86,7 +86,11 @@ python3 scripts/cleanup-installation.py \
 Add `--apply` to run it. The wrapper requires Python 3 with PyYAML, AWS CLI,
 Pulumi, and the built CLI. It checks the AWS account, bucket region, and every
 object key in the dedicated state bucket before changing anything. It refuses
-state belonging to another Pulumi stack. It also verifies the exact configured
+state belonging to another Pulumi stack. For terminated desktops, it checks
+the fleet record's environment and region and confirms that the desktop stack
+owns no resources. It removes those empty stacks and their versioned state
+before destroying the foundation, so a retry can still use the fleet table to
+verify ownership. It also verifies the exact configured
 Route 53 hosted zone ID and name, and stops if the zone still has desktop or
 other records beyond its own NS and SOA records. It then runs
 `destroy-foundation`, removes the empty Pulumi stack, deletes the hosted zone,
@@ -100,8 +104,9 @@ AMI, or AWS Backup recovery points.
 `destroy-foundation --yes` also deletes the setup-created EC2 key pair and
 schedules deletion of the configured GitHub and agent secrets with a seven-day
 recovery window. It accepts only setup's exact environment-, region-, and
-owner-scoped names; custom names need separate review. The wrapper verifies
-that the key is absent and both secrets are absent or scheduled for deletion
+owner-scoped names; it reports and skips custom names for separate review while
+still destroying the foundation. The wrapper verifies
+that the setup-named key is absent and both setup-named secrets are absent or scheduled for deletion
 before removing Pulumi state. The AWS Backup EFS automatic backup vault can
 retain a recovery point after its file system is deleted. Check its retention
 date and let it expire if a short recovery window is useful; it is managed

@@ -67,10 +67,7 @@ func nonInteractiveAnswers(cmd *cobra.Command, current *config.Config) (*setupAn
 	a.BackendBucket = setupInput(cmd, "backend-bucket", "DESKTOPCTL_BACKEND_BUCKET", current.Pulumi.BackendBucket)
 	a.Environment = setupInput(cmd, "environment", "DESKTOPCTL_ENVIRONMENT", current.Environment())
 	a.DNSZone = setupInput(cmd, "dns-zone", "DESKTOPCTL_DNS_ZONE", current.DNS.Zone)
-	publicAMIOwner := current.Desktop.PublicAMIOwner
-	if publicAMIOwner == "" {
-		publicAMIOwner = defaultPublicAMIOwner
-	}
+	publicAMIOwner := setupPublicAMIOwnerDefault(current.Desktop)
 	a.PublicAMIOwner = setupInput(cmd, "public-ami-owner", "DESKTOPCTL_PUBLIC_AMI_OWNER", publicAMIOwner)
 	if err := validatePublicAMIOwner(a.PublicAMIOwner); err != nil {
 		return nil, err
@@ -235,7 +232,7 @@ func runNonInteractiveSetup(cmd *cobra.Command) error {
 	updated.GitHub.GitUserName = a.GitUserName
 	updated.GitHub.GitUserEmail = a.GitUserEmail
 	updated.Desktop.OperatorCIDR = a.OperatorCIDR
-	updated.Desktop.PublicAMIOwner = a.PublicAMIOwner
+	applySetupPublicAMIOwner(&updated.Desktop, a.PublicAMIOwner)
 	updated.Desktop.SSHKeyPath = a.SSHKeyPath
 	updated.Desktop.SSHKeyName = a.SSHKeyName
 	if !sameIdentity {

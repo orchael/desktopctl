@@ -214,6 +214,9 @@ type DesktopConfig struct {
 	// PublicAMIOwner is a trusted AWS account ID whose public desktopctl images
 	// can be discovered when no active_ami entry is configured for the region.
 	PublicAMIOwner string `yaml:"public_ami_owner,omitempty"`
+	// PublicAMIDiscoveryDisabled preserves an explicit setup choice to leave the
+	// publisher empty across later setup runs.
+	PublicAMIDiscoveryDisabled bool `yaml:"public_ami_discovery_disabled,omitempty"`
 	// PublicAMIMajor overrides the running CLI's major version for public AMI discovery.
 	// An explicit active_ami still takes precedence.
 	PublicAMIMajor string `yaml:"public_ami_major,omitempty"`

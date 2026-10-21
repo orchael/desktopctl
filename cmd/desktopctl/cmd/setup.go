@@ -179,6 +179,21 @@ func validatePublicAMIOwner(value string) error {
 	return nil
 }
 
+func setupPublicAMIOwnerDefault(desktop config.DesktopConfig) string {
+	if desktop.PublicAMIDiscoveryDisabled {
+		return ""
+	}
+	if desktop.PublicAMIOwner != "" {
+		return desktop.PublicAMIOwner
+	}
+	return defaultPublicAMIOwner
+}
+
+func applySetupPublicAMIOwner(desktop *config.DesktopConfig, owner string) {
+	desktop.PublicAMIOwner = owner
+	desktop.PublicAMIDiscoveryDisabled = owner == ""
+}
+
 func runSetup(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
@@ -267,10 +282,14 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 	publicAMIOwner := defaultPublicAMIOwner
-	if cfg != nil && cfg.Desktop.PublicAMIOwner != "" {
-		publicAMIOwner = cfg.Desktop.PublicAMIOwner
+	if cfg != nil {
+		publicAMIOwner = setupPublicAMIOwnerDefault(cfg.Desktop)
 	}
-	a.PublicAMIOwner = prompt(reader, fmt.Sprintf("Trusted public desktop AMI publisher account [%s]", publicAMIOwner), publicAMIOwner)
+	publicAMILabel := "Trusted public desktop AMI publisher account (disabled; enter an account to enable)"
+	if publicAMIOwner != "" {
+		publicAMILabel = fmt.Sprintf("Trusted public desktop AMI publisher account [%s]", publicAMIOwner)
+	}
+	a.PublicAMIOwner = prompt(reader, publicAMILabel, publicAMIOwner)
 	if err := validatePublicAMIOwner(a.PublicAMIOwner); err != nil {
 		return err
 	}
@@ -660,7 +679,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	newCfg.GitHub.GitUserName = a.GitUserName
 	newCfg.GitHub.GitUserEmail = a.GitUserEmail
 	newCfg.Desktop.OperatorCIDR = a.OperatorCIDR
-	newCfg.Desktop.PublicAMIOwner = a.PublicAMIOwner
+	applySetupPublicAMIOwner(&newCfg.Desktop, a.PublicAMIOwner)
 	if a.SSHKeyPath != "" {
 		newCfg.Desktop.SSHKeyPath = a.SSHKeyPath
 	}

@@ -402,7 +402,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			amiID = ami
 		}
 	}
-	if amiID == "" && cfg.Desktop.PublicAMIOwner != "" {
+	if amiID == "" && cfg.Desktop.PublicAMIOwner != "" && !cfg.Desktop.PublicAMIDiscoveryDisabled {
 		namePattern, err := publicAMINamePattern(version.Version, cfg.Desktop.PublicAMIMajor)
 		if err != nil {
 			return err

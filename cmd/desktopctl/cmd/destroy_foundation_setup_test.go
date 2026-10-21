@@ -33,8 +33,6 @@ func TestSetupCleanupTargets(t *testing.T) {
 		env  string
 	}{
 		{"wrong environment", func(*config.Config) {}, "dev"},
-		{"custom key", func(c *config.Config) { c.Desktop.SSHKeyName = "shared-key" }, "prod"},
-		{"secret outside region", func(c *config.Config) { c.GitHub.AgentSecret = "/desktopctl/prod/us-east-1/orchael/agents" }, "prod"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			copy := *testCleanupConfig()
@@ -43,6 +41,15 @@ func TestSetupCleanupTargets(t *testing.T) {
 				t.Fatal("expected cleanup target rejection")
 			}
 		})
+	}
+	c.Desktop.SSHKeyName = "shared-key"
+	c.GitHub.AgentSecret = "/desktopctl/prod/us-east-1/orchael/agents"
+	targets, err = setupCleanupTargets(c, "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targets.keyPair != "" || len(targets.secrets) != 1 || targets.secrets[0] != c.GitHub.GitHubSecret || len(targets.skipped) != 2 {
+		t.Fatalf("custom resources should be skipped while standard secret remains: %+v", targets)
 	}
 }
 
