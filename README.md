@@ -70,13 +70,20 @@ be passed explicitly when creating a desktop; a new config does not pin it.
    as `DESKTOPCTL_GITHUB_TOKEN` or `OPENAI_API_KEY`; see
    [noninteractive setup](#noninteractive-setup). Once this config has been
    saved, subsequent setup runs with the same region, environment, and owner
-   can reuse these resources without `--allow-existing`. Check the result:
+   can reuse these resources without `--allow-existing`.
+
+3. **Check local tools and AWS access.** Run the check against the config
+   created by setup:
 
    ```sh
    ./bin/desktopctl --config "$CONFIG" check
    ```
 
-3. **Create the state backend and preview the foundation.** The bucket was
+   Confirm that `aws`, `packer`, `pulumi`, `ssh`, and `aws-credentials` all
+   report `OK`, and that `aws-credentials` resolves to account
+   `819363892004`. Fix any failed check before continuing.
+
+4. **Create the state backend and preview the foundation.** The bucket was
    removed by the previous teardown, so `bootstrap` must recreate it. Review
    the Pulumi preview before applying the foundation:
 
@@ -93,7 +100,7 @@ be passed explicitly when creating a desktop; a new config does not pin it.
    scheduled for deletion, resolve that name before applying a new foundation
    stack; restoring the two setup secrets does not restore this Pulumi resource.
 
-4. **Preview and create the first desktop.** Verify that the listed AMI is
+5. **Preview and create the first desktop.** Verify that the listed AMI is
    still available in ca-central-1. EC2 and EBS charges begin when the desktop
    is created. Use a repository you can access; the example uses this repository:
 
