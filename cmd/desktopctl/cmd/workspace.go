@@ -166,7 +166,7 @@ func runWorkspaceCreate(cmd *cobra.Command, args []string) error {
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	foundationWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
-	outputs, err := runner.Outputs(ctx, pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, foundationWorkDir))
+	outputs, err := runner.FoundationOutputs(ctx, pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, foundationWorkDir), env, cfg.AWS.Region)
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
 	}

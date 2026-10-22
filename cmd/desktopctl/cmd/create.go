@@ -492,7 +492,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// that the desktop stack requires.
 	foundationWorkDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "foundation")
 	foundationRef := pulumi.FoundationStackRef(backendURL, env, cfg.AWS.Region, foundationWorkDir)
-	foundationOutputs, err := runner.Outputs(ctx, foundationRef)
+	foundationOutputs, err := runner.FoundationOutputs(ctx, foundationRef, env, cfg.AWS.Region)
 	if err != nil {
 		return fmt.Errorf("read foundation stack outputs (run init-foundation first): %w", err)
 	}
