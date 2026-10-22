@@ -27,6 +27,21 @@ When setting up or working on projects, ensure proper license configuration for 
    - Add a "License" section at the end of `README.md` that references the `LICENSE` file.
    - Example: `MIT License - see [LICENSE](LICENSE) file for details.`
 
+## Implementation Order
+
+1. Check `AGENTS.md` and `CLAUDE.md` for a license override.
+2. If none, use MIT.
+3. Check if `LICENSE` exists; if not, create it with the chosen license text.
+4. Check `package.json` for the `license` field; add or update if missing.
+5. Check `README.md` for a License section at the end; add one if missing, referencing `[LICENSE](LICENSE)`.
+
+## When to Apply
+
+- When creating a new project.
+- When a project lacks a `LICENSE` file.
+- When `package.json` has no `license` field.
+- When `README.md` does not reference the LICENSE file at the end.
+
 ## MIT License Template
 
 ```
@@ -86,18 +101,3 @@ Default license for this project: Apache-2.0 (or ISC, BSD-3-Clause, etc.)
 ```
 
 When such a section exists, use the specified license instead of MIT. If both files define a license, prefer `AGENTS.md` (it is agent-facing and typically more authoritative for automation).
-
-## Implementation Order
-
-1. Check `AGENTS.md` and `CLAUDE.md` for a license override.
-2. If none, use MIT.
-3. Check if `LICENSE` exists; if not, create it with the chosen license text.
-4. Check `package.json` for the `license` field; add or update if missing.
-5. Check `README.md` for a License section at the end; add one if missing, referencing `[LICENSE](LICENSE)`.
-
-## When to Apply
-
-- When creating a new project.
-- When a project lacks a `LICENSE` file.
-- When `package.json` has no `license` field.
-- When `README.md` does not reference the LICENSE file at the end.

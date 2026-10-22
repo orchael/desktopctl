@@ -17,25 +17,33 @@
   ],
   "skills": [
     "github-health-check",
-    "github-pr-copilot-cycle"
+    "github-pr-copilot-cycle",
+    "ballast-audit"
   ],
-  "ballastVersion": "5.16.5",
+  "ballastVersion": "5.21.3",
   "languages": [
     "typescript",
     "go",
-    "ansible"
+    "ansible",
+    "docker"
   ],
   "paths": {
     "ansible": [
       "ansible/desktop-setup",
       "packer"
     ],
+    "docker": [
+      ".",
+      "nginx"
+    ],
     "go": [
       ".",
+      "infra/pulumi/control-plane-access",
       "infra/pulumi/desktop",
       "infra/pulumi/foundation"
     ],
     "typescript": [
+      "apps/control-plane-web",
       "apps/desktop-web/server",
       "apps/desktop-web"
     ]
@@ -44,6 +52,11 @@
     "ansible": [
       "ansible-lint",
       "molecule"
+    ],
+    "docker": [
+      "docker",
+      "hadolint",
+      "trivy"
     ],
     "go": [
       "go",

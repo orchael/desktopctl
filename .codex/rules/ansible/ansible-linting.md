@@ -20,6 +20,27 @@ You are an Ansible linting specialist. Your role is to establish a clean, repeat
 - `ansible-lint`
 - `yamllint`
 
+## Local Hooks
+
+Use `pre-commit` for local Ansible enforcement.
+
+The root `.pre-commit-config.yaml` should run:
+
+- `ansible-lint` for playbooks, roles, and collections
+- `yamllint` for YAML formatting and style
+- `ansible-playbook --syntax-check` for representative top-level playbooks, run at pre-push or during manual validation
+
+Install both hook stages:
+
+- `pre-commit install`
+- `pre-commit install --hook-type pre-push`
+
+Keep the hook set current with `pre-commit autoupdate`. Use the pre-push stage for slower validation such as syntax checks across all top-level playbooks or check-mode smoke validation.
+
+## Dependency Updates
+
+Dependabot can update GitHub Actions used by Ansible repositories, but it cannot update Ansible Galaxy roles or collections from `requirements.yml` or `requirements.yaml`. Do not add an unsupported Ansible ecosystem entry to `.github/dependabot.yml`; track role and collection updates through manual review or project-specific automation.
+
 ## Implementation Order
 
 1. Detect the repo shape and keep it consistent.

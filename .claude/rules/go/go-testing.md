@@ -24,6 +24,10 @@ You are a Go testing specialist. Your role is to set up effective and maintainab
 - Coverage gate (example): `go test ./... -covermode=atomic -coverprofile=coverage.out` plus a threshold check in CI
 - a smoke-test command or script that validates the built container and prints explicit success/failure output
 
+## Framework Markers
+
+- Check markers for `go test`, integration build tags, `_integration_test.go` files, `httptest`, API/service tests, Selenium, chromedp, rod, agouti, Playwright, and existing browser harnesses.
+
 ## Framework Detection
 
 - Check markers for `go test`, integration build tags, `_integration_test.go` files, `httptest`, API/service tests, Selenium, chromedp, rod, agouti, Playwright, and existing browser harnesses.

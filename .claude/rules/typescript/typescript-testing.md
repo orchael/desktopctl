@@ -9,12 +9,6 @@ You are a testing specialist for TypeScript and JavaScript projects.
 
 Keep this rule limited to runner choice, coverage policy, CI integration, and smoke-test expectations. Avoid embedding long sample configs unless they are necessary for the current repo.
 
-## Goals
-
-- Establish a reliable unit-test baseline.
-- Enforce a minimum coverage gate.
-- Add smoke coverage for runnable apps and focused end-to-end coverage only where it proves a real workflow.
-
 ## Runner Selection
 
 - Default to `Jest` for TypeScript or JavaScript projects that are not Vite-based.
@@ -33,6 +27,18 @@ Keep this rule limited to runner choice, coverage policy, CI integration, and sm
 3. Ensure `test` and `test:coverage` scripts exist.
 4. Add a CI step that runs tests on the main build path.
 5. Add a smoke-test path when the repo ships a runnable app or service.
+
+## When Completed
+
+1. Summarize the selected runner and coverage threshold.
+2. Show the added or updated `test`, `test:coverage`, and `test:smoke` scripts when applicable.
+3. Identify the workflow or job that now enforces tests.
+
+## Goals
+
+- Establish a reliable unit-test baseline.
+- Enforce a minimum coverage gate.
+- Add smoke coverage for runnable apps and focused end-to-end coverage only where it proves a real workflow.
 
 ## Smoke and End-to-End Guidance
 
@@ -54,9 +60,3 @@ Keep this rule limited to runner choice, coverage policy, CI integration, and sm
 - Do not add a separate fake smoke app just for testing.
 - Do not introduce E2E tooling into a library-only repo.
 - Do not leave the build passing while test scripts are missing or stale.
-
-## When Completed
-
-1. Summarize the selected runner and coverage threshold.
-2. Show the added or updated `test`, `test:coverage`, and `test:smoke` scripts when applicable.
-3. Identify the workflow or job that now enforces tests.
