@@ -319,10 +319,43 @@ func (r *Runner) Preview(ctx context.Context, ref *StackRef, cfg StackConfig, pr
 // pulumi up or destroy. Returns an error if the stack does not exist.
 func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string, error) {
 	env := r.env(ref.BackendURL)
-	if err := r.run(ctx, ref.WorkDir, env, nil, "stack", "select", ref.StackName); err != nil {
-		return nil, fmt.Errorf("stack select %s: %w", ref.StackName, err)
+	out, err := r.runCapture(ctx, ref.WorkDir, env, "stack", "select", ref.StackName)
+	if err != nil {
+		return nil, fmt.Errorf("stack select %s: %s: %w", ref.StackName, tailOutput(out, 1000), err)
 	}
 	return r.outputs(ctx, ref.WorkDir, env)
+}
+
+// FoundationOutputs reads the regional foundation, or a legacy environment-only
+// foundation if the regional stack does not exist and its scope matches.
+func (r *Runner) FoundationOutputs(ctx context.Context, ref *StackRef, environment, region string) (map[string]string, error) {
+	exists, err := r.StackExists(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return r.Outputs(ctx, ref)
+	}
+
+	legacy := *ref
+	legacy.StackName = "foundation-" + environment
+	exists, err = r.StackExists(ctx, &legacy)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("foundation stack %s does not exist (legacy stack %s also absent)", ref.StackName, legacy.StackName)
+	}
+	for key, want := range map[string]string{"aws:region": region, "environment": environment} {
+		out, err := r.runCapture(ctx, legacy.WorkDir, r.env(legacy.BackendURL), "config", "get", key, "--stack", legacy.StackName)
+		if err != nil {
+			return nil, fmt.Errorf("read legacy foundation %s config %s: %s: %w", legacy.StackName, key, tailOutput(out, 1000), err)
+		}
+		if got := strings.TrimSpace(out); got != want {
+			return nil, fmt.Errorf("legacy foundation %s config %s is %q, expected %q", legacy.StackName, key, got, want)
+		}
+	}
+	return r.Outputs(ctx, &legacy)
 }
 
 // Destroy selects the stack and runs `pulumi destroy`. Progress is streamed to

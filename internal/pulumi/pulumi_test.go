@@ -275,6 +275,59 @@ func TestRunnerPassesSelectedRegionToBackend(t *testing.T) {
 	}
 }
 
+func TestFoundationOutputsLegacyFallback(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+case "$*" in
+  "stack select foundation-dev-us-east-2")
+    if [ "$TEST_FOUNDATION_MODE" = "regional" ]; then exit 0; fi
+    echo "error: no stack named 'foundation-dev-us-east-2' found" >&2
+    exit 6 ;;
+  "stack select foundation-dev")
+    if [ "$TEST_FOUNDATION_MODE" = "missing" ]; then
+      echo "error: no stack named 'foundation-dev' found" >&2
+      exit 6
+    fi
+    exit 0 ;;
+  "config get aws:region --stack foundation-dev")
+    if [ "$TEST_FOUNDATION_MODE" = "wrong-region" ]; then echo us-east-1; else echo us-east-2; fi ;;
+  "config get environment --stack foundation-dev")
+    if [ "$TEST_FOUNDATION_MODE" = "wrong-environment" ]; then echo prod; else echo dev; fi ;;
+  "stack output --json") echo '{"subnetId":"subnet-123"}' ;;
+  *) echo "unexpected pulumi invocation: $*" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "pulumi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	ref := FoundationStackRef("s3://bucket", "dev", "us-east-2", dir)
+	for _, tc := range []struct {
+		mode    string
+		wantErr string
+	}{
+		{mode: "regional"},
+		{mode: "legacy"},
+		{mode: "wrong-region", wantErr: `expected "us-east-2"`},
+		{mode: "wrong-environment", wantErr: `expected "dev"`},
+		{mode: "missing", wantErr: "also absent"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			t.Setenv("TEST_FOUNDATION_MODE", tc.mode)
+			outputs, err := NewRunner().FoundationOutputs(context.Background(), ref, "dev", "us-east-2")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || outputs[OutputSubnetID] != "subnet-123" {
+				t.Fatalf("outputs = %v, error = %v", outputs, err)
+			}
+		})
+	}
+}
+
 func TestRunnerUp_Success(t *testing.T) {
 	fakePulumiDir(t, 0, `{}`)
 	workDir := t.TempDir()
