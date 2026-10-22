@@ -80,6 +80,26 @@ func TestCreateSecretPathsSaaSExcludesOperatorAgentSecret(t *testing.T) {
 	}
 }
 
+func TestResolveOwnerSecretPath(t *testing.T) {
+	for _, tc := range []struct {
+		name, configured, configuredOwner, selectedOwner, kind, want string
+	}{
+		{"explicit agent path across owners", "/ai-desktops/markcallen/agents", "markcallen", "orchael", "agents", "/ai-desktops/markcallen/agents"},
+		{"explicit GitHub path across owners", "/ai-desktops/markcallen/github", "markcallen", "orchael", "github", "/ai-desktops/markcallen/github"},
+		{"default agent path follows owner", "/desktopctl/dev/us-east-2/markcallen/agents", "markcallen", "orchael", "agents", "/desktopctl/dev/us-east-2/orchael/agents"},
+		{"default GitHub path follows owner", "/desktopctl/dev/us-east-2/markcallen/github", "markcallen", "orchael", "github", "/desktopctl/dev/us-east-2/orchael/github"},
+		{"inferred owner", "", "", "orchael", "agents", "/desktopctl/dev/us-east-2/orchael/agents"},
+		{"same owner", "/ai-desktops/markcallen/agents", "markcallen", "markcallen", "agents", "/ai-desktops/markcallen/agents"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveOwnerSecretPath(tc.configured, tc.configuredOwner, tc.selectedOwner, "dev", "us-east-2", tc.kind)
+			if got != tc.want {
+				t.Fatalf("secret path = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateBootstrapProfileSecretUsesDesktopEnvironment(t *testing.T) {
 	const agentPath = "/desktopctl/acme/agents"
 	const profilePath = "/desktopctl/acme/profiles/personal"

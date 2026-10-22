@@ -261,16 +261,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if owner == "" {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
-	agentSecretPath := cfg.GitHub.AgentSecret
-	if owner != cfg.GitHub.Owner {
-		agentSecretPath = fmt.Sprintf("/desktopctl/%s/%s/%s/agents", cfg.Environment(), cfg.AWS.Region, owner)
-	}
+	agentSecretPath := resolveOwnerSecretPath(cfg.GitHub.AgentSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "agents")
 	gitHubSecret := createGitHubSecret
 	if gitHubSecret == "" && !cfg.SaaSMode {
-		gitHubSecret = cfg.GitHub.GitHubSecret
-		if owner != cfg.GitHub.Owner {
-			gitHubSecret = fmt.Sprintf("/desktopctl/%s/%s/%s/github", cfg.Environment(), cfg.AWS.Region, owner)
-		}
+		gitHubSecret = resolveOwnerSecretPath(cfg.GitHub.GitHubSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "github")
 	}
 	publicGitHubSources := cfg.SaaSMode && gitHubSecret == ""
 	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
@@ -342,7 +336,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	secretPaths := createSecretPaths(agentSecretPath, requestedSecrets, cfg.SaaSMode)
 	// Verify every configured secret before provisioning.
 	secretsToValidate := append([]string(nil), secretPaths...)
-	if cfg.SaaSMode && gitHubSecret != "" {
+	if gitHubSecret != "" {
 		secretsToValidate = append(secretsToValidate, gitHubSecret)
 	}
 	if len(secretsToValidate) > 0 {
@@ -990,6 +984,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 func resolveCreateDesktopProfile(configured, flag string, flagChanged bool) string {
 	if flagChanged {
 		return flag
+	}
+	return configured
+}
+
+// resolveOwnerSecretPath changes only a conventional owner-scoped default.
+// A custom credential source may intentionally be shared across repo owners.
+func resolveOwnerSecretPath(configured, configuredOwner, selectedOwner, environment, region, kind string) string {
+	if selectedOwner == configuredOwner {
+		return configured
+	}
+	defaultPath := func(owner string) string {
+		return fmt.Sprintf("/desktopctl/%s/%s/%s/%s", environment, region, owner, kind)
+	}
+	if configured == "" || (configuredOwner != "" && configured == defaultPath(configuredOwner)) {
+		return defaultPath(selectedOwner)
 	}
 	return configured
 }
