@@ -289,15 +289,23 @@ case "$*" in
       exit 6
     fi
     exit 0 ;;
-  "config get aws:region --stack foundation-dev")
-    if [ "$TEST_FOUNDATION_MODE" = "wrong-region" ]; then echo us-east-1; else echo us-east-2; fi ;;
-  "config get environment --stack foundation-dev")
-    if [ "$TEST_FOUNDATION_MODE" = "wrong-environment" ]; then echo prod; else echo dev; fi ;;
+  "stack history --stack foundation-dev --json --page-size 1")
+    region=us-east-2
+    environment=dev
+    if [ "$TEST_FOUNDATION_MODE" = "wrong-region" ]; then region=us-east-1; fi
+    if [ "$TEST_FOUNDATION_MODE" = "wrong-environment" ]; then environment=prod; fi
+    result=succeeded
+    if [ "$TEST_FOUNDATION_MODE" = "failed-update" ]; then result=failed; fi
+    printf '[{"result":"%s","config":{"aws:region":{"value":"%s"},"foundation:environment":{"value":"%s"}}}]' "$result" "$region" "$environment" ;;
   "stack output --json") echo '{"subnetId":"subnet-123"}' ;;
   *) echo "unexpected pulumi invocation: $*" >&2; exit 1 ;;
 esac
 `
 	if err := os.WriteFile(filepath.Join(dir, "pulumi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A conflicting local stack config must not override deployed history.
+	if err := os.WriteFile(filepath.Join(dir, "Pulumi.foundation-dev.yaml"), []byte("config:\n  aws:region: us-east-1\n  foundation:environment: prod\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
@@ -308,13 +316,19 @@ esac
 	}{
 		{mode: "regional"},
 		{mode: "legacy"},
-		{mode: "wrong-region", wantErr: `expected "us-east-2"`},
-		{mode: "wrong-environment", wantErr: `expected "dev"`},
+		{mode: "legacy-no-local-config"},
+		{mode: "wrong-region", wantErr: `deployed config aws:region does not match "us-east-2"`},
+		{mode: "wrong-environment", wantErr: `deployed config foundation:environment does not match "dev"`},
+		{mode: "failed-update", wantErr: "no latest successful deployment"},
 		{mode: "missing", wantErr: "also absent"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			t.Setenv("TEST_FOUNDATION_MODE", tc.mode)
-			outputs, err := NewRunner().FoundationOutputs(context.Background(), ref, "dev", "us-east-2")
+			caseRef := *ref
+			if tc.mode == "legacy-no-local-config" {
+				caseRef.WorkDir = t.TempDir()
+			}
+			outputs, err := NewRunner().FoundationOutputs(context.Background(), &caseRef, "dev", "us-east-2")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("error = %v, want %q", err, tc.wantErr)

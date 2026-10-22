@@ -346,13 +346,29 @@ func (r *Runner) FoundationOutputs(ctx context.Context, ref *StackRef, environme
 	if !exists {
 		return nil, fmt.Errorf("foundation stack %s does not exist (legacy stack %s also absent)", ref.StackName, legacy.StackName)
 	}
-	for key, want := range map[string]string{"aws:region": region, "environment": environment} {
-		out, err := r.runCapture(ctx, legacy.WorkDir, r.env(legacy.BackendURL), "config", "get", key, "--stack", legacy.StackName)
-		if err != nil {
-			return nil, fmt.Errorf("read legacy foundation %s config %s: %s: %w", legacy.StackName, key, tailOutput(out, 1000), err)
-		}
-		if got := strings.TrimSpace(out); got != want {
-			return nil, fmt.Errorf("legacy foundation %s config %s is %q, expected %q", legacy.StackName, key, got, want)
+	// Local Pulumi.<stack>.yaml files can be absent or stale. History records
+	// the configuration used by the last deployment in the selected backend.
+	out, err := r.runCapture(ctx, legacy.WorkDir, r.env(legacy.BackendURL), "stack", "history", "--stack", legacy.StackName, "--json", "--page-size", "1")
+	if err != nil {
+		return nil, fmt.Errorf("read legacy foundation %s deployment history: %w", legacy.StackName, err)
+	}
+	var history []struct {
+		Result string `json:"result"`
+		Config map[string]struct {
+			Value  string `json:"value"`
+			Secret bool   `json:"secret"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(out), &history); err != nil {
+		return nil, fmt.Errorf("decode legacy foundation %s deployment history: %w", legacy.StackName, err)
+	}
+	if len(history) == 0 || history[0].Result != "succeeded" {
+		return nil, fmt.Errorf("legacy foundation %s has no latest successful deployment to verify", legacy.StackName)
+	}
+	for key, want := range map[string]string{"aws:region": region, "foundation:environment": environment} {
+		entry, ok := history[0].Config[key]
+		if !ok || entry.Secret || entry.Value != want {
+			return nil, fmt.Errorf("legacy foundation %s deployed config %s does not match %q", legacy.StackName, key, want)
 		}
 	}
 	return r.Outputs(ctx, &legacy)
