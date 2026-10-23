@@ -14,6 +14,20 @@ You are a publishing specialist for SDKs and generated client packages.
 - Use the Ballast `publish.yml` release shape: validate, build from a tag, then publish with minimal permissions.
 - Publish TypeScript SDKs to npmjs, Python SDKs to PyPI, and Go SDKs through GitHub tags and releases.
 
+## SDK-Specific Requirements
+
+- Match generated package metadata to the computed release version before creating the tag.
+- For generated SDKs, check generation reproducibly in CI and fail the release if generated output is stale relative to the source API description.
+- Document the upstream API or schema version the SDK targets; keep examples and generated docs in sync with the released package.
+- Avoid breaking renames or regenerated surface changes without a semver-major release; record deprecations before removal.
+- Changelogs must describe both API compatibility and package-level changes.
+
+## When to Apply
+
+- When a repository publishes reusable API clients, generated clients, or framework SDKs.
+- When code generation is part of the release path.
+- When the maintainer needs registry-specific release rules plus SDK compatibility discipline.
+
 ## Release Workflow Pattern
 
 SDK publishing workflows should follow the same backbone as Ballast `publish.yml`:
@@ -101,9 +115,3 @@ SDK publishing workflows should follow the same backbone as Ballast `publish.yml
 - Record deprecations before removal.
 - Ensure changelogs describe both API compatibility and package-level changes.
 - The workflow-dispatch `release_type` input should be the mechanism that decides whether the release is patch, minor, or major.
-
-## When to Apply
-
-- When a repository publishes reusable API clients, generated clients, or framework SDKs.
-- When code generation is part of the release path.
-- When the maintainer needs registry-specific release rules plus SDK compatibility discipline.
