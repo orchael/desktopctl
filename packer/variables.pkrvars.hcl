@@ -1,4 +1,4 @@
-bridgectl_version             = "v1.4.6"
+bridgectl_version             = "v1.4.8"
 tailscale_version             = "1.98.9"
 helm_version                  = "v4.3.1"
 helm_sha256                   = "0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
