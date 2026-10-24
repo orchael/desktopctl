@@ -99,7 +99,9 @@ func TestAMIPlaybookMasksGenericBridgeUnit(t *testing.T) {
 func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
 	for _, want := range []string{
 		"- name: Configure Git editor for ubuntu",
-		"git config --global core.editor vim",
+		"community.general.git_config:",
+		"        name: core.editor",
+		"        value: vim",
 		"- name: Add default editor to desktop sessions",
 		"- name: Add visual editor to desktop sessions",
 		"- name: Add Git editor to desktop sessions",
@@ -107,7 +109,8 @@ func TestAMIConfiguresVimAsDefaultEditor(t *testing.T) {
 		`line: 'VISUAL=vim'`,
 		`line: 'GIT_EDITOR=vim'`,
 		"- name: Verify Git editor configuration in AMI",
-		"git config --global --get core.editor",
+		"community.general.git_config_info:",
+		"- name: Require Vim as the Git editor in AMI",
 		"- name: Verify default editor environment in AMI",
 	} {
 		assertFileContains(t, "playbook.yml", want)

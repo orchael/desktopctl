@@ -30,6 +30,20 @@
         that: uv_version is defined and uv_version | length > 0
         fail_msg: "uv_version must be set via --extra-vars (defined in packer/variables.pkrvars.hcl)"
 
+    - name: Require pinned toolchain artifacts
+      ansible.builtin.assert:
+        that:
+          - go_sha256 is defined and go_sha256 is match('^[0-9a-f]{64}$')
+          - uv_sha256 is defined and uv_sha256 is match('^[0-9a-f]{64}$')
+          - rustup_sha256 is defined and rustup_sha256 is match('^[0-9a-f]{64}$')
+          - awscli_sha256 is defined and awscli_sha256 is match('^[0-9a-f]{64}$')
+          - nvm_ref is defined and nvm_ref is match('^[0-9a-f]{40}$')
+          - pyenv_ref is defined and pyenv_ref is match('^[0-9a-f]{40}$')
+          - rustup_version is defined and rustup_version | length > 0
+          - rust_toolchain_version is defined and rust_toolchain_version | length > 0
+          - nodejs_version is defined and nodejs_version | length > 0
+          - awscli_version is defined and awscli_version | length > 0
+
     - name: Require flutter_version
       ansible.builtin.assert:
         that: flutter_version is defined and flutter_version | length > 0
@@ -181,18 +195,32 @@
         path: /tmp/efs-utils-installer.sh
         state: absent
 
-    - name: Check for Pantheon dock binary
-      ansible.builtin.stat:
-        path: /usr/bin/io.elementary.dock
-      register: pantheon_dock_binary
-
-    - name: Disable Pantheon dock in VNC sessions
+    # The dock steals keyboard focus in VNC sessions. Tell Gala not to launch
+    # or wait for it; removing its execute bit leaves Gala waiting for a panel
+    # that cannot start and can leave Wingpanel's Applications menu invisible.
+    - name: Ensure Pantheon user config directory exists
       ansible.builtin.file:
-        path: /usr/bin/io.elementary.dock
+        path: /home/ubuntu/.config
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+
+    - name: Configure Pantheon shell for VNC
+      ansible.builtin.copy:
+        dest: /home/ubuntu/.config/io.elementary.desktop.wm.shell
+        owner: ubuntu
+        group: ubuntu
         mode: "0644"
-      when:
-        - ansible_facts['distribution'] == 'Ubuntu'
-        - pantheon_dock_binary.stat.exists
+        content: |
+          [io.elementary.wingpanel]
+          launch-on-x=true
+          args=io.elementary.wingpanel
+          wait-for-n-panels=1
+
+          [io.elementary.dock]
+          launch-on-x=false
+          args=io.elementary.dock
 
     - name: Install Docker prerequisites
       ansible.builtin.apt:
@@ -203,23 +231,23 @@
         state: present
 
     - name: Add Docker GPG key
-      ansible.builtin.shell: |
-        install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-          gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        chmod a+r /etc/apt/keyrings/docker.gpg
-      args:
-        creates: /etc/apt/keyrings/docker.gpg
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Get Debian package architecture for Docker
+      ansible.builtin.command: dpkg --print-architecture
+      register: docker_arch
+      changed_when: false
 
     - name: Add Docker apt repository
-      ansible.builtin.shell: |
-        echo \
-          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-          https://download.docker.com/linux/ubuntu \
-          $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-          tee /etc/apt/sources.list.d/docker.list > /dev/null
-      args:
-        creates: /etc/apt/sources.list.d/docker.list
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: >-
+          deb [arch={{ docker_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        mode: "0644"
 
     - name: Update apt cache after adding Docker repo
       ansible.builtin.apt:
@@ -273,20 +301,49 @@
         state: absent
 
     - name: Install pinned Go version
-      ansible.builtin.shell: |
-        curl -fsSL https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz | \
-          tar -xzf - -C /usr/local/
-        echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/golang.sh
+      ansible.builtin.get_url:
+        url: https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz
+        dest: /tmp/desktopctl-go.tar.gz
+        checksum: sha256:{{ go_sha256 }}
+        mode: "0644"
+
+    - name: Extract pinned Go version
+      ansible.builtin.unarchive:
+        src: /tmp/desktopctl-go.tar.gz
+        dest: /usr/local
+        remote_src: true
+        creates: /usr/local/go/bin/go
+
+    - name: Add Go to system PATH
+      ansible.builtin.copy:
+        dest: /etc/profile.d/golang.sh
+        content: 'export PATH="$PATH:/usr/local/go/bin"'
+        mode: "0644"
+
+    - name: Download pinned uv archive
+      ansible.builtin.get_url:
+        url: https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz
+        dest: /tmp/desktopctl-uv.tar.gz
+        checksum: sha256:{{ uv_sha256 }}
+        mode: "0644"
+
+    - name: Ensure ubuntu local bin exists
+      ansible.builtin.file:
+        path: /home/ubuntu/.local/bin
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
 
     - name: Install uv (Python package manager) at pinned version
-      ansible.builtin.shell: |
-        curl -LsSf "https://astral.sh/uv/{{ uv_version }}/install.sh" | sh
-      args:
+      ansible.builtin.unarchive:
+        src: /tmp/desktopctl-uv.tar.gz
+        dest: /home/ubuntu/.local/bin
+        remote_src: true
+        extra_opts: [--strip-components=1]
+        owner: ubuntu
+        group: ubuntu
         creates: /home/ubuntu/.local/bin/uv
-        executable: /bin/bash
-      become_user: ubuntu
-      environment:
-        HOME: /home/ubuntu
 
     - name: Link uv into system PATH
       ansible.builtin.file:
@@ -346,12 +403,12 @@
         mode: "0644"
 
     - name: Allow flutterusers group to run git in /opt/flutter (git safe.directory)
-      ansible.builtin.shell: |
-        git config --system --get-all safe.directory | grep -qxF /opt/flutter || \
-          git config --system --add safe.directory /opt/flutter
-      args:
-        executable: /bin/bash
-      changed_when: false
+      community.general.git_config:
+        name: safe.directory
+        value: /opt/flutter
+        scope: system
+        state: present
+        add_mode: add
 
     - name: Run flutter precache for linux and web targets
       ansible.builtin.shell: |
@@ -393,18 +450,24 @@
         create: true
         mode: "0644"
 
-    - name: Append Android SDK bin dirs to PATH in /etc/environment
-      ansible.builtin.shell: |
-        if ! grep -q '/opt/android-sdk' /etc/environment; then
-          sed -i 's|^PATH="\(.*\)"$|PATH="\1:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/emulator"|' /etc/environment
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: false
+    - name: Read PATH before appending Android SDK bin dirs
+      ansible.builtin.slurp:
+        src: /etc/environment
+      register: android_environment
+
+    - name: Update PATH with Android SDK bin dirs in /etc/environment
+      ansible.builtin.replace:
+        path: /etc/environment
+        regexp: '^(PATH="[^"]*)"$'
+        replace: '\1:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/emulator"'
+      when: "'/opt/android-sdk/cmdline-tools/latest/bin' not in (android_environment.content | b64decode)"
 
     - name: Accept Android SDK licenses
       ansible.builtin.shell: |
+        set -o pipefail
         yes | runuser -l ubuntu -c 'ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses'
+        sdkmanager_rc=${PIPESTATUS[1]}
+        test "$sdkmanager_rc" -eq 0
       args:
         executable: /bin/bash
       changed_when: false
@@ -433,11 +496,21 @@
       changed_when: false
 
     - name: Install AWS CLI v2
-      ansible.builtin.shell: |
-        curl -fsSL 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o '/tmp/awscliv2.zip'
-        unzip -q /tmp/awscliv2.zip -d /tmp
-        /tmp/aws/install
-        rm -rf /tmp/awscliv2.zip /tmp/aws
+      ansible.builtin.get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{{ awscli_version }}.zip
+        dest: /tmp/desktopctl-awscliv2.zip
+        checksum: sha256:{{ awscli_sha256 }}
+        mode: "0644"
+
+    - name: Extract AWS CLI v2
+      ansible.builtin.unarchive:
+        src: /tmp/desktopctl-awscliv2.zip
+        dest: /tmp
+        remote_src: true
+        creates: /tmp/aws/install
+
+    - name: Install pinned AWS CLI v2
+      ansible.builtin.command: /tmp/aws/install
       args:
         creates: /usr/local/bin/aws
 
@@ -574,23 +647,16 @@
       environment:
         TFENV_CONFIG_DIR: /home/ubuntu/.config/tfenv
       when: not tfenv_version_file.stat.exists or (tfenv_selected_version.content | b64decode | trim) != terraform_version
-
-    - name: Get latest nvm release version
-      ansible.builtin.uri:
-        url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
-        method: GET
-        return_content: true
-        headers:
-          Accept: application/vnd.github.v3+json
-      register: nvm_latest_release
-      changed_when: false
+      changed_when: true
 
     - name: Install nvm for ubuntu user
-      ansible.builtin.shell: |
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash
-      args:
-        creates: /home/ubuntu/.nvm/nvm.sh
-      become: false
+      ansible.builtin.git:
+        repo: https://github.com/nvm-sh/nvm.git
+        dest: /home/ubuntu/.nvm
+        version: "{{ nvm_ref }}"
+        update: false
+      become: true
+      become_user: ubuntu
 
     - name: Add nvm to login shell PATH via /etc/profile.d
       ansible.builtin.copy:
@@ -603,12 +669,32 @@
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 
-    - name: Install Rust via rustup for ubuntu user
-      ansible.builtin.shell: |
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    - name: Initialize nvm in interactive Bash shells
+      ansible.builtin.blockinfile:
+        path: /home/ubuntu/.bashrc
+        marker: "# {mark} desktopctl nvm"
+        block: |
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+      become: true
+      become_user: ubuntu
+
+    - name: Download pinned rustup-init
+      ansible.builtin.get_url:
+        url: https://static.rust-lang.org/rustup/archive/{{ rustup_version }}/x86_64-unknown-linux-gnu/rustup-init
+        dest: /tmp/rustup-init
+        checksum: sha256:{{ rustup_sha256 }}
+        mode: "0755"
+
+    - name: Install Rust via pinned rustup-init for ubuntu user
+      ansible.builtin.command: /tmp/rustup-init -y --no-modify-path --default-toolchain {{ rust_toolchain_version }}
       args:
         creates: /home/ubuntu/.cargo/bin/rustc
-      become: false
+      become: true
+      become_user: ubuntu
+      environment:
+        HOME: /home/ubuntu
 
     - name: Add Cargo to login shell PATH via /etc/profile.d
       ansible.builtin.copy:
@@ -640,11 +726,13 @@
         state: present
 
     - name: Install pyenv for ubuntu user
-      ansible.builtin.shell: |
-        curl -fsSL https://pyenv.run | bash
-      args:
-        creates: /home/ubuntu/.pyenv/bin/pyenv
-      become: false
+      ansible.builtin.git:
+        repo: https://github.com/pyenv/pyenv.git
+        dest: /home/ubuntu/.pyenv
+        version: "{{ pyenv_ref }}"
+        update: false
+      become: true
+      become_user: ubuntu
 
     - name: Add pyenv to login shell PATH via /etc/profile.d
       ansible.builtin.copy:
@@ -660,14 +748,18 @@
           fi
 
     - name: Add GitHub CLI apt repository
-      ansible.builtin.shell: |
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-          | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-          | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-        apt-get update -qq
-      args:
-        creates: /etc/apt/sources.list.d/github-cli.list
+      ansible.builtin.get_url:
+        url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+        dest: /usr/share/keyrings/githubcli-archive-keyring.gpg
+        mode: "0644"
+
+    - name: Configure GitHub CLI apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/github-cli.list
+        content: >-
+          deb [arch={{ docker_arch.stdout }} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]
+          https://cli.github.com/packages stable main
+        mode: "0644"
 
     - name: Install GitHub CLI and python3
       ansible.builtin.apt:
@@ -675,6 +767,7 @@
           - gh
           - python3
         state: present
+        update_cache: true
 
     - name: Configure GitHub CLI editor for ubuntu
       ansible.builtin.command: /usr/bin/gh config set editor vim
@@ -685,22 +778,26 @@
       changed_when: false
 
     - name: Read Git editor for ubuntu
-      ansible.builtin.command: git config --global --get core.editor
+      community.general.git_config_info:
+        name: core.editor
+        scope: global
       become_user: ubuntu
       become: true
       environment:
         HOME: /home/ubuntu
       register: git_editor_current
-      changed_when: false
-      failed_when: git_editor_current.rc not in [0, 1]
 
     - name: Configure Git editor for ubuntu
-      ansible.builtin.command: git config --global core.editor vim
+      community.general.git_config:
+        name: core.editor
+        value: vim
+        scope: global
+        state: present
       become_user: ubuntu
       become: true
       environment:
         HOME: /home/ubuntu
-      when: git_editor_current.stdout | trim != 'vim'
+      when: git_editor_current.config_value | default('') != 'vim'
 
     - name: Add default editor to desktop sessions
       ansible.builtin.lineinfile:
@@ -721,14 +818,18 @@
         line: 'GIT_EDITOR=vim'
 
     - name: Verify Git editor configuration in AMI
-      ansible.builtin.command: git config --global --get core.editor
+      community.general.git_config_info:
+        name: core.editor
+        scope: global
       become_user: ubuntu
       become: true
       environment:
         HOME: /home/ubuntu
       register: git_editor
-      changed_when: false
-      failed_when: git_editor.stdout | trim != 'vim'
+
+    - name: Require Vim as the Git editor in AMI
+      ansible.builtin.assert:
+        that: git_editor.config_value | default('') == 'vim'
 
     - name: Read default editor environment in AMI
       ansible.builtin.slurp:
@@ -751,16 +852,24 @@
         mode: "0644"
 
     - name: Add NodeSource Node.js 24 apt repository
-      ansible.builtin.shell: |
-        set -eo pipefail
-        curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-      args:
-        executable: /bin/bash
+      ansible.builtin.get_url:
+        url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+        dest: /etc/apt/keyrings/nodesource.asc
+        checksum: sha256:b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d
+        mode: "0644"
+
+    - name: Configure NodeSource Node.js 24 apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/nodesource.list
+        content: >-
+          deb [signed-by=/etc/apt/keyrings/nodesource.asc]
+          https://deb.nodesource.com/node_24.x nodistro main
+        mode: "0644"
 
     - name: Install Node.js 24
       ansible.builtin.apt:
-        name: nodejs
-        state: latest
+        name: nodejs={{ nodejs_version }}
+        state: present
         update_cache: true
 
     - name: Create shared Playwright browser directory
@@ -780,8 +889,16 @@
 
     - name: Install Playwright Chromium binaries and Linux dependencies
       ansible.builtin.command: /opt/desktopctl/playwright/node_modules/.bin/playwright install --with-deps chromium
+      args:
+        creates: /opt/desktopctl/playwright-browsers/.desktopctl-installed-{{ playwright_version }}
       environment:
         PLAYWRIGHT_BROWSERS_PATH: /opt/desktopctl/playwright-browsers
+
+    - name: Record installed Playwright Chromium version
+      ansible.builtin.copy:
+        dest: /opt/desktopctl/playwright-browsers/.desktopctl-installed-{{ playwright_version }}
+        content: "{{ playwright_version }}\n"
+        mode: "0644"
 
     - name: Add shared Playwright browser path to login environments
       ansible.builtin.lineinfile:
@@ -835,6 +952,7 @@
             const fs = require('fs'); const { chromium } = require('/opt/desktopctl/playwright/node_modules/playwright');
             if (!fs.existsSync(chromium.executablePath())) throw new Error('Chromium executable missing');
             chromium.launch({headless: true, timeout: 90000}).then(browser => browser.close()).catch(error => { console.error(error); process.exit(1); });
+      become: true
       become_user: ubuntu
       environment:
         PLAYWRIGHT_BROWSERS_PATH: /opt/desktopctl/playwright-browsers
@@ -951,12 +1069,10 @@
         that: vscode_cli_version.stdout_lines[0] == (vscode_version | regex_replace('-.*$', ''))
 
     - name: Add bridgectl apt signing key
-      ansible.builtin.shell: |
-        curl -fsSL https://orchael.github.io/bridgectl/apt/bridgectl-archive-keyring.asc \
-          | gpg --dearmor -o /etc/apt/keyrings/bridgectl.gpg
-        chmod 0644 /etc/apt/keyrings/bridgectl.gpg
-      args:
-        creates: /etc/apt/keyrings/bridgectl.gpg
+      ansible.builtin.get_url:
+        url: https://orchael.github.io/bridgectl/apt/bridgectl-archive-keyring.asc
+        dest: /etc/apt/keyrings/bridgectl.asc
+        mode: "0644"
 
     - name: Get Debian package architecture
       ansible.builtin.command: dpkg --print-architecture
@@ -972,7 +1088,7 @@
       ansible.builtin.copy:
         dest: /etc/apt/sources.list.d/bridgectl.list
         content: |
-          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/bridgectl.gpg] https://orchael.github.io/bridgectl/apt {{ ubuntu_codename.stdout }} main
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/bridgectl.asc] https://orchael.github.io/bridgectl/apt {{ ubuntu_codename.stdout }} main
         mode: "0644"
 
     - name: Install bridgectl from signed apt repository
@@ -982,12 +1098,10 @@
         update_cache: true
 
     - name: Add Tailscale apt signing key
-      ansible.builtin.shell: |
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/{{ ubuntu_codename.stdout }}.noarmor.gpg \
-          -o /etc/apt/keyrings/tailscale-archive-keyring.gpg
-        chmod 0644 /etc/apt/keyrings/tailscale-archive-keyring.gpg
-      args:
-        creates: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ubuntu_codename.stdout }}.noarmor.gpg
+        dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+        mode: "0644"
 
     - name: Add Tailscale apt repository
       ansible.builtin.copy:
@@ -1043,12 +1157,15 @@
         content: |
           export PATH="/opt/bridgectl/node_modules/.bin:$PATH"
 
+    - name: Read installed systemd services before masking old bridge
+      ansible.builtin.service_facts:
+
     - name: Stop and disable old ai-agent-bridge system service before masking
       ansible.builtin.systemd:
         name: ai-agent-bridge
         state: stopped
         enabled: false
-      ignore_errors: true
+      when: "'ai-agent-bridge.service' in ansible_facts.services"
 
     - name: Mask old ai-agent-bridge system service (replaced by bridgectl user service)
       ansible.builtin.systemd:
@@ -1074,6 +1191,7 @@
 
     - name: Configure bridgectl Codex home update setting
       ansible.builtin.command: python3 /usr/local/bin/desktopctl-codex-home-config /home/ubuntu/.config/bridgectl/codex-home/config.toml
+      become: true
       become_user: ubuntu
       register: codex_home_config_result
       changed_when: "'updated' in codex_home_config_result.stdout"
@@ -1568,8 +1686,11 @@
       when: not claude_bin.stat.exists
 
     - name: Verify nvm is installed
-      ansible.builtin.shell: |
-        bash -c 'source /home/ubuntu/.nvm/nvm.sh && nvm --version'
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -ic
+          - command -v nvm && nvm --version
       register: nvm_ver_out
       changed_when: false
       become: false

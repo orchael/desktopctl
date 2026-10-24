@@ -56,9 +56,59 @@ variable "go_version" {
   description = "Go version to install (e.g. 1.26.0)"
 }
 
+variable "go_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned Go linux-amd64 archive"
+}
+
 variable "uv_version" {
   type        = string
   description = "uv version to install (e.g. 0.4.0)"
+}
+
+variable "uv_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned uv linux-amd64 archive"
+}
+
+variable "nvm_ref" {
+  type        = string
+  description = "Pinned nvm Git commit"
+}
+
+variable "pyenv_ref" {
+  type        = string
+  description = "Pinned pyenv Git commit"
+}
+
+variable "rustup_version" {
+  type        = string
+  description = "Pinned rustup-init release"
+}
+
+variable "rustup_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned rustup-init linux-amd64 executable"
+}
+
+variable "rust_toolchain_version" {
+  type        = string
+  description = "Pinned Rust compiler toolchain installed by rustup"
+}
+
+variable "nodejs_version" {
+  type        = string
+  description = "Pinned NodeSource nodejs apt package version"
+}
+
+variable "awscli_version" {
+  type        = string
+  description = "Pinned AWS CLI v2 version"
+}
+
+variable "awscli_sha256" {
+  type        = string
+  description = "SHA-256 of the pinned AWS CLI v2 linux-amd64 archive"
 }
 
 variable "flutter_version" {
@@ -225,7 +275,7 @@ build {
     galaxy_file          = "${path.root}/requirements.yml"
     galaxy_force_install = true
     extra_arguments = [
-      "--extra-vars", "go_version=${var.go_version} uv_version=${var.uv_version} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} helm_sha256=${var.helm_sha256} terraform_version=${var.terraform_version} vscode_version=${var.vscode_version} vscode_sha256=${var.vscode_sha256} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
+      "--extra-vars", "go_version=${var.go_version} go_sha256=${var.go_sha256} uv_version=${var.uv_version} uv_sha256=${var.uv_sha256} nvm_ref=${var.nvm_ref} pyenv_ref=${var.pyenv_ref} rustup_version=${var.rustup_version} rustup_sha256=${var.rustup_sha256} rust_toolchain_version=${var.rust_toolchain_version} nodejs_version=${var.nodejs_version} awscli_version=${var.awscli_version} awscli_sha256=${var.awscli_sha256} flutter_version=${var.flutter_version} android_cmdline_tools_version=${var.android_cmdline_tools_version} bridgectl_version=${var.bridgectl_version} tailscale_version=${var.tailscale_version} helm_version=${var.helm_version} helm_sha256=${var.helm_sha256} terraform_version=${var.terraform_version} vscode_version=${var.vscode_version} vscode_sha256=${var.vscode_sha256} playwright_version=${var.playwright_version} desktop_web_version=${var.desktop_web_version} novnc_desktop_version=${var.novnc_desktop_version}",
     ]
     ansible_env_vars = [
       "ANSIBLE_HOST_KEY_CHECKING=False",
