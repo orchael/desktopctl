@@ -41,6 +41,23 @@ jobs:
             exit 1
           fi
 
+  pulumi:
+    name: Pulumi module (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [foundation, desktop, control-plane-access]
+    defaults:
+      run:
+        working-directory: infra/pulumi/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: infra/pulumi/${{ matrix.module }}/go.mod
+          cache-dependency-path: infra/pulumi/${{ matrix.module }}/go.sum
+      - run: go test ./...
+
   web:
     name: Desktop web build and test
     runs-on: ubuntu-latest
