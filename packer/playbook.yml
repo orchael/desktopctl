@@ -669,6 +669,17 @@
           [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
           [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 
+    - name: Initialize nvm in interactive Bash shells
+      ansible.builtin.blockinfile:
+        path: /home/ubuntu/.bashrc
+        marker: "# {mark} desktopctl nvm"
+        block: |
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+      become: true
+      become_user: ubuntu
+
     - name: Download pinned rustup-init
       ansible.builtin.get_url:
         url: https://static.rust-lang.org/rustup/archive/{{ rustup_version }}/x86_64-unknown-linux-gnu/rustup-init
@@ -1675,8 +1686,11 @@
       when: not claude_bin.stat.exists
 
     - name: Verify nvm is installed
-      ansible.builtin.shell: |
-        bash -c 'source /home/ubuntu/.nvm/nvm.sh && nvm --version'
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -ic
+          - command -v nvm && nvm --version
       register: nvm_ver_out
       changed_when: false
       become: false
