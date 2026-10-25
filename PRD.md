@@ -403,7 +403,8 @@ its own lifecycle and may survive desktop termination.
 ### SR-1 — Desktop access security
 
 - SSH (port 22) is exposed via security group rules, restricted to configured `operator_cidr`.
-- noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS.
+- noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS. The DNS-backed foundation security group also permits TCP 443 and operator-selected additional TCP ports, but those rules do not configure listeners or TLS certificates.
+- `create --allow-port` attaches a desktop-owned security group for the selected additional public TCP ports, without opening those ports on other desktops. The group is removed with the desktop stack.
 - HTTP port 80 is available for ACME challenges and temporary testing.
 
 ### SR-2 — Secret handling
@@ -660,7 +661,7 @@ The source repository is `orchael/desktopctl`. Its Go module path is
 `github.com/orchael/desktopctl`; nested Pulumi modules use the same repository
 prefix. The desktop web runtime package is `@orchael/desktopctl` in GitHub
 Packages. New installations use `desktopctl` CLI, tags, secrets, and AWS
-resource names. Existing `ai-desktops` resources are not adopted automatically.
+resource names. Resources from earlier namespaces are not adopted automatically.
 
 ### Fresh environment and region identity
 

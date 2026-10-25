@@ -37,6 +37,14 @@ func run(ctx *pulumi.Context) error {
 	}
 	subnetID := cfg.Require("subnetId")
 	sgID := cfg.Require("securityGroupId")
+	var configuredPorts []int
+	if err := cfg.GetObject("allowPorts", &configuredPorts); err != nil {
+		return fmt.Errorf("read allowPorts: %w", err)
+	}
+	allowedPorts, err := validateDesktopAllowedPorts(configuredPorts)
+	if err != nil {
+		return err
+	}
 	instanceProfile := cfg.Require("instanceProfile")
 	region := awsCfg.Require("region")
 	sshKeyName := cfg.Get("sshKeyName")
@@ -116,12 +124,44 @@ func run(ctx *pulumi.Context) error {
 	// NestedVirtualization=enabled is incompatible with hibernation. Spot desktops
 	// are also configured to stop on interruption, so keep hibernation disabled.
 	hibernation := !nestedVirtualization && marketType != "spot"
+	securityGroupIDs := pulumi.StringArray{pulumi.String(sgID)}
+	if len(allowedPorts) > 0 {
+		subnet, err := ec2.LookupSubnet(ctx, &ec2.LookupSubnetArgs{Id: &subnetID})
+		if err != nil {
+			return fmt.Errorf("look up subnet %s for desktop ports: %w", subnetID, err)
+		}
+		ingress := make(ec2.SecurityGroupIngressArray, 0, len(allowedPorts))
+		for _, port := range allowedPorts {
+			ingress = append(ingress, &ec2.SecurityGroupIngressArgs{
+				Protocol:    pulumi.String("tcp"),
+				FromPort:    pulumi.Int(port),
+				ToPort:      pulumi.Int(port),
+				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+				Description: pulumi.String("Desktop additional TCP port"),
+			})
+		}
+		portsSG, err := ec2.NewSecurityGroup(ctx, "desktop-ports-"+desktopID, &ec2.SecurityGroupArgs{
+			VpcId:       pulumi.String(subnet.VpcId),
+			Description: pulumi.String("Additional public TCP ports for " + desktopID),
+			Ingress:     ingress,
+			Egress:      ec2.SecurityGroupEgressArray{},
+			Tags: pulumi.StringMap{
+				"managed-by":  pulumi.String("desktopctl"),
+				"desktop-id":  pulumi.String(desktopID),
+				"environment": pulumi.String(environment),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("create desktop port security group: %w", err)
+		}
+		securityGroupIDs = append(securityGroupIDs, portsSG.ID())
+	}
 
 	instanceArgs := &ec2.InstanceArgs{
 		Ami:                      pulumi.String(amiID),
 		InstanceType:             pulumi.String(instanceType),
 		SubnetId:                 pulumi.String(subnetID),
-		VpcSecurityGroupIds:      pulumi.StringArray{pulumi.String(sgID)},
+		VpcSecurityGroupIds:      securityGroupIDs,
 		IamInstanceProfile:       pulumi.String(instanceProfile),
 		UserDataReplaceOnChange:  pulumi.Bool(false),
 		AssociatePublicIpAddress: pulumi.Bool(true),
@@ -235,4 +275,22 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("marketType", pulumi.String(marketType))
 
 	return nil
+}
+
+func validateDesktopAllowedPorts(ports []int) ([]int, error) {
+	unique := make([]int, 0, len(ports))
+	seen := make(map[int]bool, len(ports))
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			return nil, fmt.Errorf("allowPorts must contain TCP ports between 1 and 65535, got %d", port)
+		}
+		if port == 22 {
+			return nil, fmt.Errorf("allowPorts cannot include SSH port 22; use operatorCIDR")
+		}
+		if !seen[port] {
+			unique = append(unique, port)
+			seen[port] = true
+		}
+	}
+	return unique, nil
 }

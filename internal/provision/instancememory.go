@@ -6,7 +6,7 @@ func InstanceMemoryGiB(instanceType string) int {
 	return instanceMemoryMap[instanceType]
 }
 
-// instanceMemoryMap covers the EC2 families used for AI desktops.
+// instanceMemoryMap covers the EC2 families used for desktops.
 // Values are in GiB (fractional sizes like t3.nano's 0.5 GiB are rounded up to 1).
 var instanceMemoryMap = map[string]int{
 	// t3 family
