@@ -660,7 +660,7 @@ The source repository is `orchael/desktopctl`. Its Go module path is
 `github.com/orchael/desktopctl`; nested Pulumi modules use the same repository
 prefix. The desktop web runtime package is `@orchael/desktopctl` in GitHub
 Packages. New installations use `desktopctl` CLI, tags, secrets, and AWS
-resource names. Existing `ai-desktops` resources are not adopted automatically.
+resource names. Resources from earlier namespaces are not adopted automatically.
 
 ### Fresh environment and region identity
 
