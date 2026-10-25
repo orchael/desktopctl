@@ -11,7 +11,7 @@
 # Usage (standalone via SSH):
 #   ansible-playbook playbook.yml -i inventory.ini
 
-- name: Configure AI Desktops instance
+- name: Configure desktopctl instance
   hosts: all
   gather_facts: true
   become: true
@@ -275,4 +275,4 @@
     # ------------------------------------------------------------------
     - name: Desktop setup complete
       ansible.builtin.debug:
-        msg: "AI Desktops instance configured. Pre-installed tools from Packer verified."
+        msg: "desktopctl instance configured. Pre-installed tools from Packer verified."

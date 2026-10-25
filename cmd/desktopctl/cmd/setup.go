@@ -1046,7 +1046,6 @@ func operatorSecretTags(owner, environment string) []types.Tag {
 		{Key: aws.String("github-owner"), Value: aws.String(owner)},
 		{Key: aws.String("environment"), Value: aws.String(environment)},
 		{Key: aws.String("desktopctl-scope"), Value: aws.String("operator")},
-		{Key: aws.String("ai-desktops-scope"), Value: aws.String("operator")},
 	}
 }
 
