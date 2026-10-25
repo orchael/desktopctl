@@ -403,7 +403,7 @@ its own lifecycle and may survive desktop termination.
 ### SR-1 — Desktop access security
 
 - SSH (port 22) is exposed via security group rules, restricted to configured `operator_cidr`.
-- noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS.
+- noVNC HTTPS (port 8443) is accessible from anywhere via Route53 DNS and TLS. The DNS-backed foundation security group also permits TCP 443 and operator-selected additional TCP ports, but those rules do not configure listeners or TLS certificates.
 - HTTP port 80 is available for ACME challenges and temporary testing.
 
 ### SR-2 — Secret handling
