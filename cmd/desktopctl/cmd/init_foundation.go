@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -54,7 +53,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	if (foundationSaaS || foundationNoDNS) && len(foundationAllowPorts) > 0 {
 		return fmt.Errorf("--allow-port requires a DNS-backed foundation")
 	}
-	allowedPorts, err := encodeFoundationAllowPorts(foundationAllowPorts)
+	allowedPorts, err := encodeAllowedPorts(foundationAllowPorts)
 	if err != nil {
 		return err
 	}
@@ -206,28 +205,6 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("Foundation stack applied.")
 	return nil
-}
-
-func encodeFoundationAllowPorts(ports []int) (string, error) {
-	unique := make([]int, 0, len(ports))
-	seen := make(map[int]bool, len(ports))
-	for _, port := range ports {
-		if port < 1 || port > 65535 {
-			return "", fmt.Errorf("--allow-port must be between 1 and 65535, got %d", port)
-		}
-		if port == 22 {
-			return "", fmt.Errorf("--allow-port 22 is managed by desktop.operator_cidr")
-		}
-		if !seen[port] {
-			unique = append(unique, port)
-			seen[port] = true
-		}
-	}
-	encoded, err := json.Marshal(unique)
-	if err != nil {
-		return "", fmt.Errorf("encode allowed ports: %w", err)
-	}
-	return string(encoded), nil
 }
 
 func setFoundationZoneID(stackCfg pulumi.StackConfig, zone, configuredID string) {

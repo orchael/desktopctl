@@ -753,6 +753,13 @@ Edit `packer/ubuntu-desktop.pkr.hcl` to change versions or add packages. Re-run 
 desktopctl create --repo myorg/my-app --repo myorg/shared-lib
 ```
 
+To open additional public TCP ports for this desktop only, use `--allow-port`.
+Repeat the flag or use a comma-separated list; for example,
+`desktopctl create --repo myorg/my-app --allow-port 3000 --allow-port 9000`.
+The desktop stack owns a separate security group for these ports and removes it
+when the desktop is terminated. Opening a port does not start a service or set
+up TLS. SSH port 22 stays restricted by `desktop.operator_cidr`.
+
 For a durable background job, pass a stable `--desktop-id d-0123abcd`. A repeated ID is rejected before another stack can be created. The [worker contract](docs/PROVISIONING_CONTRACT.md) covers temporary STS credentials, retries, and the required account setup. Check the effective AWS identity with `desktopctl aws validate --account-id <12-digit-account-id>` before provisioning.
 
 Or use full GitHub URLs:
