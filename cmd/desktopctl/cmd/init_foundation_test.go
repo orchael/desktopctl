@@ -19,7 +19,7 @@ func TestSetFoundationZoneIDClearsPreviousDelegation(t *testing.T) {
 	}
 }
 
-func TestEncodeFoundationAllowPorts(t *testing.T) {
+func TestEncodeAllowedPorts(t *testing.T) {
 	tests := []struct {
 		name  string
 		ports []int
@@ -35,7 +35,7 @@ func TestEncodeFoundationAllowPorts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := encodeFoundationAllowPorts(tt.ports)
+			got, err := encodeAllowedPorts(tt.ports)
 			if tt.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.err) {
 					t.Fatalf("error = %v, want %q", err, tt.err)
@@ -43,7 +43,7 @@ func TestEncodeFoundationAllowPorts(t *testing.T) {
 				return
 			}
 			if err != nil || got != tt.want {
-				t.Fatalf("encodeFoundationAllowPorts(%v) = %q, %v; want %q", tt.ports, got, err, tt.want)
+				t.Fatalf("encodeAllowedPorts(%v) = %q, %v; want %q", tt.ports, got, err, tt.want)
 			}
 		})
 	}

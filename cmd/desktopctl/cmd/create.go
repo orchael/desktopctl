@@ -89,6 +89,7 @@ var (
 	createProfileSecret     string
 	createGitHubSecret      string
 	createNoDNS             bool
+	createAllowPorts        []int
 	createBootstrapPackages bool
 )
 
@@ -141,11 +142,16 @@ func init() {
 	createCmd.Flags().StringVar(&createProfileSecret, "profile-secret", "", "AWS Secrets Manager path for the selected desktop profile (overrides desktop.profile_secret)")
 	createCmd.Flags().StringVar(&createGitHubSecret, "github-secret", "", "AWS Secrets Manager path for GitHub clone credentials (required for private SaaS repositories or profiles)")
 	createCmd.Flags().BoolVar(&createNoDNS, "no-dns", false, "skip Route53 records for an account without a hosted zone")
+	createCmd.Flags().IntSliceVar(&createAllowPorts, "allow-port", nil, "additional public TCP port for this desktop (repeatable or comma-separated)")
 	createCmd.Flags().BoolVar(&createBootstrapPackages, "bootstrap-packages", false, "install desktop packages through cloud-init when using a base AMI")
 	rootCmd.AddCommand(createCmd)
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
+	allowedPorts, err := encodeAllowedPorts(createAllowPorts)
+	if err != nil {
+		return err
+	}
 	if err := requireTools("pulumi"); err != nil {
 		return err
 	}
@@ -722,6 +728,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		},
 	)
 	stackCfg["dnsEnabled"] = fmt.Sprintf("%t", !createNoDNS)
+	stackCfg["allowPorts"] = allowedPorts
 	if !createNoDNS && cfg.DNS.HostedZoneID != "" {
 		stackCfg["zoneId"] = cfg.DNS.HostedZoneID
 	}
@@ -745,6 +752,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Spot max price: %s\n", createSpotMaxPrice)
 		}
 		fmt.Printf("Nested virt   : %v\n", nestedVirt)
+		if len(createAllowPorts) > 0 {
+			fmt.Printf("Allowed ports : %v\n", createAllowPorts)
+		}
 		if integrations.tailscaleEnabled {
 			fmt.Printf("Tailscale     : %s\n", tailscaleNetwork)
 		}
