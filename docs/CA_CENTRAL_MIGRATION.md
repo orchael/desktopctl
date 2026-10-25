@@ -6,8 +6,8 @@ checkout is `~/.config/desktopctl/config-prod-ca-central-1-dns.yaml` on Linux; a
 example is at the repository root. `XDG_CONFIG_HOME` changes the base directory. Pass
 `--config` to every command when using the named file.
 
-Start with the [README quick start](../README.md#quick-start-production-in-ca-central-1),
-which gives both scripted and interactive commands for a new config. Use
+Start with the [README quick start](../README.md#quick-start),
+which gives the interactive path for a new config. Use
 `--allow-existing` on the first run if reusing AWS secret names from the prior
 installation. Setup automatically restores the GitHub and agent secrets if
 they are scheduled for deletion. Later setup runs with a matching saved

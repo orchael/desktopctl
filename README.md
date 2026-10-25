@@ -7,215 +7,135 @@
 
 A Go CLI-driven fleet manager for persistent remote AI coding desktops on AWS.
 
-## Quick start: production in ca-central-1
+## Quick start
 
-To restart the setup while preserving the earlier config, use a new file at
-`~/.config/desktopctl/config-prod-ca-central-1-dns.yaml` in AWS account
-`819363892004`, using profile `marka`, environment `prod`, and owner `orchael`.
-This path uses `desktops.markcallen.dev` for desktop hostnames. Setup creates
-the public Route 53 zone, then prints the NS records to add at the DNS provider
-for `markcallen.dev`. Foundation and desktop commands refuse to apply or start
-until public NS resolution matches the Route 53 zone. Setup configures trusted
-public AMI publisher account `819363892004` by default, so desktop creation
-can discover its newest compatible public AMI in this region.
+This walkthrough creates one AWS desktop from a fresh config. Use a region
+where you want the desktop, an AWS profile for the target account, and a
+subdomain you can delegate to Route 53. AWS resources created here incur charges.
 
-1. **Check the target and local tools.** Run these from this repository:
+### Prepare access and credentials
+
+- Install [Go 1.26+](#tools), AWS CLI v2, Pulumi, Packer, and SSH. Configure an
+  AWS CLI profile with the [required permissions](#aws-permissions). Have an
+  SSH private key and matching `.pub` file on this computer; `ssh-keygen -t
+  ed25519 -f "$HOME/.ssh/id_ed25519"` creates a new pair if you do not have one.
+- Create a [GitHub classic personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic)
+  with `repo`, `admin:public_key`, and `read:user` scopes. Add `workflow` if you
+  will manage GitHub Actions, `read:packages` if you will build an AMI or use
+  GitHub Packages, and `read:org` if you need organization features. Setup
+  stores this token and a generated GitHub SSH key in AWS Secrets Manager.
+- For **Claude Code**, install the Claude CLI and run `claude setup-token` on
+  your computer. Complete the browser sign-in and copy the token printed at
+  the end; the command does not save it. Enter it in setup's hidden Claude
+  token prompt. This requires a Claude Pro, Max, Team, or Enterprise plan.
+  See [Claude Code authentication](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token).
+- For **Codex with ChatGPT sign-in**, install the Codex CLI and run `codex
+  login`; complete the browser flow, then check `codex login status`. The
+  helper in step 2 reads `${CODEX_HOME:-$HOME/.codex}/auth.json`. If Codex
+  saved credentials in your OS keyring instead, configure file storage with
+  `cli_auth_credentials_store = "file"` in `${CODEX_HOME:-$HOME/.codex}/config.toml`
+  and sign in again. Treat `auth.json` as a password. See
+  [OpenAI's Codex authentication guide](https://learn.chatgpt.com/docs/auth#credential-storage).
+  Alternatively, create an [OpenAI API key](https://platform.openai.com/api-keys)
+  and enter it in setup's hidden OpenAI key prompt; API usage is billed to
+  your OpenAI Platform account. No Codex auth file is needed in that case.
+- For **Gemini CLI**, optionally create a [Google AI Studio API key](https://ai.google.dev/gemini-api/docs/api-key)
+  and enter it in setup's hidden Gemini key prompt. Agent credentials are
+  optional; prepare only the providers you will use. Keep every token out of
+  the config file, Git, and shell command arguments.
+
+Public `desktopctl-v0` AMIs from the default publisher account `819363892004`
+were verified in **`ca-central-1`, `us-east-1`, and `us-east-2`** on 2026-10-25.
+AMIs are regional and availability can change. In a region without a public
+image, build a compatible AMI there or supply one with `create --ami`; see
+step 5 and the [AMI guide](docs/PUBLIC_AMIS.md). Setup accepts any supported
+AWS region; its default publisher account does not guarantee an image there.
+
+### Create your first desktop
+
+1. **Choose the target.** Clone this repository if needed, then set your
+   values and verify the AWS identity from its root directory. The S3 bucket
+   name you enter during setup must be globally unique and dedicated to this
+   installation.
 
    ```sh
-   CONFIG="$HOME/.config/desktopctl/config-prod-ca-central-1-dns.yaml"
-   aws sts get-caller-identity --profile marka --region ca-central-1
+   PROFILE=my-aws-profile
+   REGION=us-east-1
+   ENVIRONMENT=prod
+   OWNER=my-github-user
+   REPO="$OWNER/my-repo"
+   CONFIG="$HOME/.config/desktopctl/config-${REGION}.yaml"
+   aws sts get-caller-identity --profile "$PROFILE" --region "$REGION"
    make build
    ```
 
-   Confirm the AWS account is `819363892004`. The config file need not exist
-   yet; setup creates it outside Git. Keep the earlier config as a backup.
-   Have a local SSH private key and its
-   matching `.pub` file, and identify this machine's public IPv4 `/32`.
-
-2. **Prepare the GitHub token and bridgectl agent credentials.** For a new
-   installation, open [GitHub's classic token page](https://github.com/settings/tokens/new)
-   (Settings → Developer settings → Personal access tokens → Tokens (classic) →
-   Generate new token). Name the token, set an expiration, and select `repo`,
-   `workflow`, `admin:public_key`, and `read:user`. Add `read:packages` if you
-   will build a public AMI or install from GitHub Packages, and `read:org` if
-   you use GitHub organization features. Generate and copy the token; setup
-   stores it in AWS Secrets Manager. See [GitHub's token instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic).
-
-   Choose the agent credentials you plan to use with bridgectl:
-
-   | Agent | How to obtain the credential | Setup input |
-   | --- | --- | --- |
-   | Claude Code | Sign in to the Claude CLI, then run `claude setup-token` on your operator machine and copy the printed token. | `CLAUDE_CODE_OAUTH_TOKEN` |
-   | Codex with an API key | Create a key on the [OpenAI API keys page](https://platform.openai.com/api-keys). | `OPENAI_API_KEY` |
-   | Gemini CLI | Create a key in [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key). | `GEMINI_API_KEY` |
-   | Codex with ChatGPT sign-in | Run `codex login` on your operator machine. After setup, use the agent auth helper below to copy the local auth file to the agent secret. | `CODEX_AUTH` through the helper |
-
-   The agent credentials are optional; provide only those you intend to use.
-   For interactive setup, paste the GitHub token and agent credentials into
-   the hidden prompts. For scripted setup, read each new value into its named
-   environment variable without placing it in shell history or command
-   arguments. For example:
+2. **Run interactive setup.** Enter `ENVIRONMENT`, `OWNER`, the GitHub token,
+   a unique state bucket, your SSH private key path, and the detected public
+   IPv4 `/32` for SSH. Enter a desktop
+   DNS subdomain such as `desktops.example.com` if you want browser access.
+   Setup registers the matching `.pub` key as an EC2 key pair, creates or reuses
+   the Route 53 hosted zone, and writes `CONFIG`. Keep the default public AMI
+   publisher unless you trust another publisher.
 
    ```sh
-   read -rsp 'GitHub token: ' DESKTOPCTL_GITHUB_TOKEN; printf '\n'
-   export DESKTOPCTL_GITHUB_TOKEN
-   read -rsp 'Claude Code token (optional): ' CLAUDE_CODE_OAUTH_TOKEN; printf '\n'
-   export CLAUDE_CODE_OAUTH_TOKEN
-   # Repeat for OPENAI_API_KEY and GEMINI_API_KEY if using those agents.
+   ./bin/desktopctl --config "$CONFIG" --profile "$PROFILE" --region "$REGION" setup
    ```
 
-   If this setup reuses the existing regional secrets, leave credentials
-   unspecified to keep their stored values. Never put token values in the
-   config file or commit them to Git.
-
-3. **Run setup using either mode.** The new config has no saved identity, but
-   this account still has secret names from the earlier installation. Use
-   `--allow-existing` to authorize their reuse. Setup restores the GitHub and
-   agent secrets if they are scheduled for deletion, retains unspecified
-   credential values, registers the local public key as an EC2 key pair, and
-   creates or reuses the Route 53 hosted zone, prints its NS records, and
-   writes the new config. Choose one command:
-
-   Scripted setup, using the saved credentials and this machine's verified
-   public IPv4 address:
+   If you chose Codex ChatGPT sign-in, copy the local Codex auth file into the
+   regional agent secret, then let setup record that secret path in the config.
+   The helper preserves any Claude or other provider keys entered in setup:
 
    ```sh
-   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
-     setup --non-interactive --allow-existing \
-     --environment prod \
-     --dns-zone desktops.markcallen.dev \
-     --backend-bucket marka-desktopctl-prod-ca-central-1-819363892004 \
-     --github-owner orchael \
-     --operator-cidr 157.230.223.137/32 \
-     --ssh-key-path "$HOME/.ssh/id_ed25519"
-   ```
-
-   Interactive setup, starting from the same empty config path:
-
-   ```sh
-   ./bin/desktopctl --config "$CONFIG" --profile marka --region ca-central-1 \
-     setup --allow-existing
-   ```
-
-   In the wizard, enter `marka-desktopctl-prod-ca-central-1-819363892004`
-   for the state bucket, `prod` for the environment,
-   `desktops.markcallen.dev` for the desktop DNS zone, keep the default public
-   AMI publisher account, and enter `orchael` for the
-   GitHub owner. Confirm the detected public IPv4 `/32`, select
-   `/home/marka/.ssh/id_ed25519` for desktop SSH, and register its `.pub` file as
-   EC2 key pair `desktopctl-prod-ca-central-1-orchael`. Choose whether to
-   update the GitHub token, rotate its GitHub SSH key, or update agent keys.
-   If supplying a new GitHub classic token, grant `admin:public_key`, `repo`,
-   `read:user`, and `workflow`; add `read:packages` for future AMI builds.
-   Verify a replacement GitHub SSH key before removing the old one.
-
-   Replace the example CIDR in the scripted command if this machine's public
-   IP has changed. Supply new credentials through environment variables such
-   as `DESKTOPCTL_GITHUB_TOKEN` or `OPENAI_API_KEY`; see
-   [noninteractive setup](#noninteractive-setup). Once this config has been
-   saved, subsequent setup runs with the same region, environment, and owner
-   can reuse these resources without `--allow-existing`.
-   If the EC2 key pair name already exists, setup checks its registered public
-   key against the local `.pub` file and stops on a mismatch.
-
-   Scripted setup reads the exported credentials from step 2. Remove them
-   from this shell after setup with `unset DESKTOPCTL_GITHUB_TOKEN
-   CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY GEMINI_API_KEY`. If using Codex
-   ChatGPT sign-in, run the helper after setup to merge your local Codex auth
-   into the same agent secret without replacing other provider keys:
-
-   ```sh
-   scripts/update-agent-auth.sh --profile marka --region ca-central-1 \
-     --environment prod --owner orchael --skip-claude
+   scripts/update-agent-auth.sh --profile "$PROFILE" --region "$REGION" \
+     --environment "$ENVIRONMENT" --owner "$OWNER" --skip-claude
    ./bin/desktopctl --config "$CONFIG" setup --non-interactive
    ```
 
-   Omit `--skip-claude` if you also want the helper to guide you through
-   entering a new Claude Code token. The helper reads
-   `${CODEX_HOME:-$HOME/.codex}/auth.json`; run `codex login` first if that
-   file does not exist. The second setup command records the newly created
-   agent secret path in the config so new desktops receive it. It reuses the
-   saved identity and credentials, so `--allow-existing` is unnecessary.
+   Skip these two commands if you use an OpenAI API key or do not use Codex.
 
-4. **Check local tools and AWS access.** Run the check against the config
-   created by setup:
+3. **Check and bootstrap.** Confirm the `aws`, `packer`, `pulumi`, `ssh`, and
+   `aws-credentials` checks pass and that the account is the one you intended.
+   Bootstrap creates the S3 state bucket for a new installation. If you are
+   adopting existing resources, follow [the migration guide](docs/CA_CENTRAL_MIGRATION.md)
+   for `--allow-existing` instead.
 
    ```sh
    ./bin/desktopctl --config "$CONFIG" check
+   ./bin/desktopctl --config "$CONFIG" bootstrap
    ```
 
-   Confirm that `aws`, `packer`, `pulumi`, `ssh`, and `aws-credentials` all
-   report `OK`, and that `aws-credentials` resolves to account
-   `819363892004`. Fix any failed check before continuing.
-
-5. **Reuse the state backend.** The earlier bootstrap already created this
-   bucket. Explicitly adopt it from the new config:
-
-   ```sh
-   ./bin/desktopctl --config "$CONFIG" bootstrap --allow-existing
-   ```
-
-6. **Delegate the desktop DNS zone.** Setup printed the Route 53 name servers.
-   At the DNS provider hosting `markcallen.dev`, add an **NS** record for
-   `desktops.markcallen.dev` with all four values printed by setup.
-   Re-run `dns setup` to display the same values if needed. Check the public
-   delegation after the provider publishes it:
+4. **Delegate DNS and create the foundation.** Add the NS records printed by
+   setup at the provider for your desktop zone's parent domain. Continue when
+   `dns check` reports `DNS delegation ready`; DNS updates can take time. Then
+   review the Pulumi preview and create networking, IAM, DynamoDB, and EFS.
 
    ```sh
    ./bin/desktopctl --config "$CONFIG" dns check
-   ```
-
-   Continue only when it reports `DNS delegation ready`. DNS caches may take
-   time to update. A different user supplies their own subdomain with
-   `setup --dns-zone desktops.example.com` and delegates it at their parent
-   domain's DNS provider. Creating a public Route 53 zone can incur AWS charges.
-
-7. **Preview and apply the foundation.** Review the Pulumi preview before
-   applying it:
-
-   ```sh
    ./bin/desktopctl --config "$CONFIG" init-foundation --preview
    ./bin/desktopctl --config "$CONFIG" init-foundation
    ```
 
-   The foundation creates AWS resources, including networking, DynamoDB,
-   IAM, and EFS. Verify its reported IDs and the fleet table before creating
-   a desktop. A fresh foundation checks whether an old control-plane operator
-   secret occupies the default name. If it does, the preview selects the next
-   available versioned name, and Pulumi keeps that choice for later updates.
-   The old scheduled secret can finish its deletion independently.
+   If you left the DNS zone blank for SSH-only access, skip `dns check` and
+   add `--no-dns` to both `init-foundation` commands and the `create` commands
+   in step 5.
 
-8. **Preview and create the first desktop.** The preview selects the newest
-   compatible public AMI in ca-central-1; check the reported AMI ID. EC2 and
-   EBS charges begin when the desktop is created. Use a repository you can
-   access; the example uses this repository:
+5. **Preview and create a desktop.** Set `REPO` to a repository your GitHub
+   token can access. The preview reports the selected AMI; confirm
+   it is available in your region before creating the EC2 instance. If no
+   compatible public AMI exists there, build a private image after foundation
+   setup with `./bin/desktopctl --config "$CONFIG" ami build --regions "$REGION"`
+   (requires `read:packages`), or pass a compatible regional AMI ID with
+   `--ami`. AMI builds need a usable base AMI and Packer subnet in that region.
 
    ```sh
-   ./bin/desktopctl --config "$CONFIG" create \
-     --repo orchael/desktopctl --preview
-   ./bin/desktopctl --config "$CONFIG" create \
-     --repo orchael/desktopctl
+   ./bin/desktopctl --config "$CONFIG" create --repo "$REPO" --preview
+   ./bin/desktopctl --config "$CONFIG" create --repo "$REPO"
    ./bin/desktopctl --config "$CONFIG" list
-   ./bin/desktopctl --config "$CONFIG" ssh <desktop-id>
    ```
 
-   Use the desktop ID printed by `create` for the SSH command. The hostname
-   will be `<desktop-id>.desktops.markcallen.dev`; cloud-init requests its
-   certificate through Certbot's Route 53 DNS challenge. See the
-   [ca-central-1 setup and first desktop guide](docs/CA_CENTRAL_MIGRATION.md)
-   for the opt-in SSH login test and teardown steps.
-
-   Setup writes `desktop.public_ami_owner: "819363892004"` by default.
-   Discovery only considers available, public `desktopctl-v<CLI major>-*`
-   images from that AWS account in
-   ca-central-1. An explicit `--ami` or `desktop.active_ami.ca-central-1` pin
-   takes precedence. A local `ami build` can set that pin when run with
-   `--config`; remove the pin to return to public discovery. Supply a different
-   trusted 12-digit account with `setup --non-interactive --public-ami-owner
-   <account-id>` or `DESKTOPCTL_PUBLIC_AMI_OWNER`, or choose it in the wizard.
-   An explicit empty flag or environment value disables discovery and records
-   `desktop.public_ami_discovery_disabled: true`, so later setup runs preserve
-   that choice.
+   Use the desktop ID printed by `create` with `./bin/desktopctl --config
+   "$CONFIG" ssh DESKTOP_ID`. With delegated DNS, its browser URL
+   and SSH hostname use `<desktop-id>.<your-desktop-zone>`.
 
 For an SSH-only installation without DNS, use `--no-dns` on both
 `init-foundation` and `create`. The hostname is then just `<desktop-id>`, no
@@ -383,7 +303,7 @@ At desktop boot, cloud-init retrieves the JSON secret, installs the SSH private 
 
 `desktopctl setup` stores provider API keys in AWS Secrets Manager, but Codex ChatGPT auth and Claude Code long-lived OAuth tokens have their own local credential flows:
 
-- Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
+- With file-based credential storage, Codex CLI writes auth state to `auth.json` under `CODEX_HOME`, or `~/.codex/auth.json` when `CODEX_HOME` is unset. Its OS keyring setting does not provide the file this helper needs.
 - Claude Code's `claude setup-token` command prints a long-lived `CLAUDE_CODE_OAUTH_TOKEN`; Anthropic's Claude Code docs state that command does not save the token, so copy it when it is printed.
 
 Use the helper script to merge these credentials into `/desktopctl/<env>/<region>/<owner>/agents` without overwriting unrelated keys:
