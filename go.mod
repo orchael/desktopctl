@@ -6,17 +6,17 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.12
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.70.3
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.339.0
-	github.com/aws/aws-sdk-go-v2/service/efs v1.49.4
-	github.com/aws/aws-sdk-go-v2/service/pricing v1.49.4
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.14
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.340.0
+	github.com/aws/aws-sdk-go-v2/service/efs v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/pricing v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.4
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.4
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.3
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.4
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.5
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.80.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4
-	github.com/aws/smithy-go v1.28.5
+	github.com/aws/smithy-go v1.28.6
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.58.0
 	golang.org/x/term v0.47.0
@@ -24,12 +24,12 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.23 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.46.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.46.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.6 // indirect
