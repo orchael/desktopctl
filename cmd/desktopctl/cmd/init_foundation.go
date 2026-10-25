@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ var (
 	foundationSaaS          bool
 	foundationNoDNS         bool
 	foundationAllowExisting bool
+	foundationAllowPorts    []int
 )
 
 var initFoundationCmd = &cobra.Command{
@@ -44,10 +46,18 @@ func init() {
 	initFoundationCmd.Flags().BoolVar(&foundationSaaS, "saas", false, "deploy without DNS lookup or long-lived operator credentials for an AssumeRole worker")
 	initFoundationCmd.Flags().BoolVar(&foundationNoDNS, "no-dns", false, "deploy normal fleet and EFS resources without a Route53 zone")
 	initFoundationCmd.Flags().BoolVar(&foundationAllowExisting, "allow-existing", false, "explicitly update an existing foundation in this environment and region")
+	initFoundationCmd.Flags().IntSliceVar(&foundationAllowPorts, "allow-port", nil, "additional public TCP port to allow (repeatable or comma-separated)")
 	rootCmd.AddCommand(initFoundationCmd)
 }
 
 func runInitFoundation(cmd *cobra.Command, args []string) error {
+	if (foundationSaaS || foundationNoDNS) && len(foundationAllowPorts) > 0 {
+		return fmt.Errorf("--allow-port requires a DNS-backed foundation")
+	}
+	allowedPorts, err := encodeFoundationAllowPorts(foundationAllowPorts)
+	if err != nil {
+		return err
+	}
 	if err := requireTools("pulumi"); err != nil {
 		return err
 	}
@@ -111,6 +121,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("foundation stack %q already exists; fresh initialization refuses to reuse it (use --allow-existing only for an intentional update)", ref.FullName())
 	}
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
+	stackCfg["allowPorts"] = allowedPorts
 	setFoundationZoneID(stackCfg, zone, cfg.DNS.HostedZoneID)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
@@ -195,6 +206,28 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("Foundation stack applied.")
 	return nil
+}
+
+func encodeFoundationAllowPorts(ports []int) (string, error) {
+	unique := make([]int, 0, len(ports))
+	seen := make(map[int]bool, len(ports))
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			return "", fmt.Errorf("--allow-port must be between 1 and 65535, got %d", port)
+		}
+		if port == 22 {
+			return "", fmt.Errorf("--allow-port 22 is managed by desktop.operator_cidr")
+		}
+		if !seen[port] {
+			unique = append(unique, port)
+			seen[port] = true
+		}
+	}
+	encoded, err := json.Marshal(unique)
+	if err != nil {
+		return "", fmt.Errorf("encode allowed ports: %w", err)
+	}
+	return string(encoded), nil
 }
 
 func setFoundationZoneID(stackCfg pulumi.StackConfig, zone, configuredID string) {

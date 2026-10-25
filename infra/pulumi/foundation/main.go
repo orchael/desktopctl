@@ -40,6 +40,17 @@ func run(ctx *pulumi.Context) error {
 	if operatorCIDR == "" {
 		operatorCIDR = "0.0.0.0/0"
 	}
+	var allowPorts []int
+	if err := cfg.GetObject("allowPorts", &allowPorts); err != nil {
+		return fmt.Errorf("read allowPorts: %w", err)
+	}
+	additionalPorts, err := additionalIngressPorts(allowPorts)
+	if err != nil {
+		return err
+	}
+	if (saasMode || noDNSMode) && len(allowPorts) > 0 {
+		return fmt.Errorf("allowPorts requires a DNS-backed foundation")
+	}
 	vpcID := cfg.Get("vpcId")
 	pulumiBackendBucket := cfg.Get("pulumiBackendBucket")
 	if pulumiBackendBucket == "" {
@@ -198,8 +209,16 @@ func run(ctx *pulumi.Context) error {
 		ingress = ec2.SecurityGroupIngressArray{
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(22), ToPort: pulumi.Int(22), CidrBlocks: pulumi.StringArray{pulumi.String(operatorCIDR)}, Description: pulumi.String("SSH - configurable per environment")},
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(80), ToPort: pulumi.Int(80), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("HTTP - ACME challenges and service testing")},
+			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(443), ToPort: pulumi.Int(443), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("HTTPS")},
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8080), ToPort: pulumi.Int(8080), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("noVNC HTTP")},
 			&ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8443), ToPort: pulumi.Int(8443), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("noVNC HTTPS")},
+		}
+		for _, port := range additionalPorts {
+			ingress = append(ingress, &ec2.SecurityGroupIngressArgs{
+				Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(port), ToPort: pulumi.Int(port),
+				CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+				Description: pulumi.String("Additional TCP port"),
+			})
 		}
 	}
 	sg, err := ec2.NewSecurityGroup(ctx, "desktopctl-sg", &ec2.SecurityGroupArgs{
@@ -499,8 +518,8 @@ func run(ctx *pulumi.Context) error {
 			Name:        pulumi.String(operatorCredentialsSecretName),
 			Description: pulumi.String("AWS control-plane credentials for desktopctl " + environment),
 			Tags: pulumi.StringMap{
-				"managed-by":        pulumi.String("desktopctl"),
-				"environment":       pulumi.String(environment),
+				"managed-by":       pulumi.String("desktopctl"),
+				"environment":      pulumi.String(environment),
 				"desktopctl-scope": pulumi.String("operator"),
 			},
 		})
@@ -595,6 +614,24 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("amiTable", amiTable.Name)
 
 	return nil
+}
+
+func additionalIngressPorts(ports []int) ([]int, error) {
+	seen := map[int]bool{80: true, 443: true, 8080: true, 8443: true}
+	additional := make([]int, 0, len(ports))
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			return nil, fmt.Errorf("allowPorts must contain TCP ports between 1 and 65535, got %d", port)
+		}
+		if port == 22 {
+			return nil, fmt.Errorf("allowPorts cannot include SSH port 22; use operatorCIDR")
+		}
+		if !seen[port] {
+			additional = append(additional, port)
+			seen[port] = true
+		}
+	}
+	return additional, nil
 }
 
 func arnPartition(arn string) string {

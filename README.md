@@ -668,6 +668,15 @@ desktopctl init-foundation
 
 Creates: VPC, public subnet, internet gateway, security group (SSH from `operator_cidr`, HTTPS from anywhere), IAM role with SSM + Secrets Manager permissions, instance profile, environment-specific control-plane IAM credentials in Secrets Manager, and looks up the Route53 zone.
 
+For a DNS-backed foundation, the security group allows TCP 443 and 8443 by default. The desktop noVNC URL uses 8443; opening 443 does not configure a service or certificate on that port. To allow additional public TCP ports, repeat `--allow-port` or pass a comma-separated list:
+
+```bash
+desktopctl init-foundation --allow-port 3000 --allow-port 9000
+desktopctl init-foundation --allow-port 3000,9000
+```
+
+Pass the same ports on later `init-foundation` updates; omitting the flag removes previously configured additional ports. `--allow-port` is unavailable with `--saas` or `--no-dns`. SSH port 22 remains controlled by `desktop.operator_cidr`.
+
 Preview without applying:
 
 ```bash
