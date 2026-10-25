@@ -1,5 +1,6 @@
 # desktopctl documentation
 
+- [Quick start](../README.md#quick-start)
 - [Architecture and repository boundary](ARCHITECTURE.md)
 - [Provisioning worker contract](PROVISIONING_CONTRACT.md)
 - [CLI reference](desktopctl.md)
