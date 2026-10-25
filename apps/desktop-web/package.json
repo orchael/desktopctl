@@ -1,6 +1,6 @@
 {
   "name": "@orchael/desktopctl",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "type": "module",
   "packageManager": "pnpm@10.27.0",
   "engines": {
