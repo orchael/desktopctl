@@ -52,7 +52,22 @@ func main() {
 	}
 	service := controlplane.NewService(cfg, fleetStore, runner, awsReady, runtime.MockAWS, runtime.RefreshTimeout, runtime.LifecycleTimeout).
 		WithAWSConfig(awsCfg)
+	if runtime.Standalone {
+		service.WithStandalone()
+	}
 	server := controlplane.NewServer(service, runtime.StaticDir, logger, runtime.APIToken)
+	if runtime.Standalone && runtime.MockAWS {
+		server.WithJobRunner(controlplane.MockJobRunner{Store: fleetStore})
+	}
+	if runtime.Standalone && !runtime.MockAWS {
+		server.WithJobRunner(controlplane.CLIJobRunner{
+			Binary:     "/app/desktopctl",
+			ConfigPath: runtime.ConfigPath,
+			SourceDir:  runtime.SourceDir,
+			Profile:    cfg.AWS.Profile,
+			Region:     cfg.AWS.Region,
+		})
+	}
 
 	logger.Info("control plane listening", "addr", runtime.Addr)
 	httpServer := &http.Server{
@@ -72,22 +87,21 @@ func main() {
 func seedMockStore() store.Store {
 	s := store.NewInMemoryStore()
 	_ = s.Create(context.Background(), &store.Desktop{
-		DesktopID:      "d-demo001",
-		OrganizationID: "00000000-0000-4000-8000-000000000001",
-		StackName:      "desktop-d-demo001",
-		GitHubOwner:    "orchael",
-		Region:         "us-east-2",
-		State:          store.StateReady,
-		InstanceID:     "i-00000000000000000",
-		Hostname:       "d-demo001.desktops.orchael.dev",
-		NoVNCURL:       "https://d-demo001.desktops.orchael.dev:8443/novnc/vnc.html",
-		SSHTarget:      "ubuntu@d-demo001.desktops.orchael.dev",
-		Readiness:      "mock ready",
-		Repos:          []string{"orchael/desktopctl"},
-		InstanceType:   "m7i.xlarge",
-		MarketType:     store.MarketSpot,
-		CreatedAt:      "2026-08-14T00:00:00Z",
-		UpdatedAt:      "2026-08-14T00:00:00Z",
+		DesktopID:    "d-demo001",
+		StackName:    "desktop-d-demo001",
+		GitHubOwner:  "orchael",
+		Region:       "us-east-2",
+		State:        store.StateReady,
+		InstanceID:   "i-00000000000000000",
+		Hostname:     "d-demo001.desktops.orchael.dev",
+		NoVNCURL:     "https://d-demo001.desktops.orchael.dev:8443/novnc/vnc.html",
+		SSHTarget:    "ubuntu@d-demo001.desktops.orchael.dev",
+		Readiness:    "mock ready",
+		Repos:        []string{"orchael/desktopctl"},
+		InstanceType: "m7i.xlarge",
+		MarketType:   store.MarketSpot,
+		CreatedAt:    "2026-08-14T00:00:00Z",
+		UpdatedAt:    "2026-08-14T00:00:00Z",
 	})
 	return s
 }

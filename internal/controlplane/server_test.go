@@ -16,6 +16,60 @@ import (
 
 const testOrganizationID = "00000000-0000-4000-8000-000000000001"
 
+func TestStandaloneListsCLIRecordsWithoutOrganization(t *testing.T) {
+	t.Parallel()
+	s := store.NewInMemoryStore()
+	for _, d := range []store.Desktop{
+		{DesktopID: "cli", State: store.StateReady},
+		{DesktopID: "hosted", OrganizationID: testOrganizationID, State: store.StateReady},
+	} {
+		if err := s.Create(t.Context(), &d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := newTestService(testConfig(), s).WithStandalone()
+	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("without token: status = %d", rec.Code)
+	}
+
+	req.Header.Set("Authorization", "Bearer secret-token")
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with token: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []store.Desktop
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d desktops, want 2", len(got))
+	}
+}
+
+func TestStandaloneRequiresLifecycleRunner(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore()).WithStandalone()
+	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
+	for _, tc := range []struct{ path, body string }{
+		{"/api/desktops", `{"owner":"orchael"}`},
+		{"/api/desktops/d-test001/terminate", `{"confirm":"d-test001"}`},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s: status = %d", tc.path, rec.Code)
+		}
+	}
+}
+
 func TestListDesktopsFiltersTerminated(t *testing.T) {
 	t.Parallel()
 	s := store.NewInMemoryStore()

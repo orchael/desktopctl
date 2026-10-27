@@ -637,8 +637,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Read the SSH public key so cloud-init can inject it into the ubuntu user's
 	// authorized_keys.  A missing or unreadable key is non-fatal; the desktop
 	// will still boot but SSH key-based login won't work.
-	sshPubKey := ""
-	if cfg.Desktop.SSHKeyPath != "" {
+	sshPubKey := os.Getenv("DESKTOPCTL_SSH_PUBLIC_KEY")
+	if sshPubKey == "" && cfg.Desktop.SSHKeyPath != "" {
 		if pubBytes, err := os.ReadFile(cfg.Desktop.SSHKeyPath + ".pub"); err == nil {
 			sshPubKey = strings.TrimSpace(string(pubBytes))
 		}

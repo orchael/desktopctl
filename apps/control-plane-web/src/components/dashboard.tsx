@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 type Desktop = {
   desktop_id: string;
@@ -16,43 +16,25 @@ type Desktop = {
   readiness: string;
   novnc_url?: string;
 };
-type Organization = { id: string; name: string; role: 'OWNER' | 'MEMBER' };
-type Member = {
-  role: 'OWNER' | 'MEMBER';
-  user: { id: string; name: string | null; email: string | null; image: string | null };
-};
+type Job = { id: string; action: string; desktop_id: string; state: string; error?: string };
+const pendingJobKey = 'desktopctl-companion-job';
 
-export function Dashboard({
-  user,
-  organizations,
-  activeOrganizationId,
-  initialMembers
-}: {
-  user: { id: string; name?: string | null; email?: string | null; image?: string | null };
-  organizations: Organization[];
-  activeOrganizationId: string;
-  initialMembers: Member[];
-}) {
+export function Dashboard() {
   const [desktops, setDesktops] = useState<Desktop[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
-  const [members, setMembers] = useState(initialMembers);
-  const [view, setView] = useState<'fleet' | 'organization'>('fleet');
   const [error, setError] = useState('');
-  const [busy, startTransition] = useTransition();
-  const active = organizations.find((organization) => organization.id === activeOrganizationId)!;
+  const [busy, setBusy] = useState(false);
+  const [job, setJob] = useState<Job>();
+  const [showCreate, setShowCreate] = useState(false);
   const selected = desktops.find((desktop) => desktop.desktop_id === selectedId) ?? desktops[0];
-  const metrics = useMemo(
-    () =>
-      desktops.reduce(
-        (value, desktop) => {
-          if (desktop.lifecycle_state === 'ready') value.running++;
-          else if (desktop.lifecycle_state === 'stopped') value.stopped++;
-          else value.attention++;
-          return value;
-        },
-        { running: 0, stopped: 0, attention: 0 }
-      ),
-    [desktops]
+  const metrics = desktops.reduce(
+    (value, desktop) => {
+      if (desktop.lifecycle_state === 'ready') value.running++;
+      else if (desktop.lifecycle_state === 'stopped') value.stopped++;
+      else value.attention++;
+      return value;
+    },
+    { running: 0, stopped: 0, attention: 0 }
   );
 
   const load = useCallback(async () => {
@@ -60,55 +42,94 @@ export function Dashboard({
     const value = (await response.json()) as Desktop[] | { error?: string };
     if (!response.ok)
       throw new Error(('error' in value && value.error) || 'Could not load desktops');
-    const desktops = value as Desktop[];
-    setDesktops(desktops);
-    setSelectedId((current) => current ?? desktops[0]?.desktop_id);
+    const next = value as Desktop[];
+    setDesktops(next);
+    setSelectedId((current) =>
+      next.some((desktop) => desktop.desktop_id === current) ? current : next[0]?.desktop_id
+    );
   }, []);
 
   useEffect(() => {
     load().catch((reason: Error) => setError(reason.message));
   }, [load]);
 
-  function mutate(path: string, init?: RequestInit, after?: () => void) {
-    setError('');
-    startTransition(async () => {
-      const response = await fetch(path, init);
-      if (!response.ok) {
-        setError((await response.json()).error ?? 'Request failed');
-        return;
+  const waitForJob = useCallback(
+    async (id: string) => {
+      setBusy(true);
+      try {
+        for (;;) {
+          const response = await fetch(`/api/fleet/jobs/${encodeURIComponent(id)}`, {
+            cache: 'no-store'
+          });
+          if (!response.ok)
+            throw new Error((await response.json()).error ?? 'Could not read operation');
+          const current = (await response.json()) as Job;
+          setJob(current);
+          if (current.state === 'succeeded') {
+            localStorage.removeItem(pendingJobKey);
+            await load();
+            return;
+          }
+          if (current.state === 'failed') {
+            localStorage.removeItem(pendingJobKey);
+            throw new Error(current.error ?? 'Operation failed');
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      } catch (reason) {
+        localStorage.removeItem(pendingJobKey);
+        setError(reason instanceof Error ? reason.message : 'Operation failed');
+      } finally {
+        setBusy(false);
       }
-      after?.();
-    });
+    },
+    [load]
+  );
+
+  useEffect(() => {
+    const pending = localStorage.getItem(pendingJobKey);
+    if (pending) void waitForJob(pending);
+  }, [waitForJob]);
+
+  async function runOperation(path: string, body?: object) {
+    setError('');
+    setBusy(true);
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const value = (await response.json()) as Job & { error?: string };
+      if (!response.ok) throw new Error(value.error ?? 'Request failed');
+      if (value.id) {
+        setJob(value);
+        localStorage.setItem(pendingJobKey, value.id);
+        await waitForJob(value.id);
+      } else {
+        await load();
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Request failed');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function desktopAction(action: string) {
+  function action(name: 'refresh' | 'start' | 'stop' | 'terminate') {
     if (!selected) return;
-    mutate(
-      `/api/fleet/desktops/${selected.desktop_id}/${action}`,
-      { method: 'POST' },
-      () => void load()
-    );
-  }
-  function switchOrganization(id: string) {
-    mutate(
-      '/api/organizations/active',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId: id })
-      },
-      () => location.reload()
-    );
-  }
-  async function refreshMembers() {
-    setError('');
-    const response = await fetch('/api/organizations/members', { cache: 'no-store' });
-    const value = (await response.json()) as Member[] | { error?: string };
-    if (!response.ok) {
-      setError(('error' in value && value.error) || 'Could not load members');
-      return;
+    let body: object | undefined;
+    if (name === 'terminate') {
+      const confirm = window.prompt(
+        `Type ${selected.desktop_id} to permanently terminate this desktop and delete its disk:`
+      );
+      if (confirm !== selected.desktop_id) return;
+      body = { confirm };
     }
-    setMembers(value as Member[]);
+    void runOperation(
+      `/api/fleet/desktops/${encodeURIComponent(selected.desktop_id)}/${name}`,
+      body
+    );
   }
 
   return (
@@ -116,44 +137,9 @@ export function Dashboard({
       <header className="topbar">
         <div className="brand">
           <strong>desktopctl</strong>
-          <span>Control Plane</span>
-        </div>
-        <label className="orgPicker">
-          <span>Organization</span>
-          <select
-            value={activeOrganizationId}
-            onChange={(event) => switchOrganization(event.target.value)}
-            disabled={busy}
-          >
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="user">
-          <Avatar user={user} />
-          <span>{user.name ?? user.email}</span>
+          <span>Companion App</span>
         </div>
       </header>
-      <aside className="rail">
-        <button className={view === 'fleet' ? 'active' : ''} onClick={() => setView('fleet')}>
-          <Icon name="grid" />
-          Fleet
-        </button>
-        <button
-          className={view === 'organization' ? 'active' : ''}
-          onClick={() => setView('organization')}
-        >
-          <Icon name="users" />
-          Organization
-        </button>
-        <a className="signout" href="/signout">
-          <Icon name="exit" />
-          Sign out
-        </a>
-      </aside>
       <section className="content">
         {error ? (
           <div className="alert" role="alert">
@@ -161,215 +147,97 @@ export function Dashboard({
             <button onClick={() => setError('')}>Dismiss</button>
           </div>
         ) : null}
-        {view === 'fleet' ? (
-          <>
-            <div className="pageTitle">
-              <div>
-                <h1>Fleet</h1>
-                <p>{active.name} desktops</p>
-              </div>
-              <button className="secondary" onClick={() => void load()} disabled={busy}>
-                ↻ Refresh
-              </button>
-            </div>
-            <div className="metrics">
-              <Metric label="Running" value={metrics.running} tone="green" />
-              <Metric label="Stopped" value={metrics.stopped} tone="slate" />
-              <Metric label="Attention" value={metrics.attention} tone="orange" />
-            </div>
-            <div className="fleetLayout">
-              <div className="tableWrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Desktop ID</th>
-                      <th>State</th>
-                      <th>GitHub owner</th>
-                      <th>Region</th>
-                      <th>Updated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {desktops.map((desktop) => (
-                      <tr
-                        key={desktop.desktop_id}
-                        className={desktop.desktop_id === selected?.desktop_id ? 'selected' : ''}
-                        tabIndex={0}
-                        onClick={() => setSelectedId(desktop.desktop_id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            setSelectedId(desktop.desktop_id);
-                          }
-                        }}
-                      >
-                        <td className="mono">{desktop.desktop_id}</td>
-                        <td>
-                          <Status state={desktop.lifecycle_state} />
-                        </td>
-                        <td>{desktop.github_owner}</td>
-                        <td>{desktop.region}</td>
-                        <td>{formatDate(desktop.updated_at)}</td>
-                      </tr>
-                    ))}
-                    {desktops.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="empty">
-                          No desktops belong to this organization.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-              <DesktopDetail desktop={selected} busy={busy} action={desktopAction} />
-            </div>
-          </>
-        ) : (
-          <OrganizationPanel
-            active={active}
-            members={members}
-            currentUserId={user.id}
+        {job && ['queued', 'running'].includes(job.state) ? (
+          <div className="jobNotice" role="status">
+            {job.action} {job.desktop_id}: {job.state}. This operation continues on the server if
+            you close this page.
+          </div>
+        ) : null}
+        <div className="pageTitle">
+          <div>
+            <h1>Fleet</h1>
+            <p>Desktops managed by this desktopctl installation</p>
+          </div>
+          <div className="pageActions">
+            <button
+              className="primary"
+              onClick={() => setShowCreate((current) => !current)}
+              disabled={busy}
+            >
+              Create desktop
+            </button>
+            <button
+              className="secondary"
+              onClick={() => void load().catch((reason: Error) => setError(reason.message))}
+              disabled={busy}
+            >
+              ↻ Refresh
+            </button>
+          </div>
+        </div>
+        {showCreate ? (
+          <CreatePanel
             busy={busy}
-            mutate={mutate}
-            refreshMembers={refreshMembers}
+            submit={(value) => {
+              setShowCreate(false);
+              void runOperation('/api/fleet/desktops', value);
+            }}
           />
-        )}
+        ) : null}
+        <div className="metrics">
+          <Metric label="Running" value={metrics.running} tone="green" />
+          <Metric label="Stopped" value={metrics.stopped} tone="slate" />
+          <Metric label="Attention" value={metrics.attention} tone="orange" />
+        </div>
+        <div className="fleetLayout">
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Desktop ID</th>
+                  <th>State</th>
+                  <th>GitHub owner</th>
+                  <th>Region</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {desktops.map((desktop) => (
+                  <tr
+                    key={desktop.desktop_id}
+                    className={desktop.desktop_id === selected?.desktop_id ? 'selected' : ''}
+                    tabIndex={0}
+                    onClick={() => setSelectedId(desktop.desktop_id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedId(desktop.desktop_id);
+                      }
+                    }}
+                  >
+                    <td className="mono">{desktop.desktop_id}</td>
+                    <td>
+                      <Status state={desktop.lifecycle_state} />
+                    </td>
+                    <td>{desktop.github_owner}</td>
+                    <td>{desktop.region}</td>
+                    <td>{formatDate(desktop.updated_at)}</td>
+                  </tr>
+                ))}
+                {desktops.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="empty">
+                      No desktops found in this fleet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <DesktopDetail desktop={selected} busy={busy} action={action} />
+        </div>
       </section>
     </main>
-  );
-}
-
-function OrganizationPanel({
-  active,
-  members,
-  currentUserId,
-  busy,
-  mutate,
-  refreshMembers
-}: {
-  active: Organization;
-  members: Member[];
-  currentUserId: string;
-  busy: boolean;
-  mutate: (path: string, init?: RequestInit, after?: () => void) => void;
-  refreshMembers: () => void;
-}) {
-  const owner = active.role === 'OWNER';
-  return (
-    <div className="settings">
-      <div className="pageTitle">
-        <div>
-          <h1>Organization</h1>
-          <p>Identity and access for {active.name}</p>
-        </div>
-        <span className="role">{active.role}</span>
-      </div>
-      <section>
-        <h2>Organization name</h2>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            mutate(
-              '/api/organizations',
-              {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: data.get('name') })
-              },
-              () => location.reload()
-            );
-          }}
-        >
-          <input name="name" defaultValue={active.name} disabled={!owner || busy} />
-          <button disabled={!owner || busy}>Save name</button>
-        </form>
-      </section>
-      <section>
-        <h2>Invite member</h2>
-        <p>Invited users join after signing in with the same Google email.</p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const data = new FormData(form);
-            mutate(
-              '/api/organizations/invitations',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: data.get('email') })
-              },
-              () => {
-                form.reset();
-                refreshMembers();
-              }
-            );
-          }}
-        >
-          <input
-            type="email"
-            name="email"
-            placeholder="name@company.com"
-            disabled={!owner || busy}
-          />
-          <button disabled={!owner || busy}>Invite member</button>
-        </form>
-      </section>
-      <section>
-        <h2>
-          Members <span>{members.length}</span>
-        </h2>
-        <div className="memberList">
-          {members.map((member) => (
-            <div className="member" key={member.user.id}>
-              <Avatar user={member.user} />
-              <div>
-                <strong>
-                  {member.user.name ?? 'Unnamed user'}
-                  {member.user.id === currentUserId ? ' (you)' : ''}
-                </strong>
-                <span>{member.user.email}</span>
-              </div>
-              <select
-                aria-label={`Role for ${member.user.email}`}
-                value={member.role}
-                disabled={!owner || busy}
-                onChange={(event) =>
-                  mutate(
-                    `/api/organizations/members/${member.user.id}`,
-                    {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ role: event.target.value })
-                    },
-                    refreshMembers
-                  )
-                }
-              >
-                <option>OWNER</option>
-                <option>MEMBER</option>
-              </select>
-              <button
-                className="dangerLink"
-                disabled={!owner || busy}
-                onClick={() =>
-                  mutate(
-                    `/api/organizations/members/${member.user.id}`,
-                    { method: 'DELETE' },
-                    refreshMembers
-                  )
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-        <small>The final owner cannot be removed or demoted.</small>
-      </section>
-    </div>
   );
 }
 
@@ -380,7 +248,7 @@ function DesktopDetail({
 }: {
   desktop?: Desktop;
   busy: boolean;
-  action: (name: string) => void;
+  action: (name: 'refresh' | 'start' | 'stop' | 'terminate') => void;
 }) {
   if (!desktop)
     return (
@@ -428,6 +296,13 @@ function DesktopDetail({
         >
           Stop
         </button>
+        <button
+          className="dangerLink"
+          onClick={() => action('terminate')}
+          disabled={busy || desktop.lifecycle_state === 'terminated'}
+        >
+          Terminate
+        </button>
         {desktop.novnc_url ? (
           <a href={desktop.novnc_url} target="_blank" rel="noreferrer">
             Open desktop ↗
@@ -437,6 +312,65 @@ function DesktopDetail({
     </aside>
   );
 }
+
+function CreatePanel({ busy, submit }: { busy: boolean; submit: (value: object) => void }) {
+  return (
+    <form
+      className="createPanel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        const owner = String(data.get('owner') ?? '').trim();
+        const name = String(data.get('name') ?? '').trim();
+        const repos = String(data.get('repos') ?? '')
+          .split(/[,\n]/)
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if (
+          !window.confirm(`Create a new AWS desktop for ${owner}? This will incur cloud charges.`)
+        )
+          return;
+        submit({
+          owner,
+          name,
+          repos,
+          instance_type: String(data.get('instance_type') ?? '').trim(),
+          market_type: String(data.get('market_type') ?? 'on-demand')
+        });
+      }}
+    >
+      <h2>Create desktop</h2>
+      <p>
+        Uses the same provisioning and readiness checks as <code>desktopctl create</code>.
+      </p>
+      <div className="createFields">
+        <label>
+          GitHub owner <input name="owner" required maxLength={100} placeholder="your-org" />
+        </label>
+        <label>
+          Desktop name <input name="name" maxLength={100} placeholder="optional" />
+        </label>
+        <label>
+          Repositories <textarea name="repos" rows={2} placeholder="owner/repo, one per line" />
+        </label>
+        <label>
+          Instance type <input name="instance_type" placeholder="configured default" />
+        </label>
+        <label>
+          Market{' '}
+          <select name="market_type">
+            <option value="on-demand">On demand</option>
+            <option value="spot">Spot</option>
+          </select>
+        </label>
+      </div>
+      <button className="primary" type="submit" disabled={busy}>
+        Create
+      </button>
+    </form>
+  );
+}
+
 function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
     <div className="metric">
@@ -454,24 +388,6 @@ function Status({ state }: { state: string }) {
     <span className="status">
       <i className={tone} />
       {state.replace('_', ' ')}
-    </span>
-  );
-}
-function Avatar({
-  user
-}: {
-  user: { name?: string | null; email?: string | null; image?: string | null };
-}) {
-  return user.image ? (
-    <img className="avatar" src={user.image} alt="" />
-  ) : (
-    <span className="avatar fallback">{(user.name ?? user.email ?? '?')[0]?.toUpperCase()}</span>
-  );
-}
-function Icon({ name }: { name: string }) {
-  return (
-    <span className="navIcon" aria-hidden="true">
-      {name === 'grid' ? '⊞' : name === 'users' ? '♙' : '↪'}
     </span>
   );
 }

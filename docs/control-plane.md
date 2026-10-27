@@ -1,172 +1,116 @@
-# Kubernetes Control Plane
+# Standalone browser companion
 
-The control plane is a Next.js 16 application backed by PostgreSQL and Auth.js. It authenticates users with Google, scopes every request to an active organization, and proxies fleet operations to a private Go API. Desktop metadata remains in DynamoDB with an `organization_id` UUID that matches the PostgreSQL organization.
+The desktopctl companion app runs on an operator-controlled server and shows the
+same DynamoDB fleet as the CLI. It is an optional browser interface, separate
+from the Orchael Desktops SaaS. It uses the operator's desktopctl config and AWS
+profile. Google login, PostgreSQL, organizations, and Kubernetes are not
+required.
 
 ```mermaid
 flowchart LR
-  Browser --> Next[Next.js + Auth.js]
-  Next --> Postgres[(PostgreSQL + RLS)]
-  Next -->|service token + organization UUID| Go[Private Go API]
-  Go --> Dynamo[(DynamoDB desktops)]
-  Go --> AWS[EC2 and AWS services]
+  Browser -->|SSH forwarding| Web[Next.js on loopback]
+  Web -->|private service token| API[Go API in Docker network]
+  API --> AWS[AWS profile and fleet table]
 ```
 
-## Identity and organizations
+## Run on a server
 
-- Google is the only authentication provider.
-- A first-time user receives an organization named from their normalized email, for example `alex@example.com` becomes `alex-example-com`.
-- Users may belong to multiple organizations and select the active organization in the UI.
-- Owners can rename an organization, invite by email, promote or demote members, and remove members.
-- PostgreSQL rejects any operation that would leave an organization without an owner.
-- PostgreSQL RLS restricts organization, membership, and invitation rows to the authenticated user and active organization.
-- Legacy DynamoDB desktops without `organization_id` are intentionally hidden until migrated.
+The server needs Docker with Compose, a desktopctl source checkout, a working
+`~/.config/desktopctl/config.yaml`, and the AWS profile already used by the
+CLI in `~/.aws`. The server must be able to read the fleet DynamoDB table and
+perform the AWS and Pulumi operations you use. Run the command **on that server**:
+
+```bash
+desktopctl app start --source /path/to/desktopctl
+desktopctl app status --source /path/to/desktopctl
+```
+
+`start` builds the web and API images from the checkout and waits for their
+health checks. The API image contains the desktopctl CLI, Go runtime, and a
+pinned Pulumi CLI. The checkout is mounted into the API container so the CLI
+can run its Pulumi programs. The server's `~/.pulumi` directory is mounted for
+provider plugins and local Pulumi settings. `start` creates a random, private service token at
+`~/.config/desktopctl/app-api-token`. The Go API is reachable only inside the
+Compose network. The browser app binds to `127.0.0.1:3000`, so the server does
+not expose it to the public internet.
+
+If the desktopctl config names an SSH key, `start` reads its `.pub` file and
+passes only that public key into the API container. The private key stays on
+the server. The source checkout is mounted writable because Pulumi writes
+stack settings there.
+
+From your workstation, forward the private port with SSH:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 user@your-server
+```
+
+Then open `http://127.0.0.1:3000/` in a browser. The SSH connection protects
+the URL. Keep the tunnel open while using the app. To use a private HTTPS
+network URL instead, configure an authenticated private network proxy to
+forward to `127.0.0.1:3000`, and start the app with
+`--origin https://your-private-host`. The app allows browser actions only from
+that exact origin. Do not publish the port directly or use an unauthenticated
+public reverse proxy. Browser access inherits the access policy of SSH or the
+private proxy.
+
+Stop the app with:
+
+```bash
+desktopctl app stop --source /path/to/desktopctl
+```
+
+Pass `--config /path/to/config.yaml` to use a non-default desktopctl config.
+The global `--profile` and `--region` flags override the configured AWS
+profile and region for the app, as they do for CLI commands.
+Pass `--port 3001` if port 3000 is occupied, and use the same port when
+forwarding. `desktopctl app url` prints the browser URL; pass `--origin` to
+print a private proxy URL. The `--bind` flag accepts only IPv4 loopback IPs.
+
+## What the app manages
+
+The fleet page lists records from the configured desktopctl DynamoDB table,
+including CLI-created desktops with no organization ID. It shows lifecycle
+state, location, readiness, and the desktop's own noVNC URL. Browser actions
+create, start, stop, refresh, and terminate desktops. Create, start, stop, and
+terminate run the matching desktopctl CLI commands in a serialized server job
+queue. This preserves the CLI's provisioning, bootstrap, readiness, and
+cleanup behavior. The browser polls job status; closing the page does not stop
+an active job. Refresh reads live instance state through the private API.
+Termination requires typing the desktop ID. Wait for active jobs to finish
+before stopping or upgrading the app; an interrupted CLI process may need
+reconciliation with `desktopctl status` or `desktopctl terminate` on the server.
+The companion app has no tenant database or SaaS account.
 
 ## Local development
 
-Map `app.desktops.orchael.dev` to `127.0.0.1` in `/etc/hosts`, export the PEM
-certificate and private key as `TLS_CERT_PEM` and `TLS_KEY_PEM`, set
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in your shell, then run:
+Run `make dev-up` from the repository root to start the app with a mock fleet
+and mock AWS. Open `http://127.0.0.1:3000/`. Run `make dev-down` to stop it.
+The development service token is fixed for local mock mode only.
 
-```bash
-make dev-up
-```
+## Troubleshooting
 
-This layers `docker-compose.dev.yml` over `docker-compose.yml`. Compose starts
-PostgreSQL 16, applies Prisma migrations, starts the mock Go API,
-and serves Next.js through nginx at `https://app.desktops.orchael.dev`. Compose
-refuses to start when either TLS variable is unavailable, and nginx writes the
-values only to its container filesystem. The proxy forwards WebSocket upgrades
-for Next.js development live reload. Create a suitable local Auth.js secret for
-anything beyond throwaway development:
+- If `start` cannot find the Compose file, point `--source` at a full checkout
+  of this repository.
+- If it cannot find the config or AWS directory, configure the CLI on the
+  server first. The container mounts those files read-only and runs as the
+  invoking user so private AWS profile files remain readable.
+- If the fleet is empty, check the configured environment, region, and fleet
+  table against `desktopctl list` on the same server.
+- If the page returns a fleet error, check `desktopctl app status` and
+  `docker compose -f /path/to/desktopctl/deploy/control-plane/standalone-compose.yml logs api`.
+- If the URL is unreachable from a workstation, keep the SSH tunnel open and
+  verify the forwarded port matches `desktopctl app url`.
 
-```bash
-export AUTH_SECRET="$(openssl rand -base64 32)"
-```
+## Architecture and limits
 
-Configure this Google OAuth redirect URI:
-
-```text
-https://app.desktops.orchael.dev/api/auth/callback/google
-```
-
-Development uses the same `control-plane-postgres` volume as the base Compose
-stack. To reset local identity data, explicitly remove that volume with Docker
-Compose.
-
-## Runtime configuration
-
-| Variable | Component | Purpose |
-|---|---|---|
-| `DATABASE_URL` | Next.js | Restricted PostgreSQL runtime connection string. |
-| `MIGRATION_DATABASE_URL` | Helm migration Job | Privileged PostgreSQL connection used only for schema migrations. |
-| `AUTH_SECRET` | Next.js | Auth.js session signing/encryption secret. |
-| `AUTH_TRUST_HOST` | Next.js | Trust ingress forwarding headers; Helm sets this to `true`. |
-| `AUTH_URL` | Next.js | Public Auth.js origin used for OAuth callbacks. |
-| `GOOGLE_CLIENT_ID` | Next.js | Google OAuth client ID. |
-| `GOOGLE_CLIENT_SECRET` | Next.js | Google OAuth client secret. |
-| `CONTROL_PLANE_API_URL` | Next.js | Cluster-private Go API base URL. |
-| `CONTROL_PLANE_API_TOKEN` | Both | Service credential used only between Next.js and Go. |
-| `AWS_REGION` | Go API | Fleet AWS region. |
-| `DESKTOPCTL_ENVIRONMENT` | Go API | Environment used for fleet defaults and resource naming. |
-| `PULUMI_BACKEND_BUCKET` | Go API | Pulumi state bucket for lifecycle operations. |
-| `DESKTOPCTL_FLEET_TABLE` | Go API | DynamoDB fleet metadata table. |
-| `DESKTOPCTL_AMI_TABLE` | Go API | DynamoDB AMI metadata table. |
-| `OPERATOR_AWS_ACCESS_KEY_ID` | Go API | Bootstrap operator access key used only for STS. |
-| `OPERATOR_AWS_SECRET_ACCESS_KEY` | Go API | Bootstrap operator secret used only for STS. |
-| `OPERATOR_ROLE_ARN` | Go API | Fleet role assumed by the Go API. |
-| `OPERATOR_EXTERNAL_ID` | Go API | External ID required by the fleet role trust policy. |
-
-Do not expose the Go API ingress or its service token to browsers.
-
-## Database migrations and RLS
-
-Prisma schema changes live under `apps/control-plane-web/prisma`. Local development uses `pnpm run db:migrate:dev`; deployed environments use `pnpm run db:migrate`.
-
-The migration connection must use a role allowed to create roles, tables, functions, triggers, and RLS policies. `DATABASE_URL` must use the non-owner `desktopctl_app` role created or granted by the migration; `MIGRATION_DATABASE_URL` must never be supplied to the web Deployment. Runtime organization queries set transaction-local `app.current_user_id` and `app.current_organization_id` values before accessing protected tables. Never perform organization queries outside the provided organization helpers.
-
-## Helm deployment
-
-The chart is in `deploy/control-plane/chart`. It installs separate web and API Deployments, public ingress only for Next.js, a private API Service, a NetworkPolicy, and a pre-install/pre-upgrade migration Job.
-
-### Build and deploy from source
-
-Control plane images are not published by this repository. Build both targets
-from the same source commit, tag them with a commit SHA, and push them to a
-registry that the target Kubernetes cluster can pull from. The API tag must
-have the `-api` suffix because the chart uses one repository for both images.
-
-```bash
-git clone https://github.com/orchael/desktopctl.git
-cd desktopctl
-IMAGE_REPOSITORY=registry.example.com/orchael/desktopctl-control-plane
-IMAGE_TAG="$(git rev-parse --short=12 HEAD)"
-docker build -f Dockerfile.control-plane --target web \
-  -t "$IMAGE_REPOSITORY:$IMAGE_TAG" .
-docker build -f Dockerfile.control-plane --target api \
-  -t "$IMAGE_REPOSITORY:$IMAGE_TAG-api" .
-docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
-docker push "$IMAGE_REPOSITORY:$IMAGE_TAG-api"
-```
-
-Replace the example registry with your own and authenticate before pushing.
-If the registry is private, configure an image pull secret for the namespace
-and service accounts before installation. Keep the image tag tied to the
-source commit used for both builds. The chart has no default image repository
-or tag, so supply both explicitly when installing or upgrading.
-
-Prefer creating the Secret with an external secret manager. The chart expects a Secret named `desktopctl-control-plane` by default with these keys:
-
-- `DATABASE_URL`
-- `MIGRATION_DATABASE_URL`
-- `AUTH_SECRET`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `CONTROL_PLANE_API_TOKEN`
-- `OPERATOR_AWS_ACCESS_KEY_ID`
-- `OPERATOR_AWS_SECRET_ACCESS_KEY`
-- `OPERATOR_EXTERNAL_ID`
-
-Example:
-
-```bash
-helm upgrade --install desktopctl deploy/control-plane/chart \
-  --namespace desktopctl --create-namespace \
-  --set-string image.repository="$IMAGE_REPOSITORY" \
-  --set-string image.tag="$IMAGE_TAG" \
-  --set ingress.host=app.desktops.orchael.dev \
-  --set config.backendBucket="$PULUMI_BACKEND_BUCKET" \
-  --set config.operatorRoleArn="$OPERATOR_ROLE_ARN"
-```
-
-For an isolated test environment, `secrets.create=true` can create the Secret from Helm values, but command-line secret values may be retained in shell and Helm history.
-
-The Google production redirect URI is:
-
-```text
-https://app.desktops.orchael.dev/api/auth/callback/google
-```
-
-## Private Go API contract
-
-All `/api/desktops` requests require `X-Organization-ID` and, when configured, `Authorization: Bearer <CONTROL_PLANE_API_TOKEN>`. A desktop is returned only when its DynamoDB `organization_id` exactly matches the request header; missing and cross-organization records return `404`.
-
-The Next.js `/api/fleet/*` route is the only browser-facing fleet endpoint. It obtains the active organization from an HTTP-only cookie, validates membership in PostgreSQL, and supplies both private headers to Go.
-
-## Existing desktop migration
-
-Existing records are hidden until an administrator writes a valid PostgreSQL organization UUID to their DynamoDB `organization_id` attribute. Determine the target organization with an owner before updating a record. There is no domain-based or automatic migration because that could disclose a desktop to the wrong tenant.
-
-## Verification
-
-```bash
-go test ./...
-cd apps/control-plane-web
-pnpm run build
-pnpm run test:coverage
-pnpm run lint
-pnpm run prettier
-helm lint ../../deploy/control-plane/chart \
-  --set image.repository=registry.example.com/orchael/desktopctl-control-plane \
-  --set image.tag=test --set config.backendBucket=test \
-  --set config.operatorRoleArn=arn:aws:iam::123456789012:role/test
-```
+The Next.js server holds the private API token and forwards `/api/fleet/*`
+requests to the Go API. Browsers never receive AWS credentials or the service
+token. The Go API uses the configured AWS profile directly in standalone mode.
+Jobs are kept in API memory; if the API container restarts, the browser can
+refresh the fleet to reconcile the last result. Job responses contain generic
+failure messages so CLI diagnostics cannot leak secrets through the browser.
+The old DOKS bootstrap IAM role is not needed for this mode. The old Helm,
+PostgreSQL, and Nginx deployment files were retired.
+Existing records remain in DynamoDB when the app stops; `stop` only shuts down
+the companion containers.

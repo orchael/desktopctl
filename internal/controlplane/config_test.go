@@ -30,6 +30,7 @@ func TestLoadRuntimeConfigReadsOperatorAWSVariables(t *testing.T) {
 
 func TestLoadAppConfigReadsDeploymentOverrides(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("AWS_PROFILE", "test-operator")
 	t.Setenv("DESKTOPCTL_ENVIRONMENT", "prod")
 	t.Setenv("PULUMI_BACKEND_BUCKET", "prod-state")
 	t.Setenv("DESKTOPCTL_FLEET_TABLE", "prod-fleet")
@@ -41,6 +42,9 @@ func TestLoadAppConfigReadsDeploymentOverrides(t *testing.T) {
 	}
 	if cfg.AWS.Region != "us-west-2" {
 		t.Errorf("AWS.Region = %q", cfg.AWS.Region)
+	}
+	if cfg.AWS.Profile != "test-operator" {
+		t.Errorf("AWS.Profile = %q", cfg.AWS.Profile)
 	}
 	if cfg.Fleet.Environment != "prod" {
 		t.Errorf("Fleet.Environment = %q", cfg.Fleet.Environment)
@@ -91,5 +95,14 @@ func TestRuntimeConfigValidateRequiresOperatorAWSVariables(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want missing %s", err, tt.missing)
 			}
 		})
+	}
+}
+
+func TestStandaloneRequiresOnlyPrivateAPIToken(t *testing.T) {
+	if err := (RuntimeConfig{Standalone: true}).Validate(); err == nil || !strings.Contains(err.Error(), "CONTROL_PLANE_API_TOKEN") {
+		t.Fatalf("missing token error = %v", err)
+	}
+	if err := (RuntimeConfig{Standalone: true, APIToken: "secret"}).Validate(); err != nil {
+		t.Fatalf("standalone config: %v", err)
 	}
 }

@@ -1,5 +1,9 @@
 # Plan 18 - Kubernetes Control Plane Webapp
 
+> Historical plan. The app was converted to a standalone, operator-hosted
+> companion without Google login or organizations. See
+> [the current app guide](../docs/control-plane.md) for supported behavior.
+
 ## Objective
 
 Build a Kubernetes-hosted control plane webapp for `desktopctl` that runs outside AWS, initially on DOKS, and manages the existing AWS-backed desktop fleet through the same lifecycle semantics as the CLI.

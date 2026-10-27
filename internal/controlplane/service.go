@@ -49,6 +49,7 @@ type Service struct {
 	pulumiRunner     PulumiRunner
 	refreshTimeout   time.Duration
 	lifecycleTimeout time.Duration
+	standalone       bool
 }
 
 // NewService creates a Service. pulumiRunner may be nil; TerminateDesktop and
@@ -69,6 +70,17 @@ func NewService(cfg *appconfig.Config, s store.Store, pulumiRunner PulumiRunner,
 func (s *Service) WithAWSConfig(awsCfg aws.Config) *Service {
 	s.awsCfg = awsCfg
 	return s
+}
+
+// WithStandalone exposes the operator's complete fleet, including records
+// created by the CLI before organization IDs existed.
+func (s *Service) WithStandalone() *Service {
+	s.standalone = true
+	return s
+}
+
+func (s *Service) belongsToFleet(d *store.Desktop, organizationID string) bool {
+	return s.standalone || (d.OrganizationID != "" && d.OrganizationID == organizationID)
 }
 
 type Readiness struct {
@@ -129,7 +141,7 @@ func (s *Service) ListDesktops(ctx context.Context, organizationID string, inclu
 	}
 	filtered := make([]*store.Desktop, 0, len(desktops))
 	for _, d := range desktops {
-		if d.OrganizationID == organizationID && (includeTerminated || d.State != store.StateTerminated) {
+		if s.belongsToFleet(d, organizationID) && (includeTerminated || d.State != store.StateTerminated) {
 			filtered = append(filtered, d)
 		}
 	}
@@ -144,7 +156,7 @@ func (s *Service) GetDesktop(ctx context.Context, organizationID, id string) (*D
 	if err != nil {
 		return nil, err
 	}
-	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
 	summary := &DesktopSummary{Desktop: d}
@@ -160,7 +172,7 @@ func (s *Service) RefreshDesktop(ctx context.Context, organizationID, id string)
 	if err != nil {
 		return nil, err
 	}
-	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
 	live, err := s.liveInstanceState(ctx, d)
@@ -207,7 +219,7 @@ func (s *Service) StopDesktop(ctx context.Context, organizationID, id string) (*
 	if err != nil {
 		return nil, err
 	}
-	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
 	if d.InstanceID == "" {
@@ -248,7 +260,7 @@ func (s *Service) StartDesktop(ctx context.Context, organizationID, id string) (
 	if err != nil {
 		return nil, err
 	}
-	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
 	if d.InstanceID == "" {
@@ -319,7 +331,7 @@ func (s *Service) TerminateDesktop(ctx context.Context, organizationID, id strin
 	if err != nil {
 		return nil, err
 	}
-	if d.OrganizationID == "" || d.OrganizationID != organizationID {
+	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
 	if d.State == store.StateTerminated {

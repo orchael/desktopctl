@@ -44,14 +44,14 @@ button {
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template: 78px 1fr/230px 1fr;
+  grid-template: 78px 1fr/1fr;
   background: #fff;
 }
 .topbar {
   grid-column: 1/-1;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: 230px 1fr auto;
+  grid-template-columns: 1fr;
   align-items: center;
   padding: 0 28px;
   gap: 28px;
@@ -171,6 +171,59 @@ button {
   color: var(--muted);
   margin: 5px 0 0;
 }
+.pageActions {
+  display: flex;
+  gap: 10px;
+}
+.primary {
+  border: 1px solid var(--blue);
+  border-radius: 5px;
+  background: var(--blue);
+  color: #fff;
+  padding: 10px 14px;
+}
+.jobNotice {
+  border: 1px solid #b2ddff;
+  background: #eff8ff;
+  color: #175cd3;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.createPanel {
+  border: 1px solid var(--line);
+  background: #f9fbff;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.createPanel h2 {
+  margin: 0 0 6px;
+}
+.createPanel p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+.createFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.createFields label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.createFields input,
+.createFields textarea,
+.createFields select {
+  width: 100%;
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  padding: 9px;
+  background: #fff;
+  font: inherit;
+}
 .secondary,
 .actions button,
 .actions a,
@@ -222,7 +275,7 @@ button {
 }
 .fleetLayout {
   display: grid;
-  grid-template-columns: minmax(620px, 1fr) 300px;
+  grid-template-columns: minmax(620px, 1fr) 360px;
   border-top: 1px solid var(--line);
   min-height: 570px;
 }
@@ -764,7 +817,7 @@ tbody tr.selected {
 }
 @media (max-width: 950px) {
   .appShell {
-    grid-template: 70px auto 1fr/1fr;
+    grid-template: 70px 1fr/1fr;
   }
   .topbar {
     grid-template-columns: 1fr auto;
@@ -779,10 +832,6 @@ tbody tr.selected {
   .topbar {
     height: auto;
     min-height: 70px;
-  }
-  .brand span,
-  .user span {
-    display: none;
   }
   .rail {
     grid-row: 2;
@@ -829,6 +878,14 @@ tbody tr.selected {
   }
 }
 @media (max-width: 650px) {
+  .pageTitle {
+    align-items: flex-start;
+    gap: 16px;
+    flex-direction: column;
+  }
+  .createFields {
+    grid-template-columns: 1fr;
+  }
   .metrics {
     grid-template-columns: 1fr;
   }
