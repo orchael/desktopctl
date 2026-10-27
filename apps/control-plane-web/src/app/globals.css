@@ -274,10 +274,7 @@ button {
   background: var(--orange);
 }
 .fleetLayout {
-  display: grid;
-  grid-template-columns: minmax(620px, 1fr) 360px;
   border-top: 1px solid var(--line);
-  min-height: 570px;
 }
 .tableWrap {
   overflow: auto;
@@ -320,6 +317,107 @@ tbody tr.selected {
 .mono {
   font-family: 'SFMono-Regular', Consolas, monospace;
   color: #344054;
+}
+.mono a {
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 650;
+}
+.mono a:hover {
+  text-decoration: underline;
+}
+.detailPage {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+.backLink {
+  display: inline-block;
+  margin-bottom: 26px;
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 650;
+}
+.detailPageHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.detailEyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.detailPageHead h1 {
+  margin: 8px 0;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.04em;
+}
+.detailPageHead p {
+  margin: 0;
+  color: var(--muted);
+}
+.detailState {
+  text-transform: capitalize;
+}
+.detailPageHead .primary {
+  flex: none;
+  text-decoration: none;
+}
+.detailToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 20px 0 28px;
+}
+.detailToolbar button {
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #344054;
+}
+.detailToolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.detailPage h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+.detailFields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+.detailFields div {
+  min-width: 0;
+  padding: 17px 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.detailFields dt {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.detailFields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.detailFields a {
+  color: var(--blue);
 }
 .status {
   display: inline-flex;
@@ -878,6 +976,13 @@ tbody tr.selected {
   }
 }
 @media (max-width: 650px) {
+  .detailPageHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .detailFields {
+    grid-template-columns: 1fr;
+  }
   .pageTitle {
     align-items: flex-start;
     gap: 16px;

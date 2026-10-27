@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/orchael/desktopctl/internal/config"
 )
 
 func TestAppTokenIsPrivateAndStable(t *testing.T) {
@@ -39,13 +40,24 @@ func TestAppTokenIsPrivateAndStable(t *testing.T) {
 	}
 }
 
-func TestAppEnvironmentRequiresLoopback(t *testing.T) {
-	previousBind, previousPort, previousConfig := appBind, appPort, cfgFile
-	t.Cleanup(func() { appBind, appPort, cfgFile = previousBind, previousPort, previousConfig })
-	appBind, appPort = "0.0.0.0", 3000
-	cfgFile = filepath.Join(t.TempDir(), "config.yaml")
-	if _, err := appEnvironment(false); err == nil || !strings.Contains(err.Error(), "loopback") {
-		t.Fatalf("expected loopback error, got %v", err)
+func TestAppBindUsesConfigAndFlagOverride(t *testing.T) {
+	previousBind, previousConfig := appBind, cfg
+	t.Cleanup(func() { appBind, cfg = previousBind, previousConfig })
+	cfg = &config.Config{App: config.AppConfig{Bind: "192.168.1.20"}}
+	appBind = ""
+	if got := effectiveAppBind(); got != "192.168.1.20" {
+		t.Fatalf("configured bind = %q", got)
+	}
+	if err := validateAppAddress(); err != nil {
+		t.Fatalf("configured bind: %v", err)
+	}
+	appBind = "0.0.0.0"
+	if got := effectiveAppBind(); got != "0.0.0.0" || appBindWarning() == "" {
+		t.Fatalf("wildcard override = %q, warning = %q", got, appBindWarning())
+	}
+	appBind = "not-an-ip"
+	if err := validateAppAddress(); err == nil || !strings.Contains(err.Error(), "IPv4") {
+		t.Fatalf("expected IPv4 error, got %v", err)
 	}
 }
 

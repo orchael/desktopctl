@@ -1,9 +1,12 @@
+import { isIP } from 'node:net';
+
 async function proxyFleet(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const publicOrigin = process.env.CONTROL_PLANE_PUBLIC_ORIGIN || undefined;
+  const bindHost = process.env.CONTROL_PLANE_BIND_HOST || '127.0.0.1';
   const host = request.headers.get('host')?.replace(/:\d+$/, '') ?? new URL(request.url).hostname;
-  const allowedHosts = ['127.0.0.1', 'localhost', '[::1]'];
+  const allowedHosts = ['127.0.0.1', 'localhost', '[::1]', bindHost];
   if (publicOrigin) allowedHosts.push(new URL(publicOrigin).hostname);
-  if (!allowedHosts.includes(host))
+  if (!allowedHosts.includes(host) && !(bindHost === '0.0.0.0' && isIP(host) === 4))
     return Response.json({ error: 'Invalid host' }, { status: 403 });
   const requestURL = new URL(request.url);
   const expectedOrigin =

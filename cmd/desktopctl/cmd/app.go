@@ -30,7 +30,7 @@ var appCmd = &cobra.Command{Use: "app", Short: "Run the standalone browser compa
 
 func init() {
 	appCmd.PersistentFlags().StringVar(&appSource, "source", ".", "desktopctl source checkout containing Dockerfile.control-plane")
-	appCmd.PersistentFlags().StringVar(&appBind, "bind", "127.0.0.1", "IPv4 loopback address for the browser app")
+	appCmd.PersistentFlags().StringVar(&appBind, "bind", "", "IPv4 bind address for the browser app (overrides app.bind)")
 	appCmd.PersistentFlags().IntVar(&appPort, "port", 3000, "browser app port")
 	appCmd.PersistentFlags().StringVar(&appOrigin, "origin", "", "HTTPS origin served by an authenticated private network proxy")
 	appCmd.AddCommand(&cobra.Command{Use: "start", Short: "Build and start the companion app", Args: cobra.NoArgs, RunE: runAppStart})
@@ -127,6 +127,7 @@ func appEnvironment(createToken bool) ([]string, error) {
 	if err := validateAppAddress(); err != nil {
 		return nil, err
 	}
+	bind := effectiveAppBind()
 	configPath, err := appConfigPath()
 	if err != nil {
 		return nil, err
@@ -174,7 +175,8 @@ func appEnvironment(createToken bool) ([]string, error) {
 		"DESKTOPCTL_APP_AWS_DIR="+awsDir,
 		"DESKTOPCTL_APP_PULUMI_DIR="+pulumiDir,
 		"DESKTOPCTL_APP_SOURCE="+sourceDir,
-		"DESKTOPCTL_APP_BIND="+appBind,
+		"DESKTOPCTL_APP_BIND="+bind,
+		"CONTROL_PLANE_BIND_HOST="+bind,
 		"DESKTOPCTL_APP_PORT="+strconv.Itoa(appPort),
 		"DESKTOPCTL_APP_UID="+strconv.Itoa(os.Getuid()),
 		"DESKTOPCTL_APP_GID="+strconv.Itoa(os.Getgid()),
@@ -185,9 +187,9 @@ func appEnvironment(createToken bool) ([]string, error) {
 }
 
 func validateAppAddress() error {
-	ip := net.ParseIP(appBind)
-	if ip == nil || ip.To4() == nil || !ip.IsLoopback() {
-		return errors.New("--bind must be an IPv4 loopback address; use SSH forwarding to access the app")
+	ip := net.ParseIP(effectiveAppBind())
+	if ip == nil || ip.To4() == nil {
+		return errors.New("app.bind or --bind must be an IPv4 address")
 	}
 	if appPort < 1 || appPort > 65535 {
 		return errors.New("--port must be between 1 and 65535")
@@ -199,6 +201,23 @@ func validateAppAddress() error {
 		}
 	}
 	return nil
+}
+
+func effectiveAppBind() string {
+	if appBind != "" {
+		return appBind
+	}
+	if cfg != nil && cfg.App.Bind != "" {
+		return cfg.App.Bind
+	}
+	return "127.0.0.1"
+}
+
+func appBindWarning() string {
+	if effectiveAppBind() == "0.0.0.0" {
+		return "WARNING: 0.0.0.0 exposes the companion on every IPv4 interface; restrict access to your private network."
+	}
+	return ""
 }
 
 func runAppCompose(cmd *cobra.Command, start bool, args ...string) error {
@@ -238,6 +257,9 @@ func runAppCompose(cmd *cobra.Command, start bool, args ...string) error {
 }
 
 func runAppStart(cmd *cobra.Command, _ []string) error {
+	if warning := appBindWarning(); warning != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), warning)
+	}
 	if err := runAppCompose(cmd, true, "up", "--build", "--detach", "--wait"); err != nil {
 		return err
 	}
@@ -257,6 +279,9 @@ func runAppURL(cmd *cobra.Command, _ []string) error {
 	if err := validateAppAddress(); err != nil {
 		return err
 	}
+	if warning := appBindWarning(); warning != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), warning)
+	}
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), appURL())
 	return err
 }
@@ -265,5 +290,5 @@ func appURL() string {
 	if appOrigin != "" {
 		return appOrigin + "/"
 	}
-	return fmt.Sprintf("http://%s:%d/", appBind, appPort)
+	return fmt.Sprintf("http://%s:%d/", effectiveAppBind(), appPort)
 }

@@ -95,3 +95,33 @@ it('accepts the forwarded loopback host when Next uses its internal URL', async 
   );
   expect(result.status).toBe(202);
 });
+
+it('accepts the configured bind IP as the browser host', async () => {
+  vi.stubEnv('CONTROL_PLANE_API_TOKEN', 'private-token');
+  vi.stubEnv('CONTROL_PLANE_BIND_HOST', '127.0.0.2');
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await POST(
+    new Request('http://127.0.0.2:3000/api/fleet/desktops', {
+      method: 'POST',
+      headers: { Host: '127.0.0.2:3000', Origin: 'http://127.0.0.2:3000' }
+    }),
+    context
+  );
+  expect(result.status).toBe(202);
+});
+
+it('accepts a direct IPv4 browser host when binding all interfaces', async () => {
+  vi.stubEnv('CONTROL_PLANE_API_TOKEN', 'private-token');
+  vi.stubEnv('CONTROL_PLANE_BIND_HOST', '0.0.0.0');
+  const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await POST(
+    new Request('http://192.168.1.20:3000/api/fleet/desktops', {
+      method: 'POST',
+      headers: { Host: '192.168.1.20:3000', Origin: 'http://192.168.1.20:3000' }
+    }),
+    context
+  );
+  expect(result.status).toBe(202);
+});

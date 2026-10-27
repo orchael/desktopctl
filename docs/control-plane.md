@@ -29,10 +29,10 @@ desktopctl app status --source /path/to/desktopctl
 health checks. The API image contains the desktopctl CLI, Go runtime, and a
 pinned Pulumi CLI. The checkout is mounted into the API container so the CLI
 can run its Pulumi programs. The server's `~/.pulumi` directory is mounted for
-provider plugins and local Pulumi settings. `start` creates a random, private service token at
-`~/.config/desktopctl/app-api-token`. The Go API is reachable only inside the
-Compose network. The browser app binds to `127.0.0.1:3000`, so the server does
-not expose it to the public internet.
+provider plugins and local Pulumi settings. `start` creates a random, private
+service token at `~/.config/desktopctl/app-api-token`. The Go API is reachable
+only inside the Compose network. By default, the browser app binds to
+`127.0.0.1:3000`.
 
 If the desktopctl config names an SSH key, `start` reads its `.pub` file and
 passes only that public key into the API container. The private key stays on
@@ -54,6 +54,21 @@ that exact origin. Do not publish the port directly or use an unauthenticated
 public reverse proxy. Browser access inherits the access policy of SSH or the
 private proxy.
 
+Set `app.bind` in the desktopctl config to bind a specific private server IP:
+
+```yaml
+app:
+  bind: 192.168.1.20
+```
+
+`desktopctl app start --bind 192.168.1.20` overrides the config. The bind
+address must be an IPv4 address assigned to the server, or `0.0.0.0` to listen
+on every IPv4 interface. Selecting `0.0.0.0` prints an exposure warning;
+restrict access with the server firewall and private network. The app has no
+browser login. For a private DNS name and HTTPS, use the authenticated proxy
+and `--origin`. When bound to `0.0.0.0`, replace that address with the server's
+private IP to open the app in a browser.
+
 Stop the app with:
 
 ```bash
@@ -65,13 +80,15 @@ The global `--profile` and `--region` flags override the configured AWS
 profile and region for the app, as they do for CLI commands.
 Pass `--port 3001` if port 3000 is occupied, and use the same port when
 forwarding. `desktopctl app url` prints the browser URL; pass `--origin` to
-print a private proxy URL. The `--bind` flag accepts only IPv4 loopback IPs.
+print a private proxy URL.
 
 ## What the app manages
 
 The fleet page lists records from the configured desktopctl DynamoDB table,
 including CLI-created desktops with no organization ID. It shows lifecycle
-state, location, readiness, and the desktop's own noVNC URL. Browser actions
+state and location. Click a row to open its detail page, which shows every
+available field on the fleet record. **Open desktop** uses that record's exact
+HTTPS noVNC URL. Browser actions
 create, start, stop, refresh, and terminate desktops. Create, start, stop, and
 terminate run the matching desktopctl CLI commands in a serialized server job
 queue. This preserves the CLI's provisioning, bootstrap, readiness, and
@@ -114,6 +131,9 @@ token. The Go API uses the configured AWS profile directly in standalone mode.
 Jobs are kept in API memory; if the API container restarts, the browser can
 refresh the fleet to reconcile the last result. Job responses contain generic
 failure messages so CLI diagnostics cannot leak secrets through the browser.
+Server logs associate failed jobs with a bounded, filtered diagnostic. A timed
+out lifecycle command and its child processes are stopped together; inspect
+the fleet record before retrying an interrupted operation.
 The old DOKS bootstrap IAM role is not needed for this mode. The old Helm,
 PostgreSQL, and Nginx deployment files were retired.
 Existing records remain in DynamoDB when the app stops; `stop` only shuts down

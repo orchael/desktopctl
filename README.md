@@ -144,6 +144,30 @@ SSM tunnel automatically for these desktops; AWS Session Manager must be
 available. The no-DNS foundation has no inbound desktop ports. This mode does
 not provide a trusted browser URL.
 
+### Optional browser companion
+
+On a server with this checkout, Docker Compose, your desktopctl config, and the
+same AWS profile as the CLI, start the standalone companion:
+
+```sh
+desktopctl app start --source /path/to/desktopctl
+```
+
+The default `app.bind: 127.0.0.1` in the config keeps the browser app on the
+server's loopback interface. Forward it from your workstation with
+`ssh -L 3000:127.0.0.1:3000 user@your-server`, then open
+`http://127.0.0.1:3000/`. To bind a private server IP, set `app.bind` in your
+desktopctl config or pass `desktopctl app start --bind 192.168.1.20 --source
+/path/to/desktopctl`. `--bind` overrides the config value. Selecting
+`0.0.0.0` is allowed but prints a warning because it listens on every IPv4
+interface; restrict access to your private network. Use `desktopctl app stop
+--source /path/to/desktopctl` to shut down the companion.
+
+Click a fleet row to see all available desktop details and lifecycle actions.
+The **Open desktop** link uses that desktop's noVNC URL. See the
+[companion guide](docs/control-plane.md) for private HTTPS proxy setup and
+server requirements.
+
 This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. The optional [standalone browser companion](docs/control-plane.md) uses the same fleet as the CLI and does not require a SaaS account. See the [architecture and responsibility boundary](docs/ARCHITECTURE.md).
 
 Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
