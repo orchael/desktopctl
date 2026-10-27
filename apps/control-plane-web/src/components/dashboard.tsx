@@ -4,8 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Desktop } from '@/lib/desktop';
-type Job = { id: string; action: string; desktop_id: string; state: string; error?: string };
-const pendingJobKey = 'desktopctl-companion-job';
+import {
+  clearTrackedJob,
+  JobStatusUnavailableError,
+  pendingJobKey,
+  pollJob,
+  type Job
+} from '@/lib/job-polling';
 
 export function Dashboard() {
   const router = useRouter();
@@ -13,6 +18,7 @@ export function Dashboard() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
+  const [trackingUnavailable, setTrackingUnavailable] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const metrics = desktops.reduce(
     (value, desktop) => {
@@ -40,31 +46,18 @@ export function Dashboard() {
   const waitForJob = useCallback(
     async (id: string) => {
       setBusy(true);
+      setTrackingUnavailable(false);
+      setError('');
       try {
-        for (;;) {
-          const response = await fetch(`/api/fleet/jobs/${encodeURIComponent(id)}`, {
-            cache: 'no-store'
-          });
-          if (!response.ok)
-            throw new Error((await response.json()).error ?? 'Could not read operation');
-          const current = (await response.json()) as Job;
-          setJob(current);
-          if (current.state === 'succeeded') {
-            localStorage.removeItem(pendingJobKey);
-            await load();
-            return;
-          }
-          if (current.state === 'failed') {
-            localStorage.removeItem(pendingJobKey);
-            throw new Error(current.error ?? 'Operation failed');
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
+        const current = await pollJob(id, setJob);
+        clearTrackedJob(id);
+        if (current.state === 'failed') throw new Error(current.error ?? 'Operation failed');
+        await load();
       } catch (reason) {
-        localStorage.removeItem(pendingJobKey);
+        if (reason instanceof JobStatusUnavailableError) setTrackingUnavailable(true);
         setError(reason instanceof Error ? reason.message : 'Operation failed');
       } finally {
-        setBusy(false);
+        setBusy(Boolean(localStorage.getItem(pendingJobKey)));
       }
     },
     [load]
@@ -96,7 +89,22 @@ export function Dashboard() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Request failed');
     } finally {
+      setBusy(Boolean(localStorage.getItem(pendingJobKey)));
+    }
+  }
+
+  async function reconcileJob() {
+    const pending = localStorage.getItem(pendingJobKey);
+    if (!pending) return;
+    try {
+      await load();
+      clearTrackedJob(pending);
+      setJob(undefined);
+      setTrackingUnavailable(false);
+      setError('');
       setBusy(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not refresh the fleet');
     }
   }
 
@@ -115,7 +123,22 @@ export function Dashboard() {
             <button onClick={() => setError('')}>Dismiss</button>
           </div>
         ) : null}
-        {job && ['queued', 'running'].includes(job.state) ? (
+        {trackingUnavailable ? (
+          <div className="jobNotice" role="status">
+            Job tracking is paused. The operation may still be running.
+            <div className="trackingActions">
+              <button
+                onClick={() => {
+                  const pending = localStorage.getItem(pendingJobKey);
+                  if (pending) void waitForJob(pending);
+                }}
+              >
+                Retry tracking
+              </button>
+              <button onClick={() => void reconcileJob()}>Refresh fleet and clear tracking</button>
+            </div>
+          </div>
+        ) : job && ['queued', 'running'].includes(job.state) ? (
           <div className="jobNotice" role="status">
             {job.action} {job.desktop_id}: {job.state}. This operation continues on the server if
             you close this page.

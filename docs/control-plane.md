@@ -93,7 +93,10 @@ create, start, stop, refresh, and terminate desktops. Create, start, stop, and
 terminate run the matching desktopctl CLI commands in a serialized server job
 queue. This preserves the CLI's provisioning, bootstrap, readiness, and
 cleanup behavior. The browser polls job status; closing the page does not stop
-an active job. Refresh reads live instance state through the private API.
+an active job. Temporary status failures are retried. If tracking remains
+unavailable, the page keeps the job ID and blocks new actions until you retry
+tracking or explicitly refresh the fleet and clear tracking. Refresh reads live
+instance state through the private API.
 For create requests with repositories, the server checks public repositories
 over anonymous HTTPS. Private repositories are checked with the configured
 GitHub token from AWS Secrets Manager; the container does not need the host's

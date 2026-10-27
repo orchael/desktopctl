@@ -189,6 +189,19 @@ button {
   padding: 12px 16px;
   margin-bottom: 20px;
 }
+.trackingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.trackingActions button {
+  border: 1px solid #84b8ff;
+  border-radius: 5px;
+  background: #fff;
+  color: #175cd3;
+  padding: 8px 12px;
+}
 .createPanel {
   border: 1px solid var(--line);
   background: #f9fbff;

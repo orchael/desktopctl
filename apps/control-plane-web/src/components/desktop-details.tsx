@@ -3,15 +3,20 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { formatDesktopField, noVNCURL, type Desktop } from '@/lib/desktop';
-
-type Job = { id: string; action: string; desktop_id: string; state: string; error?: string };
-const pendingJobKey = 'desktopctl-companion-job';
+import {
+  clearTrackedJob,
+  JobStatusUnavailableError,
+  pendingJobKey,
+  pollJob,
+  type Job
+} from '@/lib/job-polling';
 
 export function DesktopDetails({ id }: { id: string }) {
   const [desktop, setDesktop] = useState<Desktop>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
+  const [trackingUnavailable, setTrackingUnavailable] = useState(false);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/fleet/desktops/${encodeURIComponent(id)}`, {
@@ -25,30 +30,18 @@ export function DesktopDetails({ id }: { id: string }) {
   const waitForJob = useCallback(
     async (jobId: string) => {
       setBusy(true);
+      setTrackingUnavailable(false);
+      setError('');
       try {
-        for (;;) {
-          const response = await fetch(`/api/fleet/jobs/${encodeURIComponent(jobId)}`, {
-            cache: 'no-store'
-          });
-          const current = (await response.json()) as Job & { error?: string };
-          if (!response.ok) throw new Error(current.error ?? 'Could not read operation');
-          setJob(current);
-          if (current.state === 'succeeded') {
-            localStorage.removeItem(pendingJobKey);
-            await load();
-            return;
-          }
-          if (current.state === 'failed') {
-            localStorage.removeItem(pendingJobKey);
-            throw new Error(current.error ?? 'Operation failed');
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
+        const current = await pollJob(jobId, setJob);
+        clearTrackedJob(jobId);
+        if (current.state === 'failed') throw new Error(current.error ?? 'Operation failed');
+        await load();
       } catch (reason) {
-        localStorage.removeItem(pendingJobKey);
+        if (reason instanceof JobStatusUnavailableError) setTrackingUnavailable(true);
         setError(reason instanceof Error ? reason.message : 'Operation failed');
       } finally {
-        setBusy(false);
+        setBusy(Boolean(localStorage.getItem(pendingJobKey)));
       }
     },
     [load]
@@ -93,7 +86,27 @@ export function DesktopDetails({ id }: { id: string }) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Request failed');
     } finally {
+      setBusy(Boolean(localStorage.getItem(pendingJobKey)));
+    }
+  }
+
+  async function reconcileJob() {
+    const pending = localStorage.getItem(pendingJobKey);
+    if (!pending) return;
+    try {
+      const response = await fetch('/api/fleet/desktops?all=true', { cache: 'no-store' });
+      const value = (await response.json()) as Desktop[] | { error?: string };
+      if (!response.ok || !Array.isArray(value))
+        throw new Error(('error' in value && value.error) || 'Could not refresh the fleet');
+      const current = value.find((entry) => entry.desktop_id === id);
+      setDesktop(current);
+      clearTrackedJob(pending);
+      setJob(undefined);
+      setTrackingUnavailable(false);
+      setError(current ? '' : 'Desktop record was not found in the refreshed fleet.');
       setBusy(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not refresh the fleet');
     }
   }
 
@@ -116,7 +129,22 @@ export function DesktopDetails({ id }: { id: string }) {
             <button onClick={() => setError('')}>Dismiss</button>
           </div>
         ) : null}
-        {job && ['queued', 'running'].includes(job.state) ? (
+        {trackingUnavailable ? (
+          <div className="jobNotice" role="status">
+            Job tracking is paused. The operation may still be running.
+            <div className="trackingActions">
+              <button
+                onClick={() => {
+                  const pending = localStorage.getItem(pendingJobKey);
+                  if (pending) void waitForJob(pending);
+                }}
+              >
+                Retry tracking
+              </button>
+              <button onClick={() => void reconcileJob()}>Refresh fleet and clear tracking</button>
+            </div>
+          </div>
+        ) : job && ['queued', 'running'].includes(job.state) ? (
           <div className="jobNotice" role="status">
             {job.action} {job.desktop_id}: {job.state}. This operation continues on the server if
             you close this page.
