@@ -11,6 +11,19 @@ import {
   type Job
 } from '@/lib/job-polling';
 
+const pendingCreateKey = 'desktopctl-companion-create-request';
+type CreateAttempt = { key: string; body: object };
+const hasPendingOperation = () =>
+  Boolean(localStorage.getItem(pendingJobKey) || localStorage.getItem(pendingCreateKey));
+
+function createRequestKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function Dashboard() {
   const [desktops, setDesktops] = useState<Desktop[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -18,6 +31,7 @@ export function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
   const [trackingUnavailable, setTrackingUnavailable] = useState(false);
+  const [createUncertain, setCreateUncertain] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const selected = desktops.find((desktop) => desktop.desktop_id === selectedId) ?? desktops[0];
   const metrics = desktops.reduce(
@@ -60,7 +74,7 @@ export function Dashboard() {
         if (reason instanceof JobStatusUnavailableError) setTrackingUnavailable(true);
         setError(reason instanceof Error ? reason.message : 'Operation failed');
       } finally {
-        setBusy(Boolean(localStorage.getItem(pendingJobKey)));
+        setBusy(hasPendingOperation());
       }
     },
     [load]
@@ -68,8 +82,72 @@ export function Dashboard() {
 
   useEffect(() => {
     const pending = localStorage.getItem(pendingJobKey);
-    if (pending) void waitForJob(pending);
+    if (pending) {
+      localStorage.removeItem(pendingCreateKey);
+      void waitForJob(pending);
+    } else if (localStorage.getItem(pendingCreateKey)) {
+      setCreateUncertain(true);
+      setBusy(true);
+    }
   }, [waitForJob]);
+
+  async function submitCreate(body: object, key = createRequestKey()) {
+    localStorage.setItem(pendingCreateKey, JSON.stringify({ key, body } satisfies CreateAttempt));
+    setCreateUncertain(false);
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/fleet/desktops', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': key },
+        body: JSON.stringify(body)
+      });
+      const value = (await response.json()) as Job & { error?: string };
+      if (!response.ok) {
+        if (
+          response.status >= 400 &&
+          response.status < 500 &&
+          response.status !== 408 &&
+          response.status !== 429
+        )
+          localStorage.removeItem(pendingCreateKey);
+        throw new Error(value.error ?? 'Create request failed');
+      }
+      if (!value.id) throw new Error('Create response did not include a job ID');
+      setJob(value);
+      localStorage.setItem(pendingJobKey, value.id);
+      localStorage.removeItem(pendingCreateKey);
+      await waitForJob(value.id);
+    } catch (reason) {
+      if (localStorage.getItem(pendingCreateKey)) {
+        setCreateUncertain(true);
+        setError(
+          'Create response is unavailable. Retry this request to recover the same operation.'
+        );
+      } else {
+        setError(reason instanceof Error ? reason.message : 'Create request failed');
+      }
+    } finally {
+      setBusy(hasPendingOperation());
+    }
+  }
+
+  function retryCreate() {
+    const saved = localStorage.getItem(pendingCreateKey);
+    if (!saved) return;
+    try {
+      const attempt = JSON.parse(saved) as CreateAttempt;
+      if (!attempt.key || !attempt.body) throw new Error('Invalid saved create request');
+      void submitCreate(attempt.body, attempt.key);
+    } catch {
+      localStorage.removeItem(pendingCreateKey);
+      setCreateUncertain(false);
+      setBusy(false);
+      setError(
+        'Could not restore the saved create request. Check the fleet before creating another desktop.'
+      );
+    }
+  }
 
   async function runOperation(path: string, body?: object) {
     setError('');
@@ -92,7 +170,7 @@ export function Dashboard() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Request failed');
     } finally {
-      setBusy(Boolean(localStorage.getItem(pendingJobKey)));
+      setBusy(hasPendingOperation());
     }
   }
 
@@ -157,6 +235,13 @@ export function Dashboard() {
               <button onClick={() => void reconcileJob()}>Refresh fleet and clear tracking</button>
             </div>
           </div>
+        ) : createUncertain ? (
+          <div className="jobNotice" role="status">
+            The create request may still be running. Retry it to recover the same desktop and job.
+            <div className="trackingActions">
+              <button onClick={retryCreate}>Retry create request</button>
+            </div>
+          </div>
         ) : job && ['queued', 'running'].includes(job.state) ? (
           <div className="jobNotice" role="status">
             {job.action} {job.desktop_id}: {job.state}. This operation continues on the server if
@@ -190,7 +275,7 @@ export function Dashboard() {
             busy={busy}
             submit={(value) => {
               setShowCreate(false);
-              void runOperation('/api/fleet/desktops', value);
+              void submitCreate(value);
             }}
           />
         ) : null}

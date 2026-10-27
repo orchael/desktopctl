@@ -2,18 +2,23 @@ package controlplane
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 
-	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/store"
 )
+
+var createRequestKeyPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Server struct {
 	service    *Service
@@ -101,13 +106,26 @@ func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		id, err := desktop.GenerateID()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+		key := r.Header.Get("X-Idempotency-Key")
+		if !createRequestKeyPattern.MatchString(key) {
+			writeError(w, http.StatusBadRequest, errors.New("valid X-Idempotency-Key header is required"))
 			return
 		}
+		mac := hmac.New(sha256.New, []byte(s.apiToken))
+		_, _ = mac.Write([]byte(key))
+		id := "d-" + hex.EncodeToString(mac.Sum(nil)[:4])
+		digest := sha256.Sum256([]byte(strings.Join(args, "\x00")))
 		args = append([]string{"create", "--desktop-id", id}, args...)
-		s.enqueueJob(w, "create", id, args...)
+		job, err := s.jobs.EnqueueCreate(key, digest, id, args...)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, ErrJobQueueFull) || errors.Is(err, ErrJobAlreadyActive) || errors.Is(err, ErrIdempotencyConflict) {
+				status = http.StatusConflict
+			}
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
 		return
 	}
 	if !s.requireMutationAuth(w, r) {

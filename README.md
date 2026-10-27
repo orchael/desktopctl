@@ -166,7 +166,8 @@ interface; restrict access to your private network. Use `desktopctl app stop
 Click a fleet row to see a short summary and lifecycle actions in the panel
 beside the list. Use its details icon for the full desktop record. **Open desktop**
 requests a fresh, one-session noVNC access link from the running desktop; a
-configured desktop SSH key is required. See the
+configured desktop SSH key is required. If a Create response is interrupted,
+use **Retry create request** to recover the same operation. See the
 [companion guide](docs/control-plane.md) for private HTTPS proxy setup and
 server requirements.
 

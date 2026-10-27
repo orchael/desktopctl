@@ -102,6 +102,10 @@ and lifecycle actions in the side panel; the details icon opens the full record.
 link over SSH. The stored `novnc_url` is only the base address and does not
 contain an access token. Configure `desktop.ssh_key_path` with a key that can
 reach the desktop; `app start` mounts that key read-only into the API container.
+Create requests save a retry key in the browser before submission. If the
+response is lost, use **Retry create request**; the server returns the same
+job and desktop ID for that key while it is running, and retries after an API
+restart retain the same desktop ID.
 For create requests with repositories, the server checks public repositories
 over anonymous HTTPS. Private repositories are checked with the configured
 GitHub token from AWS Secrets Manager; the container does not need the host's

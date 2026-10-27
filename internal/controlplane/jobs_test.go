@@ -50,6 +50,7 @@ func TestStandaloneLifecycleQueuesCLIAndReportsResult(t *testing.T) {
 	server := NewServer(service, "", slog.Default(), "secret").WithJobRunner(runner).Handler()
 	req := httptest.NewRequest(http.MethodPost, "/api/desktops", strings.NewReader(`{"owner":"orchael","name":"work"}`))
 	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("X-Idempotency-Key", "11111111-1111-4111-8111-111111111111")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted {
@@ -62,6 +63,23 @@ func TestStandaloneLifecycleQueuesCLIAndReportsResult(t *testing.T) {
 	if job.Action != "create" || !strings.HasPrefix(job.DesktopID, "d-") {
 		t.Fatalf("job = %+v", job)
 	}
+	retry := httptest.NewRequest(http.MethodPost, "/api/desktops", strings.NewReader(`{"owner":"orchael","name":"work"}`))
+	retry.Header.Set("Authorization", "Bearer secret")
+	retry.Header.Set("X-Idempotency-Key", "11111111-1111-4111-8111-111111111111")
+	retryResponse := httptest.NewRecorder()
+	server.ServeHTTP(retryResponse, retry)
+	var sameJob Job
+	if retryResponse.Code != http.StatusAccepted || json.NewDecoder(retryResponse.Body).Decode(&sameJob) != nil || sameJob.ID != job.ID || sameJob.DesktopID != job.DesktopID {
+		t.Fatalf("retry created a second job: %d %s", retryResponse.Code, retryResponse.Body.String())
+	}
+	changed := httptest.NewRequest(http.MethodPost, "/api/desktops", strings.NewReader(`{"owner":"orchael","name":"different"}`))
+	changed.Header.Set("Authorization", "Bearer secret")
+	changed.Header.Set("X-Idempotency-Key", "11111111-1111-4111-8111-111111111111")
+	changedResponse := httptest.NewRecorder()
+	server.ServeHTTP(changedResponse, changed)
+	if changedResponse.Code != http.StatusConflict {
+		t.Fatalf("changed retry status = %d", changedResponse.Code)
+	}
 	select {
 	case args := <-called:
 		if len(args) < 5 || args[0] != "create" || args[1] != "--desktop-id" || args[2] != job.DesktopID {
@@ -69,6 +87,11 @@ func TestStandaloneLifecycleQueuesCLIAndReportsResult(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("CLI runner was not called")
+	}
+	select {
+	case <-called:
+		t.Fatal("retry ran a second CLI operation")
+	default:
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

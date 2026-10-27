@@ -59,12 +59,18 @@ it('forwards a lifecycle POST', async () => {
     new Request('https://localhost/api/fleet/desktops', {
       method: 'POST',
       body: '{}',
-      headers: { Origin: 'https://localhost' }
+      headers: {
+        Origin: 'https://localhost',
+        'X-Idempotency-Key': '11111111-1111-4111-8111-111111111111'
+      }
     }),
     context
   );
   expect(result.status).toBe(202);
   expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+  expect((fetchMock.mock.calls[0][1].headers as Headers).get('X-Idempotency-Key')).toBe(
+    '11111111-1111-4111-8111-111111111111'
+  );
 });
 
 it('rejects cross-site lifecycle requests', async () => {

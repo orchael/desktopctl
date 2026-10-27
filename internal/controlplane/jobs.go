@@ -18,8 +18,9 @@ import (
 const jobTimeout = 90 * time.Minute
 
 var (
-	ErrJobQueueFull     = errors.New("another fleet operation is queued; wait for it to finish")
-	ErrJobAlreadyActive = errors.New("a lifecycle operation is already active for this desktop")
+	ErrJobQueueFull        = errors.New("another fleet operation is queued; wait for it to finish")
+	ErrJobAlreadyActive    = errors.New("a lifecycle operation is already active for this desktop")
+	ErrIdempotencyConflict = errors.New("create request key was already used with different details")
 )
 
 type JobRunner interface {
@@ -117,11 +118,17 @@ type Job struct {
 }
 
 type JobManager struct {
-	mu      sync.Mutex
-	jobs    map[string]*Job
-	pending int
-	queue   chan jobRequest
-	runner  JobRunner
+	mu       sync.Mutex
+	jobs     map[string]*Job
+	requests map[string]createRequestEntry
+	pending  int
+	queue    chan jobRequest
+	runner   JobRunner
+}
+
+type createRequestEntry struct {
+	jobID  string
+	digest [32]byte
 }
 
 type jobRequest struct {
@@ -130,7 +137,7 @@ type jobRequest struct {
 }
 
 func NewJobManager(runner JobRunner) *JobManager {
-	m := &JobManager{jobs: make(map[string]*Job), queue: make(chan jobRequest, 16), runner: runner}
+	m := &JobManager{jobs: make(map[string]*Job), requests: make(map[string]createRequestEntry), queue: make(chan jobRequest, 16), runner: runner}
 	go m.work()
 	return m
 }
@@ -138,6 +145,26 @@ func NewJobManager(runner JobRunner) *JobManager {
 func (m *JobManager) Enqueue(action, desktopID string, args ...string) (Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.enqueue("", [32]byte{}, action, desktopID, args...)
+}
+
+// EnqueueCreate returns the same job for an identical request key and body.
+func (m *JobManager) EnqueueCreate(key string, digest [32]byte, desktopID string, args ...string) (Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.requests[key]; ok {
+		if existing.digest != digest {
+			return Job{}, ErrIdempotencyConflict
+		}
+		if job, ok := m.jobs[existing.jobID]; ok {
+			return *job, nil
+		}
+		return Job{}, ErrIdempotencyConflict
+	}
+	return m.enqueue(key, digest, "create", desktopID, args...)
+}
+
+func (m *JobManager) enqueue(key string, digest [32]byte, action, desktopID string, args ...string) (Job, error) {
 	if m.pending >= cap(m.queue) {
 		return Job{}, ErrJobQueueFull
 	}
@@ -155,6 +182,11 @@ func (m *JobManager) Enqueue(action, desktopID string, args ...string) (Job, err
 		}
 		if oldest != nil {
 			delete(m.jobs, oldest.ID)
+			for requestKey, entry := range m.requests {
+				if entry.jobID == oldest.ID {
+					delete(m.requests, requestKey)
+				}
+			}
 		}
 	}
 	raw := make([]byte, 16)
@@ -164,6 +196,9 @@ func (m *JobManager) Enqueue(action, desktopID string, args ...string) (Job, err
 	now := time.Now().UTC()
 	job := Job{ID: hex.EncodeToString(raw), Action: action, DesktopID: desktopID, State: "queued", CreatedAt: now, UpdatedAt: now}
 	m.jobs[job.ID] = &job
+	if key != "" {
+		m.requests[key] = createRequestEntry{jobID: job.ID, digest: digest}
+	}
 	m.pending++
 	m.queue <- jobRequest{id: job.ID, args: args}
 	return job, nil

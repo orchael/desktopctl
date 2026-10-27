@@ -22,6 +22,8 @@ async function proxyFleet(request: Request, context: { params: Promise<{ path: s
   const token = process.env.CONTROL_PLANE_API_TOKEN;
   if (!token) return Response.json({ error: 'Fleet API is not configured' }, { status: 503 });
   headers.set('Authorization', `Bearer ${token}`);
+  const idempotencyKey = request.headers.get('X-Idempotency-Key');
+  if (idempotencyKey) headers.set('X-Idempotency-Key', idempotencyKey);
   const response = await fetch(upstream, {
     method: request.method,
     headers,

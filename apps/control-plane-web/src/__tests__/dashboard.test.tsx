@@ -6,6 +6,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it('runs a lifecycle action from the selected desktop card', async () => {
@@ -48,6 +49,54 @@ it('runs a lifecycle action from the selected desktop card', async () => {
     expect.objectContaining({ method: 'POST' })
   );
   expect(localStorage.getItem('desktopctl-companion-job')).toBeNull();
+});
+
+it('retries a lost create response with the same request key', async () => {
+  const key = '22222222-2222-4222-a222-222222222222';
+  vi.stubGlobal('crypto', {
+    getRandomValues: (bytes: Uint8Array) => {
+      bytes.fill(0x22);
+      return bytes;
+    }
+  });
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  let creates = 0;
+  const fetchMock = vi.fn().mockImplementation((input: string, options?: RequestInit) => {
+    if (input === '/api/fleet/desktops' && options?.method === 'POST') {
+      creates++;
+      return creates === 1
+        ? Promise.reject(new Error('connection lost'))
+        : Promise.resolve(
+            Response.json(
+              { id: 'job-1', action: 'create', desktop_id: 'd-first', state: 'queued' },
+              { status: 202 }
+            )
+          );
+    }
+    if (input === '/api/fleet/desktops') return Promise.resolve(Response.json([]));
+    return Promise.resolve(
+      Response.json({ id: 'job-1', action: 'create', desktop_id: 'd-first', state: 'succeeded' })
+    );
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<Dashboard />);
+  fireEvent.click(screen.getByRole('button', { name: 'Create desktop' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'GitHub owner' }), {
+    target: { value: 'orchael' }
+  });
+  fireEvent.click(screen.getByRole('button', { name: /^Create$/ }));
+  const retry = await screen.findByRole('button', { name: 'Retry create request' });
+  expect(localStorage.getItem('desktopctl-companion-create-request')).toContain(key);
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(localStorage.getItem('desktopctl-companion-create-request')).toBeNull()
+  );
+  const submissions = fetchMock.mock.calls.filter(
+    ([path, options]) => path === '/api/fleet/desktops' && options?.method === 'POST'
+  );
+  expect(submissions).toHaveLength(2);
+  expect(submissions[0][1].headers['X-Idempotency-Key']).toBe(key);
+  expect(submissions[1][1].headers['X-Idempotency-Key']).toBe(key);
 });
 
 it('selects a fleet row in the summary card and links to the full details page', async () => {
