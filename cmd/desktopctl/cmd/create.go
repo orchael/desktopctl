@@ -273,6 +273,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		gitHubSecret = resolveOwnerSecretPath(cfg.GitHub.GitHubSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "github")
 	}
 	publicGitHubSources := cfg.SaaSMode && gitHubSecret == ""
+	companionMode := os.Getenv("DESKTOPCTL_APP_MODE") == "true"
+	var companionRepoToken string
+	loadCompanionRepoToken := func(ctx context.Context, secretPath string) (string, error) {
+		if companionRepoToken != "" {
+			return companionRepoToken, nil
+		}
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return "", fmt.Errorf("load AWS config for GitHub repository access: %w", err)
+		}
+		values, err := fetchSecretMap(ctx, awsCfg, secretPath)
+		if err != nil {
+			return "", fmt.Errorf("load configured GitHub secret: %w", err)
+		}
+		companionRepoToken = values["github_token"]
+		if companionRepoToken == "" {
+			return "", fmt.Errorf("configured GitHub secret has no github_token")
+		}
+		return companionRepoToken, nil
+	}
 	integrations, err := resolveCreateIntegrations(resolveCreateIntegrationsInput{
 		tailscale:               createTailscale,
 		tailscaleNetwork:        createTailscaleNet,
@@ -326,6 +346,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		var err error
 		if publicGitHubSources {
 			err = r.CheckPublicAccessible(ctx)
+		} else if companionMode && !cfg.SaaSMode {
+			err = checkCompanionRepo(ctx, r, gitHubSecret, loadCompanionRepoToken)
 		} else if !cfg.SaaSMode {
 			err = r.CheckAccessible(ctx)
 		}
@@ -989,6 +1011,27 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
 	return nil
+}
+
+type createRepositoryAccess interface {
+	CheckAccessible(context.Context) error
+	CheckPublicAccessible(context.Context) error
+	CheckTokenAccessible(context.Context, string) error
+}
+
+func checkCompanionRepo(ctx context.Context, repository createRepositoryAccess, gitHubSecret string, loadToken func(context.Context, string) (string, error)) error {
+	publicErr := repository.CheckPublicAccessible(ctx)
+	if publicErr == nil {
+		return nil
+	}
+	if gitHubSecret == "" {
+		return publicErr
+	}
+	token, err := loadToken(ctx, gitHubSecret)
+	if err != nil {
+		return err
+	}
+	return repository.CheckTokenAccessible(ctx, token)
 }
 
 func resolveCreateDesktopProfile(configured, flag string, flagChanged bool) string {

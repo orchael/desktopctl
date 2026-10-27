@@ -3,9 +3,41 @@ package repo
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestCheckTokenAccessible(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/private" || r.Header.Get("Authorization") != "Bearer private-token" {
+			t.Errorf("unexpected GitHub request: path=%q auth=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	oldBase := githubAPIBase
+	githubAPIBase = server.URL
+	defer func() { githubAPIBase = oldBase }()
+	if err := (&Repo{Owner: "acme", Name: "private"}).CheckTokenAccessible(context.Background(), "private-token"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckTokenAccessibleDoesNotLeakToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	oldBase := githubAPIBase
+	githubAPIBase = server.URL
+	defer func() { githubAPIBase = oldBase }()
+	err := (&Repo{Owner: "acme", Name: "private"}).CheckTokenAccessible(context.Background(), "private-token")
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") || strings.Contains(err.Error(), "private-token") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestParse(t *testing.T) {
 	tests := []struct {

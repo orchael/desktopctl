@@ -3,11 +3,15 @@ package repo
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+var githubAPIBase = "https://api.github.com"
 
 // lsRemote executes git ls-remote for the given SSH URL and returns combined
 // output and any error. It is a package-level variable so tests can replace it.
@@ -139,6 +143,30 @@ func (r *Repo) CheckAccessible(ctx context.Context) error {
 func (r *Repo) CheckPublicAccessible(ctx context.Context) error {
 	if _, err := lsRemotePublic(ctx, r.HTTPS()); err != nil {
 		return fmt.Errorf("repository %s is not publicly readable over HTTPS: %w", r, err)
+	}
+	return nil
+}
+
+// CheckTokenAccessible verifies that the configured GitHub token can read a
+// repository without placing the token in a process argument or clone URL.
+func (r *Repo) CheckTokenAccessible(ctx context.Context, token string) error {
+	if token == "" {
+		return fmt.Errorf("repository %s requires a GitHub token", r)
+	}
+	endpoint := githubAPIBase + "/repos/" + url.PathEscape(r.Owner) + "/" + url.PathEscape(r.Name)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("check repository %s: %w", r, err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return fmt.Errorf("check repository %s with GitHub token: %w", r, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("repository %s is not accessible with the configured GitHub token (HTTP %d)", r, response.StatusCode)
 	}
 	return nil
 }

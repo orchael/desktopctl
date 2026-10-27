@@ -83,6 +83,7 @@ it('accepts the configured private HTTPS origin', async () => {
 
 it('accepts the forwarded loopback host when Next uses its internal URL', async () => {
   vi.stubEnv('CONTROL_PLANE_API_TOKEN', 'private-token');
+  vi.stubEnv('CONTROL_PLANE_PUBLIC_ORIGIN', '');
   const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
   vi.stubGlobal('fetch', fetchMock);
   const result = await POST(

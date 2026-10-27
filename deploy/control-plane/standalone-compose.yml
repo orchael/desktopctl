@@ -10,6 +10,7 @@ services:
     restart: unless-stopped
     environment:
       CONTROL_PLANE_STANDALONE: "true"
+      DESKTOPCTL_APP_MODE: "true"
       CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:?required}
       DESKTOPCTL_CONFIG: /config/config.yaml
       CONTROL_PLANE_SOURCE_DIR: ${DESKTOPCTL_APP_SOURCE:?required}

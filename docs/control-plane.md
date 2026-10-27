@@ -77,6 +77,10 @@ terminate run the matching desktopctl CLI commands in a serialized server job
 queue. This preserves the CLI's provisioning, bootstrap, readiness, and
 cleanup behavior. The browser polls job status; closing the page does not stop
 an active job. Refresh reads live instance state through the private API.
+For create requests with repositories, the server checks public repositories
+over anonymous HTTPS. Private repositories are checked with the configured
+GitHub token from AWS Secrets Manager; the container does not need the host's
+GitHub SSH key.
 Termination requires typing the desktop ID. Wait for active jobs to finish
 before stopping or upgrading the app; an interrupted CLI process may need
 reconciliation with `desktopctl status` or `desktopctl terminate` on the server.

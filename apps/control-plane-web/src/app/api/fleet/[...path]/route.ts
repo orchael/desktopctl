@@ -1,5 +1,5 @@
 async function proxyFleet(request: Request, context: { params: Promise<{ path: string[] }> }) {
-  const publicOrigin = process.env.CONTROL_PLANE_PUBLIC_ORIGIN;
+  const publicOrigin = process.env.CONTROL_PLANE_PUBLIC_ORIGIN || undefined;
   const host = request.headers.get('host')?.replace(/:\d+$/, '') ?? new URL(request.url).hostname;
   const allowedHosts = ['127.0.0.1', 'localhost', '[::1]'];
   if (publicOrigin) allowedHosts.push(new URL(publicOrigin).hostname);
