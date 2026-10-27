@@ -63,7 +63,9 @@ it('runs a lifecycle action and refreshes the detail page', async () => {
   vi.stubGlobal('fetch', fetchMock);
   render(<DesktopDetails id="d-demo001" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(document.querySelector('.detailPageHead p')).toHaveTextContent('d-demo001 · stopped'));
+  await waitFor(() =>
+    expect(document.querySelector('.detailPageHead p')).toHaveTextContent('d-demo001 · stopped')
+  );
   expect(fetchMock).toHaveBeenCalledWith(
     '/api/fleet/desktops/d-demo001/stop',
     expect.objectContaining({ method: 'POST' })

@@ -131,7 +131,10 @@ export function DesktopDetails({ id }: { id: string }) {
                 <span className="detailEyebrow">Desktop details</span>
                 <h1>{desktop.desktop_name || desktop.desktop_id}</h1>
                 <p>
-                  {desktop.desktop_id} · <span className="detailState">{desktop.lifecycle_state.replaceAll('_', ' ')}</span>
+                  {desktop.desktop_id} ·{' '}
+                  <span className="detailState">
+                    {desktop.lifecycle_state.replaceAll('_', ' ')}
+                  </span>
                 </p>
               </div>
               {browserURL ? (
