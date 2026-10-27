@@ -206,8 +206,7 @@ func (s *Server) getDesktopAccess(w http.ResponseWriter, r *http.Request, id str
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Location", link)
-	w.WriteHeader(http.StatusSeeOther)
+	writeJSON(w, http.StatusOK, map[string]string{"url": link})
 }
 
 func (s *Server) getDesktop(w http.ResponseWriter, r *http.Request, id string) {

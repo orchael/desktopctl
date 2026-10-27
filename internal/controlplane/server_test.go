@@ -38,8 +38,11 @@ func TestStandaloneDesktopAccessRedirect(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer secret-token")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://d-123.example.com:8443/access?token=one-session" || response.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("access redirect = %d, headers = %v", response.Code, response.Header())
+	var access struct {
+		URL string `json:"url"`
+	}
+	if response.Code != http.StatusOK || json.NewDecoder(response.Body).Decode(&access) != nil || access.URL != "https://d-123.example.com:8443/access?token=one-session" || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("access URL = %d, headers = %v, body = %s", response.Code, response.Header(), response.Body.String())
 	}
 }
 

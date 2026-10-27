@@ -102,27 +102,37 @@ it('retries a lost create response with the same request key', async () => {
 it('selects a fleet row in the summary card and links to the full details page', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue(
-      Response.json([
-        {
-          desktop_id: 'd-first',
-          desktop_name: 'First',
-          lifecycle_state: 'ready',
-          github_owner: 'orchael',
-          region: 'us-east-2',
-          updated_at: '2026-10-27T00:00:00Z',
-          novnc_url: 'https://first.example.com:8443/novnc/vnc.html'
-        },
-        {
-          desktop_id: 'd-second',
-          desktop_name: 'Second',
-          lifecycle_state: 'stopped',
-          github_owner: 'orchael',
-          region: 'us-east-2',
-          updated_at: '2026-10-27T00:00:00Z',
-          novnc_url: 'https://second.example.com:8443/novnc/vnc.html'
-        }
-      ])
+    vi.fn().mockImplementation((input: string) =>
+      Promise.resolve(
+        Response.json(
+          input.endsWith('/access')
+            ? {
+                url: input.includes('d-second')
+                  ? 'https://second.example.com:8443/access?token=second-session'
+                  : 'https://first.example.com:8443/access?token=first-session'
+              }
+            : [
+                {
+                  desktop_id: 'd-first',
+                  desktop_name: 'First',
+                  lifecycle_state: 'ready',
+                  github_owner: 'orchael',
+                  region: 'us-east-2',
+                  updated_at: '2026-10-27T00:00:00Z',
+                  novnc_url: 'https://first.example.com:8443/novnc/vnc.html'
+                },
+                {
+                  desktop_id: 'd-second',
+                  desktop_name: 'Second',
+                  lifecycle_state: 'ready',
+                  github_owner: 'orchael',
+                  region: 'us-east-2',
+                  updated_at: '2026-10-27T00:00:00Z',
+                  novnc_url: 'https://second.example.com:8443/novnc/vnc.html'
+                }
+              ]
+        )
+      )
     )
   );
   render(<Dashboard />);
@@ -134,8 +144,11 @@ it('selects a fleet row in the summary card and links to the full details page',
   expect(
     within(selectedCard).getByRole('link', { name: 'View all details for d-second' })
   ).toHaveAttribute('href', '/desktops/d-second');
-  expect(within(selectedCard).getByRole('link', { name: /open desktop/i })).toHaveAttribute(
+  expect(await within(selectedCard).findByRole('link', { name: /open desktop/i })).toHaveAttribute(
     'href',
-    '/api/fleet/desktops/d-second/access'
+    'https://second.example.com:8443/access?token=second-session'
   );
+  expect(
+    within(selectedCard).getByText('https://second.example.com:8443/access?token=second-session')
+  ).toBeInTheDocument();
 });

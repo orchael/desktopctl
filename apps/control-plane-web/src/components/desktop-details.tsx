@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { formatDesktopField, noVNCURL, type Desktop } from '@/lib/desktop';
+import { useDesktopAccessURL } from '@/lib/desktop-access';
 import {
   clearTrackedJob,
   JobStatusUnavailableError,
@@ -17,6 +18,7 @@ export function DesktopDetails({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
   const [trackingUnavailable, setTrackingUnavailable] = useState(false);
+  const access = useDesktopAccessURL(desktop);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/fleet/desktops/${encodeURIComponent(id)}`, {
@@ -110,10 +112,7 @@ export function DesktopDetails({ id }: { id: string }) {
     }
   }
 
-  const browserURL =
-    desktop && noVNCURL(desktop)
-      ? `/api/fleet/desktops/${encodeURIComponent(desktop.desktop_id)}/access`
-      : undefined;
+  const browserURL = access.url;
   return (
     <main className="appShell">
       <header className="topbar">
@@ -175,6 +174,11 @@ export function DesktopDetails({ id }: { id: string }) {
               ) : null}
             </div>
             <div className="detailToolbar">
+              {noVNCURL(desktop) ? (
+                <button onClick={() => void access.refresh()} disabled={access.loading}>
+                  Refresh desktop URL
+                </button>
+              ) : null}
               <button onClick={() => void action('refresh')} disabled={busy}>
                 Refresh state
               </button>
@@ -200,9 +204,30 @@ export function DesktopDetails({ id }: { id: string }) {
             </div>
             <h2>All details</h2>
             <dl className="detailFields">
+              {noVNCURL(desktop) ? (
+                <div>
+                  <dt>Live NoVNC URL</dt>
+                  <dd>
+                    {browserURL ? (
+                      <a
+                        className="accessURL"
+                        href={browserURL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {browserURL}
+                      </a>
+                    ) : access.loading ? (
+                      'Getting desktop URL…'
+                    ) : (
+                      access.error || 'Desktop URL unavailable'
+                    )}
+                  </dd>
+                </div>
+              ) : null}
               {Object.entries(desktop).map(([field, value]) => (
                 <div key={field}>
-                  <dt>{field.replaceAll('_', ' ')}</dt>
+                  <dt>{field === 'novnc_url' ? 'Stored noVNC URL' : field.replaceAll('_', ' ')}</dt>
                   <dd>{formatDesktopField(value)}</dd>
                 </div>
               ))}

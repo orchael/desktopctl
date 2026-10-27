@@ -8,19 +8,17 @@ afterEach(() => {
 
 const context = { params: Promise.resolve({ path: ['desktops'] }) };
 
-it('passes a fresh desktop access redirect through without following it', async () => {
+it('forwards the live desktop access URL as JSON', async () => {
   vi.stubEnv('CONTROL_PLANE_API_TOKEN', 'private-token');
-  const location = 'https://d-123.example.com:8443/access?token=one-session';
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue(new Response(null, { status: 303, headers: { Location: location } }));
+  const url = 'https://d-123.example.com:8443/access?token=one-session';
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ url }));
   vi.stubGlobal('fetch', fetchMock);
   const result = await GET(new Request('http://localhost:3000/api/fleet/desktops/d-123/access'), {
     params: Promise.resolve({ path: ['desktops', 'd-123', 'access'] })
   });
   expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
-  expect(result.status).toBe(303);
-  expect(result.headers.get('Location')).toBe(location);
+  expect(result.status).toBe(200);
+  expect(await result.json()).toEqual({ url });
   expect(result.headers.get('Cache-Control')).toBe('no-store');
 });
 

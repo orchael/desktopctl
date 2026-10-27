@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { formatDesktopField, type Desktop } from '@/lib/desktop';
+import { formatDesktopField, noVNCURL, type Desktop } from '@/lib/desktop';
+import { useDesktopAccessURL } from '@/lib/desktop-access';
 import {
   clearTrackedJob,
   JobStatusUnavailableError,
@@ -353,6 +354,7 @@ function DesktopDetail({
   busy: boolean;
   action: (name: 'refresh' | 'start' | 'stop' | 'terminate') => void;
 }) {
+  const access = useDesktopAccessURL(desktop);
   if (!desktop)
     return (
       <aside className="detail">
@@ -390,6 +392,27 @@ function DesktopDetail({
           </div>
         ))}
       </dl>
+      {noVNCURL(desktop) ? (
+        <div className="desktopAccess">
+          {access.url ? (
+            <>
+              <a href={access.url} target="_blank" rel="noopener noreferrer">
+                Open desktop ↗
+              </a>
+              <a className="accessURL" href={access.url} target="_blank" rel="noopener noreferrer">
+                {access.url}
+              </a>
+            </>
+          ) : (
+            <span role="status">
+              {access.loading ? 'Getting desktop URL…' : access.error || 'Desktop URL unavailable'}
+            </span>
+          )}
+          <button onClick={() => void access.refresh()} disabled={access.loading}>
+            Refresh desktop URL
+          </button>
+        </div>
+      ) : null}
       <div className="actions">
         <button onClick={() => action('refresh')} disabled={busy}>
           Refresh state
@@ -414,15 +437,6 @@ function DesktopDetail({
         >
           Terminate
         </button>
-        {desktop.novnc_url ? (
-          <a
-            href={`/api/fleet/desktops/${encodeURIComponent(desktop.desktop_id)}/access`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open desktop ↗
-          </a>
-        ) : null}
       </div>
     </aside>
   );

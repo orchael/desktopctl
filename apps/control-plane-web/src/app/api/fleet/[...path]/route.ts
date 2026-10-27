@@ -32,24 +32,12 @@ async function proxyFleet(request: Request, context: { params: Promise<{ path: s
     redirect: 'manual',
     signal: AbortSignal.timeout(30_000)
   });
-  if (response.status === 303) {
-    const location = response.headers.get('Location');
-    let parsed: URL;
-    try {
-      parsed = new URL(location ?? '');
-    } catch {
-      return Response.json({ error: 'Invalid desktop access link' }, { status: 502 });
-    }
-    if (!location || parsed.protocol !== 'https:')
-      return Response.json({ error: 'Invalid desktop access link' }, { status: 502 });
-    return new Response(null, {
-      status: 303,
-      headers: { Location: location, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }
-    });
-  }
   return new Response(response.body, {
     status: response.status,
-    headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' }
+    headers: {
+      'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
+      'Cache-Control': 'no-store'
+    }
   });
 }
 

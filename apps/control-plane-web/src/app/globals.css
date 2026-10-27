@@ -500,6 +500,29 @@ tbody tr.selected {
   border-color: var(--blue);
   color: #fff;
 }
+.desktopAccess {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+}
+.desktopAccess > a:first-child {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--blue);
+  padding: 10px;
+  text-align: center;
+  text-decoration: none;
+}
+.desktopAccess > button {
+  width: 100%;
+}
+.accessURL {
+  color: var(--blue);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .actions button:disabled,
 .settings button:disabled {
   opacity: 0.45;

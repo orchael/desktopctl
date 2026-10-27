@@ -8,27 +8,46 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('shows the complete desktop record and requests a fresh access URL', async () => {
+it('shows the complete desktop record and its live tokenized access URL', async () => {
   const url = 'https://d-demo001.desktops.example.com:8443/novnc/vnc.html';
-  const fetchMock = vi.fn().mockResolvedValue(
-    Response.json({
-      desktop_id: 'd-demo001',
-      lifecycle_state: 'ready',
-      github_owner: 'orchael',
-      region: 'us-east-2',
-      updated_at: '2026-10-27T00:00:00Z',
-      novnc_url: url,
-      ssh_target: 'ubuntu@d-demo001.desktops.example.com',
-      ami_id: 'ami-1234',
-      repos: ['orchael/desktopctl']
-    })
+  const liveURL = 'https://d-demo001.desktops.example.com:8443/access?token=one-session';
+  let accessReads = 0;
+  const fetchMock = vi.fn().mockImplementation((input: string) =>
+    Promise.resolve(
+      Response.json(
+        input.endsWith('/access')
+          ? {
+              url:
+                accessReads++ === 0
+                  ? liveURL
+                  : 'https://d-demo001.desktops.example.com:8443/access?token=next-session'
+            }
+          : {
+              desktop_id: 'd-demo001',
+              lifecycle_state: 'ready',
+              github_owner: 'orchael',
+              region: 'us-east-2',
+              updated_at: '2026-10-27T00:00:00Z',
+              novnc_url: url,
+              ssh_target: 'ubuntu@d-demo001.desktops.example.com',
+              ami_id: 'ami-1234',
+              repos: ['orchael/desktopctl']
+            }
+      )
+    )
   );
   vi.stubGlobal('fetch', fetchMock);
   render(<DesktopDetails id="d-demo001" />);
 
   expect(await screen.findByRole('link', { name: /open desktop/i })).toHaveAttribute(
     'href',
-    '/api/fleet/desktops/d-demo001/access'
+    liveURL
+  );
+  expect(screen.getByText(liveURL)).toHaveAttribute('href', liveURL);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh desktop URL' }));
+  expect(await screen.findByRole('link', { name: /open desktop/i })).toHaveAttribute(
+    'href',
+    'https://d-demo001.desktops.example.com:8443/access?token=next-session'
   );
   expect(screen.getByText(url)).toBeInTheDocument();
   expect(screen.getByText('ubuntu@d-demo001.desktops.example.com')).toBeInTheDocument();
