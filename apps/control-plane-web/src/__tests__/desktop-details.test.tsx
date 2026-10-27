@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('shows the complete desktop record and opens its noVNC URL', async () => {
+it('shows the complete desktop record and requests a fresh access URL', async () => {
   const url = 'https://d-demo001.desktops.example.com:8443/novnc/vnc.html';
   const fetchMock = vi.fn().mockResolvedValue(
     Response.json({
@@ -26,7 +26,11 @@ it('shows the complete desktop record and opens its noVNC URL', async () => {
   vi.stubGlobal('fetch', fetchMock);
   render(<DesktopDetails id="d-demo001" />);
 
-  expect(await screen.findByRole('link', { name: /open desktop/i })).toHaveAttribute('href', url);
+  expect(await screen.findByRole('link', { name: /open desktop/i })).toHaveAttribute(
+    'href',
+    '/api/fleet/desktops/d-demo001/access'
+  );
+  expect(screen.getByText(url)).toBeInTheDocument();
   expect(screen.getByText('ubuntu@d-demo001.desktops.example.com')).toBeInTheDocument();
   expect(screen.getByText('ami-1234')).toBeInTheDocument();
   expect(screen.getByText('orchael/desktopctl')).toBeInTheDocument();

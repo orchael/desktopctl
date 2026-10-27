@@ -96,7 +96,12 @@ cleanup behavior. The browser polls job status; closing the page does not stop
 an active job. Temporary status failures are retried. If tracking remains
 unavailable, the page keeps the job ID and blocks new actions until you retry
 tracking or explicitly refresh the fleet and clear tracking. Refresh reads live
-instance state through the private API.
+instance state through the private API. Selecting a fleet row shows its summary
+and lifecycle actions in the side panel; the details icon opens the full record.
+**Open desktop** asks the running desktop for a fresh, one-session noVNC access
+link over SSH. The stored `novnc_url` is only the base address and does not
+contain an access token. Configure `desktop.ssh_key_path` with a key that can
+reach the desktop; `app start` mounts that key read-only into the API container.
 For create requests with repositories, the server checks public repositories
 over anonymous HTTPS. Private repositories are checked with the configured
 GitHub token from AWS Secrets Manager; the container does not need the host's

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ type Server struct {
 	apiToken   string
 	standalone bool
 	jobs       *JobManager
+	accessURL  func(context.Context, *store.Desktop, string) (string, error)
 }
 
 func (s *Server) WithJobRunner(runner JobRunner) *Server {
@@ -33,7 +35,7 @@ func NewServer(service *Service, staticDir string, logger *slog.Logger, apiToken
 	if staticDir != "" {
 		static = http.FileServer(http.Dir(staticDir))
 	}
-	return &Server{service: service, logger: logger, static: static, apiToken: apiToken, standalone: service.standalone}
+	return &Server{service: service, logger: logger, static: static, apiToken: apiToken, standalone: service.standalone, accessURL: fetchDesktopAccessURL}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -140,6 +142,10 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 		s.getDesktop(w, r, id)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "access" && r.Method == http.MethodGet {
+		s.getDesktopAccess(w, r, id)
+		return
+	}
 	if len(parts) != 2 || r.Method != http.MethodPost {
 		writeError(w, http.StatusNotFound, errors.New("unknown endpoint"))
 		return
@@ -156,6 +162,34 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, errors.New("unknown action"))
 	}
+}
+
+func (s *Server) getDesktopAccess(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.standalone {
+		writeError(w, http.StatusNotFound, errors.New("unknown endpoint"))
+		return
+	}
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	desktop, err := s.service.GetDesktop(r.Context(), "", id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if desktop.State != store.StateReady && desktop.State != store.StateUnhealthy {
+		writeError(w, http.StatusConflict, errors.New("desktop is not running"))
+		return
+	}
+	link, err := s.accessURL(r.Context(), desktop.Desktop, s.service.cfg.Desktop.SSHKeyPath)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("could not create desktop access link"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Location", link)
+	w.WriteHeader(http.StatusSeeOther)
 }
 
 func (s *Server) getDesktop(w http.ResponseWriter, r *http.Request, id string) {

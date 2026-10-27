@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,34 @@ import (
 	appconfig "github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/store"
 )
+
+func TestStandaloneDesktopAccessRedirect(t *testing.T) {
+	t.Parallel()
+	fleet := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-123", State: store.StateReady, Hostname: "d-123.example.com", SSHTarget: "ubuntu@d-123.example.com"}
+	if err := fleet.Create(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(newTestService(testConfig(), fleet).WithStandalone(), "", slog.Default(), "secret-token")
+	server.accessURL = func(_ context.Context, got *store.Desktop, _ string) (string, error) {
+		if got.DesktopID != d.DesktopID {
+			t.Fatalf("desktop = %q", got.DesktopID)
+		}
+		return "https://d-123.example.com:8443/access?token=one-session", nil
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/desktops/d-123/access", nil)
+	unauthorized := httptest.NewRecorder()
+	server.Handler().ServeHTTP(unauthorized, request)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("without token = %d", unauthorized.Code)
+	}
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://d-123.example.com:8443/access?token=one-session" || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("access redirect = %d, headers = %v", response.Code, response.Header())
+	}
+}
 
 const testOrganizationID = "00000000-0000-4000-8000-000000000001"
 

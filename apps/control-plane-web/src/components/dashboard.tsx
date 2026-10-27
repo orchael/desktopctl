@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import type { Desktop } from '@/lib/desktop';
+import { formatDesktopField, type Desktop } from '@/lib/desktop';
 import {
   clearTrackedJob,
   JobStatusUnavailableError,
@@ -13,13 +12,14 @@ import {
 } from '@/lib/job-polling';
 
 export function Dashboard() {
-  const router = useRouter();
   const [desktops, setDesktops] = useState<Desktop[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
   const [trackingUnavailable, setTrackingUnavailable] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const selected = desktops.find((desktop) => desktop.desktop_id === selectedId) ?? desktops[0];
   const metrics = desktops.reduce(
     (value, desktop) => {
       if (desktop.lifecycle_state === 'ready') value.running++;
@@ -37,6 +37,9 @@ export function Dashboard() {
       throw new Error(('error' in value && value.error) || 'Could not load desktops');
     const next = value as Desktop[];
     setDesktops(next);
+    setSelectedId((current) =>
+      next.some((desktop) => desktop.desktop_id === current) ? current : next[0]?.desktop_id
+    );
   }, []);
 
   useEffect(() => {
@@ -106,6 +109,22 @@ export function Dashboard() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not refresh the fleet');
     }
+  }
+
+  function action(name: 'refresh' | 'start' | 'stop' | 'terminate') {
+    if (!selected) return;
+    let body: object | undefined;
+    if (name === 'terminate') {
+      const confirm = window.prompt(
+        `Type ${selected.desktop_id} to permanently terminate this desktop and delete its disk:`
+      );
+      if (confirm !== selected.desktop_id) return;
+      body = { confirm };
+    }
+    void runOperation(
+      `/api/fleet/desktops/${encodeURIComponent(selected.desktop_id)}/${name}`,
+      body
+    );
   }
 
   return (
@@ -196,16 +215,23 @@ export function Dashboard() {
                 {desktops.map((desktop) => (
                   <tr
                     key={desktop.desktop_id}
-                    onClick={() =>
-                      router.push(`/desktops/${encodeURIComponent(desktop.desktop_id)}`)
-                    }
+                    className={desktop.desktop_id === selected?.desktop_id ? 'selected' : ''}
+                    tabIndex={0}
+                    onClick={() => setSelectedId(desktop.desktop_id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedId(desktop.desktop_id);
+                      }
+                    }}
                   >
                     <td className="mono">
                       <Link
                         href={`/desktops/${encodeURIComponent(desktop.desktop_id)}`}
                         onClick={(event) => event.stopPropagation()}
+                        title={`View all details for ${desktop.desktop_id}`}
                       >
-                        {desktop.desktop_id}
+                        {desktop.desktop_id} ↗
                       </Link>
                     </td>
                     <td>
@@ -226,9 +252,94 @@ export function Dashboard() {
               </tbody>
             </table>
           </div>
+          <DesktopDetail desktop={selected} busy={busy} action={action} />
         </div>
       </section>
     </main>
+  );
+}
+
+function DesktopDetail({
+  desktop,
+  busy,
+  action
+}: {
+  desktop?: Desktop;
+  busy: boolean;
+  action: (name: 'refresh' | 'start' | 'stop' | 'terminate') => void;
+}) {
+  if (!desktop)
+    return (
+      <aside className="detail">
+        <p className="empty">Select a desktop to inspect it.</p>
+      </aside>
+    );
+  return (
+    <aside className="detail">
+      <div className="detailHead">
+        <div>
+          <Status state={desktop.lifecycle_state} />
+          <h2>{desktop.desktop_name || desktop.desktop_id}</h2>
+        </div>
+        <Link
+          className="detailIcon"
+          href={`/desktops/${encodeURIComponent(desktop.desktop_id)}`}
+          aria-label={`View all details for ${desktop.desktop_id}`}
+          title="View all details"
+        >
+          ↗
+        </Link>
+      </div>
+      <dl>
+        {[
+          ['Hostname', desktop.hostname],
+          ['Instance', desktop.instance_id],
+          ['Type', desktop.instance_type],
+          ['Market', desktop.market_type],
+          ['Stack', desktop.stack_name],
+          ['Readiness', desktop.readiness]
+        ].map(([label, value]) => (
+          <div key={String(label)}>
+            <dt>{label}</dt>
+            <dd>{formatDesktopField(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="actions">
+        <button onClick={() => action('refresh')} disabled={busy}>
+          Refresh state
+        </button>
+        <button
+          className="primary"
+          onClick={() => action('start')}
+          disabled={busy || desktop.lifecycle_state === 'ready'}
+        >
+          Start
+        </button>
+        <button
+          onClick={() => action('stop')}
+          disabled={busy || desktop.lifecycle_state === 'stopped'}
+        >
+          Stop
+        </button>
+        <button
+          className="dangerLink"
+          onClick={() => action('terminate')}
+          disabled={busy || desktop.lifecycle_state === 'terminated'}
+        >
+          Terminate
+        </button>
+        {desktop.novnc_url ? (
+          <a
+            href={`/api/fleet/desktops/${encodeURIComponent(desktop.desktop_id)}/access`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open desktop ↗
+          </a>
+        ) : null}
+      </div>
+    </aside>
   );
 }
 

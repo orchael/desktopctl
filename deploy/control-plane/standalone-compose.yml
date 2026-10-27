@@ -23,11 +23,13 @@ services:
       AWS_PROFILE: ${DESKTOPCTL_APP_AWS_PROFILE:-}
       AWS_REGION: ${DESKTOPCTL_APP_AWS_REGION:-}
       DESKTOPCTL_SSH_PUBLIC_KEY: ${DESKTOPCTL_APP_SSH_PUBLIC_KEY:-}
+      CONTROL_PLANE_SSH_KEY_PATH: /run/desktopctl-ssh-key
     volumes:
       - ${DESKTOPCTL_APP_CONFIG:?required}:/config/config.yaml:ro
       - ${DESKTOPCTL_APP_AWS_DIR:?required}:/home/operator/.aws:ro
       - ${DESKTOPCTL_APP_PULUMI_DIR:?required}:/home/operator/.pulumi
       - ${DESKTOPCTL_APP_SOURCE:?required}:${DESKTOPCTL_APP_SOURCE:?required}
+      - ${DESKTOPCTL_APP_SSH_KEY:-/dev/null}:/run/desktopctl-ssh-key:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 10s

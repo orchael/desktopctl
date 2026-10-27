@@ -158,12 +158,20 @@ func appEnvironment(createToken bool) ([]string, error) {
 		return nil, fmt.Errorf("prepare Pulumi directory: %w", err)
 	}
 	sshPublicKey := ""
+	sshKeyPath := "/dev/null"
 	if cfg.Desktop.SSHKeyPath != "" {
+		if info, err := os.Stat(cfg.Desktop.SSHKeyPath); err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("configured desktop SSH private key is not a regular file: %s", cfg.Desktop.SSHKeyPath)
+		}
 		value, err := os.ReadFile(cfg.Desktop.SSHKeyPath + ".pub")
 		if err != nil {
 			return nil, fmt.Errorf("read configured desktop SSH public key: %w", err)
 		}
 		sshPublicKey = strings.TrimSpace(string(value))
+		sshKeyPath, err = filepath.Abs(cfg.Desktop.SSHKeyPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 	token, err := appToken(createToken)
 	if err != nil {
@@ -183,7 +191,8 @@ func appEnvironment(createToken bool) ([]string, error) {
 		"CONTROL_PLANE_PUBLIC_ORIGIN="+appOrigin,
 		"DESKTOPCTL_APP_AWS_PROFILE="+profile,
 		"DESKTOPCTL_APP_AWS_REGION="+region,
-		"DESKTOPCTL_APP_SSH_PUBLIC_KEY="+sshPublicKey), nil
+		"DESKTOPCTL_APP_SSH_PUBLIC_KEY="+sshPublicKey,
+		"DESKTOPCTL_APP_SSH_KEY="+sshKeyPath), nil
 }
 
 func validateAppAddress() error {

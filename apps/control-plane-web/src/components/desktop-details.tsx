@@ -110,7 +110,10 @@ export function DesktopDetails({ id }: { id: string }) {
     }
   }
 
-  const browserURL = desktop ? noVNCURL(desktop) : undefined;
+  const browserURL =
+    desktop && noVNCURL(desktop)
+      ? `/api/fleet/desktops/${encodeURIComponent(desktop.desktop_id)}/access`
+      : undefined;
   return (
     <main className="appShell">
       <header className="topbar">
@@ -200,15 +203,7 @@ export function DesktopDetails({ id }: { id: string }) {
               {Object.entries(desktop).map(([field, value]) => (
                 <div key={field}>
                   <dt>{field.replaceAll('_', ' ')}</dt>
-                  <dd>
-                    {field === 'novnc_url' && browserURL ? (
-                      <a href={browserURL} target="_blank" rel="noopener noreferrer">
-                        {browserURL}
-                      </a>
-                    ) : (
-                      formatDesktopField(value)
-                    )}
-                  </dd>
+                  <dd>{formatDesktopField(value)}</dd>
                 </div>
               ))}
             </dl>

@@ -163,8 +163,10 @@ desktopctl config or pass `desktopctl app start --bind 192.168.1.20 --source
 interface; restrict access to your private network. Use `desktopctl app stop
 --source /path/to/desktopctl` to shut down the companion.
 
-Click a fleet row to see all available desktop details and lifecycle actions.
-The **Open desktop** link uses that desktop's noVNC URL. See the
+Click a fleet row to see a short summary and lifecycle actions in the panel
+beside the list. Use its details icon for the full desktop record. **Open desktop**
+requests a fresh, one-session noVNC access link from the running desktop; a
+configured desktop SSH key is required. See the
 [companion guide](docs/control-plane.md) for private HTTPS proxy setup and
 server requirements.
 

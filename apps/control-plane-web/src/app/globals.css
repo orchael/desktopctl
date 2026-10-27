@@ -288,6 +288,8 @@ button {
 }
 .fleetLayout {
   border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 .tableWrap {
   overflow: auto;
@@ -442,6 +444,24 @@ tbody tr.selected {
   border-left: 1px solid var(--line);
   padding: 24px;
   margin-left: 24px;
+}
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detailIcon {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 20px;
+  line-height: 1;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+.detailIcon:hover {
+  background: #f7faff;
 }
 .detailHead h2 {
   margin: 10px 0 24px;
