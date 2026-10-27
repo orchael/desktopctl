@@ -395,22 +395,14 @@ function DesktopDetail({
       {noVNCURL(desktop) ? (
         <div className="desktopAccess">
           {access.url ? (
-            <>
-              <a href={access.url} target="_blank" rel="noopener noreferrer">
-                Open desktop ↗
-              </a>
-              <a className="accessURL" href={access.url} target="_blank" rel="noopener noreferrer">
-                {access.url}
-              </a>
-            </>
+            <a href={access.url} target="_blank" rel="noopener noreferrer">
+              Open desktop ↗
+            </a>
           ) : (
             <span role="status">
               {access.loading ? 'Getting desktop URL…' : access.error || 'Desktop URL unavailable'}
             </span>
           )}
-          <button onClick={() => void access.refresh()} disabled={access.loading}>
-            Refresh desktop URL
-          </button>
         </div>
       ) : null}
       <div className="actions">

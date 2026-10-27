@@ -434,6 +434,29 @@ tbody tr.selected {
 .detailFields a {
   color: var(--blue);
 }
+.liveURLRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.liveURLRow .accessURL {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.liveURLRow button {
+  flex: none;
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  background: #fff;
+  color: #344054;
+  padding: 6px 10px;
+}
 .status {
   display: inline-flex;
   align-items: center;
@@ -514,9 +537,6 @@ tbody tr.selected {
   padding: 10px;
   text-align: center;
   text-decoration: none;
-}
-.desktopAccess > button {
-  width: 100%;
 }
 .accessURL {
   color: var(--blue);

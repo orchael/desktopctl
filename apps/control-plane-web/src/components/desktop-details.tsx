@@ -18,6 +18,7 @@ export function DesktopDetails({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job>();
   const [trackingUnavailable, setTrackingUnavailable] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<{ url: string; label: string }>();
   const access = useDesktopAccessURL(desktop);
 
   const load = useCallback(async () => {
@@ -109,6 +110,15 @@ export function DesktopDetails({ id }: { id: string }) {
       setBusy(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not refresh the fleet');
+    }
+  }
+
+  async function copyAccessURL(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyStatus({ url, label: 'Copied' });
+    } catch {
+      setCopyStatus({ url, label: 'Copy failed' });
     }
   }
 
@@ -209,14 +219,23 @@ export function DesktopDetails({ id }: { id: string }) {
                   <dt>Live NoVNC URL</dt>
                   <dd>
                     {browserURL ? (
-                      <a
-                        className="accessURL"
-                        href={browserURL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {browserURL}
-                      </a>
+                      <span className="liveURLRow">
+                        <a
+                          className="accessURL"
+                          href={browserURL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {browserURL}
+                        </a>
+                        <button
+                          type="button"
+                          aria-label="Copy live NoVNC URL"
+                          onClick={() => void copyAccessURL(browserURL)}
+                        >
+                          {copyStatus?.url === browserURL ? copyStatus.label : 'Copy'}
+                        </button>
+                      </span>
                     ) : access.loading ? (
                       'Getting desktop URL…'
                     ) : (

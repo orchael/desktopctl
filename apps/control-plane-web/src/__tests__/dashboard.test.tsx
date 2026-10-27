@@ -148,7 +148,8 @@ it('selects a fleet row in the summary card and links to the full details page',
     'href',
     'https://second.example.com:8443/access?token=second-session'
   );
+  expect(within(selectedCard).queryByText(/token=second-session/)).not.toBeInTheDocument();
   expect(
-    within(selectedCard).getByText('https://second.example.com:8443/access?token=second-session')
-  ).toBeInTheDocument();
+    within(selectedCard).queryByRole('button', { name: 'Refresh desktop URL' })
+  ).not.toBeInTheDocument();
 });

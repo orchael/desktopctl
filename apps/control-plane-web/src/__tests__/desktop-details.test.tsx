@@ -6,11 +6,17 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 it('shows the complete desktop record and its live tokenized access URL', async () => {
   const url = 'https://d-demo001.desktops.example.com:8443/novnc/vnc.html';
   const liveURL = 'https://d-demo001.desktops.example.com:8443/access?token=one-session';
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText }
+  });
   let accessReads = 0;
   const fetchMock = vi.fn().mockImplementation((input: string) =>
     Promise.resolve(
@@ -44,11 +50,17 @@ it('shows the complete desktop record and its live tokenized access URL', async 
     liveURL
   );
   expect(screen.getByText(liveURL)).toHaveAttribute('href', liveURL);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy live NoVNC URL' }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(liveURL));
+  expect(await screen.findByRole('button', { name: 'Copy live NoVNC URL' })).toHaveTextContent(
+    'Copied'
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Refresh desktop URL' }));
   expect(await screen.findByRole('link', { name: /open desktop/i })).toHaveAttribute(
     'href',
     'https://d-demo001.desktops.example.com:8443/access?token=next-session'
   );
+  expect(screen.getByRole('button', { name: 'Copy live NoVNC URL' })).toHaveTextContent('Copy');
   expect(screen.getByText(url)).toBeInTheDocument();
   expect(screen.getByText('ubuntu@d-demo001.desktops.example.com')).toBeInTheDocument();
   expect(screen.getByText('ami-1234')).toBeInTheDocument();
