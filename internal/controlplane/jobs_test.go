@@ -111,6 +111,15 @@ func TestJobManagerHidesRunnerErrors(t *testing.T) {
 	t.Fatal("job did not fail")
 }
 
+func TestBoundedCLIOutputKeepsSafeDiagnostics(t *testing.T) {
+	output := &boundedCLIOutput{}
+	_, _ = output.Write([]byte("no matching AMI in region\npassword=do-not-log\nrepository preflight failed\n"))
+	got := output.diagnostic()
+	if !strings.Contains(got, "no matching AMI") || !strings.Contains(got, "repository preflight failed") || strings.Contains(got, "do-not-log") {
+		t.Fatalf("unexpected diagnostic %q", got)
+	}
+}
+
 func TestTerminateRequiresMatchingConfirmation(t *testing.T) {
 	service := newTestService(testConfig(), store.NewInMemoryStore()).WithStandalone()
 	server := NewServer(service, "", slog.Default(), "secret").WithJobRunner(jobRunnerFunc(func(context.Context, ...string) error { return nil })).Handler()

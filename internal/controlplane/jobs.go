@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,12 +47,63 @@ func (r CLIJobRunner) Run(ctx context.Context, args ...string) error {
 	commandArgs = append(commandArgs, args...)
 	command := exec.CommandContext(ctx, r.Binary, commandArgs...)
 	command.Dir = r.SourceDir
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
+	configureCLIProcess(command)
+	output := &boundedCLIOutput{}
+	command.Stdout = output
+	command.Stderr = output
 	if err := command.Run(); err != nil {
+		if diagnostic := output.diagnostic(); diagnostic != "" {
+			return fmt.Errorf("desktopctl operation failed: %w; diagnostic: %s", err, diagnostic)
+		}
 		return fmt.Errorf("desktopctl operation failed: %w", err)
 	}
 	return nil
+}
+
+const maxCLIOutput = 8192
+
+type boundedCLIOutput struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func (b *boundedCLIOutput) Write(value []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(value) >= maxCLIOutput {
+		b.data = append(b.data[:0], value[len(value)-maxCLIOutput:]...)
+		return len(value), nil
+	}
+	b.data = append(b.data, value...)
+	if len(b.data) > maxCLIOutput {
+		b.data = append([]byte(nil), b.data[len(b.data)-maxCLIOutput:]...)
+	}
+	return len(value), nil
+}
+
+var sensitiveDiagnostic = regexp.MustCompile(`(?i)(token|secret|credential|password|passphrase|authorization|bearer|private[ _-]?key|access[ _-]?key)`)
+var longDiagnosticValue = regexp.MustCompile(`[A-Za-z0-9_./+=-]{32,}`)
+
+func (b *boundedCLIOutput) diagnostic() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	lines := strings.Split(string(b.data), "\n")
+	clean := make([]string, 0, 3)
+	for i := len(lines) - 1; i >= 0 && len(clean) < 3; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || sensitiveDiagnostic.MatchString(line) {
+			continue
+		}
+		line = longDiagnosticValue.ReplaceAllString(line, "[redacted]")
+		if len(line) > 240 {
+			line = line[:240]
+		}
+		clean = append(clean, line)
+	}
+	for i, j := 0, len(clean)-1; i < j; i, j = i+1, j-1 {
+		clean[i], clean[j] = clean[j], clean[i]
+	}
+	return strings.Join(clean, " | ")
 }
 
 type Job struct {
@@ -140,7 +191,7 @@ func (m *JobManager) work() {
 		cancel()
 		m.mu.Lock()
 		if err != nil {
-			slog.Error("lifecycle operation failed", "job_id", job.ID, "action", job.Action, "desktop_id", job.DesktopID)
+			slog.Error("lifecycle operation failed", "job_id", job.ID, "action", job.Action, "desktop_id", job.DesktopID, "error", err)
 			job.State = "failed"
 			job.Error = "Operation failed. Inspect the fleet record and server logs before retrying."
 		} else {
