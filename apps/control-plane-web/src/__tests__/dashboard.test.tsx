@@ -40,7 +40,7 @@ it('runs a lifecycle action from the selected desktop card', async () => {
   });
   vi.stubGlobal('fetch', fetchMock);
   render(<Dashboard />);
-  const card = (await screen.findByText('First')).closest('.detail')!;
+  const card = (await screen.findByText('First')).closest('aside')!;
   fireEvent.click(within(card).getByRole('button', { name: 'Stop' }));
   await waitFor(() => expect(within(card).getByText('stopped')).toBeInTheDocument());
   expect(fetchMock).toHaveBeenCalledWith(
@@ -81,7 +81,7 @@ it('selects a fleet row in the summary card and links to the full details page',
   expect(card.closest('.detail')).toBeInTheDocument();
   fireEvent.click(screen.getByText('d-second ↗').closest('tr')!);
   expect(screen.getByText('Second').closest('.detail')).toBeInTheDocument();
-  const selectedCard = screen.getByText('Second').closest('.detail')!;
+  const selectedCard = screen.getByText('Second').closest('aside')!;
   expect(
     within(selectedCard).getByRole('link', { name: 'View all details for d-second' })
   ).toHaveAttribute('href', '/desktops/d-second');
