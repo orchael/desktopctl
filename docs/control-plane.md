@@ -98,9 +98,9 @@ unavailable, the page keeps the job ID and blocks new actions until you retry
 tracking or explicitly refresh the fleet and clear tracking. Refresh reads live
 instance state through the private API. Selecting a fleet row shows its summary
 and lifecycle actions in the side panel; the details icon opens the full record.
-**Open desktop** displays and links directly to a fresh, one-session noVNC
-access URL fetched from the running desktop over SSH. Use **Refresh desktop
-URL** to generate another link. The stored `novnc_url` is only the base address and does not
+**Open desktop** links directly to a fresh, one-session noVNC access URL
+fetched from the running desktop over SSH. The full details page shows this
+URL with a copy button and **Refresh desktop URL** control. The stored `novnc_url` is only the base address and does not
 contain an access token. Configure `desktop.ssh_key_path` with a key that can
 reach the desktop; `app start` mounts that key read-only into the API container.
 Create requests save a retry key in the browser before submission. If the
@@ -111,7 +111,10 @@ For create requests with repositories, the server checks public repositories
 over anonymous HTTPS. Private repositories are checked with the configured
 GitHub token from AWS Secrets Manager; the container does not need the host's
 GitHub SSH key.
-Termination requires typing the desktop ID. Wait for active jobs to finish
+Termination requires typing the desktop ID. Failed desktops require an
+additional confirmation before the app passes `--force` to the CLI. The app
+keeps its Pulumi selection state in `~/.config/desktopctl/app-pulumi`, separate
+from host CLI sessions. Wait for active jobs to finish
 before stopping or upgrading the app; an interrupted CLI process may need
 reconciliation with `desktopctl status` or `desktopctl terminate` on the server.
 The companion app has no tenant database or SaaS account.

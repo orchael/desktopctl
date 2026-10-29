@@ -15,7 +15,7 @@ it('keeps tracking after one failed status request and accepts the next result',
 
   expect(result.state).toBe('succeeded');
   expect(fetchStatus).toHaveBeenCalledTimes(2);
-  expect(pause).toHaveBeenCalledWith(500);
+  expect(pause).toHaveBeenCalledWith(500, undefined);
   expect(onUpdate).toHaveBeenCalledOnce();
 });
 
@@ -26,4 +26,22 @@ it('reports unavailable status after bounded retries without claiming job failur
     JobStatusUnavailableError
   );
   expect(fetchStatus).toHaveBeenCalledTimes(5);
+});
+
+it('stops polling on cancellation without clearing tracked work', async () => {
+  const controller = new AbortController();
+  const fetchStatus = vi
+    .fn()
+    .mockResolvedValue(
+      Response.json({ id: 'job-1', action: 'create', desktop_id: 'd-1234', state: 'running' })
+    );
+  const onUpdate = vi.fn(() => controller.abort());
+  localStorage.setItem('desktopctl-companion-job', 'job-1');
+
+  await expect(
+    pollJob('job-1', onUpdate, fetchStatus, undefined, controller.signal)
+  ).rejects.toBeDefined();
+  expect(fetchStatus).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem('desktopctl-companion-job')).toBe('job-1');
+  localStorage.clear();
 });

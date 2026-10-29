@@ -154,3 +154,38 @@ func TestTerminateRequiresMatchingConfirmation(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 }
+
+func TestStandaloneTerminateForwardsConfirmedForce(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		wantForce  bool
+	}{
+		{"normal", `{"confirm":"d-test001"}`, false},
+		{"force", `{"confirm":"d-test001","force":true}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := make(chan []string, 1)
+			runner := jobRunnerFunc(func(_ context.Context, args ...string) error {
+				called <- args
+				return nil
+			})
+			service := newTestService(testConfig(), store.NewInMemoryStore()).WithStandalone()
+			server := NewServer(service, "", slog.Default(), "secret").WithJobRunner(runner).Handler()
+			req := httptest.NewRequest(http.MethodPost, "/api/desktops/d-test001/terminate", strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer secret")
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+			}
+			select {
+			case args := <-called:
+				if got := strings.Contains(strings.Join(args, " "), "--force"); got != tc.wantForce {
+					t.Fatalf("CLI args = %v, want force %v", args, tc.wantForce)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("terminate job was not run")
+			}
+		})
+	}
+}

@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDesktopField, noVNCURL, type Desktop } from '@/lib/desktop';
 import { useDesktopAccessURL } from '@/lib/desktop-access';
+import { confirmTermination } from '@/lib/terminate-confirm';
 import {
   clearTrackedJob,
   JobStatusUnavailableError,
@@ -19,7 +20,17 @@ export function DesktopDetails({ id }: { id: string }) {
   const [job, setJob] = useState<Job>();
   const [trackingUnavailable, setTrackingUnavailable] = useState(false);
   const [copyStatus, setCopyStatus] = useState<{ url: string; label: string }>();
+  const mounted = useRef(false);
+  const jobPoll = useRef<AbortController | null>(null);
   const access = useDesktopAccessURL(desktop);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      jobPoll.current?.abort();
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/fleet/desktops/${encodeURIComponent(id)}`, {
@@ -32,19 +43,26 @@ export function DesktopDetails({ id }: { id: string }) {
 
   const waitForJob = useCallback(
     async (jobId: string) => {
+      if (!mounted.current) return;
+      jobPoll.current?.abort();
+      const controller = new AbortController();
+      jobPoll.current = controller;
       setBusy(true);
       setTrackingUnavailable(false);
       setError('');
       try {
-        const current = await pollJob(jobId, setJob);
+        const current = await pollJob(jobId, setJob, fetch, undefined, controller.signal);
+        controller.signal.throwIfAborted();
         clearTrackedJob(jobId);
         if (current.state === 'failed') throw new Error(current.error ?? 'Operation failed');
         await load();
       } catch (reason) {
+        if (controller.signal.aborted) return;
         if (reason instanceof JobStatusUnavailableError) setTrackingUnavailable(true);
         setError(reason instanceof Error ? reason.message : 'Operation failed');
       } finally {
-        setBusy(Boolean(localStorage.getItem(pendingJobKey)));
+        if (jobPoll.current === controller) jobPoll.current = null;
+        if (!controller.signal.aborted) setBusy(Boolean(localStorage.getItem(pendingJobKey)));
       }
     },
     [load]
@@ -60,11 +78,8 @@ export function DesktopDetails({ id }: { id: string }) {
     if (!desktop) return;
     let body: object | undefined;
     if (name === 'terminate') {
-      const confirm = window.prompt(
-        `Type ${desktop.desktop_id} to permanently terminate this desktop and delete its disk:`
-      );
-      if (confirm !== desktop.desktop_id) return;
-      body = { confirm };
+      body = confirmTermination(desktop);
+      if (!body) return;
     }
     setError('');
     setBusy(true);

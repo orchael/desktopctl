@@ -294,12 +294,17 @@ func (s *Server) terminateDesktop(w http.ResponseWriter, r *http.Request, id str
 		}
 		var body struct {
 			Confirm string `json:"confirm"`
+			Force   bool   `json:"force"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil || body.Confirm != id {
 			writeError(w, http.StatusBadRequest, errors.New("confirm must match the desktop ID"))
 			return
 		}
-		s.enqueueJob(w, "terminate", id, "terminate", id)
+		args := []string{"terminate", id}
+		if body.Force {
+			args = append(args, "--force")
+		}
+		s.enqueueJob(w, "terminate", id, args...)
 		return
 	}
 	if !s.requireMutationAuth(w, r) {

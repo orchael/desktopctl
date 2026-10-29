@@ -153,7 +153,8 @@ func appEnvironment(createToken bool) ([]string, error) {
 			return nil, errors.New("pulumi.infra_dir must be inside --source for companion lifecycle operations")
 		}
 	}
-	pulumiDir := filepath.Join(home, ".pulumi")
+	// Keep Pulumi's selected-stack state separate from host CLI sessions.
+	pulumiDir := filepath.Join(home, ".config", "desktopctl", "app-pulumi")
 	if err := os.MkdirAll(pulumiDir, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare Pulumi directory: %w", err)
 	}
