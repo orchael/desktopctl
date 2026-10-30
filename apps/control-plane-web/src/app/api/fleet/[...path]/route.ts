@@ -1,30 +1,43 @@
-import { auth } from '@/auth';
-import { getActiveOrganization } from '@/lib/organizations';
+import { isIP } from 'node:net';
 
 async function proxyFleet(request: Request, context: { params: Promise<{ path: string[] }> }) {
-  const session = await auth();
-  if (!session?.user?.id) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  const active = await getActiveOrganization(session.user.id);
-  if (!active) return Response.json({ error: 'Organization not found' }, { status: 404 });
+  const publicOrigin = process.env.CONTROL_PLANE_PUBLIC_ORIGIN || undefined;
+  const bindHost = process.env.CONTROL_PLANE_BIND_HOST || '127.0.0.1';
+  const host = request.headers.get('host')?.replace(/:\d+$/, '') ?? new URL(request.url).hostname;
+  const allowedHosts = ['127.0.0.1', 'localhost', '[::1]', bindHost];
+  if (publicOrigin) allowedHosts.push(new URL(publicOrigin).hostname);
+  if (!allowedHosts.includes(host) && !(bindHost === '0.0.0.0' && isIP(host) === 4))
+    return Response.json({ error: 'Invalid host' }, { status: 403 });
+  const requestURL = new URL(request.url);
+  const expectedOrigin =
+    publicOrigin ?? `${requestURL.protocol}//${request.headers.get('host') ?? requestURL.host}`;
+  if (request.method === 'POST' && request.headers.get('origin') !== expectedOrigin)
+    return Response.json({ error: 'Invalid origin' }, { status: 403 });
   const { path } = await context.params;
   const base = process.env.CONTROL_PLANE_API_URL ?? 'http://127.0.0.1:8080';
   const upstream = new URL(`/api/${path.join('/')}`, base);
   upstream.search = new URL(request.url).search;
   const headers = new Headers();
   headers.set('Accept', 'application/json');
-  headers.set('X-Organization-ID', active.organizationId);
-  if (process.env.CONTROL_PLANE_API_TOKEN)
-    headers.set('Authorization', `Bearer ${process.env.CONTROL_PLANE_API_TOKEN}`);
+  const token = process.env.CONTROL_PLANE_API_TOKEN;
+  if (!token) return Response.json({ error: 'Fleet API is not configured' }, { status: 503 });
+  headers.set('Authorization', `Bearer ${token}`);
+  const idempotencyKey = request.headers.get('X-Idempotency-Key');
+  if (idempotencyKey) headers.set('X-Idempotency-Key', idempotencyKey);
   const response = await fetch(upstream, {
     method: request.method,
     headers,
     body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
     cache: 'no-store',
+    redirect: 'manual',
     signal: AbortSignal.timeout(30_000)
   });
   return new Response(response.body, {
     status: response.status,
-    headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' }
+    headers: {
+      'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
+      'Cache-Control': 'no-store'
+    }
   });
 }
 

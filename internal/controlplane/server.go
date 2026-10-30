@@ -1,23 +1,38 @@
 package controlplane
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/orchael/desktopctl/internal/store"
 )
 
+var createRequestKeyPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 type Server struct {
-	service  *Service
-	logger   *slog.Logger
-	static   http.Handler
-	apiToken string
+	service    *Service
+	logger     *slog.Logger
+	static     http.Handler
+	apiToken   string
+	standalone bool
+	jobs       *JobManager
+	accessURL  func(context.Context, *store.Desktop, string) (string, error)
+}
+
+func (s *Server) WithJobRunner(runner JobRunner) *Server {
+	s.jobs = NewJobManager(runner)
+	return s
 }
 
 func NewServer(service *Service, staticDir string, logger *slog.Logger, apiToken string) *Server {
@@ -25,7 +40,7 @@ func NewServer(service *Service, staticDir string, logger *slog.Logger, apiToken
 	if staticDir != "" {
 		static = http.FileServer(http.Dir(staticDir))
 	}
-	return &Server{service: service, logger: logger, static: static, apiToken: apiToken}
+	return &Server{service: service, logger: logger, static: static, apiToken: apiToken, standalone: service.standalone, accessURL: fetchDesktopAccessURL}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -34,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/desktops", s.listDesktops)
 	mux.HandleFunc("POST /api/desktops", s.createDesktop)
+	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
 	mux.HandleFunc("/api/desktops/", s.desktopAction)
 	if s.static != nil {
 		mux.HandleFunc("/", s.serveStatic)
@@ -58,7 +74,7 @@ func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -72,10 +88,50 @@ func (s *Server) listDesktops(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createDesktop(w http.ResponseWriter, r *http.Request) {
+	if s.standalone {
+		if !s.requireMutationAuth(w, r) {
+			return
+		}
+		if s.jobs == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("lifecycle runner is unavailable"))
+			return
+		}
+		var req CreateDesktopRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("invalid create request"))
+			return
+		}
+		args, err := createCLIArgs(&req, s.service.cfg.Environment())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		key := r.Header.Get("X-Idempotency-Key")
+		if !createRequestKeyPattern.MatchString(key) {
+			writeError(w, http.StatusBadRequest, errors.New("valid X-Idempotency-Key header is required"))
+			return
+		}
+		mac := hmac.New(sha256.New, []byte(s.apiToken))
+		_, _ = mac.Write([]byte(key))
+		id := "d-" + hex.EncodeToString(mac.Sum(nil)[:4])
+		digest := sha256.Sum256([]byte(strings.Join(args, "\x00")))
+		args = append([]string{"create", "--desktop-id", id}, args...)
+		job, err := s.jobs.EnqueueCreate(key, digest, id, args...)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, ErrJobQueueFull) || errors.Is(err, ErrJobAlreadyActive) || errors.Is(err, ErrIdempotencyConflict) {
+				status = http.StatusConflict
+			}
+			writeError(w, status, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+		return
+	}
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -104,6 +160,10 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 		s.getDesktop(w, r, id)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "access" && r.Method == http.MethodGet {
+		s.getDesktopAccess(w, r, id)
+		return
+	}
 	if len(parts) != 2 || r.Method != http.MethodPost {
 		writeError(w, http.StatusNotFound, errors.New("unknown endpoint"))
 		return
@@ -122,11 +182,38 @@ func (s *Server) desktopAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) getDesktopAccess(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.standalone {
+		writeError(w, http.StatusNotFound, errors.New("unknown endpoint"))
+		return
+	}
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	desktop, err := s.service.GetDesktop(r.Context(), "", id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if desktop.State != store.StateReady && desktop.State != store.StateUnhealthy {
+		writeError(w, http.StatusConflict, errors.New("desktop is not running"))
+		return
+	}
+	link, err := s.accessURL(r.Context(), desktop.Desktop, s.service.cfg.Desktop.SSHKeyPath)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("could not create desktop access link"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	writeJSON(w, http.StatusOK, map[string]string{"url": link})
+}
+
 func (s *Server) getDesktop(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -142,7 +229,7 @@ func (s *Server) refreshDesktop(w http.ResponseWriter, r *http.Request, id strin
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -155,10 +242,17 @@ func (s *Server) refreshDesktop(w http.ResponseWriter, r *http.Request, id strin
 }
 
 func (s *Server) startDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if s.standalone {
+		if !s.requireMutationAuth(w, r) {
+			return
+		}
+		s.enqueueJob(w, "start", id, "start", id)
+		return
+	}
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -171,10 +265,17 @@ func (s *Server) startDesktop(w http.ResponseWriter, r *http.Request, id string)
 }
 
 func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if s.standalone {
+		if !s.requireMutationAuth(w, r) {
+			return
+		}
+		s.enqueueJob(w, "stop", id, "stop", id)
+		return
+	}
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -187,10 +288,29 @@ func (s *Server) stopDesktop(w http.ResponseWriter, r *http.Request, id string) 
 }
 
 func (s *Server) terminateDesktop(w http.ResponseWriter, r *http.Request, id string) {
+	if s.standalone {
+		if !s.requireMutationAuth(w, r) {
+			return
+		}
+		var body struct {
+			Confirm string `json:"confirm"`
+			Force   bool   `json:"force"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil || body.Confirm != id {
+			writeError(w, http.StatusBadRequest, errors.New("confirm must match the desktop ID"))
+			return
+		}
+		args := []string{"terminate", id}
+		if body.Force {
+			args = append(args, "--force")
+		}
+		s.enqueueJob(w, "terminate", id, args...)
+		return
+	}
 	if !s.requireMutationAuth(w, r) {
 		return
 	}
-	organizationID, ok := requireOrganization(w, r)
+	organizationID, ok := s.requireOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -202,7 +322,43 @@ func (s *Server) terminateDesktop(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, http.StatusAccepted, result)
 }
 
-func requireOrganization(w http.ResponseWriter, r *http.Request) (string, bool) {
+func (s *Server) enqueueJob(w http.ResponseWriter, action, id string, args ...string) {
+	if s.jobs == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("lifecycle runner is unavailable"))
+		return
+	}
+	job, err := s.jobs.Enqueue(action, id, args...)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrJobQueueFull) || errors.Is(err, ErrJobAlreadyActive) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireMutationAuth(w, r) {
+		return
+	}
+	if s.jobs == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("lifecycle runner is unavailable"))
+		return
+	}
+	job, ok := s.jobs.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("job not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) requireOrganization(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if s.standalone {
+		return "", true
+	}
 	organizationID := strings.TrimSpace(r.Header.Get("X-Organization-ID"))
 	if organizationID == "" {
 		writeError(w, http.StatusBadRequest, errors.New("X-Organization-ID is required"))

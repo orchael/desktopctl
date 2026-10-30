@@ -1,0 +1,58 @@
+name: desktopctl-app
+services:
+  api:
+    user: "${DESKTOPCTL_APP_UID:?required}:${DESKTOPCTL_APP_GID:?required}"
+    working_dir: ${DESKTOPCTL_APP_SOURCE:?required}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.control-plane
+      target: api
+    restart: unless-stopped
+    environment:
+      CONTROL_PLANE_STANDALONE: "true"
+      DESKTOPCTL_APP_MODE: "true"
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:?required}
+      DESKTOPCTL_CONFIG: /config/config.yaml
+      CONTROL_PLANE_SOURCE_DIR: ${DESKTOPCTL_APP_SOURCE:?required}
+      HOME: /home/operator
+      PULUMI_HOME: /home/operator/.pulumi
+      GOCACHE: /tmp/go-build
+      GOMODCACHE: /tmp/go-mod
+      AWS_CONFIG_FILE: /home/operator/.aws/config
+      AWS_SHARED_CREDENTIALS_FILE: /home/operator/.aws/credentials
+      AWS_PROFILE: ${DESKTOPCTL_APP_AWS_PROFILE:-}
+      AWS_REGION: ${DESKTOPCTL_APP_AWS_REGION:-}
+      DESKTOPCTL_SSH_PUBLIC_KEY: ${DESKTOPCTL_APP_SSH_PUBLIC_KEY:-}
+      CONTROL_PLANE_SSH_KEY_PATH: /run/desktopctl-ssh-key
+    volumes:
+      - ${DESKTOPCTL_APP_CONFIG:?required}:/config/config.yaml:ro
+      - ${DESKTOPCTL_APP_AWS_DIR:?required}:/home/operator/.aws:ro
+      - ${DESKTOPCTL_APP_PULUMI_DIR:?required}:/home/operator/.pulumi
+      - ${DESKTOPCTL_APP_SOURCE:?required}:${DESKTOPCTL_APP_SOURCE:?required}
+      - ${DESKTOPCTL_APP_SSH_KEY:-/dev/null}:/run/desktopctl-ssh-key:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.control-plane
+      target: web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      CONTROL_PLANE_API_TOKEN: ${CONTROL_PLANE_API_TOKEN:?required}
+      CONTROL_PLANE_API_URL: http://api:8080
+      CONTROL_PLANE_PUBLIC_ORIGIN: ${CONTROL_PLANE_PUBLIC_ORIGIN:-}
+      CONTROL_PLANE_BIND_HOST: ${CONTROL_PLANE_BIND_HOST:-127.0.0.1}
+    ports:
+      - "${DESKTOPCTL_APP_BIND:-127.0.0.1}:${DESKTOPCTL_APP_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

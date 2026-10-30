@@ -1,19 +1,16 @@
 {
   "name": "@orchael/desktopctl-control-plane-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.7.5",
   "type": "module",
   "packageManager": "pnpm@10.27.0",
   "engines": {
     "node": "^22.13.0 || >=24"
   },
   "scripts": {
-    "dev": "prisma generate && next dev --hostname 0.0.0.0 --port 3000",
-    "build": "prisma generate && tsc --noEmit && next build",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "build": "next typegen && tsc --noEmit && next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "db:migrate": "prisma migrate deploy",
-    "db:migrate:dev": "prisma migrate dev",
-    "db:generate": "prisma generate",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prettier": "prettier . --check",
@@ -22,20 +19,14 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@auth/prisma-adapter": "^2.11.1",
-    "@prisma/client": "^6.19.0",
     "next": "^16.4.2",
-    "next-auth": "5.0.0-beta.32",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "zod": "^4.6.7"
+    "react-dom": "^19.3.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
       "esbuild",
-      "prisma"
+      "sharp"
     ]
   },
   "devDependencies": {
@@ -54,7 +45,6 @@
     "prettier": "^3.9.10",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.72.0",
-    "prisma": "^6.19.0",
     "vitest": "^5.0.5"
   }
 }

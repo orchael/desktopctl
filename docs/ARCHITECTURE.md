@@ -17,18 +17,17 @@ flowchart TD
   Programs --> CustomerAWS[EC2, EBS, network, IAM, Route53, EFS]
   Provision --> Host[Packer AMI and cloud-init host]
   Host --> Bridge[installed bridgectl]
-  LegacyWeb[apps/control-plane-web] --> LegacyAPI[cmd/control-plane and internal/controlplane]
-  LegacyAPI --> Store
-  LegacyAPI --> Pulumi
+  Companion[apps/control-plane-web] --> CompanionAPI[cmd/control-plane and internal/controlplane]
+  CompanionAPI --> Store
 ```
 
-The CLI is Cobra-based in `cmd/desktopctl/cmd`. Its commands include `create`, `list`, `status`, `start`, `stop`, `terminate`, `bootstrap`, `init-foundation`, `destroy-foundation`, `check`, `doctor`, `resize`, `ssh`, `agent`, `secrets`, `workspace`, `ami`, `cost`, `purge`, and `version`. `terminate` is the current destroy operation. `--profile` selects a local AWS shared profile; `--desktop-profile` selects a desktop setup repository (`owner/repository[:path]`). Creation needs a GitHub owner (or a repository to infer it), configured foundation, and an AMI. The CLI remains independently usable without a SaaS account.
+The CLI is Cobra-based in `cmd/desktopctl/cmd`. Its commands include `create`, `list`, `status`, `start`, `stop`, `terminate`, `app`, `bootstrap`, `init-foundation`, `destroy-foundation`, `check`, `doctor`, `resize`, `ssh`, `agent`, `secrets`, `workspace`, `ami`, `cost`, `purge`, and `version`. `terminate` is the current destroy operation. `--profile` selects a local AWS shared profile; `--desktop-profile` selects a desktop setup repository (`owner/repository[:path]`). Creation needs a GitHub owner (or a repository to infer it), configured foundation, and an AMI. The CLI remains independently usable without a SaaS account.
 
 `infra/pulumi/foundation` creates shared VPC, subnet, security group, instance role/profile, EFS, DynamoDB, and DNS prerequisites. `infra/pulumi/desktop` owns an individual EC2 instance, root EBS volume, and Route53 record. `internal/pulumi` drives separate stacks through the Pulumi CLI. `internal/awsx` wraps AWS SDK calls for lifecycle, lookup, DNS, storage, and secrets. DynamoDB fleet records in `internal/store` index desktop state; Pulumi state remains the infrastructure record. `internal/desktop` manages record transitions and output mapping.
 
 Packer, Ansible, and `internal/provision` prepare the AMI and cloud-init. They install developer tools, the on-desktop `apps/desktop-web` UI, and `bridgectl`; profiles are applied during bootstrap. `internal/health` and CLI doctor/readiness paths check the resulting host. `internal/agent` and `internal/tunnel` reach the installed bridgectl process. Bridge owns the remote device and session service; desktopctl stores no Bridge sessions.
 
-The legacy hosted surface consists of `apps/control-plane-web` (Next.js, Auth.js Google login, Prisma/PostgreSQL users, organizations, memberships, invitations, and initial RLS), `cmd/control-plane` and `internal/controlplane` (Go fleet API), `infra/pulumi/control-plane-access`, `Dockerfile.control-plane`, Nginx, and deployment configuration. The web application proxies fleet requests to the Go API. That API accepts a bearer token and organization header, then filters DynamoDB records by organization. Its create handler runs Pulumi in the HTTP request, generates a new desktop ID for each attempt, and marks the record ready after Pulumi output mapping without the CLI's full bootstrap/readiness path. Its AWS loader uses static operator access keys to assume one control-plane role. This path is not the target multi-tenant provisioning worker.
+The optional companion consists of `apps/control-plane-web` (Next.js) and `cmd/control-plane` with `internal/controlplane` (Go fleet API). `desktopctl app start` runs them in Docker Compose on an operator server. The browser endpoint binds to loopback and is accessed through SSH forwarding or an authenticated private proxy. There is no Google login, tenant database, or organization selection. The Go API uses the operator's AWS profile and lists CLI records, including records without an organization ID. Its private service token is generated locally. Create, start, stop, and terminate requests run the same CLI commands in serialized background jobs so the browser inherits the CLI's provisioning and cleanup behavior. This is a browser interface for independent desktopctl users, not the target multi-tenant SaaS provisioning worker. The older DOKS Helm deployment was retired; the DOKS IAM stack remains only for historical installations.
 
 ## Component disposition
 
@@ -39,9 +38,9 @@ The legacy hosted surface consists of `apps/control-plane-web` (Next.js, Auth.js
 | `internal/provision`, `internal/health`, `internal/packer`, `packer`, `ansible`, desktop profiles | **KEEP** | Runtime bootstrap, tools, and readiness belong with provisioning. |
 | `internal/store` DynamoDB and `apps/desktop-web` | **KEEP** | DynamoDB serves independent CLI operators; the web app runs on the desktop itself. Neither is the SaaS tenant database. |
 | `internal/agent`, `internal/tunnel`, bridgectl installation | **KEEP** | Install and reach bridgectl, while Bridge owns enrollment, devices, and sessions. |
-| `apps/control-plane-web` Auth.js/org/membership data and UI | **MOVE** | Reuse tested ideas in `orchael/desktops`; move SaaS identity and tenant records there. Keep the deployed legacy app until replacement is proven. |
-| `cmd/control-plane`, `internal/controlplane` HTTP API and `infra/pulumi/control-plane-access` | **REFACTOR**, then **REMOVE** | Existing API is synchronous and tied to one bootstrap role/key. Replace its useful lifecycle operations through the shared provisioning contract, then retire the legacy deployment separately. |
-| `Dockerfile.control-plane`, Nginx, old hosted deployment configuration | **REMOVE after migration** | They serve the legacy hosted app. No removal belongs in the initial boundary PR. |
+| `apps/control-plane-web` and `cmd/desktopctl/cmd/app.go` | **KEEP** | Independent users can start and stop a private browser companion without a SaaS account. |
+| `cmd/control-plane`, `internal/controlplane` HTTP API | **KEEP / REFACTOR** | The standalone API reads the CLI fleet and runs mutating CLI commands as jobs. A shared Go provisioning service remains the longer-term contract for SaaS workers. |
+| `infra/pulumi/control-plane-access` | **HISTORICAL** | The standalone app does not use the DOKS bootstrap role. The old Helm, PostgreSQL, and Nginx deployment files were removed. |
 | Historical plans, migration names, AWS resource names, and on-host paths | **KEEP** | Preserve historical links and deployed compatibility; rename only the operator CLI executable. |
 
 ## Target dependency direction
@@ -94,4 +93,4 @@ The existing CLI retains failed instances for diagnosis; destroy must clean only
 
 ## Validation inventory
 
-The repository has Go unit tests in `cmd/` and `internal/`, Pulumi module tests, opt-in AWS integration/E2E suites in `tests/integration` and `tests/e2e`, Vitest and Playwright for the on-desktop web UI, and Vitest for the legacy hosted web UI. `go test ./...` passed before this documentation change. Docker, Compose, GoReleaser, and GitHub Actions cover CLI, web packages, control-plane containers, lint, and publishing. Real AWS tests are opt-in and must never be run by normal CI without explicit credentials and intent.
+The repository has Go unit tests in `cmd/` and `internal/`, Pulumi module tests, opt-in AWS integration/E2E suites in `tests/integration` and `tests/e2e`, Vitest and Playwright for the on-desktop web UI, and Vitest for the standalone companion. Docker, Compose, GoReleaser, and GitHub Actions cover CLI, web packages, companion containers, lint, and publishing. Real AWS tests are opt-in and must never be run by normal CI without explicit credentials and intent.

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -14,7 +15,92 @@ import (
 	"github.com/orchael/desktopctl/internal/store"
 )
 
+func TestStandaloneDesktopAccessRedirect(t *testing.T) {
+	t.Parallel()
+	fleet := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-123", State: store.StateReady, Hostname: "d-123.example.com", SSHTarget: "ubuntu@d-123.example.com"}
+	if err := fleet.Create(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(newTestService(testConfig(), fleet).WithStandalone(), "", slog.Default(), "secret-token")
+	server.accessURL = func(_ context.Context, got *store.Desktop, _ string) (string, error) {
+		if got.DesktopID != d.DesktopID {
+			t.Fatalf("desktop = %q", got.DesktopID)
+		}
+		return "https://d-123.example.com:8443/access?token=one-session", nil
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/desktops/d-123/access", nil)
+	unauthorized := httptest.NewRecorder()
+	server.Handler().ServeHTTP(unauthorized, request)
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("without token = %d", unauthorized.Code)
+	}
+	request.Header.Set("Authorization", "Bearer secret-token")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var access struct {
+		URL string `json:"url"`
+	}
+	if response.Code != http.StatusOK || json.NewDecoder(response.Body).Decode(&access) != nil || access.URL != "https://d-123.example.com:8443/access?token=one-session" || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("access URL = %d, headers = %v, body = %s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
 const testOrganizationID = "00000000-0000-4000-8000-000000000001"
+
+func TestStandaloneListsCLIRecordsWithoutOrganization(t *testing.T) {
+	t.Parallel()
+	s := store.NewInMemoryStore()
+	for _, d := range []store.Desktop{
+		{DesktopID: "cli", State: store.StateReady},
+		{DesktopID: "hosted", OrganizationID: testOrganizationID, State: store.StateReady},
+	} {
+		if err := s.Create(t.Context(), &d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := newTestService(testConfig(), s).WithStandalone()
+	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/desktops", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("without token: status = %d", rec.Code)
+	}
+
+	req.Header.Set("Authorization", "Bearer secret-token")
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with token: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got []store.Desktop
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d desktops, want 2", len(got))
+	}
+}
+
+func TestStandaloneRequiresLifecycleRunner(t *testing.T) {
+	t.Parallel()
+	service := newTestService(testConfig(), store.NewInMemoryStore()).WithStandalone()
+	server := NewServer(service, "", slog.Default(), "secret-token").Handler()
+	for _, tc := range []struct{ path, body string }{
+		{"/api/desktops", `{"owner":"orchael"}`},
+		{"/api/desktops/d-test001/terminate", `{"confirm":"d-test001"}`},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s: status = %d", tc.path, rec.Code)
+		}
+	}
+}
 
 func TestListDesktopsFiltersTerminated(t *testing.T) {
 	t.Parallel()

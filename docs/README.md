@@ -8,5 +8,5 @@
 - [AWS operator permissions](AWS_OPERATOR_IAM.md)
 - [Fresh ca-central-1 setup and SSH smoke test](CA_CENTRAL_MIGRATION.md)
 - [Public AMI naming, builds, and cleanup](PUBLIC_AMIS.md)
-- [Legacy hosted control plane](control-plane.md)
+- [Standalone browser companion](control-plane.md)
 - [Doctor and troubleshooting](DOCTOR_COMMAND.md)

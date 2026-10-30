@@ -9,6 +9,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestAppBindDefaultAndRoundTrip(t *testing.T) {
+	defaultConfig := &Config{}
+	defaultConfig.Defaults()
+	if defaultConfig.App.Bind != "127.0.0.1" {
+		t.Fatalf("default app bind = %q", defaultConfig.App.Bind)
+	}
+	defaultConfig.App.Bind = "192.168.1.20"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := defaultConfig.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.App.Bind != "192.168.1.20" {
+		t.Fatalf("loaded app bind = %q", loaded.App.Bind)
+	}
+}
+
 func TestDNSZone(t *testing.T) {
 	tests := []struct {
 		env      string

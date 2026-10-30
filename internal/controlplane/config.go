@@ -19,8 +19,10 @@ const (
 type RuntimeConfig struct {
 	Addr                    string
 	ConfigPath              string
+	SourceDir               string
 	StaticDir               string
 	MockAWS                 bool
+	Standalone              bool
 	OperatorAccessKeyID     string
 	OperatorSecretAccessKey string
 	OperatorRoleARN         string
@@ -48,6 +50,7 @@ func LoadRuntimeConfig() RuntimeConfig {
 	if raw := os.Getenv("CONTROL_PLANE_MOCK_AWS"); raw != "" {
 		mockAWS, _ = strconv.ParseBool(raw)
 	}
+	standalone, _ := strconv.ParseBool(os.Getenv("CONTROL_PLANE_STANDALONE"))
 	addr := os.Getenv("CONTROL_PLANE_ADDR")
 	if addr == "" {
 		addr = defaultAddr
@@ -55,8 +58,10 @@ func LoadRuntimeConfig() RuntimeConfig {
 	return RuntimeConfig{
 		Addr:                    addr,
 		ConfigPath:              firstNonEmpty(os.Getenv("DESKTOPCTL_CONFIG"), os.Getenv("CONFIG_PATH")),
+		SourceDir:               firstNonEmpty(os.Getenv("CONTROL_PLANE_SOURCE_DIR"), "."),
 		StaticDir:               os.Getenv("CONTROL_PLANE_STATIC_DIR"),
 		MockAWS:                 mockAWS,
+		Standalone:              standalone,
 		OperatorAccessKeyID:     os.Getenv("OPERATOR_AWS_ACCESS_KEY_ID"),
 		OperatorSecretAccessKey: os.Getenv("OPERATOR_AWS_SECRET_ACCESS_KEY"),
 		OperatorRoleARN:         os.Getenv("OPERATOR_ROLE_ARN"),
@@ -84,6 +89,9 @@ func LoadAppConfig(runtime RuntimeConfig) (*appconfig.Config, error) {
 	if region := os.Getenv("AWS_REGION"); region != "" {
 		cfg.SetRegion(region)
 	}
+	if profile := os.Getenv("AWS_PROFILE"); profile != "" {
+		cfg.AWS.Profile = profile
+	}
 	if backendBucket := os.Getenv("PULUMI_BACKEND_BUCKET"); backendBucket != "" {
 		cfg.Pulumi.BackendBucket = backendBucket
 	}
@@ -104,6 +112,12 @@ func (c RuntimeConfig) Validate() error {
 	if c.MockAWS {
 		return nil
 	}
+	if c.APIToken == "" {
+		return errors.New("CONTROL_PLANE_API_TOKEN is required unless CONTROL_PLANE_MOCK_AWS=true")
+	}
+	if c.Standalone {
+		return nil
+	}
 	if c.OperatorAccessKeyID == "" {
 		return errors.New("OPERATOR_AWS_ACCESS_KEY_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
@@ -115,9 +129,6 @@ func (c RuntimeConfig) Validate() error {
 	}
 	if c.OperatorExternalID == "" {
 		return errors.New("OPERATOR_EXTERNAL_ID is required unless CONTROL_PLANE_MOCK_AWS=true")
-	}
-	if c.APIToken == "" {
-		return errors.New("CONTROL_PLANE_API_TOKEN is required unless CONTROL_PLANE_MOCK_AWS=true")
 	}
 	return nil
 }

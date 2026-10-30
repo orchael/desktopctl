@@ -1,6 +1,5 @@
 FROM node:22.13.0-bookworm-slim AS web-dependencies
 WORKDIR /src/apps/control-plane-web
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@10.27.0
 COPY apps/control-plane-web/package.json apps/control-plane-web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -16,12 +15,10 @@ RUN pnpm run build
 
 FROM node:22.13.0-bookworm-slim AS web
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=web-build /src/apps/control-plane-web/.next/standalone ./
 COPY --from=web-build /src/apps/control-plane-web/.next/static ./.next/static
 COPY --from=web-build /src/apps/control-plane-web/package.json ./apps/control-plane-web/package.json
-COPY --from=web-build /src/apps/control-plane-web/prisma ./apps/control-plane-web/prisma
 COPY --from=web-build /src/apps/control-plane-web/node_modules ./apps/control-plane-web/node_modules
 EXPOSE 3000
 USER node
@@ -33,17 +30,25 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
-RUN go build -o /out/control-plane ./cmd/control-plane
+RUN --mount=type=cache,target=/root/.cache/go-build go build -o /out/control-plane ./cmd/control-plane && go build -o /out/desktopctl ./cmd/desktopctl
 
-FROM debian:bookworm-slim AS api
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+FROM pulumi/pulumi-go:3.243.0 AS api
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget openssh-client libnss-wrapper && cp /usr/lib/*/libnss_wrapper.so /usr/local/lib/libnss_wrapper.so && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=api-build /out/control-plane /app/control-plane
-COPY config.example.yaml /app/config.example.yaml
+COPY --from=api-build /out/desktopctl /app/desktopctl
+COPY deploy/control-plane/api-entrypoint.sh /app/api-entrypoint.sh
 ENV CONTROL_PLANE_ADDR=:8080
 EXPOSE 8080
 USER 65532:65532
-ENTRYPOINT ["/app/control-plane"]
+ENTRYPOINT ["/bin/sh", "/app/api-entrypoint.sh"]
 
-FROM api AS api-dev
+FROM debian:bookworm-slim AS api-dev
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=api-build /out/control-plane /app/control-plane
+COPY --chown=65532:65532 config.example.yaml /app/config.example.yaml
 ENV DESKTOPCTL_CONFIG=/app/config.example.yaml CONTROL_PLANE_MOCK_AWS=true
+EXPOSE 8080
+USER 65532:65532
+ENTRYPOINT ["/app/control-plane"]

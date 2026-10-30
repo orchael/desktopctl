@@ -29,6 +29,17 @@ func NewAWSLoader(app *appconfig.Config, runtime RuntimeConfig) AWSLoader {
 }
 
 func (l *assumeRoleLoader) Load(ctx context.Context) (aws.Config, error) {
+	if l.runtime.Standalone {
+		options := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(l.app.AWS.Region)}
+		if l.app.AWS.Profile != "" {
+			options = append(options, awsconfig.WithSharedConfigProfile(l.app.AWS.Profile))
+		}
+		cfg, err := awsconfig.LoadDefaultConfig(ctx, options...)
+		if err != nil {
+			return aws.Config{}, fmt.Errorf("load operator AWS config: %w", err)
+		}
+		return cfg, nil
+	}
 	bootstrapCredentials := credentials.NewStaticCredentialsProvider(
 		l.runtime.OperatorAccessKeyID,
 		l.runtime.OperatorSecretAccessKey,

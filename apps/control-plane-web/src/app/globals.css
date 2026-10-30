@@ -44,14 +44,14 @@ button {
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template: 78px 1fr/230px 1fr;
+  grid-template: 78px 1fr/1fr;
   background: #fff;
 }
 .topbar {
   grid-column: 1/-1;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: 230px 1fr auto;
+  grid-template-columns: 1fr;
   align-items: center;
   padding: 0 28px;
   gap: 28px;
@@ -171,6 +171,72 @@ button {
   color: var(--muted);
   margin: 5px 0 0;
 }
+.pageActions {
+  display: flex;
+  gap: 10px;
+}
+.primary {
+  border: 1px solid var(--blue);
+  border-radius: 5px;
+  background: var(--blue);
+  color: #fff;
+  padding: 10px 14px;
+}
+.jobNotice {
+  border: 1px solid #b2ddff;
+  background: #eff8ff;
+  color: #175cd3;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.trackingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.trackingActions button {
+  border: 1px solid #84b8ff;
+  border-radius: 5px;
+  background: #fff;
+  color: #175cd3;
+  padding: 8px 12px;
+}
+.createPanel {
+  border: 1px solid var(--line);
+  background: #f9fbff;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.createPanel h2 {
+  margin: 0 0 6px;
+}
+.createPanel p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+.createFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.createFields label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.createFields input,
+.createFields textarea,
+.createFields select {
+  width: 100%;
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  padding: 9px;
+  background: #fff;
+  font: inherit;
+}
 .secondary,
 .actions button,
 .actions a,
@@ -221,10 +287,9 @@ button {
   background: var(--orange);
 }
 .fleetLayout {
-  display: grid;
-  grid-template-columns: minmax(620px, 1fr) 300px;
   border-top: 1px solid var(--line);
-  min-height: 570px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
 }
 .tableWrap {
   overflow: auto;
@@ -268,6 +333,130 @@ tbody tr.selected {
   font-family: 'SFMono-Regular', Consolas, monospace;
   color: #344054;
 }
+.mono a {
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 650;
+}
+.mono a:hover {
+  text-decoration: underline;
+}
+.detailPage {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+.backLink {
+  display: inline-block;
+  margin-bottom: 26px;
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 650;
+}
+.detailPageHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.detailEyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.detailPageHead h1 {
+  margin: 8px 0;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.04em;
+}
+.detailPageHead p {
+  margin: 0;
+  color: var(--muted);
+}
+.detailState {
+  text-transform: capitalize;
+}
+.detailPageHead .primary {
+  flex: none;
+  text-decoration: none;
+}
+.detailToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 20px 0 28px;
+}
+.detailToolbar button {
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #344054;
+}
+.detailToolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.detailPage h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+.detailFields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+.detailFields div {
+  min-width: 0;
+  padding: 17px 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.detailFields dt {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.detailFields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.detailFields a {
+  color: var(--blue);
+}
+.liveURLRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.liveURLRow .accessURL {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.liveURLRow button {
+  flex: none;
+  border: 1px solid #b8c0cc;
+  border-radius: 5px;
+  background: #fff;
+  color: #344054;
+  padding: 6px 10px;
+}
 .status {
   display: inline-flex;
   align-items: center;
@@ -278,6 +467,24 @@ tbody tr.selected {
   border-left: 1px solid var(--line);
   padding: 24px;
   margin-left: 24px;
+}
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detailIcon {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 20px;
+  line-height: 1;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+.detailIcon:hover {
+  background: #f7faff;
 }
 .detailHead h2 {
   margin: 10px 0 24px;
@@ -315,6 +522,26 @@ tbody tr.selected {
   background: var(--blue);
   border-color: var(--blue);
   color: #fff;
+}
+.desktopAccess {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+}
+.desktopAccess > a:first-child {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--blue);
+  padding: 10px;
+  text-align: center;
+  text-decoration: none;
+}
+.accessURL {
+  color: var(--blue);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .actions button:disabled,
 .settings button:disabled {
@@ -764,7 +991,7 @@ tbody tr.selected {
 }
 @media (max-width: 950px) {
   .appShell {
-    grid-template: 70px auto 1fr/1fr;
+    grid-template: 70px 1fr/1fr;
   }
   .topbar {
     grid-template-columns: 1fr auto;
@@ -779,10 +1006,6 @@ tbody tr.selected {
   .topbar {
     height: auto;
     min-height: 70px;
-  }
-  .brand span,
-  .user span {
-    display: none;
   }
   .rail {
     grid-row: 2;
@@ -829,6 +1052,25 @@ tbody tr.selected {
   }
 }
 @media (max-width: 650px) {
+  .detail dl div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .detailPageHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .detailFields {
+    grid-template-columns: 1fr;
+  }
+  .pageTitle {
+    align-items: flex-start;
+    gap: 16px;
+    flex-direction: column;
+  }
+  .createFields {
+    grid-template-columns: 1fr;
+  }
   .metrics {
     grid-template-columns: 1fr;
   }

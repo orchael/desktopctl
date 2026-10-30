@@ -67,6 +67,7 @@ type Config struct {
 	AWS                     AWSConfig      `yaml:"aws"`
 	Pulumi                  PulumiConfig   `yaml:"pulumi"`
 	Fleet                   FleetConfig    `yaml:"fleet"`
+	App                     AppConfig      `yaml:"app,omitempty"`
 	GitHub                  GitHubConfig   `yaml:"github"`
 	Operator                OperatorConfig `yaml:"operator,omitempty"`
 	Desktop                 DesktopConfig  `yaml:"desktop"`
@@ -75,6 +76,11 @@ type Config struct {
 	Network                 NetworkConfig  `yaml:"network,omitempty"`
 	PKI                     PKIConfig      `yaml:"pki,omitempty"`
 	Pool                    PoolConfig     `yaml:"pool,omitempty"`
+}
+
+// AppConfig controls the optional standalone browser companion.
+type AppConfig struct {
+	Bind string `yaml:"bind,omitempty"`
 }
 
 // DNSConfig selects the public Route 53 zone used for desktop hostnames.
@@ -308,6 +314,9 @@ func (c *Config) DNSZone() (string, error) {
 
 // Defaults fills any zero-value fields with sensible defaults.
 func (c *Config) Defaults() {
+	if c.App.Bind == "" {
+		c.App.Bind = "127.0.0.1"
+	}
 	if c.AWS.Region == "" {
 		c.AWS.Region = "us-east-1"
 	}

@@ -2,6 +2,11 @@
 # Copy to ~/.config/desktopctl/config.yaml and fill in your values.
 # Do NOT commit files containing real secrets or personal values.
 
+app:
+  # Browser companion bind address. Use a private server IP for direct network
+  # access; 0.0.0.0 listens on every IPv4 interface and prints a warning.
+  bind: 127.0.0.1
+
 aws:
   # AWS region where desktops will be provisioned
   region: us-east-1

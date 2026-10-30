@@ -297,7 +297,7 @@ case "$*" in
     result=succeeded
     if [ "$TEST_FOUNDATION_MODE" = "failed-update" ]; then result=failed; fi
     printf '[{"result":"%s","config":{"aws:region":{"value":"%s"},"foundation:environment":{"value":"%s"}}}]' "$result" "$region" "$environment" ;;
-  "stack output --json") echo '{"subnetId":"subnet-123"}' ;;
+  "stack output --stack foundation-dev-us-east-2 --json"|"stack output --stack foundation-dev --json") echo '{"subnetId":"subnet-123"}' ;;
   *) echo "unexpected pulumi invocation: $*" >&2; exit 1 ;;
 esac
 `
@@ -459,5 +459,55 @@ exit 0
 	}
 	if !strings.Contains(err.Error(), "locked") {
 		t.Errorf("error should mention lock, got: %v", err)
+	}
+}
+
+func TestRunnerOperationsUseExplicitStack(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "pulumi-args")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_PULUMI_LOG"
+case "$*" in
+  "stack select"*) exit 0 ;;
+  *"--stack desktop-d-explicit"*) ;;
+  *) echo "missing explicit desktop stack: $*" >&2; exit 1 ;;
+esac
+case "$*" in
+  "stack output"*) echo '{}' ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "pulumi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("TEST_PULUMI_LOG", logPath)
+	ref := DesktopStackRef("s3://bucket", "d-explicit", dir)
+	runner := NewRunner()
+	if _, err := runner.Up(context.Background(), ref, StackConfig{"aws:region": "us-east-2"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Refresh(context.Background(), ref, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.SetConfig(context.Background(), ref, "instanceType", "m7i.xlarge", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Preview(context.Background(), ref, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Outputs(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Destroy(context.Background(), ref, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"config set --stack desktop-d-explicit", "up --stack desktop-d-explicit", "refresh --stack desktop-d-explicit", "preview --stack desktop-d-explicit", "stack output --stack desktop-d-explicit", "destroy --stack desktop-d-explicit"} {
+		if !strings.Contains(string(got), command) {
+			t.Errorf("missing %q from Pulumi calls:\n%s", command, got)
+		}
 	}
 }

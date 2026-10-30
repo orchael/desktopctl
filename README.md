@@ -144,7 +144,35 @@ SSM tunnel automatically for these desktops; AWS Session Manager must be
 available. The no-DNS foundation has no inbound desktop ports. This mode does
 not provide a trusted browser URL.
 
-This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. See the [architecture audit and responsibility boundary](docs/ARCHITECTURE.md). The existing hosted control plane in this repository remains available while that service is built.
+### Optional browser companion
+
+On a server with this checkout, Docker Compose, your desktopctl config, and the
+same AWS profile as the CLI, start the standalone companion:
+
+```sh
+desktopctl app start --source /path/to/desktopctl
+```
+
+The default `app.bind: 127.0.0.1` in the config keeps the browser app on the
+server's loopback interface. Forward it from your workstation with
+`ssh -L 3000:127.0.0.1:3000 user@your-server`, then open
+`http://127.0.0.1:3000/`. To bind a private server IP, set `app.bind` in your
+desktopctl config or pass `desktopctl app start --bind 192.168.1.20 --source
+/path/to/desktopctl`. `--bind` overrides the config value. Selecting
+`0.0.0.0` is allowed but prints a warning because it listens on every IPv4
+interface; restrict access to your private network. Use `desktopctl app stop
+--source /path/to/desktopctl` to shut down the companion.
+
+Click a fleet row to see a short summary and lifecycle actions in the panel
+beside the list. Use its details icon for the full desktop record. **Open desktop**
+shows the desktop's fresh, one-session noVNC URL with its access token, linked
+directly to the desktop. Use **Refresh desktop URL** for another session. A
+configured desktop SSH key is required. If a Create response is interrupted,
+use **Retry create request** to recover the same operation. See the
+[companion guide](docs/control-plane.md) for private HTTPS proxy setup and
+server requirements.
+
+This repository remains usable on its own. The separate [Orchael Desktops](https://github.com/orchael/desktops) service will own SaaS users, organizations, customer AWS connections, and provisioning jobs. The optional [standalone browser companion](docs/control-plane.md) uses the same fleet as the CLI and does not require a SaaS account. See the [architecture and responsibility boundary](docs/ARCHITECTURE.md).
 
 Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop environment accessible via noVNC, with `bridgectl` for programmatic AI agent access and a pre-cloned developer workspace. Fleet state is tracked in DynamoDB; infrastructure is managed with Pulumi using S3 as the state backend.
 
@@ -155,7 +183,7 @@ Each desktop is an EC2 instance running a full Elementary (Pantheon) desktop env
 - Go 1.26+
 - [Pulumi CLI](https://www.pulumi.com/docs/install/) — `curl -fsSL https://get.pulumi.com | sh`
 - AWS CLI v2 — configured with a profile that has the permissions listed below
-- `pnpm` — for the desktop webapp (`apps/desktop-web`) and Kubernetes control plane webapp (`apps/control-plane-web`)
+- `pnpm` — for the desktop webapp (`apps/desktop-web`) and optional companion app (`apps/control-plane-web`)
 
 ### AWS permissions
 
@@ -382,8 +410,7 @@ The existing `Publish` GitHub Actions workflow accepts a patch, minor, or major 
 
 The public `orchael/homebrew-desktopctl` tap receives a `desktopctl` formula from GoReleaser during the same release. The `HOMEBREW_TAP_GITHUB_TOKEN` secret on `orchael/desktopctl` must be a fine-grained token with Contents read/write access to this tap; the release workflow checks the token and tap branch before creating a version tag. After the first formula is published, install it with `brew install orchael/desktopctl/desktopctl` on macOS or Linux. GitHub Releases contain the same versioned binary archives and checksums.
 
-The control plane is built and deployed by the operator; releases do not publish
-its images. See [control plane build and deployment](docs/control-plane.md#build-and-deploy-from-source).
+The optional companion app runs from a source checkout on the operator's server. See [standalone app setup](docs/control-plane.md).
 
 ## Region and environment mapping
 
@@ -397,111 +424,9 @@ Each environment gets its own foundation stack and DynamoDB fleet table. Set
 `dns.zone` per installation with `dns setup`; existing configs without it use
 the legacy Orchael zone for their environment.
 
-## Kubernetes control plane AWS access
+## Optional browser companion
 
-The Kubernetes control plane webapp runs outside AWS when deployed to DOKS, so it cannot use EKS IRSA. Use the separate Pulumi stack in `infra/pulumi/control-plane-access` to create a constrained bootstrap IAM user and an assumable control-plane role.
-
-The stack creates:
-
-- IAM user `desktopctl-user-<environment>-<region>` by default.
-- IAM access key and secret for that user.
-- IAM role `desktopctl-control-plane-<environment>-<region>` by default.
-- A user policy that only allows `sts:AssumeRole` into that role.
-- A role trust policy that requires `EXTERNAL_ID`.
-- A role policy for the fleet DynamoDB tables, EC2 lifecycle operations, SSM sessions, scoped Secrets Manager/SSM Parameter access, Route53 record updates, CloudWatch Logs, and the Pulumi S3 backend.
-
-The stack exports both Pulumi-style output names and Docker/Kubernetes-friendly names:
-
-| Output | Use |
-|--------|-----|
-| `ROLE_ARN` | Set as `AWS_ROLE_ARN` for the control-plane container. |
-| `EXTERNAL_ID` | Set as `AWS_EXTERNAL_ID` for the control-plane container. |
-| `ACCESS_KEY` | Set as `AWS_ACCESS_KEY_ID` for the control-plane container. |
-| `SECRET` | Set as `AWS_SECRET_ACCESS_KEY` for the control-plane container. |
-
-### Development access stack
-
-Run this after `desktopctl bootstrap` and `desktopctl init-foundation` have created the dev backend, DynamoDB tables, desktop instance profile, and Route53 zone.
-
-```bash
-cd infra/pulumi/foundation
-pulumi stack select foundation-dev-us-east-2
-ZONE_ID="$(pulumi stack output zoneId)"
-INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
-DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
-  --instance-profile-name "$INSTANCE_PROFILE" \
-  --query 'InstanceProfile.Roles[0].Arn' \
-  --output text)"
-cd ../control-plane-access
-
-pulumi stack init control-plane-dev
-pulumi config set aws:region us-east-2
-pulumi config set region us-east-2
-pulumi config set environment dev
-pulumi config set fleetTable desktopctl-fleet-dev-us-east-2
-pulumi config set amiTable desktopctl-ami-dev-us-east-2
-pulumi config set bootstrapUserName desktopctl-user-dev-us-east-2
-pulumi config set roleName desktopctl-control-plane-dev-us-east-2
-pulumi config set backendBucket <dev-pulumi-state-bucket>
-pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
-pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
-pulumi config set --secret externalId "$(openssl rand -hex 24)"
-pulumi up
-```
-
-Use the outputs for a local Docker Compose `.env` file or a DOKS Secret:
-
-```bash
-AWS_REGION=us-east-2
-AWS_ACCESS_KEY_ID=$(pulumi stack output ACCESS_KEY)
-AWS_SECRET_ACCESS_KEY=$(pulumi stack output --show-secrets SECRET)
-AWS_ROLE_ARN=$(pulumi stack output ROLE_ARN)
-AWS_EXTERNAL_ID=$(pulumi stack output --show-secrets EXTERNAL_ID)
-CONTROL_PLANE_API_TOKEN=$(openssl rand -hex 32)
-```
-
-### Production access stack
-
-Use a separate Pulumi stack, production region, production backend bucket, production DNS zone, and production fleet table names. If dev and prod share one AWS account, keep the `-prod` suffixes because IAM user names are account-global. If production uses a separate AWS account and you want the literal user name requested by operations, set `bootstrapUserName` to `desktopctl-user`.
-
-```bash
-cd infra/pulumi/foundation
-pulumi stack select foundation-prod-us-east-1
-ZONE_ID="$(pulumi stack output zoneId)"
-INSTANCE_PROFILE="$(pulumi stack output instanceProfile)"
-DESKTOP_ROLE_ARN="$(aws iam get-instance-profile \
-  --instance-profile-name "$INSTANCE_PROFILE" \
-  --query 'InstanceProfile.Roles[0].Arn' \
-  --output text)"
-cd ../control-plane-access
-
-pulumi stack init control-plane-prod
-pulumi config set aws:region us-east-1
-pulumi config set region us-east-1
-pulumi config set environment prod
-pulumi config set fleetTable desktopctl-fleet-prod-us-east-1
-pulumi config set amiTable desktopctl-ami-prod-us-east-1
-pulumi config set bootstrapUserName desktopctl-user-prod-us-east-1
-pulumi config set roleName desktopctl-control-plane-prod-us-east-1
-pulumi config set backendBucket <prod-pulumi-state-bucket>
-pulumi config set hostedZoneArn "arn:aws:route53:::hostedzone/${ZONE_ID}"
-pulumi config set desktopRoleArn "$DESKTOP_ROLE_ARN"
-pulumi config set --secret externalId "$(openssl rand -hex 24)"
-pulumi up
-```
-
-Create or update the production Kubernetes Secret with:
-
-```bash
-kubectl create secret generic desktopctl-aws \
-  --namespace desktopctl \
-  --from-literal=AWS_REGION="us-east-1" \
-  --from-literal=AWS_ACCESS_KEY_ID="$(pulumi stack output ACCESS_KEY)" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="$(pulumi stack output --show-secrets SECRET)" \
-  --from-literal=AWS_ROLE_ARN="$(pulumi stack output ROLE_ARN)" \
-  --from-literal=AWS_EXTERNAL_ID="$(pulumi stack output --show-secrets EXTERNAL_ID)" \
-  --from-literal=CONTROL_PLANE_API_TOKEN="$(openssl rand -hex 32)"
-```
+The standalone companion lets operators create and manage the same fleet through a private browser UI. It is separate from the Orchael Desktops SaaS. Install Docker Compose and keep a desktopctl source checkout on the server, then run `desktopctl app start --source /path/to/desktopctl`. Use `desktopctl app stop` to stop it. The app listens on `127.0.0.1:3000` and requires SSH forwarding or another private network proxy; it does not use Google sign-in. See [the setup and security guide](docs/control-plane.md).
 
 ## Configuration
 
@@ -1116,7 +1041,7 @@ infra/
   pulumi/foundation/      Shared VPC/IAM/DNS/SG Pulumi program (separate Go module)
   pulumi/desktop/         Per-desktop EC2/Route53 Pulumi program (separate Go module)
 apps/desktop-web/         On-desktop status dashboard (Vite + React + TypeScript)
-apps/control-plane-web/   Kubernetes-hosted control plane (Next.js 16, Auth.js, Prisma)
+apps/control-plane-web/   Standalone browser companion (Next.js)
 plans/                    Implementation plan files
 tasks/                    Branch-local TODO tracking
 ```

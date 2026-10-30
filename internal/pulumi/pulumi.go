@@ -247,7 +247,7 @@ func (r *Runner) Refresh(ctx context.Context, ref *StackRef, progress io.Writer)
 	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", "--create", ref.StackName); err != nil {
 		return fmt.Errorf("stack select: %w", err)
 	}
-	if err := r.run(ctx, ref.WorkDir, env, progress, "refresh", "--yes", "--non-interactive", "--color", "never"); err != nil {
+	if err := r.run(ctx, ref.WorkDir, env, progress, "refresh", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never"); err != nil {
 		return fmt.Errorf("pulumi refresh: %w", err)
 	}
 	return nil
@@ -263,11 +263,11 @@ func (r *Runner) RefreshAndUp(ctx context.Context, ref *StackRef, progress io.Wr
 		return nil, err
 	}
 	env := r.env(ref.BackendURL)
-	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never")
+	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never")
 	if err != nil {
 		return nil, fmt.Errorf("pulumi up: %s: %w", tailOutput(out, 4000), err)
 	}
-	return r.outputs(ctx, ref.WorkDir, env)
+	return r.outputs(ctx, ref.WorkDir, env, ref.StackName)
 }
 
 // SetConfig selects an existing stack and writes one plaintext config value.
@@ -276,7 +276,7 @@ func (r *Runner) SetConfig(ctx context.Context, ref *StackRef, key, value string
 	if err := r.run(ctx, ref.WorkDir, env, progress, "stack", "select", ref.StackName); err != nil {
 		return fmt.Errorf("stack select %s: %w", ref.StackName, err)
 	}
-	if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", key, value); err != nil {
+	if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--stack", ref.StackName, "--plaintext", key, value); err != nil {
 		return fmt.Errorf("config set %s: %w", key, err)
 	}
 	return nil
@@ -290,15 +290,15 @@ func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progres
 		return nil, fmt.Errorf("stack select: %w", err)
 	}
 	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
+		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--stack", ref.StackName, "--plaintext", k, v); err != nil {
 			return nil, fmt.Errorf("config set %s: %w", k, err)
 		}
 	}
-	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--yes", "--non-interactive", "--color", "never")
+	out, err := r.runCaptureTee(ctx, ref.WorkDir, env, progress, "up", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never")
 	if err != nil {
 		return nil, fmt.Errorf("pulumi up: %s: %w", tailOutput(out, 4000), err)
 	}
-	return r.outputs(ctx, ref.WorkDir, env)
+	return r.outputs(ctx, ref.WorkDir, env, ref.StackName)
 }
 
 // Preview selects (or creates) the stack, applies cfg, and runs `pulumi preview`.
@@ -308,11 +308,11 @@ func (r *Runner) Preview(ctx context.Context, ref *StackRef, cfg StackConfig, pr
 		return fmt.Errorf("stack select: %w", err)
 	}
 	for k, v := range cfg {
-		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--plaintext", k, v); err != nil {
+		if err := r.run(ctx, ref.WorkDir, env, progress, "config", "set", "--stack", ref.StackName, "--plaintext", k, v); err != nil {
 			return fmt.Errorf("config set %s: %w", k, err)
 		}
 	}
-	return r.run(ctx, ref.WorkDir, env, progress, "preview", "--color", "never")
+	return r.run(ctx, ref.WorkDir, env, progress, "preview", "--stack", ref.StackName, "--color", "never")
 }
 
 // Outputs reads the current output map for an existing stack without running
@@ -323,7 +323,7 @@ func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string,
 	if err != nil {
 		return nil, fmt.Errorf("stack select %s: %s: %w", ref.StackName, tailOutput(out, 1000), err)
 	}
-	return r.outputs(ctx, ref.WorkDir, env)
+	return r.outputs(ctx, ref.WorkDir, env, ref.StackName)
 }
 
 // FoundationOutputs reads the regional foundation, or a legacy environment-only
@@ -391,16 +391,16 @@ func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer)
 		}
 		return fmt.Errorf("stack select: %w", err)
 	}
-	out, err = r.runCaptureTee(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never")
+	out, err = r.runCaptureTee(ctx, ref.WorkDir, env, progress, "destroy", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never")
 	if err != nil {
 		if strings.Contains(out, "currently locked") {
 			if progress != nil {
 				_, _ = fmt.Fprintln(progress, "stack is locked by a previous operation; running pulumi cancel to release lock...")
 			}
-			if cancelErr := r.run(ctx, ref.WorkDir, env, progress, "cancel", "--yes"); cancelErr != nil {
+			if cancelErr := r.run(ctx, ref.WorkDir, env, progress, "cancel", "--stack", ref.StackName, "--yes"); cancelErr != nil {
 				return fmt.Errorf("pulumi destroy (locked; cancel failed: %v): %w", cancelErr, err)
 			}
-			if err2 := r.run(ctx, ref.WorkDir, env, progress, "destroy", "--yes", "--non-interactive", "--color", "never"); err2 != nil {
+			if err2 := r.run(ctx, ref.WorkDir, env, progress, "destroy", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never"); err2 != nil {
 				return fmt.Errorf("pulumi destroy: %w", err2)
 			}
 			return nil
@@ -465,8 +465,8 @@ func (r *Runner) runCaptureTee(ctx context.Context, workDir string, env []string
 	return buf.String(), err
 }
 
-func (r *Runner) outputs(ctx context.Context, workDir string, env []string) (map[string]string, error) {
-	cmd := exec.CommandContext(ctx, "pulumi", "stack", "output", "--json") //nolint:gosec
+func (r *Runner) outputs(ctx context.Context, workDir string, env []string, stackName string) (map[string]string, error) {
+	cmd := exec.CommandContext(ctx, "pulumi", "stack", "output", "--stack", stackName, "--json") //nolint:gosec
 	cmd.Dir = workDir
 	cmd.Env = env
 	out, err := cmd.Output()
