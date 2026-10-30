@@ -421,7 +421,13 @@ function DesktopDetail({
         </div>
       ) : null}
       <div className="actions">
-        <button onClick={() => action('refresh')} disabled={busy}>
+        <button
+          onClick={() => {
+            if (access.error) void access.refresh();
+            action('refresh');
+          }}
+          disabled={busy}
+        >
           Refresh state
         </button>
         <button

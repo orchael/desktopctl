@@ -153,3 +153,49 @@ it('selects a fleet row in the summary card and links to the full details page',
     within(selectedCard).queryByRole('button', { name: 'Refresh desktop URL' })
   ).not.toBeInTheDocument();
 });
+
+it('retries a failed desktop access link when refreshing state', async () => {
+  const liveURL = 'https://first.example.com:8443/access?token=recovered-session';
+  let accessReads = 0;
+  const desktop = {
+    desktop_id: 'd-first',
+    desktop_name: 'First',
+    lifecycle_state: 'ready',
+    github_owner: 'orchael',
+    region: 'us-east-2',
+    updated_at: '2026-10-27T00:00:00Z',
+    novnc_url: 'https://first.example.com:8443/novnc/vnc.html'
+  };
+  const fetchMock = vi.fn().mockImplementation((input: string) => {
+    if (input.endsWith('/access')) {
+      accessReads++;
+      return Promise.resolve(
+        accessReads === 1
+          ? Response.json({ error: 'temporary SSH failure' }, { status: 503 })
+          : Response.json({ url: liveURL })
+      );
+    }
+    if (input.endsWith('/refresh'))
+      return Promise.resolve(
+        Response.json(
+          { id: 'job-1', action: 'refresh', desktop_id: 'd-first', state: 'queued' },
+          { status: 202 }
+        )
+      );
+    if (input.endsWith('/jobs/job-1'))
+      return Promise.resolve(
+        Response.json({ id: 'job-1', action: 'refresh', desktop_id: 'd-first', state: 'succeeded' })
+      );
+    return Promise.resolve(Response.json([desktop]));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<Dashboard />);
+  const card = (await screen.findByText('First')).closest('aside')!;
+  expect(await within(card).findByText('Could not get desktop access URL')).toBeInTheDocument();
+  fireEvent.click(within(card).getByRole('button', { name: 'Refresh state' }));
+  expect(await within(card).findByRole('link', { name: /open desktop/i })).toHaveAttribute(
+    'href',
+    liveURL
+  );
+  expect(accessReads).toBe(2);
+});
