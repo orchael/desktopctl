@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/desktopctl"
+marker="$state_dir/first-session-started"
+
+if [ -e "$marker" ]; then
+  exit 0
+fi
+
+mkdir -p "$state_dir"
+command -v x-terminal-emulator >/dev/null
+command -v google-chrome-stable >/dev/null
+
+# Give the Pantheon session time to create its window manager before opening windows.
+sleep 3
+x-terminal-emulator >/dev/null 2>&1 &
+google-chrome-stable --no-first-run --new-window >/dev/null 2>&1 &
+touch "$marker"

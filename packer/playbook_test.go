@@ -2,9 +2,11 @@ package packer
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRepositoryPinsGo126Everywhere(t *testing.T) {
@@ -260,6 +262,70 @@ func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 		`vscode_sha256=${var.vscode_sha256}`,
 	} {
 		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
+	}
+}
+
+func TestAMIPlaybookConfiguresDesktopLaunchers(t *testing.T) {
+	for _, want := range []string{
+		"URIs: https://dl.google.com/linux/chrome/deb/",
+		"Signed-By: /etc/apt/keyrings/google-chrome.asc",
+		"- google-chrome-stable",
+		"- pcmanfm",
+		"/home/ubuntu/Desktop/{{ item }}.desktop",
+		"/home/ubuntu/.config/autostart/{{ item }}.desktop",
+		"/usr/local/bin/desktopctl-first-session",
+		"desktop-file-validate {{ item }}",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+	for name, wants := range map[string][]string{
+		"Terminal.desktop":                 {"Exec=x-terminal-emulator", "Icon=utilities-terminal"},
+		"Chrome.desktop":                   {"Exec=google-chrome-stable %U", "Icon=google-chrome"},
+		"desktopctl-icons.desktop":         {"Exec=pcmanfm --desktop --profile desktopctl", "OnlyShowIn=Pantheon;"},
+		"desktopctl-first-session.desktop": {"Exec=/usr/local/bin/desktopctl-first-session", "OnlyShowIn=Pantheon;"},
+	} {
+		for _, want := range wants {
+			assertFileContains(t, filepath.Join("files", name), want)
+		}
+	}
+}
+
+func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "launches")
+	for _, app := range []string{"x-terminal-emulator", "google-chrome-stable"} {
+		stub := "#!/bin/sh\nprintf '%s\\n' " + app + " >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n"
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "sleep"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 2; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+filepath.Join(dir, "state"), "DESKTOPCTL_TEST_LAUNCHES="+logPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("run %d: %v: %s", run+1, err, out)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		data, err := os.ReadFile(logPath)
+		if err == nil && strings.Count(string(data), "\n") == 2 {
+			if !strings.Contains(string(data), "x-terminal-emulator\n") || !strings.Contains(string(data), "google-chrome-stable\n") {
+				t.Fatalf("launched unexpected apps: %q", data)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected each app to launch once, got %q (%v)", data, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

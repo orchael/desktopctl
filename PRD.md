@@ -304,6 +304,7 @@ its own lifecycle and may survive desktop termination.
 | FR-9.13 | Public AMIs must be named `desktopctl-v<CLI major>-<UTC YYYYMMDD>-<build timestamp>` and retain the full CLI and desktop web versions as tags. Automatic public image discovery must select only the running CLI's major version unless config sets `desktop.public_ami_major` or pins `desktop.active_ami.<region>`. |
 | FR-9.14 | Operators must have a regional public AMI build, list, and deletion script. Deletion must preview by default and verify the AWS account, publisher ownership, image name, management tag, active config pin, and live instance use before removal. |
 | FR-9.15 | Interactive and scripted setup must configure trusted public AMI publisher account `819363892004` by default, allow another 12-digit account or an explicit empty value for scripted setup, persist an explicit discovery disable across later setup runs, and preserve explicit AMI pins as higher priority than discovery. |
+| FR-9.16 | New pre-baked Elementary AMIs must provide Terminal and Google Chrome icons on the desktop surface, and open both applications once on the first graphical session. Subsequent logins must keep the icons without reopening the applications automatically. |
 
 **Acceptance criteria:**
 
@@ -328,6 +329,7 @@ its own lifecycle and may survive desktop termination.
 | AC-9.17 | The AMI playbook installs `tfenv` through Linuxbrew, installs the configured Terraform version, selects it as the `ubuntu` user's default, and verifies the Terraform CLI reports the configured version | `TestAMIPlaybookInstallsTfenvWithHomebrew`, `TestAMIConfigurationPinsTerraformVersion`, `TestFR9_TerraformInstalled`; live AMI build |
 | AC-9.18 | A `0.7.0` CLI discovers only public `desktopctl-v0-*` images by default; a configured major or exact active AMI overrides that choice, and Packer receives the CLI major and UTC build date | `TestPublicAMINamePattern`, `TestRunPassesMajorAndUTCDate`; live image discovery after publication |
 | AC-9.19 | The public AMI script builds once in the first selected region without a config or foundation, copies to the others, and previews pruning without mutation; it rejects unmanaged images and images used by running or stopped instances | `scripts/public_amis_test.py`, `TestPublicAMIBuildSkipsStoreAndConfig`; live read-only list and prune preview |
+| AC-9.20 | A fresh graphical session shows working Terminal and Google Chrome desktop icons and opens one window for each; a later login does not open them again | `TestAMIPlaybookConfiguresDesktopLaunchers`, `TestFirstDesktopSessionOpensAppsOnce`; live graphical validation after AMI build |
 
 ### FR-11 — GitHub developer tooling
 

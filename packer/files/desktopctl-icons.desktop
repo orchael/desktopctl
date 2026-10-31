@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop Icons
+Exec=pcmanfm --desktop --profile desktopctl
+OnlyShowIn=Pantheon;
+NoDisplay=true

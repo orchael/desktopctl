@@ -1057,6 +1057,108 @@
       ansible.builtin.command: desktop-file-validate /usr/share/applications/com.microsoft.VSCode.desktop
       changed_when: false
 
+    - name: Add Google Chrome apt signing key
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/linux_signing_key.pub
+        dest: /etc/apt/keyrings/google-chrome.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add Google Chrome apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/google-chrome.sources
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://dl.google.com/linux/chrome/deb/
+          Suites: stable
+          Components: main
+          Architectures: amd64
+          Signed-By: /etc/apt/keyrings/google-chrome.asc
+
+    - name: Keep Google Chrome from adding a duplicate apt source
+      ansible.builtin.copy:
+        dest: /etc/default/google-chrome
+        content: ""
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Google Chrome and desktop icon handler
+      ansible.builtin.apt:
+        name:
+          - google-chrome-stable
+          - pcmanfm
+        state: present
+        update_cache: true
+
+    - name: Check Chrome and Terminal executables
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: true
+      loop:
+        - /usr/bin/google-chrome-stable
+        - /usr/bin/x-terminal-emulator
+      register: desktop_app_executables
+
+    - name: Require Chrome and Terminal executables
+      ansible.builtin.assert:
+        that: item.stat.isreg | default(false)
+      loop: "{{ desktop_app_executables.results }}"
+
+    - name: Create ubuntu desktop and autostart directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+      loop:
+        - /home/ubuntu/Desktop
+        - /home/ubuntu/.config/autostart
+
+    - name: Install Terminal and Chrome desktop icons
+      ansible.builtin.copy:
+        src: "files/{{ item }}.desktop"
+        dest: "/home/ubuntu/Desktop/{{ item }}.desktop"
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+      loop:
+        - Terminal
+        - Chrome
+
+    - name: Install desktop icon and first-session autostart entries
+      ansible.builtin.copy:
+        src: "files/{{ item }}.desktop"
+        dest: "/home/ubuntu/.config/autostart/{{ item }}.desktop"
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+      loop:
+        - desktopctl-icons
+        - desktopctl-first-session
+
+    - name: Install first-session app launcher
+      ansible.builtin.copy:
+        src: files/desktopctl-first-session
+        dest: /usr/local/bin/desktopctl-first-session
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Validate desktop and autostart launchers
+      ansible.builtin.command: "desktop-file-validate {{ item }}"
+      loop:
+        - /home/ubuntu/Desktop/Terminal.desktop
+        - /home/ubuntu/Desktop/Chrome.desktop
+        - /home/ubuntu/.config/autostart/desktopctl-icons.desktop
+        - /home/ubuntu/.config/autostart/desktopctl-first-session.desktop
+      changed_when: false
+
     - name: Verify Visual Studio Code CLI launches
       ansible.builtin.command: /usr/bin/code --version
       become: true
