@@ -108,6 +108,15 @@
       changed_when: false
       timeout: 300
 
+    - name: Retry transient apt download failures during the AMI bake
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/80-desktopctl-retries
+        content: |
+          Acquire::Retries "3";
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: true

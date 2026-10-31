@@ -87,6 +87,11 @@ func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
 	}
 }
 
+func TestAMIPlaybookRetriesTransientAPTDownloads(t *testing.T) {
+	assertFileContains(t, "playbook.yml", `/etc/apt/apt.conf.d/80-desktopctl-retries`)
+	assertFileContains(t, "playbook.yml", `Acquire::Retries "3";`)
+}
+
 func TestAMIPlaybookMasksGenericBridgeUnit(t *testing.T) {
 	for _, want := range []string{
 		"    - name: Mask package bridge user service for ubuntu",
