@@ -1143,10 +1143,23 @@
         dest: "/home/ubuntu/Desktop/{{ item }}.desktop"
         owner: ubuntu
         group: ubuntu
-        mode: "0755"
+        mode: "0644"
       loop:
         - Terminal
         - Chrome
+
+    - name: Require desktop shortcut targets
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/share/applications/io.elementary.terminal.desktop
+        - /usr/share/applications/google-chrome.desktop
+      register: desktop_shortcut_targets
+
+    - name: Verify desktop shortcut targets exist
+      ansible.builtin.assert:
+        that: item.stat.isreg | default(false)
+      loop: "{{ desktop_shortcut_targets.results }}"
 
     - name: Install desktop icon and first-session autostart entries
       ansible.builtin.copy:

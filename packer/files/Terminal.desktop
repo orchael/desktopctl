@@ -1,7 +1,5 @@
 [Desktop Entry]
-Type=Application
+Type=Link
 Name=Terminal
-Exec=x-terminal-emulator
+URL=file:///usr/share/applications/io.elementary.terminal.desktop
 Icon=utilities-terminal
-Categories=System;TerminalEmulator;
-Terminal=false

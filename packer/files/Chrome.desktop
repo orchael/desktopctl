@@ -1,7 +1,5 @@
 [Desktop Entry]
-Type=Application
+Type=Link
 Name=Google Chrome
-Exec=google-chrome-stable %U
+URL=file:///usr/share/applications/google-chrome.desktop
 Icon=google-chrome
-Categories=Network;WebBrowser;
-Terminal=false
