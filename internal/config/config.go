@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,9 +204,7 @@ type AVDConfig struct {
 }
 
 type DesktopConfig struct {
-	// NoVNCGatewayCIDR permits HTTPS noVNC only from one configured gateway IPv4.
-	NoVNCGatewayCIDR string `yaml:"novnc_gateway_cidr,omitempty"`
-	DefaultProfile   string `yaml:"default_profile"`
+	DefaultProfile string `yaml:"default_profile"`
 	// Profile is an optional owner/repository[:path] setup profile applied at creation.
 	Profile string `yaml:"profile,omitempty"`
 	// ProfileSecret holds environment variables for the configured profile.
@@ -391,9 +388,6 @@ func (c *Config) Defaults() {
 
 // Validate checks that required configuration is present.
 func (c *Config) Validate() error {
-	if err := ValidateNoVNCGatewayCIDR(c.Desktop.NoVNCGatewayCIDR); err != nil {
-		return err
-	}
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
@@ -472,16 +466,4 @@ func LoadOrDefault(path string) (*Config, error) {
 		return nil, err
 	}
 	return c, nil
-}
-
-// ValidateNoVNCGatewayCIDR keeps the opt-in SaaS gateway limited to one public host.
-func ValidateNoVNCGatewayCIDR(value string) error {
-	if value == "" {
-		return nil
-	}
-	prefix, err := netip.ParsePrefix(value)
-	if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 32 || !prefix.Addr().IsGlobalUnicast() || prefix.Addr().IsPrivate() {
-		return fmt.Errorf("desktop.novnc_gateway_cidr must be a public IPv4 /32")
-	}
-	return nil
 }

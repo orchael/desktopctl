@@ -23,7 +23,6 @@ const (
 
 // BootstrapConfig holds the parameters for rendering the cloud-init user-data.
 type BootstrapConfig struct {
-	NoVNCGatewayCIDR     string
 	DesktopID            string
 	Hostname             string // FQDN used for certbot cert and novnc-desktop cert path
 	GitHubOwner          string
@@ -1298,14 +1297,6 @@ runcmd:
     fi
 {{- end}}
 
-{{- if .NoVNCGatewayCIDR}}
-  # Keep the guest firewall aligned with the Pulumi gateway-only ingress rule.
-  - |
-    if command -v ufw >/dev/null 2>&1; then
-      ufw allow from {{ .NoVNCGatewayCIDR }} to any port {{ .NoVNCHTTPSPort }} proto tcp comment desktopctl-noVNC-gateway
-    fi
-{{- end}}
-
   # --- write desktop metadata ---
   - |
     {
@@ -1331,9 +1322,6 @@ final_message: "desktopctl bootstrap complete for {{ .DesktopID }}"
 
 // RenderCloudInit renders the cloud-init user-data for the given config.
 func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
-	if err := config.ValidateNoVNCGatewayCIDR(cfg.NoVNCGatewayCIDR); err != nil {
-		return "", err
-	}
 	if cfg.WorkspacePath == "" {
 		cfg.WorkspacePath = "/workspace"
 	}

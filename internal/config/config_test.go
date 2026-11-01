@@ -485,16 +485,3 @@ func TestSupportsNestedVirt(t *testing.T) {
 		}
 	}
 }
-
-func TestValidateNoVNCGatewayCIDR(t *testing.T) {
-	for _, cidr := range []string{"", "16.59.36.114/32"} {
-		if err := ValidateNoVNCGatewayCIDR(cidr); err != nil {
-			t.Errorf("valid gateway %q: %v", cidr, err)
-		}
-	}
-	for _, cidr := range []string{"0.0.0.0/0", "16.59.36.0/24", "127.0.0.1/32", "10.0.0.1/32", "::1/128", "bad; reboot"} {
-		if err := ValidateNoVNCGatewayCIDR(cidr); err == nil {
-			t.Errorf("unsafe gateway %q accepted", cidr)
-		}
-	}
-}
