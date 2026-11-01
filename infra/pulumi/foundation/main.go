@@ -221,6 +221,11 @@ func run(ctx *pulumi.Context) error {
 			})
 		}
 	}
+	if (saasMode || noDNSMode) && cfg.GetBool("publicNoVNC") {
+		for _, port := range []int{80, 8443} {
+			ingress = append(ingress, &ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(port), ToPort: pulumi.Int(port), CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")}, Description: pulumi.String("desktopctl public noVNC and ACME")})
+		}
+	}
 	sg, err := ec2.NewSecurityGroup(ctx, "desktopctl-sg", &ec2.SecurityGroupArgs{
 		VpcId:       vpcIDOutput,
 		Description: pulumi.String("desktopctl desktop security group"),

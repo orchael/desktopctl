@@ -3,8 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -204,6 +206,8 @@ type AVDConfig struct {
 }
 
 type DesktopConfig struct {
+	PublicNoVNC    bool   `yaml:"public_novnc,omitempty"`
+	PublicHostname string `yaml:"public_hostname,omitempty"`
 	DefaultProfile string `yaml:"default_profile"`
 	// Profile is an optional owner/repository[:path] setup profile applied at creation.
 	Profile string `yaml:"profile,omitempty"`
@@ -388,6 +392,11 @@ func (c *Config) Defaults() {
 
 // Validate checks that required configuration is present.
 func (c *Config) Validate() error {
+	if c.Desktop.PublicNoVNC {
+		if err := ValidatePublicDesktopHostname(c.Desktop.PublicHostname); err != nil {
+			return err
+		}
+	}
 	if c.Pulumi.BackendBucket == "" {
 		return errors.New("pulumi.backend_bucket must be set")
 	}
@@ -466,4 +475,11 @@ func LoadOrDefault(path string) (*Config, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func ValidatePublicDesktopHostname(value string) error {
+	if len(value) > 253 || !regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*[a-z0-9]$`).MatchString(value) || !strings.Contains(value, ".") || strings.Contains(value, "..") || net.ParseIP(value) != nil {
+		return fmt.Errorf("desktop.public_hostname must be a DNS hostname")
+	}
+	return nil
 }

@@ -91,6 +91,7 @@ var (
 	createNoDNS             bool
 	createAllowPorts        []int
 	createBootstrapPackages bool
+	createDeferReadiness    bool
 )
 
 var createCmd = &cobra.Command{
@@ -143,6 +144,7 @@ func init() {
 	createCmd.Flags().StringVar(&createGitHubSecret, "github-secret", "", "AWS Secrets Manager path for GitHub clone credentials (required for private SaaS repositories or profiles)")
 	createCmd.Flags().BoolVar(&createNoDNS, "no-dns", false, "skip Route53 records for an account without a hosted zone")
 	createCmd.Flags().IntSliceVar(&createAllowPorts, "allow-port", nil, "additional public TCP port for this desktop (repeatable or comma-separated)")
+	createCmd.Flags().BoolVar(&createDeferReadiness, "defer-readiness", false, "let the calling orchestrator publish DNS and verify bootstrap readiness")
 	createCmd.Flags().BoolVar(&createBootstrapPackages, "bootstrap-packages", false, "install desktop packages through cloud-init when using a base AMI")
 	rootCmd.AddCommand(createCmd)
 }
@@ -655,6 +657,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Render cloud-init with PackagesPreInstalled set based on whether we have a pre-baked AMI.
 	userData := ""
 	hostname := desktop.Hostname(desktopID, zone)
+	if cfg.Desktop.PublicNoVNC {
+		hostname = cfg.Desktop.PublicHostname
+	}
 
 	// Read the SSH public key so cloud-init can inject it into the ubuntu user's
 	// authorized_keys.  A missing or unreadable key is non-fatal; the desktop
@@ -685,6 +690,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		DesktopProfile:       desktopProfile,
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
+		PublicNoVNC:          cfg.Desktop.PublicNoVNC,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
 		PublicGitHubSources:  publicGitHubSources,
@@ -925,7 +931,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if desktopProfile != "" || createBootstrapPackages {
+	if !createDeferReadiness && (desktopProfile != "" || createBootstrapPackages) {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
@@ -937,7 +943,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
 	readinessProfile := desktopProfile
-	if createBootstrapPackages && readinessProfile == "" {
+	if createDeferReadiness {
+		readinessProfile = ""
+	}
+	if !createDeferReadiness && createBootstrapPackages && readinessProfile == "" {
 		readinessProfile = "bootstrap-packages"
 	}
 	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {

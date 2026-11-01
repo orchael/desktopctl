@@ -1354,3 +1354,20 @@ func TestRenderCloudInit_rejectsUnsafeDesktopProfile(t *testing.T) {
 		t.Fatal("unsafe profile reference accepted")
 	}
 }
+
+func TestRenderCloudInitPublicNoVNCOwnsTLSAndGuestPorts(t *testing.T) {
+	cfg := &BootstrapConfig{DesktopID: "d-direct", Hostname: "d-123.console.orchael.dev", NoDNS: true, PackagesPreInstalled: true, PublicNoVNC: true}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"desktopctl-setup-public-tls", "ufw allow 8443/tcp", "ufw allow 80/tcp", "--standalone", "--preferred-challenges http"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("direct noVNC bootstrap missing %q", want)
+		}
+	}
+	cfg.Hostname = "bad; reboot"
+	if _, err := RenderCloudInit(cfg); err == nil {
+		t.Fatal("unsafe direct hostname accepted")
+	}
+}
