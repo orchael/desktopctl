@@ -288,8 +288,8 @@ func TestAMIPlaybookConfiguresDesktopLaunchers(t *testing.T) {
 		assertFileContains(t, "playbook.yml", want)
 	}
 	for name, wants := range map[string][]string{
-		"Terminal.desktop":                 {"Type=Link", "URL=file:///usr/share/applications/io.elementary.terminal.desktop", "Icon=utilities-terminal"},
-		"Chrome.desktop":                   {"Type=Link", "URL=file:///usr/share/applications/google-chrome.desktop", "Icon=google-chrome"},
+		"Terminal.desktop":                 {"Type=Link", "URL=/usr/share/applications/io.elementary.terminal.desktop", "Icon=utilities-terminal"},
+		"Chrome.desktop":                   {"Type=Link", "URL=/usr/share/applications/google-chrome.desktop", "Icon=google-chrome"},
 		"desktopctl-icons.desktop":         {"Exec=pcmanfm --desktop --profile desktopctl", "OnlyShowIn=Pantheon;"},
 		"desktopctl-first-session.desktop": {"Exec=/usr/local/bin/desktopctl-first-session", "OnlyShowIn=Pantheon;"},
 	} {
