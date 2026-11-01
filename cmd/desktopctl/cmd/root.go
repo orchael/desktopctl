@@ -23,7 +23,8 @@ var rootCmd = &cobra.Command{
 desktops. Each desktop is a browser-accessible Linux environment designed for
 AI coding agents (Codex, Claude, Gemini) with human operator access for
 supervision and debugging.`,
-	SilenceUsage: true,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cfgFile != "" && cmd.Name() != "setup" {
 			if _, err := os.Stat(cfgFile); err != nil {
