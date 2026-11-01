@@ -1109,6 +1109,7 @@
         name:
           - google-chrome-stable
           - pcmanfm
+          - x11-utils
         state: present
         update_cache: true
 

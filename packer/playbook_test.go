@@ -278,6 +278,7 @@ func TestAMIPlaybookConfiguresDesktopLaunchers(t *testing.T) {
 		"Signed-By: /etc/apt/keyrings/google-chrome.asc",
 		"- google-chrome-stable",
 		"- pcmanfm",
+		"- x11-utils",
 		"/home/ubuntu/Desktop/{{ item }}.desktop",
 		"/usr/share/applications/io.elementary.terminal.desktop",
 		"/usr/share/applications/google-chrome.desktop",
@@ -312,7 +313,10 @@ func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(bin, "sleep"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "xprop"), []byte("#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "sleep"), []byte("#!/bin/sh\n/bin/sleep 0.05\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for run := 0; run < 2; run++ {
@@ -335,6 +339,98 @@ func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
 			t.Fatalf("expected each app to launch once, got %q (%v)", data, err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestFirstDesktopSessionRetriesOnlyFailedApp(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "launches")
+	for app, script := range map[string]string{
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nif [ \"${DESKTOPCTL_TEST_FAIL_CHROME:-}\" = 1 ]; then exit 9; fi\n",
+		"xprop":                "#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n",
+		"sleep":                "#!/bin/sh\n/bin/sleep 0.05\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stateHome := filepath.Join(dir, "state")
+	for run := 0; run < 3; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath)
+		if run == 0 {
+			cmd.Env = append(cmd.Env, "DESKTOPCTL_TEST_FAIL_CHROME=1")
+		}
+		out, err := cmd.CombinedOutput()
+		if run == 0 && err == nil {
+			t.Fatalf("failing Chrome launch was marked successful: %s", out)
+		}
+		if run > 0 && err != nil {
+			t.Fatalf("run %d: %v: %s", run+1, err, out)
+		}
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); strings.Count(got, "terminal\n") != 1 || strings.Count(got, "chrome\n") != 2 {
+		t.Fatalf("want one terminal launch and two Chrome attempts, got %q", got)
+	}
+	for _, name := range []string{"terminal-started", "chrome-started"} {
+		if _, err := os.Stat(filepath.Join(stateHome, "desktopctl", name)); err != nil {
+			t.Fatalf("missing %s marker: %v", name, err)
+		}
+	}
+}
+
+func TestFirstDesktopSessionRetriesWhenWindowManagerBecomesReady(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for app, script := range map[string]string{
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
+		"xprop":                "#!/bin/sh\nif [ -e \"$DESKTOPCTL_TEST_WM_READY\" ]; then echo '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'; else exit 1; fi\n",
+		"sleep":                "#!/bin/sh\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stateHome := filepath.Join(dir, "state")
+	logPath := filepath.Join(dir, "launches")
+	readyPath := filepath.Join(dir, "wm-ready")
+	for run := 0; run < 2; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WM_READY="+readyPath)
+		out, err := cmd.CombinedOutput()
+		if run == 0 {
+			if err == nil {
+				t.Fatalf("startup succeeded without a window manager: %s", out)
+			}
+			if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+				t.Fatalf("applications launched before window manager was ready: %v", err)
+			}
+			if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		} else if err != nil {
+			t.Fatalf("retry after window manager ready: %v: %s", err, out)
+		}
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); strings.Count(got, "terminal\n") != 1 || strings.Count(got, "chrome\n") != 1 {
+		t.Fatalf("want each app launched once after readiness, got %q", got)
 	}
 }
 
