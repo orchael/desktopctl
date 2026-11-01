@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
@@ -26,6 +27,13 @@ func run(ctx *pulumi.Context) error {
 	zone := cfg.Get("zone")
 	saasMode := cfg.GetBool("saasMode")
 	noDNSMode := cfg.GetBool("noDNSMode")
+	gatewayCIDR, err := validateNoVNCGatewayCIDR(cfg.Get("noVNCGatewayCIDR"))
+	if err != nil {
+		return err
+	}
+	if gatewayCIDR != "" && !saasMode && !noDNSMode {
+		return fmt.Errorf("noVNCGatewayCIDR requires SaaS or no-DNS foundation")
+	}
 	environment := cfg.Get("environment")
 	if environment == "" {
 		environment = "dev"
@@ -220,6 +228,9 @@ func run(ctx *pulumi.Context) error {
 				Description: pulumi.String("Additional TCP port"),
 			})
 		}
+	}
+	if gatewayCIDR != "" {
+		ingress = append(ingress, &ec2.SecurityGroupIngressArgs{Protocol: pulumi.String("tcp"), FromPort: pulumi.Int(8443), ToPort: pulumi.Int(8443), CidrBlocks: pulumi.StringArray{pulumi.String(gatewayCIDR)}, Description: pulumi.String("desktopctl noVNC gateway")})
 	}
 	sg, err := ec2.NewSecurityGroup(ctx, "desktopctl-sg", &ec2.SecurityGroupArgs{
 		VpcId:       vpcIDOutput,
@@ -917,4 +928,15 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
     }
   ]
 }`, partition, accountID, stateBucket)
+}
+
+func validateNoVNCGatewayCIDR(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 32 || !prefix.Addr().IsGlobalUnicast() || prefix.Addr().IsPrivate() {
+		return "", fmt.Errorf("noVNCGatewayCIDR must be a public IPv4 /32")
+	}
+	return prefix.String(), nil
 }

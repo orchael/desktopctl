@@ -1354,3 +1354,18 @@ func TestRenderCloudInit_rejectsUnsafeDesktopProfile(t *testing.T) {
 		t.Fatal("unsafe profile reference accepted")
 	}
 }
+
+func TestRenderCloudInitGatewayFirewallForBakedNoDNSDesktop(t *testing.T) {
+	cfg := &BootstrapConfig{DesktopID: "d-gateway", NoDNS: true, PackagesPreInstalled: true, NoVNCGatewayCIDR: "16.59.36.114/32"}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ufw allow from 16.59.36.114/32 to any port 8443 proto tcp") {
+		t.Fatal("baked SaaS desktop must receive the matching guest firewall rule")
+	}
+	cfg.NoVNCGatewayCIDR = "0.0.0.0/0"
+	if _, err := RenderCloudInit(cfg); err == nil {
+		t.Fatal("unrestricted gateway must be rejected before shell rendering")
+	}
+}

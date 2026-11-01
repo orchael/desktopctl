@@ -685,6 +685,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		DesktopProfile:       desktopProfile,
 		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
 		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
+		NoVNCGatewayCIDR:     cfg.Desktop.NoVNCGatewayCIDR,
 		CertbotEmail:         "admin@orchael.ai",
 		GitHubSecretPath:     gitHubSecret,
 		PublicGitHubSources:  publicGitHubSources,

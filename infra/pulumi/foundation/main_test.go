@@ -42,3 +42,17 @@ func TestControlPlanePolicyAllowsAMICopy(t *testing.T) {
 	}
 	t.Fatal("EC2AndPackerControlPlane statement not found")
 }
+
+func TestNoVNCGatewayCIDRIsExplicitAndSingleHost(t *testing.T) {
+	for _, value := range []string{"", "16.59.36.114/32"} {
+		got, err := validateNoVNCGatewayCIDR(value)
+		if err != nil || got != value {
+			t.Errorf("gateway %q: %q, %v", value, got, err)
+		}
+	}
+	for _, value := range []string{"0.0.0.0/0", "16.59.36.0/24", "10.0.0.1/32", "::1/128", "bad"} {
+		if _, err := validateNoVNCGatewayCIDR(value); err == nil {
+			t.Errorf("accepted unsafe gateway %q", value)
+		}
+	}
+}

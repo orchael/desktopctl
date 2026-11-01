@@ -121,6 +121,7 @@ func runInitFoundation(cmd *cobra.Command, args []string) error {
 	}
 	stackCfg := pulumi.FoundationConfig(cfg.AWS.Region, zone, cfg.Fleet.TableName, cfg.Desktop.OperatorCIDR, env, "", cfg.Pulumi.BackendBucket)
 	stackCfg["allowPorts"] = allowedPorts
+	stackCfg["noVNCGatewayCIDR"] = cfg.Desktop.NoVNCGatewayCIDR
 	setFoundationZoneID(stackCfg, zone, cfg.DNS.HostedZoneID)
 	stackCfg["saasMode"] = fmt.Sprintf("%t", foundationSaaS)
 	stackCfg["noDNSMode"] = fmt.Sprintf("%t", foundationNoDNS)
