@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Open Terminal and Chrome on first desktop session
+Exec=/usr/local/bin/desktopctl-first-session
+OnlyShowIn=Pantheon;
+NoDisplay=true

@@ -8,7 +8,7 @@ example, CLI `1.4.2` produces a name like
 `DesktopctlVersion=1.4.2`, `DesktopctlMajor=1`, `BuildDate=20261018`,
 `DesktopWebVersion`, `BridgeVersion`, `NovncDesktopVersion`, and `BaseAMI`
 tags. The name is a compatibility lane; the tags retain the exact build inputs.
-The current CLI release is `0.7.0`, so its automatic lane is `v0`.
+The current CLI release is `0.8.0`, so its automatic lane is `v0`.
 That lane includes all `0.x` releases; pin an exact `active_ami` if a minor
 release is incompatible while the project remains below version 1.
 

@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/pulumi"
@@ -40,6 +41,46 @@ func TestPublicAMINamePattern(t *testing.T) {
 		if _, err := publicAMINamePattern("1.4.2", override); err == nil {
 			t.Errorf("override %q unexpectedly accepted", override)
 		}
+	}
+}
+
+func TestRequireAvailableCreateAMI(t *testing.T) {
+	const amiID = "ami-0df8d022a548e0719"
+	const region = "us-east-2"
+	for _, tc := range []struct {
+		name        string
+		info        *awsx.AMIInfo
+		describeErr error
+		wantError   string
+	}{
+		{name: "available", info: &awsx.AMIInfo{State: "available"}},
+		{name: "missing", describeErr: errors.New("InvalidAMIID.NotFound"), wantError: "InvalidAMIID.NotFound"},
+		{name: "pending", info: &awsx.AMIInfo{State: "pending"}, wantError: "is pending, expected available"},
+		{name: "nil response", wantError: "is unknown, expected available"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			err := requireAvailableCreateAMI(context.Background(), aws.Config{Region: region}, amiID, region,
+				func(_ context.Context, cfg aws.Config, gotID string) (*awsx.AMIInfo, error) {
+					called = true
+					if cfg.Region != region || gotID != amiID {
+						t.Fatalf("describe called with region %q and AMI %q", cfg.Region, gotID)
+					}
+					return tc.info, tc.describeErr
+				})
+			if !called {
+				t.Fatal("AMI was not described")
+			}
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatalf("available AMI rejected: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) || !strings.Contains(err.Error(), amiID) || !strings.Contains(err.Error(), region) {
+				t.Fatalf("error = %v, want AMI, region, and %q", err, tc.wantError)
+			}
+		})
 	}
 }
 

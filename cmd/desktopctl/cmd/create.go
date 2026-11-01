@@ -445,6 +445,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if amiID == "" {
 		return fmt.Errorf("no AMI configured for region %s: set desktop.public_ami_owner, run `desktopctl ami build`, or supply --ami", cfg.AWS.Region)
 	}
+	if !createPreview {
+		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
+		if err != nil {
+			return fmt.Errorf("load AWS config to check AMI %s: %w", amiID, err)
+		}
+		if err := requireAvailableCreateAMI(ctx, awsCfg, amiID, cfg.AWS.Region, awsx.DescribeAMI); err != nil {
+			return err
+		}
+	}
 
 	req := &desktop.CreateRequest{
 		OrganizationID: organizationID,
@@ -1010,6 +1019,21 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("AMI ID        : %s\n", result["ami_id"])
 	fmt.Printf("Region        : %s\n", result["region"])
+	return nil
+}
+
+func requireAvailableCreateAMI(ctx context.Context, awsCfg aws.Config, amiID, region string, describe func(context.Context, aws.Config, string) (*awsx.AMIInfo, error)) error {
+	info, err := describe(ctx, awsCfg, amiID)
+	if err != nil {
+		return fmt.Errorf("AMI %s cannot be used in %s: %w; check --ami or omit it to use the active AMI", amiID, region, err)
+	}
+	if info == nil || info.State != string(ec2types.ImageStateAvailable) {
+		state := "unknown"
+		if info != nil {
+			state = info.State
+		}
+		return fmt.Errorf("AMI %s in %s is %s, expected available; check --ami or omit it to use the active AMI", amiID, region, state)
+	}
 	return nil
 }
 

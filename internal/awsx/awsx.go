@@ -234,6 +234,7 @@ type AMIInfo struct {
 	Description string
 	CreatedAt   string
 	Public      bool
+	State       string
 }
 
 // DescribeAMI returns metadata for the given AMI ID.
@@ -255,6 +256,7 @@ func DescribeAMI(ctx context.Context, cfg aws.Config, amiID string) (*AMIInfo, e
 		Description: aws.ToString(img.Description),
 		CreatedAt:   aws.ToString(img.CreationDate),
 		Public:      aws.ToBool(img.Public),
+		State:       string(img.State),
 	}, nil
 }
 

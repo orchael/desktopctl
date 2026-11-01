@@ -2,9 +2,11 @@ package packer
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRepositoryPinsGo126Everywhere(t *testing.T) {
@@ -83,6 +85,13 @@ func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
 	} {
 		assertFileContains(t, "playbook.yml", want)
 	}
+}
+
+func TestAMIPlaybookRetriesTransientAPTDownloads(t *testing.T) {
+	assertFileContains(t, "playbook.yml", `/etc/apt/sources.list.d/ubuntu.sources`)
+	assertFileContains(t, "playbook.yml", `https://archive.ubuntu.com/ubuntu`)
+	assertFileContains(t, "playbook.yml", `/etc/apt/apt.conf.d/80-desktopctl-retries`)
+	assertFileContains(t, "playbook.yml", `Acquire::Retries "3";`)
 }
 
 func TestAMIPlaybookMasksGenericBridgeUnit(t *testing.T) {
@@ -260,6 +269,177 @@ func TestAMIPlaybookInstallsPinnedVSCode(t *testing.T) {
 		`vscode_sha256=${var.vscode_sha256}`,
 	} {
 		assertFileContains(t, "ubuntu-desktop.pkr.hcl", want)
+	}
+}
+
+func TestAMIPlaybookConfiguresDesktopLaunchers(t *testing.T) {
+	for _, want := range []string{
+		"URIs: https://dl.google.com/linux/chrome/deb/",
+		"Signed-By: /etc/apt/keyrings/google-chrome.asc",
+		"- google-chrome-stable",
+		"- pcmanfm",
+		"- x11-utils",
+		"- wmctrl",
+		"/home/ubuntu/Desktop/{{ item }}.desktop",
+		"/usr/share/applications/io.elementary.terminal.desktop",
+		"/usr/share/applications/google-chrome.desktop",
+		"/home/ubuntu/.config/autostart/{{ item }}.desktop",
+		"/usr/local/bin/desktopctl-first-session",
+		"desktop-file-validate {{ item }}",
+	} {
+		assertFileContains(t, "playbook.yml", want)
+	}
+	for name, wants := range map[string][]string{
+		"Terminal.desktop":                 {"Type=Link", "URL=/usr/share/applications/io.elementary.terminal.desktop", "Icon=utilities-terminal"},
+		"Chrome.desktop":                   {"Type=Link", "URL=/usr/share/applications/google-chrome.desktop", "Icon=google-chrome"},
+		"desktopctl-icons.desktop":         {"Exec=pcmanfm --desktop --profile desktopctl", "OnlyShowIn=Pantheon;"},
+		"desktopctl-first-session.desktop": {"Exec=/usr/local/bin/desktopctl-first-session", "OnlyShowIn=Pantheon;"},
+	} {
+		for _, want := range wants {
+			assertFileContains(t, filepath.Join("files", name), want)
+		}
+	}
+}
+
+func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "launches")
+	windowPath := filepath.Join(dir, "windows")
+	for app, class := range map[string]string{"x-terminal-emulator": "terminal", "google-chrome-stable": "chrome"} {
+		stub := "#!/bin/sh\nprintf '%s\\n' " + app + " >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 " + class + "." + class + " host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n"
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "wmctrl"), []byte("#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "xprop"), []byte("#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "sleep"), []byte("#!/bin/sh\n/bin/sleep 0.05\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 2; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+filepath.Join(dir, "state"), "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("run %d: %v: %s", run+1, err, out)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		data, err := os.ReadFile(logPath)
+		if err == nil && strings.Count(string(data), "\n") == 2 {
+			if !strings.Contains(string(data), "x-terminal-emulator\n") || !strings.Contains(string(data), "google-chrome-stable\n") {
+				t.Fatalf("launched unexpected apps: %q", data)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected each app to launch once, got %q (%v)", data, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestFirstDesktopSessionRetriesOnlyFailedApp(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "launches")
+	windowPath := filepath.Join(dir, "windows")
+	for app, script := range map[string]string{
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 terminal.terminal host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nif [ \"${DESKTOPCTL_TEST_FAIL_CHROME:-}\" = 1 ]; then /bin/sleep 0.2; exit 9; fi\nprintf '0x2 0 chrome.chrome host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"xprop":                "#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n",
+		"wmctrl":               "#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n",
+		"sleep":                "#!/bin/sh\n/bin/sleep 0.05\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stateHome := filepath.Join(dir, "state")
+	for run := 0; run < 3; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath)
+		if run == 0 {
+			cmd.Env = append(cmd.Env, "DESKTOPCTL_TEST_FAIL_CHROME=1")
+		}
+		out, err := cmd.CombinedOutput()
+		if run == 0 && err == nil {
+			t.Fatalf("failing Chrome launch was marked successful: %s", out)
+		}
+		if run > 0 && err != nil {
+			t.Fatalf("run %d: %v: %s", run+1, err, out)
+		}
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); strings.Count(got, "terminal\n") != 1 || strings.Count(got, "chrome\n") != 2 {
+		t.Fatalf("want one terminal launch and two Chrome attempts, got %q", got)
+	}
+	for _, name := range []string{"terminal-started", "chrome-started"} {
+		if _, err := os.Stat(filepath.Join(stateHome, "desktopctl", name)); err != nil {
+			t.Fatalf("missing %s marker: %v", name, err)
+		}
+	}
+}
+
+func TestFirstDesktopSessionRetriesWhenWindowManagerBecomesReady(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for app, script := range map[string]string{
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 terminal.terminal host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x2 0 chrome.chrome host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"xprop":                "#!/bin/sh\nif [ -e \"$DESKTOPCTL_TEST_WM_READY\" ]; then echo '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'; else exit 1; fi\n",
+		"wmctrl":               "#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n",
+		"sleep":                "#!/bin/sh\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stateHome := filepath.Join(dir, "state")
+	logPath := filepath.Join(dir, "launches")
+	windowPath := filepath.Join(dir, "windows")
+	readyPath := filepath.Join(dir, "wm-ready")
+	for run := 0; run < 2; run++ {
+		cmd := exec.Command("sh", "files/desktopctl-first-session")
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath, "DESKTOPCTL_TEST_WM_READY="+readyPath)
+		out, err := cmd.CombinedOutput()
+		if run == 0 {
+			if err == nil {
+				t.Fatalf("startup succeeded without a window manager: %s", out)
+			}
+			if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+				t.Fatalf("applications launched before window manager was ready: %v", err)
+			}
+			if err := os.WriteFile(readyPath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		} else if err != nil {
+			t.Fatalf("retry after window manager ready: %v: %s", err, out)
+		}
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); strings.Count(got, "terminal\n") != 1 || strings.Count(got, "chrome\n") != 1 {
+		t.Fatalf("want each app launched once after readiness, got %q", got)
 	}
 }
 
