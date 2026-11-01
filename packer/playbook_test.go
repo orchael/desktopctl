@@ -88,6 +88,8 @@ func TestAMIPlaybookInstallsGoogleCloudCLI(t *testing.T) {
 }
 
 func TestAMIPlaybookRetriesTransientAPTDownloads(t *testing.T) {
+	assertFileContains(t, "playbook.yml", `/etc/apt/sources.list.d/ubuntu.sources`)
+	assertFileContains(t, "playbook.yml", `https://archive.ubuntu.com/ubuntu`)
 	assertFileContains(t, "playbook.yml", `/etc/apt/apt.conf.d/80-desktopctl-retries`)
 	assertFileContains(t, "playbook.yml", `Acquire::Retries "3";`)
 }
