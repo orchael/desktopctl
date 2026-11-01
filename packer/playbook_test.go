@@ -279,6 +279,7 @@ func TestAMIPlaybookConfiguresDesktopLaunchers(t *testing.T) {
 		"- google-chrome-stable",
 		"- pcmanfm",
 		"- x11-utils",
+		"- wmctrl",
 		"/home/ubuntu/Desktop/{{ item }}.desktop",
 		"/usr/share/applications/io.elementary.terminal.desktop",
 		"/usr/share/applications/google-chrome.desktop",
@@ -307,11 +308,15 @@ func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(dir, "launches")
-	for _, app := range []string{"x-terminal-emulator", "google-chrome-stable"} {
-		stub := "#!/bin/sh\nprintf '%s\\n' " + app + " >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n"
+	windowPath := filepath.Join(dir, "windows")
+	for app, class := range map[string]string{"x-terminal-emulator": "terminal", "google-chrome-stable": "chrome"} {
+		stub := "#!/bin/sh\nprintf '%s\\n' " + app + " >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 " + class + "." + class + " host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n"
 		if err := os.WriteFile(filepath.Join(bin, app), []byte(stub), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "wmctrl"), []byte("#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(bin, "xprop"), []byte("#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -321,7 +326,7 @@ func TestFirstDesktopSessionOpensAppsOnce(t *testing.T) {
 	}
 	for run := 0; run < 2; run++ {
 		cmd := exec.Command("sh", "files/desktopctl-first-session")
-		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+filepath.Join(dir, "state"), "DESKTOPCTL_TEST_LAUNCHES="+logPath)
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+filepath.Join(dir, "state"), "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("run %d: %v: %s", run+1, err, out)
 		}
@@ -349,10 +354,12 @@ func TestFirstDesktopSessionRetriesOnlyFailedApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(dir, "launches")
+	windowPath := filepath.Join(dir, "windows")
 	for app, script := range map[string]string{
-		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
-		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nif [ \"${DESKTOPCTL_TEST_FAIL_CHROME:-}\" = 1 ]; then exit 9; fi\n",
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 terminal.terminal host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nif [ \"${DESKTOPCTL_TEST_FAIL_CHROME:-}\" = 1 ]; then /bin/sleep 0.2; exit 9; fi\nprintf '0x2 0 chrome.chrome host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
 		"xprop":                "#!/bin/sh\necho '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'\n",
+		"wmctrl":               "#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n",
 		"sleep":                "#!/bin/sh\n/bin/sleep 0.05\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
@@ -362,7 +369,7 @@ func TestFirstDesktopSessionRetriesOnlyFailedApp(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	for run := 0; run < 3; run++ {
 		cmd := exec.Command("sh", "files/desktopctl-first-session")
-		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath)
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath)
 		if run == 0 {
 			cmd.Env = append(cmd.Env, "DESKTOPCTL_TEST_FAIL_CHROME=1")
 		}
@@ -395,9 +402,10 @@ func TestFirstDesktopSessionRetriesWhenWindowManagerBecomesReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	for app, script := range map[string]string{
-		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
-		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\n",
+		"x-terminal-emulator":  "#!/bin/sh\nprintf 'terminal\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x1 0 terminal.terminal host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
+		"google-chrome-stable": "#!/bin/sh\nprintf 'chrome\\n' >> \"$DESKTOPCTL_TEST_LAUNCHES\"\nprintf '0x2 0 chrome.chrome host title\\n' >> \"$DESKTOPCTL_TEST_WINDOWS\"\n",
 		"xprop":                "#!/bin/sh\nif [ -e \"$DESKTOPCTL_TEST_WM_READY\" ]; then echo '_NET_SUPPORTING_WM_CHECK(WINDOW): window id # 0x1'; else exit 1; fi\n",
+		"wmctrl":               "#!/bin/sh\ncat \"$DESKTOPCTL_TEST_WINDOWS\" 2>/dev/null || true\n",
 		"sleep":                "#!/bin/sh\nexit 0\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, app), []byte(script), 0o755); err != nil {
@@ -406,10 +414,11 @@ func TestFirstDesktopSessionRetriesWhenWindowManagerBecomesReady(t *testing.T) {
 	}
 	stateHome := filepath.Join(dir, "state")
 	logPath := filepath.Join(dir, "launches")
+	windowPath := filepath.Join(dir, "windows")
 	readyPath := filepath.Join(dir, "wm-ready")
 	for run := 0; run < 2; run++ {
 		cmd := exec.Command("sh", "files/desktopctl-first-session")
-		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WM_READY="+readyPath)
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "XDG_STATE_HOME="+stateHome, "DESKTOPCTL_TEST_LAUNCHES="+logPath, "DESKTOPCTL_TEST_WINDOWS="+windowPath, "DESKTOPCTL_TEST_WM_READY="+readyPath)
 		out, err := cmd.CombinedOutput()
 		if run == 0 {
 			if err == nil {

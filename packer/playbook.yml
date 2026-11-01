@@ -1110,6 +1110,7 @@
           - google-chrome-stable
           - pcmanfm
           - x11-utils
+          - wmctrl
         state: present
         update_cache: true
 
