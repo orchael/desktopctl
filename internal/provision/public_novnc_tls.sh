@@ -24,22 +24,33 @@ import json,pathlib,re,sys
 name=sys.argv[1]
 site=pathlib.Path('/etc/nginx/sites-available/novnc')
 s=site.read_text()
+s=re.sub(r"(server_name\s+)[^;]+;",lambda m:m[1]+name+";",s)
 s=re.sub(r'(ssl_certificate\s+)[^;]+;',lambda m:m[1]+f'/etc/letsencrypt/live/{name}/fullchain.pem;',s)
 s=re.sub(r'(ssl_certificate_key\s+)[^;]+;',lambda m:m[1]+f'/etc/letsencrypt/live/{name}/privkey.pem;',s)
 # Serve the actual installed static client independently of websockify's web root.
-m=re.search(r'location\s+/novnc/\s*\{',s)
-if not m: raise SystemExit('noVNC nginx location is missing')
-start=m.start();end=m.end();depth=1
-while depth and end<len(s):
-    if s[end]=='{': depth+=1
-    elif s[end]=='}': depth-=1
-    end+=1
-s=s[:start]+"""location /novnc/ {
+static_location="""location /novnc/ {
     auth_request /_auth/verify;
     error_page 401 = @unauthorized;
     alias /usr/share/novnc/;
     index vnc.html;
-  }"""+s[end:]
+  }"""
+m=re.search(r'location\s+/novnc/\s*\{',s)
+if m:
+    start=m.start();end=m.end();depth=1
+    while depth and end<len(s):
+        if s[end]=='{': depth+=1
+        elif s[end]=='}': depth-=1
+        end+=1
+    if depth: raise SystemExit('Invalid nginx location')
+    s=s[:start]+static_location+s[end:]
+else:
+    # Fresh AMIs proxy / to websockify; retain that protected WebSocket route.
+    end=s.rfind('}')
+    if end<0: raise SystemExit('Missing nginx server block')
+    s=s[:end]+static_location+'\n'+s[end:]
+if not re.search(r'location\s*=\s*/vnc[.]html\s*\{',s):
+    end=s.rfind('}')
+    s=s[:end]+"location = /vnc.html { return 302 /novnc/vnc.html$is_args$args; }\n"+s[end:]
 if 'location = /access {\n    access_log off;' not in s:
     s=s.replace('location = /access {','location = /access {\n    access_log off;')
 site.write_text(s)
