@@ -14,6 +14,9 @@ import (
 //go:embed codex_home_config.py
 var codexHomeConfigScript string
 
+//go:embed public_novnc_tls.sh
+var publicNoVNCTLSScript string
+
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
 	BridgectlVersion      = "v1.4.8"
@@ -23,6 +26,7 @@ const (
 
 // BootstrapConfig holds the parameters for rendering the cloud-init user-data.
 type BootstrapConfig struct {
+	PublicNoVNC          bool
 	DesktopID            string
 	Hostname             string // FQDN used for certbot cert and novnc-desktop cert path
 	GitHubOwner          string
@@ -716,7 +720,15 @@ runcmd:
   - desktopctl-ts "certs_issued"
 {{- end}}
 
-{{- if .NoDNS}}
+{{- if .PublicNoVNC}}
+  - |
+    cat >/usr/local/bin/desktopctl-setup-public-tls <<'SH'
+{{ indent 4 .PublicNoVNCTLSScript }}
+    SH
+    chmod 0755 /usr/local/bin/desktopctl-setup-public-tls
+    /usr/local/bin/desktopctl-setup-public-tls '{{ .Hostname }}' '{{ .CertbotEmail }}'
+  - "systemctl enable --now novnc-desktop"
+{{- else if .NoDNS}}
   # SaaS desktops have no public DNS or inbound desktop ports. Bridge enrollment
   # and user access are configured separately; keep the existing desktop service.
   - "systemctl enable novnc-desktop"
@@ -1322,6 +1334,11 @@ final_message: "desktopctl bootstrap complete for {{ .DesktopID }}"
 
 // RenderCloudInit renders the cloud-init user-data for the given config.
 func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
+	if cfg.PublicNoVNC {
+		if err := config.ValidatePublicDesktopHostname(cfg.Hostname); err != nil {
+			return "", err
+		}
+	}
 	if cfg.WorkspacePath == "" {
 		cfg.WorkspacePath = "/workspace"
 	}
@@ -1408,6 +1425,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		DesktopProfileRepository string
 		DesktopProfilePath       string
 		CodexHomeConfigScript    string
+		PublicNoVNCTLSScript     string
 	}
 	data := templateData{
 		BootstrapConfig:          cfg,
@@ -1419,6 +1437,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		DesktopProfileRepository: desktopProfile.Repository,
 		DesktopProfilePath:       desktopProfile.Path,
 		CodexHomeConfigScript:    codexHomeConfigScript,
+		PublicNoVNCTLSScript:     publicNoVNCTLSScript,
 	}
 
 	funcMap := template.FuncMap{

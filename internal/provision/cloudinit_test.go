@@ -3,7 +3,10 @@ package provision
 import (
 	"encoding/base64"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1352,5 +1355,70 @@ func TestRenderCloudInit_nestedDesktopProfile(t *testing.T) {
 func TestRenderCloudInit_rejectsUnsafeDesktopProfile(t *testing.T) {
 	if _, err := RenderCloudInit(&BootstrapConfig{DesktopID: "d-bad", DesktopProfile: "owner/repo;false"}); err == nil {
 		t.Fatal("unsafe profile reference accepted")
+	}
+}
+
+func TestRenderCloudInitPublicNoVNCOwnsTLSAndGuestPorts(t *testing.T) {
+	cfg := &BootstrapConfig{DesktopID: "d-direct", Hostname: "d-123.console.orchael.dev", NoDNS: true, PackagesPreInstalled: true, PublicNoVNC: true}
+	out, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"desktopctl-setup-public-tls", "ufw allow 8443/tcp", "ufw allow 80/tcp", "--standalone", "--preferred-challenges http"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("direct noVNC bootstrap missing %q", want)
+		}
+	}
+	cfg.Hostname = "bad; reboot"
+	if _, err := RenderCloudInit(cfg); err == nil {
+		t.Fatal("unsafe direct hostname accepted")
+	}
+}
+
+func TestPublicNoVNCTLSSelectsDesktopVirtualHost(t *testing.T) {
+	for _, location := range []string{
+		`location /novnc/ { auth_request /_auth/verify; proxy_pass http://127.0.0.1:6080/; }`,
+		`location / { auth_request /_auth/verify; proxy_pass http://127.0.0.1:6080/; proxy_set_header Upgrade $http_upgrade; }`,
+	} {
+		t.Run(location, func(t *testing.T) {
+			dir := t.TempDir()
+			site := filepath.Join(dir, "novnc")
+			auth := filepath.Join(dir, "auth.json")
+			initial := `server {
+ listen 8443 ssl;
+ server_name default;
+ ssl_certificate /old/fullchain.pem;
+ ssl_certificate_key /old/privkey.pem;
+ ` + location + `
+ location = /access { proxy_pass http://127.0.0.1:8898/access; }
+}`
+			if err := os.WriteFile(site, []byte(initial), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(auth, []byte(`{"base_url":"https://default:8443"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			parts := strings.SplitN(publicNoVNCTLSScript, "python3 - \"$domain\" <<'PY'\n", 2)
+			if len(parts) != 2 {
+				t.Fatal("TLS configuration Python block not found")
+			}
+			script := strings.SplitN(parts[1], "\nPY\n", 2)[0]
+			script = strings.ReplaceAll(script, "'/etc/nginx/sites-available/novnc'", strconv.Quote(site))
+			script = strings.ReplaceAll(script, "'/etc/novnc-auth/config.json'", strconv.Quote(auth))
+			command := exec.Command("python3", "-c", script, "d-direct.console.orchael.dev")
+			if out, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("TLS configuration: %v: %s", err, out)
+			}
+			out, err := os.ReadFile(site)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"server_name d-direct.console.orchael.dev;", "/etc/letsencrypt/live/d-direct.console.orchael.dev/fullchain.pem", "alias /usr/share/novnc/;"} {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("configured nginx missing %q", want)
+				}
+			}
+
+		})
 	}
 }

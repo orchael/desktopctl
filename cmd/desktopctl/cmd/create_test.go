@@ -1215,3 +1215,10 @@ func TestResolveSwapSize(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateSupportsOrchestratorDNSReadiness(t *testing.T) {
+	flag := createCmd.Flags().Lookup("defer-readiness")
+	if flag == nil || flag.DefValue != "false" {
+		t.Fatal("orchestrator readiness deferral must be explicit and default off")
+	}
+}
