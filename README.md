@@ -645,6 +645,7 @@ The AMI is built on top of the latest `novnc-desktop-ubuntu-24.04-elementary` ba
 - Helm (verified release archive; version and SHA-256 from `helm_version` and `helm_sha256` vars)
 - tfenv (via Homebrew) with Terraform 1.16.5 installed and selected (version from `terraform_version` var)
 - Visual Studio Code stable (Microsoft's signed apt repository; version from `vscode_version` var)
+- Google Chrome stable and Terminal desktop shortcuts to their installed application launchers; both applications open when the first Pantheon session is ready, with a failed launch retried on the next login, and the shortcuts remain available on later logins
 - `bridgectl` (version from `bridgectl_version` var)
 - Tailscale (version from `tailscale_version` var)
 - `@orchael/desktopctl` npm package (version from `desktop_web_version` var)
@@ -667,6 +668,7 @@ desktopctl ami list
 ```
 
 Output shows the registered AMI ID per region. The CLI automatically detects pre-baked AMIs and uses them during `create`.
+An applied `create` checks that the selected AMI is available in the target region before writing a fleet record or updating Pulumi. An explicit `--ami` overrides the active AMI; omit it to use the active regional image.
 
 #### Custom Packer builds
 

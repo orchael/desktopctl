@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Link
+Name=Terminal
+URL=/usr/share/applications/io.elementary.terminal.desktop
+Icon=utilities-terminal

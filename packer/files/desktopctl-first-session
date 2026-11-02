@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/desktopctl"
+legacy_marker="$state_dir/first-session-started"
+terminal_marker="$state_dir/terminal-started"
+chrome_marker="$state_dir/chrome-started"
+
+if [ -e "$legacy_marker" ] || { [ -e "$terminal_marker" ] && [ -e "$chrome_marker" ]; }; then
+  exit 0
+fi
+
+mkdir -p "$state_dir"
+command -v xprop >/dev/null
+command -v wmctrl >/dev/null
+
+# Wait for Pantheon's window manager, but let a later login retry if it is not ready.
+attempt=0
+while [ "$attempt" -lt 15 ]; do
+  if xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id'; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  sleep 1
+done
+if [ "$attempt" -eq 15 ]; then
+  exit 1
+fi
+
+launch_once() {
+  app_marker=$1
+  shift
+  app_class=$1
+  shift
+  if [ -e "$app_marker" ]; then
+    return 0
+  fi
+  command -v "$1" >/dev/null || return 1
+  "$@" >/dev/null 2>&1 &
+  app_pid=$!
+  app_exited=0
+  app_attempt=0
+  while [ "$app_attempt" -lt 20 ]; do
+    if wmctrl -lx 2>/dev/null | awk -v class="$app_class" 'index(tolower($3), class) { found = 1 } END { exit !found }'; then
+      touch "$app_marker" || return 1
+      return 0
+    fi
+    if [ "$app_exited" -eq 0 ] && ! kill -0 "$app_pid" 2>/dev/null; then
+      if ! wait "$app_pid"; then
+        return 1
+      fi
+      app_exited=1
+    fi
+    app_attempt=$((app_attempt + 1))
+    sleep 1
+  done
+  return 1
+}
+
+failed=0
+launch_once "$terminal_marker" terminal x-terminal-emulator || failed=1
+launch_once "$chrome_marker" chrome google-chrome-stable --no-first-run --new-window || failed=1
+exit "$failed"
