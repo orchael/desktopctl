@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/health"
+	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
@@ -200,13 +202,6 @@ func runPark(_ *cobra.Command, args []string) error {
 	}
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: d.Region}
 	spec := d.RestoreSpec
-	if d.RestoreSpec == nil {
-		config, err := runner.Config(ctx, desktopStackRef(d))
-		if err != nil {
-			return fmt.Errorf("capture restore spec: %w", err)
-		}
-		spec = &store.RestoreSpec{Version: 1, Config: config}
-	}
 	if err := validateRestoreSpec(d, spec, w); err != nil {
 		return err
 	}
@@ -312,9 +307,6 @@ func runUnpark(_ *cobra.Command, args []string) error {
 	if d.State != store.StateParked && !(d.State == store.StateFailed && d.FailurePhase == "unpark") && !(d.State == store.StateRestoring && unparkRetry) {
 		return fmt.Errorf("desktop %s is %s; unpark requires parked or a prior failed unpark", id, d.State)
 	}
-	if d.RestoreSpec.Config["workspaceEFSAccessPointId"] != w.EFSAccessPointID || d.RestoreSpec.Config["workspaceEFSFileSystemId"] != w.EFSFileSystemID {
-		return fmt.Errorf("workspace EFS identity changed; refusing to restore against another workspace")
-	}
 	awsCfg, err := awsx.LoadConfig(ctx, d.Region, cfg.AWS.Profile)
 	if err != nil {
 		return err
@@ -335,8 +327,12 @@ func runUnpark(_ *cobra.Command, args []string) error {
 		return err
 	}
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: d.Region}
+	restoreCfg, err := restoreStackConfig(d)
+	if err != nil {
+		return err
+	}
 	if err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
-		return runner.Up(ctx, desktopStackRef(d), pulumi.StackConfig(d.RestoreSpec.Config), os.Stderr)
+		return runner.Up(ctx, desktopStackRef(d), restoreCfg, os.Stderr)
 	}, func(restored *store.Desktop) error { return waitUnparkReady(ctx, restored) }); err != nil {
 		return err
 	}
@@ -377,7 +373,10 @@ func completeUnpark(ctx context.Context, s store.Store, original *store.Desktop,
 
 func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Workspace) error {
 	if spec == nil || spec.Version != 1 {
-		return fmt.Errorf("desktop %s has no supported restore specification", d.DesktopID)
+		return fmt.Errorf("desktop %s has no supported restore specification; recreate it with this CLI before parking", d.DesktopID)
+	}
+	if spec.BootstrapJSON == "" {
+		return fmt.Errorf("desktop %s lacks saved bootstrap settings; cannot safely restore changed secret paths", d.DesktopID)
 	}
 	for _, key := range []string{"amiId", "volumeSize", "userDataBase64", "instanceType", "subnetId", "securityGroupId", "instanceProfile"} {
 		if spec.Config[key] == "" {
@@ -388,6 +387,47 @@ func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Wor
 		return fmt.Errorf("desktop %s restore spec does not match its logical ID or EFS workspace", d.DesktopID)
 	}
 	return nil
+}
+
+// restoreStackConfig regenerates user data from the saved non-secret boot
+// settings and the current fleet secret list. A removed path is never replayed.
+func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
+	if d.RestoreSpec == nil || d.RestoreSpec.BootstrapJSON == "" {
+		return nil, fmt.Errorf("desktop %s lacks saved bootstrap settings", d.DesktopID)
+	}
+	var boot provision.BootstrapConfig
+	if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &boot); err != nil {
+		return nil, fmt.Errorf("decode restore bootstrap settings: %w", err)
+	}
+	if boot.DesktopID != d.DesktopID || boot.WorkspaceMode != workspaceModeEFS || boot.WorkspaceName != d.WorkspaceName || boot.EFSAccessPointID != d.RestoreSpec.Config["workspaceEFSAccessPointId"] {
+		return nil, fmt.Errorf("saved bootstrap settings do not match desktop %s", d.DesktopID)
+	}
+	agentPath := boot.AgentSecretPath
+	if agentPath == "" && cfg != nil && containsString(d.Secrets, cfg.GitHub.AgentSecret) {
+		agentPath = cfg.GitHub.AgentSecret
+	}
+	if !containsString(d.Secrets, agentPath) {
+		agentPath = ""
+	}
+	boot.AgentSecretPath = agentPath
+	boot.DesktopSecretPaths = runtimeDesktopSecretPaths(agentPath, d.Secrets)
+	if !containsString(d.Secrets, boot.ProfileSecretPath) {
+		boot.ProfileSecretPath = ""
+	}
+	userData, err := provision.RenderCloudInit(&boot)
+	if err != nil {
+		return nil, fmt.Errorf("render restore cloud-init: %w", err)
+	}
+	compressed, err := gzipBase64UserData(userData)
+	if err != nil {
+		return nil, err
+	}
+	config := make(pulumi.StackConfig, len(d.RestoreSpec.Config))
+	for key, value := range d.RestoreSpec.Config {
+		config[key] = value
+	}
+	config["userDataBase64"] = compressed
+	return config, nil
 }
 
 func waitUnparkReady(ctx context.Context, d *store.Desktop) error {

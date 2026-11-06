@@ -57,7 +57,8 @@ func (s *DynamoStore) Get(ctx context.Context, id string) (*Desktop, error) {
 		return nil, ErrNotFound
 	}
 	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(s.tableName),
+		TableName:      aws.String(s.tableName),
+		ConsistentRead: aws.Bool(true),
 		Key: map[string]types.AttributeValue{
 			"desktop_id": &types.AttributeValueMemberS{Value: id},
 		},

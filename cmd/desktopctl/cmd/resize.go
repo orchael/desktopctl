@@ -102,6 +102,10 @@ func runResize(cmd *cobra.Command, args []string) error {
 	ref := pulumi.DesktopStackRef(backendURL, id, workDir)
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: cfg.AWS.Region}
 	mgr := desktop.NewManager(s)
+	d, err = claimAndReadDesktop(ctx, s, d, store.StateResizing)
+	if err != nil {
+		return fmt.Errorf("claim resize: %w", err)
+	}
 
 	fmt.Fprintln(os.Stderr, "Updating Pulumi stack config ...")
 	if err := runner.SetConfig(ctx, ref, "instanceType", targetType, os.Stderr); err != nil {
@@ -119,9 +123,6 @@ func runResize(cmd *cobra.Command, args []string) error {
 			_ = mgr.RecordFailure(ctx, id, "resize", err.Error())
 			return err
 		}
-		if err := mgr.MarkStoppedWithReason(ctx, id, store.StopReasonUserRequest); err != nil {
-			return err
-		}
 	} else if !d.NestedVirt {
 		fmt.Fprintf(os.Stderr, "Normalizing stopped instance %s before resize ...\n", d.InstanceID)
 		if err := awsx.StartInstance(ctx, awsCfg, d.InstanceID); err != nil {
@@ -132,9 +133,6 @@ func runResize(cmd *cobra.Command, args []string) error {
 		if err := awsx.HaltInstance(ctx, awsCfg, d.InstanceID); err != nil {
 			rollbackResizeConfig(ctx, runner, ref, d.InstanceType)
 			_ = mgr.RecordFailure(ctx, id, "resize", err.Error())
-			return err
-		}
-		if err := mgr.MarkStoppedWithReason(ctx, id, store.StopReasonUserRequest); err != nil {
 			return err
 		}
 	}
@@ -148,6 +146,9 @@ func runResize(cmd *cobra.Command, args []string) error {
 
 	finalState := store.StateStopped
 	d.InstanceType = targetType
+	if d.RestoreSpec != nil && d.RestoreSpec.Config != nil {
+		d.RestoreSpec.Config["instanceType"] = targetType
+	}
 	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("update store record: %w", err)
 	}
@@ -204,7 +205,7 @@ func validateResizeTarget(d *store.Desktop, targetType string) error {
 	if d == nil {
 		return fmt.Errorf("desktop is required")
 	}
-	if d.State == store.StateTerminated || d.State == store.StateTerminating {
+	if d.State != store.StateReady && d.State != store.StateStopped {
 		return fmt.Errorf("cannot resize desktop %q in state %q", d.DesktopID, d.State)
 	}
 	if d.MarketType == store.MarketSpot {

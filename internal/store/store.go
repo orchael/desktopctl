@@ -29,6 +29,7 @@ const (
 	StateStopped            LifecycleState = "stopped"
 	StateStarting           LifecycleState = "starting"
 	StateStopping           LifecycleState = "stopping"
+	StateResizing           LifecycleState = "resizing"
 	StateParking            LifecycleState = "parking"
 	StateParked             LifecycleState = "parked"
 	StateRestoring          LifecycleState = "restoring"
@@ -103,8 +104,9 @@ type Desktop struct {
 // RestoreSpec is the versioned, non-secret launch configuration retained for a
 // parked desktop. User data contains secret *paths*, never resolved values.
 type RestoreSpec struct {
-	Version int               `dynamodbav:"version" json:"version"`
-	Config  map[string]string `dynamodbav:"config" json:"config"`
+	Version       int               `dynamodbav:"version" json:"version"`
+	Config        map[string]string `dynamodbav:"config" json:"config"`
+	BootstrapJSON string            `dynamodbav:"bootstrap_json" json:"-"`
 }
 
 type Workspace struct {

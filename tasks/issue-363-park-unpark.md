@@ -4,6 +4,8 @@
 - [x] Add exclusive lifecycle transitions and retain the EFS workspace claim.
 - [x] Add park preview, confirmation, destroy reconciliation, and volume deletion check.
 - [x] Add restore, EFS identity check, host readiness, and retry paths.
+- [x] Regenerate restore cloud-init from the current fleet secret list.
+- [x] Add explicit recovery for interrupted start, stop, and terminate claims.
 - [x] Update PRD and operator documentation.
 - [x] Run Go tests, build, and lint locally.
 - [ ] Run the documented live AWS validation in a disposable environment.

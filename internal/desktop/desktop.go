@@ -258,7 +258,7 @@ func (m *Manager) MarkTerminating(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if d.State == store.StateTerminated || d.State == store.StateTerminating || d.State == store.StateParking || d.State == store.StateRestoring || d.State == store.StateStarting || d.State == store.StateStopping {
+	if d.State == store.StateTerminated || d.State == store.StateTerminating || d.State == store.StateParking || d.State == store.StateRestoring || d.State == store.StateStarting || d.State == store.StateStopping || d.State == store.StateResizing {
 		return fmt.Errorf("desktop %s is %s; cannot terminate during another lifecycle operation", id, d.State)
 	}
 	return m.Store.Transition(ctx, id, d.State, store.StateTerminating)

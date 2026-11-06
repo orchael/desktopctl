@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/store"
@@ -22,7 +24,10 @@ var startCmd = &cobra.Command{
 	RunE:  runStart,
 }
 
+var startRetry bool
+
 func init() {
+	startCmd.Flags().BoolVar(&startRetry, "retry", false, "resume an interrupted start after confirming the previous process exited")
 	rootCmd.AddCommand(startCmd)
 }
 
@@ -44,7 +49,11 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	if d.State == store.StateParked {
 		return fmt.Errorf("desktop %q is parked; run `desktopctl unpark %s` to provision a new instance", id, id)
 	}
-	if d.State != store.StateStopped && d.State != store.StateReady {
+	if d.State == store.StateStarting && startRetry {
+		if err := requireStaleLifecycle(d, "start", 30*time.Minute, time.Now()); err != nil {
+			return err
+		}
+	} else if !(d.State == store.StateFailed && d.FailurePhase == "start" && startRetry) && d.State != store.StateStopped && d.State != store.StateReady {
 		return fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
 	}
 
@@ -77,14 +86,31 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("instance status: %w", err)
 	}
-	if err := s.Transition(ctx, id, d.State, store.StateStarting); err != nil {
-		return err
+	if d.State != store.StateStarting {
+		d, err = claimAndReadDesktop(ctx, s, d, store.StateStarting)
+		if err != nil {
+			return err
+		}
+	} else {
+		d, err = s.Get(ctx, id)
+		if err != nil {
+			return err
+		}
 	}
 	defer func() {
 		if retErr != nil {
 			_ = s.RecordFailure(ctx, id, "start", retErr.Error())
 		}
 	}()
+	if instanceStatus.State == "pending" {
+		if err := ec2.NewInstanceRunningWaiter(ec2.NewFromConfig(awsCfg)).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{d.InstanceID}}, 10*time.Minute); err != nil {
+			return fmt.Errorf("wait for interrupted start: %w", err)
+		}
+		instanceStatus, err = awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+		if err != nil {
+			return err
+		}
+	}
 	if instanceStatus.State == "running" {
 		if d.NoDNS {
 			fmt.Fprintf(os.Stderr, "Instance %s is already running ...\n", d.InstanceID)

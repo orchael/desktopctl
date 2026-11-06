@@ -772,7 +772,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Persist the exact launch inputs before the first resource is created. The
 	// cloud-init document refers to Secrets Manager paths and resolves values at
 	// boot; no resolved secret is copied into this specification.
-	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg))}
+	bootstrapJSON, err := json.Marshal(bootCfg)
+	if err != nil {
+		return fmt.Errorf("encode restore bootstrap configuration: %w", err)
+	}
+	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON)}
 	for key, value := range stackCfg {
 		req.RestoreSpec.Config[key] = value
 	}

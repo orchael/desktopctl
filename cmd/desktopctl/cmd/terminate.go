@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -88,8 +89,28 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	}
 
 	mgr := desktop.NewManager(s)
-	if err := mgr.MarkTerminating(ctx, id); err != nil {
-		return err
+	switch d.State {
+	case store.StateTerminating:
+		if !terminateForce {
+			return fmt.Errorf("desktop %s termination is in progress; use --force only after it is stale", id)
+		}
+		if err := requireStaleLifecycle(d, "terminate", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+	case store.StateStarting, store.StateStopping, store.StateResizing:
+		if !terminateForce {
+			return fmt.Errorf("desktop %s is %s; use --force after the prior operation has ended", id, d.State)
+		}
+		if err := requireStaleLifecycle(d, string(d.State), 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+		if err := s.Transition(ctx, id, d.State, store.StateTerminating); err != nil {
+			return err
+		}
+	default:
+		if err := mgr.MarkTerminating(ctx, id); err != nil {
+			return err
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)

@@ -175,7 +175,7 @@ func (s *Service) RefreshDesktop(ctx context.Context, organizationID, id string)
 	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
-	if d.State == store.StateParking || d.State == store.StateParked || d.State == store.StateRestoring || d.State == store.StateTerminating || d.State == store.StateStarting || d.State == store.StateStopping || d.FailurePhase == "park" || d.FailurePhase == "unpark" {
+	if d.State == store.StateParking || d.State == store.StateParked || d.State == store.StateRestoring || d.State == store.StateTerminating || d.State == store.StateStarting || d.State == store.StateStopping || d.State == store.StateResizing || d.FailurePhase == "park" || d.FailurePhase == "unpark" {
 		return &DesktopSummary{Desktop: d}, nil
 	}
 	live, err := s.liveInstanceState(ctx, d)

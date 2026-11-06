@@ -21,10 +21,12 @@ for automation. Local workspaces, nested virtualization guests, and AVDs are
 ineligible because their machine-local state cannot be restored safely.
 
 The fleet record retains a version 1 launch specification containing the AMI,
-root size, network and workspace settings, and cloud-init user data. Cloud-init
-contains Secrets Manager paths; the new instance fetches current secret values
-at boot. For older desktops, park reads the deployed Pulumi stack config and
-refuses to continue if the required settings are missing or marked secret.
+root size, network and workspace settings, and the non-secret bootstrap inputs.
+Unpark regenerates cloud-init using the current fleet secret paths, so paths
+removed after creation are not restored and paths added later are included.
+The new instance fetches current secret values at boot. Older desktops without
+a saved bootstrap specification cannot be parked safely; recreate them with
+this CLI before using park.
 Keep the recorded AMI available to the account. Configure `desktop.ssh_key_path`
 so unpark can verify Docker, bridgectl, repository checkouts, and the EFS mount
 before reporting `ready`.
@@ -45,6 +47,15 @@ restore leaves the workspace attached and the record in `failed` with phase
 `unpark`; run `unpark` again. If the process was interrupted while the record
 says `restoring`, confirm that it is no longer running and use `unpark --retry`.
 Pulumi up will reconcile a partially created stack.
+
+An interrupted `start` or `stop` remains in `starting` or `stopping` until
+reconciled. After 30 minutes and after confirming the prior CLI process has
+exited, use `desktopctl start <id> --retry` or `desktopctl stop <id> --retry`.
+The command checks the live EC2 state before continuing. An interrupted
+`terminate` can be resumed with `desktopctl terminate <id> --force` after two
+hours and after confirming that the prior Pulumi operation has ended. The
+longer wait avoids cancelling a still-active destroy. The same force path can
+clean up an abandoned `starting`, `stopping`, or `resizing` desktop.
 
 ## Live validation
 

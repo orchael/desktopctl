@@ -56,6 +56,12 @@ func TestValidateResizeTarget(t *testing.T) {
 			wantErr:    "terminated",
 		},
 		{
+			name:       "parked rejected",
+			desktop:    &store.Desktop{DesktopID: "d-1", State: store.StateParked, InstanceType: "t3.large"},
+			targetType: "m7i.xlarge",
+			wantErr:    "parked",
+		},
+		{
 			name:       "nested virt target must support nested virtualization",
 			desktop:    &store.Desktop{DesktopID: "d-1", State: store.StateReady, InstanceType: "m8i.xlarge", NestedVirt: true},
 			targetType: "t3.large",

@@ -2,12 +2,16 @@ package cmd
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/store"
 )
 
@@ -157,7 +161,7 @@ func TestParkEligibilityProtectsWorkspaceAndLocalState(t *testing.T) {
 
 func TestRestoreSpecRequiresRecordedWorkspaceAndLaunchInputs(t *testing.T) {
 	d, w := parkedFixture()
-	spec := &store.RestoreSpec{Version: 1, Config: map[string]string{
+	spec := &store.RestoreSpec{Version: 1, BootstrapJSON: `{}`, Config: map[string]string{
 		"desktopId": d.DesktopID, "amiId": "ami-1", "volumeSize": "150", "userDataBase64": "cloud-init", "instanceType": "m7i.large", "subnetId": "subnet-1", "securityGroupId": "sg-1", "instanceProfile": "profile", "workspaceMode": "efs", "workspaceName": "factory", "workspaceEFSFileSystemId": "fs-1", "workspaceEFSAccessPointId": "fsap-1",
 	}}
 	if err := validateRestoreSpec(d, spec, w); err != nil {
@@ -171,5 +175,61 @@ func TestRestoreSpecRequiresRecordedWorkspaceAndLaunchInputs(t *testing.T) {
 	spec.Config["workspaceEFSAccessPointId"] = "fsap-other"
 	if err := validateRestoreSpec(d, spec, w); err == nil {
 		t.Fatal("different EFS access point was accepted")
+	}
+}
+
+func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
+	d, _ := parkedFixture()
+	d.Secrets = []string{"/secrets/agents", "/secrets/added"}
+	boot := &provision.BootstrapConfig{DesktopID: d.DesktopID, GitHubOwner: "orchael", Hostname: "desktop.example.test", WorkspaceMode: "efs", WorkspaceName: d.WorkspaceName, EFSFileSystemID: "fs-1", EFSAccessPointID: "fsap-1", AgentSecretPath: "/secrets/agents", DesktopSecretPaths: []string{"/secrets/removed"}, AWSRegion: "us-east-1"}
+	raw, err := json.Marshal(boot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: string(raw), Config: map[string]string{"workspaceEFSAccessPointId": "fsap-1", "userDataBase64": "old-user-data"}}
+	config, err := restoreStackConfig(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config["userDataBase64"] == "old-user-data" {
+		t.Fatal("reused stale user data")
+	}
+	encoded, err := base64.StdEncoding.DecodeString(config["userDataBase64"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userData := string(decoded)
+	if strings.Contains(userData, "/secrets/removed") || !strings.Contains(userData, "/secrets/added") || !strings.Contains(userData, "/secrets/agents") {
+		t.Fatalf("secret sources not regenerated from fleet list")
+	}
+	d.Secrets = []string{"/secrets/added"}
+	config, err = restoreStackConfig(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = base64.StdEncoding.DecodeString(config["userDataBase64"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err = gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	decoded, err = io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(decoded), "/secrets/agents") {
+		t.Fatal("removed agent secret was restored")
 	}
 }
