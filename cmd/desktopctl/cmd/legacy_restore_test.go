@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
@@ -79,5 +80,21 @@ func TestLegacyCandidateRequiresMatchingFleetAndWorkspace(t *testing.T) {
 	config["workspaceEFSAccessPointId"] = "fsap-other"
 	if err := validateLegacyRestoreCandidate(ctx, s, d, config); err == nil {
 		t.Fatal("wrong access point was accepted")
+	}
+}
+
+func TestReconcileDeployedInstanceAllowsVerifiedResizeOnly(t *testing.T) {
+	d := &store.Desktop{InstanceType: "m8i.large", AMIID: "ami-one"}
+	config := pulumi.StackConfig{"instanceType": "m7i.large", "amiId": "ami-one", "subnetId": "subnet-one", "securityGroupId": "sg-one"}
+	status := &awsx.EC2InstanceStatus{State: "stopped", InstanceType: "m8i.large", ImageID: "ami-one", SubnetID: "subnet-one", SecurityGroupIDs: []string{"sg-one"}}
+	if err := reconcileDeployedInstance(d, config, status); err != nil {
+		t.Fatal(err)
+	}
+	if config["instanceType"] != "m8i.large" {
+		t.Fatal("verified resize not carried into restore config")
+	}
+	status.SubnetID = "subnet-other"
+	if err := reconcileDeployedInstance(d, config, status); err == nil {
+		t.Fatal("wrong live subnet was accepted")
 	}
 }

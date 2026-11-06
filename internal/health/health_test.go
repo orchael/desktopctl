@@ -264,6 +264,21 @@ func TestSSHChecker_skippedWhenNoKey(t *testing.T) {
 	}
 }
 
+func TestRestoreSSHCheckersUseInstanceHostKeyAlias(t *testing.T) {
+	checkers := []Checker{
+		NewSSHChecker("required", "desktop.example.test", 22, "ubuntu", "key", "true", time.Second),
+		NewBootstrapStatusChecker("desktop.example.test", 22, "ubuntu", "key", time.Second),
+		NewSSHOptionalChecker("optional", "desktop.example.test", 22, "ubuntu", "key", "true", "skip", "true", time.Second),
+	}
+	UseSSHHostKeyAlias(checkers, "i-replacement")
+	if checkers[0].(*SSHChecker).hostKeyAlias != "i-replacement" || checkers[1].(*BootstrapStatusChecker).hostKeyAlias != "i-replacement" || checkers[2].(*SSHOptionalChecker).hostKeyAlias != "i-replacement" {
+		t.Fatal("one or more SSH checkers still use the old hostname host-key identity")
+	}
+	if got := sshHostKeyAliasArgs("i-replacement"); len(got) != 2 || got[1] != "HostKeyAlias=i-replacement" {
+		t.Fatalf("wrong host-key alias arguments: %v", got)
+	}
+}
+
 func TestSSHOptionalChecker_skippedWhenNoKey(t *testing.T) {
 	c := NewSSHOptionalChecker("swap-active", "host", 22, "ubuntu", "",
 		"test -f /swapfile", "no swap configured",

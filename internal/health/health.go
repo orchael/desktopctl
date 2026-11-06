@@ -195,8 +195,10 @@ func (c *HTTPSChecker) Run(ctx context.Context) CheckResult {
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return CheckResult{Name: c.name, Status: StatusFail,
-			Message: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+		return CheckResult{
+			Name: c.name, Status: StatusFail,
+			Message: fmt.Sprintf("HTTP %d", resp.StatusCode),
+		}
 	}
 	return CheckResult{Name: c.name, Status: StatusPass}
 }
@@ -234,6 +236,29 @@ type SSHChecker struct {
 	// failureStatus allows optional services to report degraded health without
 	// hiding failures from required checks. The zero value means StatusFail.
 	failureStatus Status
+	hostKeyAlias  string
+}
+
+// UseSSHHostKeyAlias binds restore checks to a replacement EC2 instance's own
+// trusted-host entry, leaving the previous instance's hostname entry intact.
+func UseSSHHostKeyAlias(checkers []Checker, alias string) {
+	for _, checker := range checkers {
+		switch c := checker.(type) {
+		case *SSHChecker:
+			c.hostKeyAlias = alias
+		case *BootstrapStatusChecker:
+			c.hostKeyAlias = alias
+		case *SSHOptionalChecker:
+			c.hostKeyAlias = alias
+		}
+	}
+}
+
+func sshHostKeyAliasArgs(alias string) []string {
+	if alias == "" {
+		return nil
+	}
+	return []string{"-o", "HostKeyAlias=" + alias}
 }
 
 // NewSSHWarningChecker creates an SSH checker whose remote command failures
@@ -270,7 +295,7 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
+	args := []string{
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
 		"-o", "BatchMode=yes",
@@ -279,7 +304,8 @@ func (c *SSHChecker) Run(ctx context.Context) CheckResult {
 		"-p", fmt.Sprintf("%d", c.port),
 		fmt.Sprintf("%s@%s", user, c.host),
 		c.command,
-	)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", append(sshHostKeyAliasArgs(c.hostKeyAlias), args...)...) //nolint:gosec
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -309,11 +335,12 @@ type bootstrapStatus struct {
 // artifact written by cloud-init. Missing artifacts remain compatible with
 // desktops created before lifecycle reporting was introduced.
 type BootstrapStatusChecker struct {
-	host    string
-	port    int
-	user    string
-	keyPath string
-	timeout time.Duration
+	host         string
+	port         int
+	user         string
+	keyPath      string
+	timeout      time.Duration
+	hostKeyAlias string
 }
 
 func NewBootstrapStatusChecker(host string, port int, user, keyPath string, timeout time.Duration) *BootstrapStatusChecker {
@@ -333,7 +360,7 @@ func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	command := bootstrapStatusCommand()
-	cmd := exec.CommandContext(ctx, "ssh", //nolint:gosec
+	args := []string{
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
 		"-o", "BatchMode=yes",
@@ -342,7 +369,8 @@ func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
 		"-p", fmt.Sprintf("%d", c.port),
 		fmt.Sprintf("%s@%s", user, c.host),
 		command,
-	)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", append(sshHostKeyAliasArgs(c.hostKeyAlias), args...)...) //nolint:gosec
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(out))
@@ -412,15 +440,16 @@ func malformedBootstrapStatusResult() CheckResult {
 // configured). SSH transport failures (exit code 255: DNS, auth, connection
 // refused) are treated as hard failures so they are not masked as "skipped".
 type SSHOptionalChecker struct {
-	name    string
-	host    string
-	port    int
-	user    string
-	keyPath string
-	prereq  string // must exit 0 for the check to run
-	command string
-	skip    string // message returned when prereq exits non-zero on the remote
-	timeout time.Duration
+	name         string
+	host         string
+	port         int
+	user         string
+	keyPath      string
+	prereq       string // must exit 0 for the check to run
+	command      string
+	skip         string // message returned when prereq exits non-zero on the remote
+	timeout      time.Duration
+	hostKeyAlias string
 }
 
 // NewSSHOptionalChecker creates a checker that skips when prereq exits non-zero
@@ -454,6 +483,7 @@ func (c *SSHOptionalChecker) Run(ctx context.Context) CheckResult {
 		"-p", fmt.Sprintf("%d", c.port),
 		fmt.Sprintf("%s@%s", user, c.host),
 	}
+	sshArgs = append(sshHostKeyAliasArgs(c.hostKeyAlias), sshArgs...)
 
 	prereqCmd := exec.CommandContext(ctx, "ssh", append(sshArgs, c.prereq)...) //nolint:gosec
 	if err := prereqCmd.Run(); err != nil {

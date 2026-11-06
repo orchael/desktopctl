@@ -70,9 +70,10 @@ func TestReadDesktopConfigRejectsSecretValues(t *testing.T) {
 		name, output string
 		wantErr      bool
 	}{
-		{"plain values", `{"aws:region":{"value":"us-east-2","secret":false},"desktop:desktopId":{"value":"d-1","secret":false}}`, false},
-		{"secret value", `{"desktop:userDataBase64":{"value":"private","secret":true}}`, true},
-		{"unexpected namespace", `{"other:token":{"value":"private","secret":false}}`, true},
+		{"plain values", `[{"result":"succeeded","config":{"aws:region":{"value":"us-east-2","secret":false},"desktop:desktopId":{"value":"d-1","secret":false}}}]`, false},
+		{"secret value", `[{"result":"succeeded","config":{"desktop:userDataBase64":{"value":"private","secret":true}}}]`, true},
+		{"unexpected namespace", `[{"result":"succeeded","config":{"other:token":{"value":"private","secret":false}}}]`, true},
+		{"failed latest update", `[{"result":"failed","config":{"desktop:desktopId":{"value":"d-1"}}}]`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakePulumiDir(t, 0, tc.output)
@@ -85,6 +86,24 @@ func TestReadDesktopConfigRejectsSecretValues(t *testing.T) {
 				t.Fatalf("wrong normalized config: %#v", got)
 			}
 		})
+	}
+}
+
+func TestDestroyNoCancelPreservesPulumiLock(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "pulumi")
+	marker := filepath.Join(dir, "cancelled")
+	script := "#!/bin/sh\nif [ \"$1\" = stack ]; then exit 0; fi\nif [ \"$1\" = destroy ]; then echo 'currently locked'; exit 1; fi\nif [ \"$1\" = cancel ]; then touch '" + marker + "'; exit 0; fi\nexit 1\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ref := DesktopStackRef("s3://bucket", "d-1", dir)
+	if err := NewRunner().DestroyNoCancel(context.Background(), ref, nil); err == nil {
+		t.Fatal("locked destroy was accepted")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("locked park cancelled another Pulumi operation")
 	}
 }
 

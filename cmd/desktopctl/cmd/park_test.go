@@ -237,3 +237,41 @@ func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 		t.Fatal("removed agent secret was restored")
 	}
 }
+
+func TestParkRetryFencesPreviousWorker(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateReady, InstanceID: "i-original"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	original, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaited := false
+	err = completePark(ctx, s, original, &store.RestoreSpec{Version: 2, Config: map[string]string{"volumeSize": "100"}}, "vol-original", func() error {
+		claimed, err := s.Get(ctx, d.DesktopID)
+		if err != nil {
+			return err
+		}
+		claimed.ParkOperationToken = "new-worker-token"
+		return s.Update(ctx, claimed)
+	}, func() error { awaited = true; return nil })
+	if !errors.Is(err, store.ErrStateConflict) {
+		t.Fatalf("stale worker was not fenced: %v", err)
+	}
+	if awaited {
+		t.Fatal("stale worker continued to final verification")
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != store.StateParking || current.InstanceID != "i-original" {
+		t.Fatal("stale worker modified fleet lifecycle")
+	}
+	if err := s.RecordParkFailure(ctx, d.DesktopID, "old-worker-token", "stale failure"); !errors.Is(err, store.ErrStateConflict) {
+		t.Fatalf("stale failure was not fenced: %v", err)
+	}
+}

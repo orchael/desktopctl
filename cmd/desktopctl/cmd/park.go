@@ -3,6 +3,8 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +26,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var parkDryRun, parkForce, unparkRetry bool
+var parkDryRun, parkForce, parkRetry, unparkRetry bool
 
 var (
 	parkCmd   = &cobra.Command{Use: "park <desktop-id>", Short: "Release an EFS desktop's instance and root disk while retaining its workspace", Args: cobra.ExactArgs(1), RunE: runPark}
@@ -34,6 +36,7 @@ var (
 func init() {
 	parkCmd.Flags().BoolVar(&parkDryRun, "dry-run", false, "show the instance, root volume, workspace, and data loss without writes")
 	parkCmd.Flags().BoolVar(&parkForce, "force", false, "confirm loss of RAM and machine-local data")
+	parkCmd.Flags().BoolVar(&parkRetry, "retry", false, "resume a stale interrupted park after confirming the prior process exited")
 	unparkCmd.Flags().BoolVar(&unparkRetry, "retry", false, "reconcile an interrupted restoring state after confirming no operation is active")
 	rootCmd.AddCommand(parkCmd, unparkCmd)
 }
@@ -155,7 +158,11 @@ func runPark(_ *cobra.Command, args []string) error {
 	if err := parkEligible(d, w); err != nil {
 		return err
 	}
-	if d.State != store.StateReady && d.State != store.StateStopped && !(d.State == store.StateFailed && d.FailurePhase == "park") && !(d.State == store.StateParking && parkForce) {
+	if d.State == store.StateParking && parkRetry {
+		if err := requireStaleLifecycle(d, "park", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+	} else if d.State != store.StateReady && d.State != store.StateStopped && !(d.State == store.StateFailed && d.FailurePhase == "park") {
 		return fmt.Errorf("desktop %s is %s; park requires ready, stopped, or a prior failed park", id, d.State)
 	}
 	if d.InstanceID == "" {
@@ -208,7 +215,7 @@ func runPark(_ *cobra.Command, args []string) error {
 	if volume.Size > 0 {
 		spec.Config["volumeSize"] = fmt.Sprintf("%d", volume.Size)
 	}
-	if err := completePark(ctx, s, d, spec, volume.ID, func() error { return runner.Destroy(ctx, desktopStackRef(d), os.Stderr) }, func() error {
+	if err := completePark(ctx, s, d, spec, volume.ID, func() error { return runner.DestroyNoCancel(ctx, desktopStackRef(d), os.Stderr) }, func() error {
 		waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
 		for {
@@ -238,6 +245,11 @@ func runPark(_ *cobra.Command, args []string) error {
 
 func completePark(ctx context.Context, s store.Store, original *store.Desktop, spec *store.RestoreSpec, volumeID string, destroy, awaitGone func() error) error {
 	id := original.DesktopID
+	var tokenBytes [16]byte
+	if _, err := rand.Read(tokenBytes[:]); err != nil {
+		return fmt.Errorf("generate park ownership token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes[:])
 	if original.State != store.StateParking {
 		if err := s.Transition(ctx, id, original.State, store.StateParking); err != nil {
 			return err
@@ -247,26 +259,40 @@ func completePark(ctx context.Context, s store.Store, original *store.Desktop, s
 	if err != nil {
 		return err
 	}
+	if d.State != store.StateParking || (original.State == store.StateParking && d.StateVersion != original.StateVersion) {
+		return store.ErrStateConflict
+	}
 	d.RestoreSpec = spec
+	d.ParkOperationToken = token
 	if d.ParkRootVolumeID == "" {
 		d.ParkRootVolumeID = volumeID
 	}
 	if err := s.Update(ctx, d); err != nil {
 		return fmt.Errorf("persist restore metadata before destroy: %w", err)
 	}
+	if err := requireParkOwner(ctx, s, id, token); err != nil {
+		return err
+	}
 	if err := destroy(); err != nil {
-		_ = s.RecordFailure(ctx, id, "park", err.Error())
+		_ = recordParkFailure(ctx, s, id, token, err.Error())
+		return err
+	}
+	if err := requireParkOwner(ctx, s, id, token); err != nil {
 		return err
 	}
 	if err := awaitGone(); err != nil {
-		_ = s.RecordFailure(ctx, id, "park", err.Error())
+		_ = recordParkFailure(ctx, s, id, token, err.Error())
 		return err
 	}
 	d, err = s.Get(ctx, id)
 	if err != nil {
 		return err
 	}
+	if d.State != store.StateParking || d.ParkOperationToken != token {
+		return store.ErrStateConflict
+	}
 	d.State, d.InstanceID, d.NoVNCURL, d.SSHTarget, d.Readiness = store.StateParked, "", "", "", ""
+	d.ParkOperationToken = ""
 	d.StopReason, d.StoppedAt, d.FailurePhase, d.FailureMsg = "", "", "", ""
 	d.ParkedAt = time.Now().UTC().Format(time.RFC3339)
 	d.ParkRootVolumeID = ""
@@ -274,6 +300,27 @@ func completePark(ctx context.Context, s store.Store, original *store.Desktop, s
 		return fmt.Errorf("resources destroyed; record needs park reconciliation: %w", err)
 	}
 	return nil
+}
+
+func requireParkOwner(ctx context.Context, s store.Store, id, token string) error {
+	d, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if d.State != store.StateParking || d.ParkOperationToken != token {
+		return store.ErrStateConflict
+	}
+	return nil
+}
+
+func recordParkFailure(ctx context.Context, s store.Store, id, token, message string) error {
+	recorder, ok := s.(interface {
+		RecordParkFailure(context.Context, string, string, string) error
+	})
+	if !ok {
+		return fmt.Errorf("fleet store lacks fenced park failure support")
+	}
+	return recorder.RecordParkFailure(ctx, id, token, message)
 }
 
 func runUnpark(_ *cobra.Command, args []string) error {
@@ -459,6 +506,7 @@ func waitUnparkReady(ctx context.Context, d *store.Desktop) error {
 				checkers = append(checkers, health.NewSSHChecker("bridgectl-active", host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, `sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user is-active bridgectl`, 20*time.Second))
 				checkers = append(checkers, health.WorkspaceCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.WorkspaceMode)...)
 				checkers = append(checkers, health.RepoCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)...)
+				health.UseSSHHostKeyAlias(checkers, d.InstanceID)
 				if health.NewRunner(d.DesktopID, checkers...).Run(waitCtx).Passed {
 					return nil
 				}

@@ -32,6 +32,10 @@ metadata. Version 2 retains the original cloud-init and regenerates its agent
 and desktop secret sections from the current fleet secret paths at unpark time.
 The migration changes fleet metadata only; it does not recreate an instance or
 make local workspaces, nested virtualization guests, or AVDs eligible to park.
+Restore readiness checks store the replacement instance's SSH host key under
+its instance ID. For later interactive SSH using the reused hostname, verify
+the replacement host key through a trusted channel before removing the old
+hostname entry from `known_hosts`.
 Keep the recorded AMI available to the account. Configure `desktop.ssh_key_path`
 so unpark can verify Docker, bridgectl, repository checkouts, and the EFS mount
 before reporting `ready`.
@@ -46,8 +50,10 @@ the workspace claim while retaining the EFS data.
 If destroy fails, the fleet record is `failed` with phase `park`; rerun
 `desktopctl park <id> --force` after inspecting the failed Pulumi stack. The retry reconciles the
 same root volume ID and confirms its deletion before reporting `parked`. If a
-process was interrupted while the record says `parking`, first confirm that
-no other lifecycle process is running, then use `park --force`. A failed
+process was interrupted while the record says `parking`, wait at least two
+hours, confirm that the previous CLI and Pulumi operations have exited, then
+use `park --retry --force`. This takes a new fenced claim and refuses to cancel
+an existing Pulumi lock. A failed
 restore leaves the workspace attached and the record in `failed` with phase
 `unpark`; run `unpark` again. If the process was interrupted while the record
 says `restoring`, confirm that it is no longer running and use `unpark --retry`.

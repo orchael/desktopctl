@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
+	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
@@ -49,13 +51,39 @@ func runMigrateRestoreSpec(cmd *cobra.Command, _ []string) error {
 			failures = append(failures, fmt.Errorf("%s: %w", listed.DesktopID, err))
 			continue
 		}
-		if d.RestoreSpec != nil && (d.RestoreSpec.Version == 1 || d.RestoreSpec.Version == 2) {
-			fmt.Printf("%s: already has restore metadata\n", d.DesktopID)
-			already++
-			continue
+		if d.RestoreSpec != nil {
+			if d.RestoreSpec.Version == 1 && d.RestoreSpec.BootstrapJSON != "" {
+				fmt.Printf("%s: already has restore metadata\n", d.DesktopID)
+				already++
+				continue
+			}
+			if d.RestoreSpec.Version == 2 {
+				if _, err := legacyRestoreConfig(d); err != nil {
+					failures = append(failures, fmt.Errorf("%s: existing restore metadata is invalid: %w", d.DesktopID, err))
+					fmt.Printf("%s: blocked: existing restore metadata is invalid: %v\n", d.DesktopID, err)
+					continue
+				}
+				fmt.Printf("%s: already has restore metadata\n", d.DesktopID)
+				already++
+				continue
+			}
 		}
 		runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: d.Region}
 		stackConfig, err := runner.Config(ctx, desktopStackRef(d))
+		if err == nil {
+			var awsCfgErr error
+			awsCfg, loadErr := awsx.LoadConfig(ctx, d.Region, cfg.AWS.Profile)
+			if loadErr != nil {
+				awsCfgErr = loadErr
+			} else {
+				var status *awsx.EC2InstanceStatus
+				status, awsCfgErr = awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+				if awsCfgErr == nil {
+					awsCfgErr = reconcileDeployedInstance(d, stackConfig, status)
+				}
+			}
+			err = awsCfgErr
+		}
 		if err == nil {
 			err = validateLegacyRestoreCandidate(ctx, s, d, stackConfig)
 		}
@@ -85,6 +113,16 @@ func runMigrateRestoreSpec(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Restore metadata: %d ready, %d applied, %d already present, %d blocked.\n", ready, applied, already, len(failures))
 	return errors.Join(failures...)
+}
+
+func reconcileDeployedInstance(d *store.Desktop, config pulumi.StackConfig, status *awsx.EC2InstanceStatus) error {
+	if status == nil || status.State != "running" && status.State != "stopped" || status.ImageID != d.AMIID || status.ImageID != config["amiId"] || status.InstanceType != d.InstanceType || status.SubnetID != config["subnetId"] || !slices.Contains(status.SecurityGroupIDs, config["securityGroupId"]) {
+		return fmt.Errorf("live EC2 instance differs from fleet record or deployed Pulumi configuration")
+	}
+	// resize updates EC2 and the fleet record before a later Pulumi deployment.
+	// The instance type is the sole allowed difference from deployment history.
+	config["instanceType"] = status.InstanceType
+	return nil
 }
 
 func validateLegacyRestoreCandidate(ctx context.Context, s store.Store, d *store.Desktop, config pulumi.StackConfig) error {
