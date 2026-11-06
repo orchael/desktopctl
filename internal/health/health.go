@@ -815,3 +815,19 @@ func AVDCheckers(hostname string, sshPort int, user, keyPath string, avdNames []
 	}
 	return checkers
 }
+
+// AVDRequiredCheckers fail restore readiness if the Android SDK or any named
+// disposable AVD was not recreated on the replacement instance.
+func AVDRequiredCheckers(hostname string, sshPort int, user, keyPath string, avdNames []string) []Checker {
+	if len(avdNames) == 0 {
+		return nil
+	}
+	t := 30 * time.Second
+	checkers := make([]Checker, 0, len(avdNames)+1)
+	checkers = append(checkers, NewSSHChecker("avdmanager-installed", hostname, sshPort, user, keyPath, avdmanagerPrereq, t))
+	for _, name := range avdNames {
+		command := fmt.Sprintf(`sudo -u ubuntu env HOME=/home/ubuntu ANDROID_HOME=/opt/android-sdk /opt/android-sdk/cmdline-tools/latest/bin/avdmanager list avd | grep -qF %s`, shellQuote("Name: "+name))
+		checkers = append(checkers, NewSSHChecker("avd-"+name, hostname, sshPort, user, keyPath, command, t))
+	}
+	return checkers
+}

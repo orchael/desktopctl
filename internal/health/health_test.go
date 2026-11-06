@@ -570,6 +570,18 @@ func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestAVDRestoreCheckersAreRequired(t *testing.T) {
+	checkers := AVDRequiredCheckers("desktop.example.test", 22, "ubuntu", "key", []string{"pixel_7_phone", "pixel_tablet"})
+	if len(checkers) != 3 {
+		t.Fatalf("got %d AVD restore checks", len(checkers))
+	}
+	for _, checker := range checkers {
+		if _, ok := checker.(*SSHChecker); !ok {
+			t.Fatalf("AVD restore check %q could skip a missing SDK", checker.Name())
+		}
+	}
+}
+
 func TestAVDCheckers_returnsExpectedChecks(t *testing.T) {
 	avdNames := []string{"flutter_dev", "pixel_test"}
 	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", avdNames)

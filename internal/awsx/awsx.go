@@ -413,6 +413,7 @@ type EC2InstanceStatus struct {
 	InstanceType          string
 	SubnetID              string
 	SecurityGroupIDs      []string
+	NestedVirtualization  string
 	PublicIP              string
 	StateTransitionReason string
 	InstanceLifecycle     string
@@ -443,6 +444,9 @@ func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC
 	}
 	for _, group := range inst.SecurityGroups {
 		status.SecurityGroupIDs = append(status.SecurityGroupIDs, aws.ToString(group.GroupId))
+	}
+	if inst.CpuOptions != nil {
+		status.NestedVirtualization = string(inst.CpuOptions.NestedVirtualization)
 	}
 	state := inst.State
 	if state == nil {

@@ -26,7 +26,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var parkDryRun, parkForce, parkRetry, unparkRetry bool
+var parkDryRun, parkForce, parkRetry, parkRecreateAVDs, unparkRetry bool
 
 var (
 	parkCmd   = &cobra.Command{Use: "park <desktop-id>", Short: "Release an EFS desktop's instance and root disk while retaining its workspace", Args: cobra.ExactArgs(1), RunE: runPark}
@@ -37,6 +37,7 @@ func init() {
 	parkCmd.Flags().BoolVar(&parkDryRun, "dry-run", false, "show the instance, root volume, workspace, and data loss without writes")
 	parkCmd.Flags().BoolVar(&parkForce, "force", false, "confirm loss of RAM and machine-local data")
 	parkCmd.Flags().BoolVar(&parkRetry, "retry", false, "resume a stale interrupted park after confirming the prior process exited")
+	parkCmd.Flags().BoolVar(&parkRecreateAVDs, "recreate-avds", false, "discard AVD guest data and recreate configured AVDs when unparked")
 	unparkCmd.Flags().BoolVar(&unparkRetry, "retry", false, "reconcile an interrupted restoring state after confirming no operation is active")
 	rootCmd.AddCommand(parkCmd, unparkCmd)
 }
@@ -111,11 +112,18 @@ func verifyWorkspaceAccessPoint(ctx context.Context, awsCfg aws.Config, w *store
 }
 
 func parkEligible(d *store.Desktop, w *store.Workspace) error {
+	return parkEligibleWithAVDs(d, w, false)
+}
+
+func parkEligibleWithAVDs(d *store.Desktop, w *store.Workspace, recreateAVDs bool) error {
 	if d.WorkspaceMode != workspaceModeEFS || d.WorkspaceName == "" {
 		return fmt.Errorf("desktop %s uses a local workspace; park requires a retained EFS workspace", d.DesktopID)
 	}
-	if d.NestedVirt || len(d.AVDNames) > 0 {
-		return fmt.Errorf("desktop %s has nested virtualization or AVD guests with machine-local state; terminate and recreate it manually after saving that state", d.DesktopID)
+	if recreateAVDs && len(d.AVDNames) == 0 {
+		return fmt.Errorf("desktop %s has no configured AVDs to recreate", d.DesktopID)
+	}
+	if (d.NestedVirt || len(d.AVDNames) > 0) && (!recreateAVDs || len(d.AVDNames) == 0) {
+		return fmt.Errorf("desktop %s has nested virtualization or AVD guests with machine-local state; use --recreate-avds only if guest data may be discarded", d.DesktopID)
 	}
 	if w == nil || w.State == store.WorkspaceStateDeleted || w.EFSFileSystemID == "" || w.EFSAccessPointID == "" {
 		return fmt.Errorf("EFS workspace %q is missing or incomplete; restore it before parking", d.WorkspaceName)
@@ -155,8 +163,17 @@ func runPark(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read workspace: %w", err)
 	}
-	if err := parkEligible(d, w); err != nil {
+	if err := parkEligibleWithAVDs(d, w, parkRecreateAVDs); err != nil {
 		return err
+	}
+	spec := d.RestoreSpec
+	if err := validateRestoreSpec(d, spec, w); err != nil {
+		return err
+	}
+	if parkRecreateAVDs {
+		if err := validateAVDRestore(d); err != nil {
+			return err
+		}
 	}
 	if d.State == store.StateParking && parkRetry {
 		if err := requireStaleLifecycle(d, "park", 2*time.Hour, time.Now()); err != nil {
@@ -191,6 +208,9 @@ func runPark(_ *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Desktop      : %s\nInstance     : %s\nRoot volume  : %s (%d GiB)\nEFS workspace: %s (%s / %s)\n", id, d.InstanceID, volume.ID, volume.Size, w.WorkspaceName, w.EFSFileSystemID, w.EFSAccessPointID)
 	fmt.Println("Lost: RAM, home-directory files, installed packages, and every change outside /workspace. Restoring provisions a new instance and takes longer than start.")
+	if parkRecreateAVDs && len(d.AVDNames) > 0 {
+		fmt.Printf("AVDs recreated from scratch: %s. Installed apps, device settings, and snapshots on these guests will be lost.\n", strings.Join(d.AVDNames, ", "))
+	}
 	if parkDryRun {
 		return nil
 	}
@@ -208,14 +228,10 @@ func runPark(_ *cobra.Command, args []string) error {
 		return err
 	}
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: d.Region}
-	spec := d.RestoreSpec
-	if err := validateRestoreSpec(d, spec, w); err != nil {
-		return err
-	}
 	if volume.Size > 0 {
 		spec.Config["volumeSize"] = fmt.Sprintf("%d", volume.Size)
 	}
-	if err := completePark(ctx, s, d, spec, volume.ID, func() error { return runner.DestroyNoCancel(ctx, desktopStackRef(d), os.Stderr) }, func() error {
+	if err := completePark(ctx, s, d, spec, volume.ID, parkRecreateAVDs, func() error { return runner.DestroyNoCancel(ctx, desktopStackRef(d), os.Stderr) }, func() error {
 		waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
 		for {
@@ -243,7 +259,7 @@ func runPark(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func completePark(ctx context.Context, s store.Store, original *store.Desktop, spec *store.RestoreSpec, volumeID string, destroy, awaitGone func() error) error {
+func completePark(ctx context.Context, s store.Store, original *store.Desktop, spec *store.RestoreSpec, volumeID string, recreateAVDs bool, destroy, awaitGone func() error) error {
 	id := original.DesktopID
 	var tokenBytes [16]byte
 	if _, err := rand.Read(tokenBytes[:]); err != nil {
@@ -292,6 +308,7 @@ func completePark(ctx context.Context, s store.Store, original *store.Desktop, s
 		return store.ErrStateConflict
 	}
 	d.State, d.InstanceID, d.NoVNCURL, d.SSHTarget, d.Readiness = store.StateParked, "", "", "", ""
+	d.RecreateAVDsOnUnpark = recreateAVDs
 	d.ParkOperationToken = ""
 	d.StopReason, d.StoppedAt, d.FailurePhase, d.FailureMsg = "", "", "", ""
 	d.ParkedAt = time.Now().UTC().Format(time.RFC3339)
@@ -345,11 +362,16 @@ func runUnpark(_ *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read workspace: %w", err)
 	}
-	if err := parkEligible(d, w); err != nil {
+	if err := parkEligibleWithAVDs(d, w, d.RecreateAVDsOnUnpark); err != nil {
 		return err
 	}
 	if err := validateRestoreSpec(d, d.RestoreSpec, w); err != nil {
 		return err
+	}
+	if d.RecreateAVDsOnUnpark {
+		if err := validateAVDRestore(d); err != nil {
+			return err
+		}
 	}
 	if d.State != store.StateParked && !(d.State == store.StateFailed && d.FailurePhase == "unpark") && !(d.State == store.StateRestoring && unparkRetry) {
 		return fmt.Errorf("desktop %s is %s; unpark requires parked or a prior failed unpark", id, d.State)
@@ -379,6 +401,11 @@ func runUnpark(_ *cobra.Command, args []string) error {
 		return err
 	}
 	if err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
+		if d.NestedVirt {
+			if err := prepareNestedUnpark(ctx, s, d, restoreCfg); err != nil {
+				return nil, err
+			}
+		}
 		return runner.Up(ctx, desktopStackRef(d), restoreCfg, os.Stderr)
 	}, func(restored *store.Desktop) error { return waitUnparkReady(ctx, restored) }); err != nil {
 		return err
@@ -506,6 +533,9 @@ func waitUnparkReady(ctx context.Context, d *store.Desktop) error {
 				checkers = append(checkers, health.NewSSHChecker("bridgectl-active", host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, `sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu) systemctl --user is-active bridgectl`, 20*time.Second))
 				checkers = append(checkers, health.WorkspaceCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.WorkspaceMode)...)
 				checkers = append(checkers, health.RepoCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.Repos)...)
+				if d.RecreateAVDsOnUnpark {
+					checkers = append(checkers, health.AVDRequiredCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.AVDNames)...)
+				}
 				health.UseSSHHostKeyAlias(checkers, d.InstanceID)
 				if health.NewRunner(d.DesktopID, checkers...).Run(waitCtx).Passed {
 					return nil

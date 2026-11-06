@@ -59,7 +59,7 @@ func TestParkFailureRetryAndWorkspaceClaim(t *testing.T) {
 	}
 	spec := &store.RestoreSpec{Version: 1, Config: map[string]string{"volumeSize": "150"}}
 	destroyCalled := false
-	err := completePark(ctx, s, d, spec, "vol-old", func() error { destroyCalled = true; return errors.New("destroy interrupted") }, func() error { t.Fatal("verified after failed destroy"); return nil })
+	err := completePark(ctx, s, d, spec, "vol-old", false, func() error { destroyCalled = true; return errors.New("destroy interrupted") }, func() error { t.Fatal("verified after failed destroy"); return nil })
 	if err == nil || !destroyCalled {
 		t.Fatalf("destroy error = %v", err)
 	}
@@ -67,16 +67,19 @@ func TestParkFailureRetryAndWorkspaceClaim(t *testing.T) {
 	if failed.State != store.StateFailed || failed.FailurePhase != "park" || failed.InstanceID != "i-old" || failed.ParkRootVolumeID != "vol-old" || failed.RestoreSpec == nil {
 		t.Fatalf("failed park record: %+v", failed)
 	}
-	if err := completePark(ctx, s, failed, spec, "vol-old", func() error { return nil }, func() error { return errors.New("volume still exists") }); err == nil {
+	if err := completePark(ctx, s, failed, spec, "vol-old", false, func() error { return nil }, func() error { return errors.New("volume still exists") }); err == nil {
 		t.Fatal("park accepted unconfirmed deletion")
 	}
 	failed, _ = s.Get(ctx, d.DesktopID)
-	if err := completePark(ctx, s, failed, spec, "vol-old", func() error { return nil }, func() error { return nil }); err != nil {
+	if err := completePark(ctx, s, failed, spec, "vol-old", true, func() error { return nil }, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	parked, _ := s.Get(ctx, d.DesktopID)
 	if parked.State != store.StateParked || parked.InstanceID != "" || parked.NoVNCURL != "" || parked.ParkedAt == "" {
 		t.Fatalf("parked record: %+v", parked)
+	}
+	if !parked.RecreateAVDsOnUnpark {
+		t.Fatal("AVD recreation consent was not retained for unpark")
 	}
 	claimed, _ := s.GetWorkspace(ctx, "dev", "factory")
 	if claimed.AttachedDesktopID != d.DesktopID {
@@ -250,7 +253,7 @@ func TestParkRetryFencesPreviousWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaited := false
-	err = completePark(ctx, s, original, &store.RestoreSpec{Version: 2, Config: map[string]string{"volumeSize": "100"}}, "vol-original", func() error {
+	err = completePark(ctx, s, original, &store.RestoreSpec{Version: 2, Config: map[string]string{"volumeSize": "100"}}, "vol-original", false, func() error {
 		claimed, err := s.Get(ctx, d.DesktopID)
 		if err != nil {
 			return err

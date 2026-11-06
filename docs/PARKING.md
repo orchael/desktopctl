@@ -17,8 +17,21 @@ desktopctl unpark d-0123abcd
 The dry run reads the fleet, EFS, and EC2 records without writing. It shows the
 exact root volume ID and size, EFS file system and access point, and the local
 state that will be lost. Parking requires typing the desktop ID, or `--force`
-for automation. Local workspaces, nested virtualization guests, and AVDs are
-ineligible because their machine-local state cannot be restored safely.
+for automation. Local workspaces remain ineligible. Nested virtualization
+without configured AVDs remains ineligible. A desktop with configured AVDs can
+opt in to losing all emulator device data and recreating those AVDs:
+
+```sh
+desktopctl park <id> --dry-run --recreate-avds
+desktopctl park <id> --recreate-avds
+desktopctl unpark <id>
+```
+
+The AVD names, system images, and device definitions must be present in the
+saved bootstrap. Their installed apps, settings, and snapshots on the root
+volume are discarded. Unpark prelaunches a new instance with nested
+virtualization enabled when required, imports it into Pulumi, reruns the AVD
+provisioning step, and verifies the named AVDs before reporting `ready`.
 
 The fleet record retains a versioned launch specification containing the AMI,
 root size, network and workspace settings, and the non-secret bootstrap inputs.
@@ -31,7 +44,8 @@ successful dry run, `desktopctl migrate-restore-spec --apply` writes version 2
 metadata. Version 2 retains the original cloud-init and regenerates its agent
 and desktop secret sections from the current fleet secret paths at unpark time.
 The migration changes fleet metadata only; it does not recreate an instance or
-make local workspaces, nested virtualization guests, or AVDs eligible to park.
+make a local workspace eligible to park. For AVD desktops, the operator must
+still choose `--recreate-avds` at park time.
 Restore readiness checks store the replacement instance's SSH host key under
 its instance ID. For later interactive SSH using the reused hostname, verify
 the replacement host key through a trusted channel before removing the old

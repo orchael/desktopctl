@@ -266,6 +266,7 @@ its own lifecycle and may survive desktop termination.
 | FR-7.11 | Terminating a desktop attached to an EFS workspace must destroy desktop compute resources without deleting the separately managed EFS file system or workspace directory unless the operator explicitly requests workspace deletion. |
 | FR-7.12 | An EFS desktop may be parked: its instance and root EBS volume are removed, while the logical desktop record and exclusive EFS workspace claim remain. RAM and all machine-local state are discarded. |
 | FR-7.13 | Unparking must use a versioned, non-secret copy of the original launch settings, provision a new instance with the same logical desktop ID and EFS workspace, and report ready only after host and workspace checks pass. |
+| FR-7.14 | EFS desktops with disposable AVDs may park only after explicit consent to discard guest state; unpark must recreate the configured AVDs on an appropriately configured replacement instance. |
 
 **Acceptance criteria:**
 
@@ -280,7 +281,8 @@ its own lifecycle and may survive desktop termination.
 | AC-7.7 | Resize validation rejects empty, unchanged, Spot, and nested-virtualization-incompatible target instance types | Unit tests |
 | AC-7.8 | `desktopctl create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |
 | AC-7.9 | `desktopctl create --workspace-mode efs --workspace-name orchael-factory-dev --preview` configures `/workspace` as an EFS mount and preserves the named workspace after desktop termination | Unit and live acceptance |
-| AC-7.10 | `park --dry-run` names the exact root volume and EFS workspace without a write; park rejects local workspaces and nested virtualization | Unit and live validation |
+| AC-7.10 | `park --dry-run` names the exact root volume and EFS workspace without a write; park rejects local workspaces and requires `--recreate-avds` for desktops with disposable AVDs | Unit and live validation |
+| AC-7.13 | An EFS desktop with saved AVD definitions may opt in to discard device data; unpark recreates the AVDs on a replacement instance with nested virtualization enabled and checks their presence before reporting ready | Unit and live validation |
 | AC-7.11 | Park confirms root volume deletion before setting `parked`; unpark retains the logical ID and EFS data but uses a new EC2 instance | Unit and live validation |
 | AC-7.12 | Terminating a parked desktop releases its workspace claim without deleting EFS data | Unit and live validation |
 
