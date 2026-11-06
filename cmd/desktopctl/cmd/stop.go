@@ -22,7 +22,7 @@ func init() {
 	rootCmd.AddCommand(stopCmd)
 }
 
-func runStop(cmd *cobra.Command, args []string) error {
+func runStop(cmd *cobra.Command, args []string) (retErr error) {
 	ctx := context.Background()
 	id := args[0]
 
@@ -37,6 +37,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
+	if d.State != store.StateReady && d.State != store.StateUnhealthy {
+		return fmt.Errorf("desktop %q is %s; stop requires a running desktop", id, d.State)
+	}
 
 	if d.InstanceID == "" {
 		return fmt.Errorf("desktop %q has no instance ID — it may not be fully provisioned", id)
@@ -48,6 +51,14 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	mgr := desktop.NewManager(s)
+	if err := s.Transition(ctx, id, d.State, store.StateStopping); err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = s.RecordFailure(ctx, id, "stop", retErr.Error())
+		}
+	}()
 
 	if d.NestedVirt {
 		fmt.Printf("Stopping instance %s (nested virtualization enabled; hibernation not supported) ...\n", d.InstanceID)

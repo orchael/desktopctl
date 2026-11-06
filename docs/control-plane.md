@@ -98,6 +98,9 @@ unavailable, the page keeps the job ID and blocks new actions until you retry
 tracking or explicitly refresh the fleet and clear tracking. Refresh reads live
 instance state through the private API. Selecting a fleet row shows its summary
 and lifecycle actions in the side panel; the details icon opens the full record.
+Parked desktops appear with `lifecycle_state: parked` and no instance or access
+URL. Use the [CLI parking commands](PARKING.md) to park or unpark; `start` is
+reserved for a hibernated desktop.
 **Open desktop** links directly to a fresh, one-session noVNC access URL
 fetched from the running desktop over SSH. The full details page shows this
 URL with a copy button and **Refresh desktop URL** control. The stored `novnc_url` is only the base address and does not

@@ -26,7 +26,7 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
+func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	ctx := context.Background()
 	id := args[0]
 
@@ -40,6 +40,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("desktop %q not found", id)
 		}
 		return err
+	}
+	if d.State == store.StateParked {
+		return fmt.Errorf("desktop %q is parked; run `desktopctl unpark %s` to provision a new instance", id, id)
+	}
+	if d.State != store.StateStopped && d.State != store.StateReady {
+		return fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
 	}
 
 	if d.InstanceID == "" {
@@ -71,6 +77,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("instance status: %w", err)
 	}
+	if err := s.Transition(ctx, id, d.State, store.StateStarting); err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = s.RecordFailure(ctx, id, "start", retErr.Error())
+		}
+	}()
 	if instanceStatus.State == "running" {
 		if d.NoDNS {
 			fmt.Fprintf(os.Stderr, "Instance %s is already running ...\n", d.InstanceID)

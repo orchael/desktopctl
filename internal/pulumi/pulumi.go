@@ -326,6 +326,34 @@ func (r *Runner) Outputs(ctx context.Context, ref *StackRef) (map[string]string,
 	return r.outputs(ctx, ref.WorkDir, env, ref.StackName)
 }
 
+// Config reads the last selected stack's plaintext launch settings. A secret
+// Pulumi config entry is rejected rather than copied into a fleet record.
+func (r *Runner) Config(ctx context.Context, ref *StackRef) (StackConfig, error) {
+	out, err := r.runCapture(ctx, ref.WorkDir, r.env(ref.BackendURL), "config", "--stack", ref.StackName, "--json")
+	if err != nil {
+		return nil, fmt.Errorf("read stack config: %w", err)
+	}
+	var entries map[string]struct {
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
+	}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		return nil, fmt.Errorf("decode stack config: %w", err)
+	}
+	result := StackConfig{}
+	for key, entry := range entries {
+		if entry.Secret {
+			return nil, fmt.Errorf("stack config %q is secret; cannot persist restore spec", key)
+		}
+		if strings.HasPrefix(key, "desktop:") {
+			result[strings.TrimPrefix(key, "desktop:")] = entry.Value
+		} else if key == "aws:region" {
+			result[key] = entry.Value
+		}
+	}
+	return result, nil
+}
+
 // FoundationOutputs reads the regional foundation, or a legacy environment-only
 // foundation if the regional stack does not exist and its scope matches.
 func (r *Runner) FoundationOutputs(ctx context.Context, ref *StackRef, environment, region string) (map[string]string, error) {

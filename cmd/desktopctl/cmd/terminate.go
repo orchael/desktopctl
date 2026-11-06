@@ -83,6 +83,9 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	if !terminateForce && (d.State == store.StateFailed || d.State == store.StateProvisioningFailed) {
 		return fmt.Errorf("desktop %q is in state %q; use --force to terminate anyway", id, d.State)
 	}
+	if err := requireBackend(ctx); err != nil {
+		return err
+	}
 
 	mgr := desktop.NewManager(s)
 	if err := mgr.MarkTerminating(ctx, id); err != nil {
@@ -91,10 +94,6 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)
 	fmt.Fprintln(os.Stderr, terminateWarning(d))
-
-	if err := requireBackend(ctx); err != nil {
-		return err
-	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
