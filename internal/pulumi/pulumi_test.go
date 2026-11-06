@@ -65,6 +65,29 @@ func TestStackHasResource(t *testing.T) {
 	}
 }
 
+func TestReadDesktopConfigRejectsSecretValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		wantErr      bool
+	}{
+		{"plain values", `{"aws:region":{"value":"us-east-2","secret":false},"desktop:desktopId":{"value":"d-1","secret":false}}`, false},
+		{"secret value", `{"desktop:userDataBase64":{"value":"private","secret":true}}`, true},
+		{"unexpected namespace", `{"other:token":{"value":"private","secret":false}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakePulumiDir(t, 0, tc.output)
+			ref := DesktopStackRef("s3://bucket", "d-1", t.TempDir())
+			got, err := NewRunner().Config(context.Background(), ref)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Config error = %v, want error %v", err, tc.wantErr)
+			}
+			if !tc.wantErr && (got["desktopId"] != "d-1" || got["aws:region"] != "us-east-2") {
+				t.Fatalf("wrong normalized config: %#v", got)
+			}
+		})
+	}
+}
+
 func TestDesktopStackRef(t *testing.T) {
 	ref := DesktopStackRef("s3://my-bucket", "d-001abc", "/infra/pulumi/desktop")
 	if ref.StackName != "desktop-d-001abc" {

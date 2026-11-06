@@ -372,10 +372,10 @@ func completeUnpark(ctx context.Context, s store.Store, original *store.Desktop,
 }
 
 func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Workspace) error {
-	if spec == nil || spec.Version != 1 {
-		return fmt.Errorf("desktop %s has no supported restore specification; recreate it with this CLI before parking", d.DesktopID)
+	if spec == nil || (spec.Version != 1 && spec.Version != 2) {
+		return fmt.Errorf("desktop %s has no supported restore specification; run `desktopctl migrate-restore-spec` before parking", d.DesktopID)
 	}
-	if spec.BootstrapJSON == "" {
+	if spec.Version == 1 && spec.BootstrapJSON == "" {
 		return fmt.Errorf("desktop %s lacks saved bootstrap settings; cannot safely restore changed secret paths", d.DesktopID)
 	}
 	for _, key := range []string{"amiId", "volumeSize", "userDataBase64", "instanceType", "subnetId", "securityGroupId", "instanceProfile"} {
@@ -392,6 +392,9 @@ func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Wor
 // restoreStackConfig regenerates user data from the saved non-secret boot
 // settings and the current fleet secret list. A removed path is never replayed.
 func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
+	if d.RestoreSpec != nil && d.RestoreSpec.Version == 2 {
+		return legacyRestoreConfig(d)
+	}
 	if d.RestoreSpec == nil || d.RestoreSpec.BootstrapJSON == "" {
 		return nil, fmt.Errorf("desktop %s lacks saved bootstrap settings", d.DesktopID)
 	}

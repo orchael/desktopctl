@@ -167,6 +167,10 @@ func TestRestoreSpecRequiresRecordedWorkspaceAndLaunchInputs(t *testing.T) {
 	if err := validateRestoreSpec(d, spec, w); err != nil {
 		t.Fatal(err)
 	}
+	legacy := &store.RestoreSpec{Version: 2, Config: spec.Config}
+	if err := validateRestoreSpec(d, legacy, w); err != nil {
+		t.Fatalf("migrated restore specification was rejected: %v", err)
+	}
 	spec.Config["volumeSize"] = ""
 	if err := validateRestoreSpec(d, spec, w); err == nil {
 		t.Fatal("missing root size was accepted")

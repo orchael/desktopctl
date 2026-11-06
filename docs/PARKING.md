@@ -20,13 +20,18 @@ state that will be lost. Parking requires typing the desktop ID, or `--force`
 for automation. Local workspaces, nested virtualization guests, and AVDs are
 ineligible because their machine-local state cannot be restored safely.
 
-The fleet record retains a version 1 launch specification containing the AMI,
+The fleet record retains a versioned launch specification containing the AMI,
 root size, network and workspace settings, and the non-secret bootstrap inputs.
 Unpark regenerates cloud-init using the current fleet secret paths, so paths
 removed after creation are not restored and paths added later are included.
-The new instance fetches current secret values at boot. Older desktops without
-a saved bootstrap specification cannot be parked safely; recreate them with
-this CLI before using park.
+The new instance fetches current secret values at boot. For older desktops,
+`desktopctl migrate-restore-spec` checks each active fleet record against its
+deployed Pulumi stack and reports which records can be backfilled. After a
+successful dry run, `desktopctl migrate-restore-spec --apply` writes version 2
+metadata. Version 2 retains the original cloud-init and regenerates its agent
+and desktop secret sections from the current fleet secret paths at unpark time.
+The migration changes fleet metadata only; it does not recreate an instance or
+make local workspaces, nested virtualization guests, or AVDs eligible to park.
 Keep the recorded AMI available to the account. Configure `desktop.ssh_key_path`
 so unpark can verify Docker, bridgectl, repository checkouts, and the EFS mount
 before reporting `ready`.

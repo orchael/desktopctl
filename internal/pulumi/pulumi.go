@@ -282,6 +282,35 @@ func (r *Runner) SetConfig(ctx context.Context, ref *StackRef, key, value string
 	return nil
 }
 
+// Config reads an existing desktop stack's plaintext configuration without
+// selecting or modifying the stack. Secret config values cannot be migrated.
+func (r *Runner) Config(ctx context.Context, ref *StackRef) (StackConfig, error) {
+	out, err := r.runCapture(ctx, ref.WorkDir, r.env(ref.BackendURL), "config", "--stack", ref.StackName, "--json")
+	if err != nil {
+		return nil, fmt.Errorf("read stack config %s: %w", ref.FullName(), err)
+	}
+	var entries map[string]struct {
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
+	}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		return nil, fmt.Errorf("decode stack config %s: %w", ref.FullName(), err)
+	}
+	config := make(StackConfig, len(entries))
+	for key, entry := range entries {
+		if entry.Secret {
+			return nil, fmt.Errorf("stack %s config %s is secret and cannot be copied to a restore spec", ref.FullName(), key)
+		}
+		if strings.HasPrefix(key, "desktop:") {
+			key = strings.TrimPrefix(key, "desktop:")
+		} else if key != "aws:region" {
+			return nil, fmt.Errorf("stack %s contains unexpected config key %s", ref.FullName(), key)
+		}
+		config[key] = entry.Value
+	}
+	return config, nil
+}
+
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.
 func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progress io.Writer) (map[string]string, error) {
