@@ -92,6 +92,7 @@ type Desktop struct {
 	RestoreSpec          *RestoreSpec   `dynamodbav:"restore_spec,omitempty"   json:"-"`
 	RecreateAVDsOnUnpark bool           `dynamodbav:"recreate_avds_on_unpark,omitempty" json:"-"`
 	ParkOperationToken   string         `dynamodbav:"park_operation_token,omitempty" json:"-"`
+	UnparkOperationToken string         `dynamodbav:"unpark_operation_token,omitempty" json:"-"`
 	WorkspacePath        string         `dynamodbav:"workspace_path,omitempty"  json:"workspace_path,omitempty"`
 	WorkspaceMode        string         `dynamodbav:"workspace_mode,omitempty"  json:"workspace_mode,omitempty"`
 	WorkspaceName        string         `dynamodbav:"workspace_name,omitempty"  json:"workspace_name,omitempty"`
@@ -256,6 +257,21 @@ func (s *InMemoryStore) RecordParkFailure(_ context.Context, id, token, message 
 		return ErrStateConflict
 	}
 	d.State, d.FailurePhase, d.FailureMsg, d.ParkOperationToken = StateFailed, "park", message, ""
+	d.StateVersion++
+	d.UpdatedAt = now()
+	return nil
+}
+
+// RecordUnparkFailure changes state only while the caller owns the restore.
+func (s *InMemoryStore) RecordUnparkFailure(_ context.Context, id, token, message string) error {
+	d, ok := s.records[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if d.State != StateRestoring || d.UnparkOperationToken != token {
+		return ErrStateConflict
+	}
+	d.State, d.FailurePhase, d.FailureMsg, d.UnparkOperationToken = StateFailed, "unpark", message, ""
 	d.StateVersion++
 	d.UpdatedAt = now()
 	return nil

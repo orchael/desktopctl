@@ -158,13 +158,21 @@ func prepareNestedUnparkWith(ctx context.Context, s store.Store, d *store.Deskto
 	if err != nil {
 		return err
 	}
-	if current.State != store.StateRestoring {
+	if current.State != store.StateRestoring || current.UnparkOperationToken != d.UnparkOperationToken {
 		return store.ErrStateConflict
 	}
 	instanceID := current.InstanceID
 	if instanceID == "" {
 		instanceID, err = launch(ctx, params, func(id string) error {
-			return persistPrelaunchedInstance(ctx, s, d.DesktopID, id)
+			owned, err := s.Get(ctx, d.DesktopID)
+			if err != nil {
+				return err
+			}
+			if owned.State != store.StateRestoring || owned.UnparkOperationToken != d.UnparkOperationToken || owned.InstanceID != "" {
+				return store.ErrStateConflict
+			}
+			owned.InstanceID = id
+			return s.Update(ctx, owned)
 		})
 		if err != nil {
 			return fmt.Errorf("prelaunch nested virtualization instance: %w", err)
@@ -173,7 +181,7 @@ func prepareNestedUnparkWith(ctx context.Context, s store.Store, d *store.Deskto
 		if err != nil {
 			return fmt.Errorf("check prelaunched instance %s fleet record: %w", instanceID, err)
 		}
-		if persisted.InstanceID != instanceID || persisted.State != store.StateRestoring {
+		if persisted.InstanceID != instanceID || persisted.State != store.StateRestoring || persisted.UnparkOperationToken != d.UnparkOperationToken {
 			return fmt.Errorf("prelaunched instance %s was not safely recorded in the restoring fleet record: %w", instanceID, store.ErrStateConflict)
 		}
 	}

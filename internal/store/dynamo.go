@@ -428,6 +428,33 @@ func (s *DynamoStore) RecordParkFailure(ctx context.Context, id, token, message 
 	return nil
 }
 
+// RecordUnparkFailure fences stale restore workers after an explicit retry claim.
+func (s *DynamoStore) RecordUnparkFailure(ctx context.Context, id, token, message string) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 map[string]types.AttributeValue{"desktop_id": &types.AttributeValueMemberS{Value: id}},
+		UpdateExpression:    aws.String("SET lifecycle_state = :failed, failure_phase = :phase, failure_message = :message, updated_at = :now REMOVE unpark_operation_token ADD state_version :one"),
+		ConditionExpression: aws.String("lifecycle_state = :restoring AND unpark_operation_token = :token"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":failed":    &types.AttributeValueMemberS{Value: string(StateFailed)},
+			":restoring": &types.AttributeValueMemberS{Value: string(StateRestoring)},
+			":phase":     &types.AttributeValueMemberS{Value: "unpark"},
+			":message":   &types.AttributeValueMemberS{Value: message},
+			":now":       &types.AttributeValueMemberS{Value: now()},
+			":one":       &types.AttributeValueMemberN{Value: "1"},
+			":token":     &types.AttributeValueMemberS{Value: token},
+		},
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrStateConflict
+		}
+		return fmt.Errorf("record unpark failure: %w", err)
+	}
+	return nil
+}
+
 // Transition atomically claims a lifecycle transition across CLI processes.
 func (s *DynamoStore) Transition(ctx context.Context, id string, from, to LifecycleState) error {
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{

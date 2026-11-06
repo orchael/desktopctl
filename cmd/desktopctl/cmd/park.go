@@ -373,6 +373,11 @@ func runUnpark(_ *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	if d.State == store.StateRestoring && unparkRetry {
+		if err := requireStaleLifecycle(d, "unpark", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+	}
 	if d.State != store.StateParked && !(d.State == store.StateFailed && d.FailurePhase == "unpark") && !(d.State == store.StateRestoring && unparkRetry) {
 		return fmt.Errorf("desktop %s is %s; unpark requires parked or a prior failed unpark", id, d.State)
 	}
@@ -420,29 +425,84 @@ func runUnpark(_ *cobra.Command, args []string) error {
 
 func completeUnpark(ctx context.Context, s store.Store, original *store.Desktop, up func() (map[string]string, error), ready func(*store.Desktop) error) error {
 	id := original.DesktopID
+	if original.State == store.StateRestoring {
+		if err := requireStaleLifecycle(original, "unpark", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+	}
+	var tokenBytes [16]byte
+	if _, err := rand.Read(tokenBytes[:]); err != nil {
+		return fmt.Errorf("generate unpark ownership token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes[:])
 	if original.State != store.StateRestoring {
 		if err := s.Transition(ctx, id, original.State, store.StateRestoring); err != nil {
 			return err
 		}
 	}
-	outputs, err := up()
-	if err != nil {
-		_ = s.RecordFailure(ctx, id, "unpark", err.Error())
-		return err
-	}
-	mgr := desktop.NewManager(s)
-	if err := mgr.UpdateFromOutputs(ctx, id, outputs); err != nil {
-		return err
-	}
 	d, err := s.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := ready(d); err != nil {
-		_ = s.RecordFailure(ctx, id, "unpark", err.Error())
+	if d.State != store.StateRestoring || (original.State == store.StateRestoring && d.StateVersion != original.StateVersion) {
+		return store.ErrStateConflict
+	}
+	d.UnparkOperationToken = token
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("claim unpark: %w", err)
+	}
+	*original = *d
+	outputs, err := up()
+	if err != nil {
+		_ = recordUnparkFailure(ctx, s, id, token, err.Error())
 		return err
 	}
-	return mgr.MarkReady(ctx, id, "restored and checked")
+	if err := requireUnparkOwner(ctx, s, id, token); err != nil {
+		return err
+	}
+	mgr := desktop.NewManager(s)
+	if err := mgr.UpdateFromOutputsOwned(ctx, id, outputs, token); err != nil {
+		return err
+	}
+	d, err = s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := ready(d); err != nil {
+		_ = recordUnparkFailure(ctx, s, id, token, err.Error())
+		return err
+	}
+	d, err = s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if d.State != store.StateRestoring || d.UnparkOperationToken != token {
+		return store.ErrStateConflict
+	}
+	d.State, d.Readiness, d.UnparkOperationToken = store.StateReady, "restored and checked", ""
+	d.FailurePhase, d.FailureMsg = "", ""
+	return s.Update(ctx, d)
+}
+
+func requireUnparkOwner(ctx context.Context, s store.Store, id, token string) error {
+	d, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if d.State != store.StateRestoring || d.UnparkOperationToken != token {
+		return store.ErrStateConflict
+	}
+	return nil
+}
+
+func recordUnparkFailure(ctx context.Context, s store.Store, id, token, message string) error {
+	recorder, ok := s.(interface {
+		RecordUnparkFailure(context.Context, string, string, string) error
+	})
+	if !ok {
+		return fmt.Errorf("fleet store lacks fenced unpark failure support")
+	}
+	return recorder.RecordUnparkFailure(ctx, id, token, message)
 }
 
 func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Workspace) error {

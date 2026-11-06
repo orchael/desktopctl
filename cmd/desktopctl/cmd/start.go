@@ -13,6 +13,7 @@ import (
 
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -53,7 +54,7 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 		if err := requireStaleLifecycle(d, "start", 30*time.Minute, time.Now()); err != nil {
 			return err
 		}
-	} else if !(d.State == store.StateFailed && d.FailurePhase == "start" && startRetry) && d.State != store.StateStopped && d.State != store.StateReady {
+	} else if !(d.State == store.StateFailed && (d.FailurePhase == "start" || d.FailurePhase == "resize") && startRetry) && d.State != store.StateStopped && d.State != store.StateReady {
 		return fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
 	}
 
@@ -85,6 +86,15 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	instanceStatus, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
 	if err != nil {
 		return fmt.Errorf("instance status: %w", err)
+	}
+	recoverResize := d.State == store.StateFailed && d.FailurePhase == "resize"
+	if recoverResize {
+		if err := validateResizeRecovery(d, instanceStatus); err != nil {
+			return err
+		}
+		if err := requireBackend(ctx); err != nil {
+			return err
+		}
 	}
 	if d.State != store.StateStarting {
 		d, err = claimAndReadDesktop(ctx, s, d, store.StateStarting)
@@ -178,6 +188,12 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
+	if recoverResize {
+		runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: region}
+		if _, err := runner.RefreshAndUp(ctx, desktopStackRef(d), os.Stderr); err != nil {
+			return fmt.Errorf("reconcile resized desktop stack: %w", err)
+		}
+	}
 	if err := mgr.MarkRunning(ctx, id, "started"); err != nil {
 		return err
 	}
@@ -201,5 +217,18 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
 	fmt.Printf("AMI ID      : %s\n", result["ami_id"])
 	fmt.Printf("Region      : %s\n", result["region"])
+	return nil
+}
+
+func validateResizeRecovery(d *store.Desktop, status *awsx.EC2InstanceStatus) error {
+	if status == nil || (status.State != "running" && status.State != "stopped") {
+		return fmt.Errorf("failed resize recovery requires a running or stopped instance")
+	}
+	if d.InstanceType == "" || status.InstanceType != d.InstanceType {
+		return fmt.Errorf("EC2 instance type %q differs from fleet record %q; inspect failed resize before retry", status.InstanceType, d.InstanceType)
+	}
+	if d.RestoreSpec != nil && d.RestoreSpec.Config["instanceType"] != d.InstanceType {
+		return fmt.Errorf("saved restore instance type differs from fleet record; inspect failed resize before retry")
+	}
 	return nil
 }

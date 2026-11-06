@@ -134,6 +134,47 @@ func TestUnparkFailureRetryAndReadiness(t *testing.T) {
 	}
 }
 
+func TestUnparkRetryCannotOverlapOrFailNewOwner(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d, _ := parkedFixture()
+	d.State = store.StateParked
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
+		active, err := s.Get(ctx, d.DesktopID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := completeUnpark(ctx, s, active, func() (map[string]string, error) {
+			t.Fatal("overlapping restore reached Pulumi")
+			return nil, nil
+		}, nil); err == nil {
+			t.Fatalf("overlapping retry: %v", err)
+		}
+		active, err = s.Get(ctx, d.DesktopID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		active.UnparkOperationToken = "new-owner"
+		if err := s.Update(ctx, active); err != nil {
+			t.Fatal(err)
+		}
+		return nil, errors.New("old worker failed")
+	}, nil)
+	if err == nil {
+		t.Fatal("old worker error lost")
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != store.StateRestoring || current.UnparkOperationToken != "new-owner" {
+		t.Fatalf("stale worker changed new owner: %+v", current)
+	}
+}
+
 func TestParkEligibilityProtectsWorkspaceAndLocalState(t *testing.T) {
 	d, w := parkedFixture()
 	if err := parkEligible(d, w); err != nil {

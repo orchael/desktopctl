@@ -174,9 +174,21 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 
 // UpdateFromOutputs writes Pulumi stack outputs back into the fleet record.
 func (m *Manager) UpdateFromOutputs(ctx context.Context, id string, outputs map[string]string) error {
+	return m.updateFromOutputs(ctx, id, outputs, "", false)
+}
+
+// UpdateFromOutputsOwned refuses to write outputs from a superseded restore.
+func (m *Manager) UpdateFromOutputsOwned(ctx context.Context, id string, outputs map[string]string, token string) error {
+	return m.updateFromOutputs(ctx, id, outputs, token, true)
+}
+
+func (m *Manager) updateFromOutputs(ctx context.Context, id string, outputs map[string]string, token string, owned bool) error {
 	d, err := m.Store.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if owned && (d.State != store.StateRestoring || d.UnparkOperationToken != token) {
+		return store.ErrStateConflict
 	}
 	if v, ok := outputs["instanceId"]; ok {
 		d.InstanceID = v
