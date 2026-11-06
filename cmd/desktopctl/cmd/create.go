@@ -769,6 +769,17 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if !createNoDNS && cfg.DNS.HostedZoneID != "" {
 		stackCfg["zoneId"] = cfg.DNS.HostedZoneID
 	}
+	// Persist the exact launch inputs before the first resource is created. The
+	// cloud-init document refers to Secrets Manager paths and resolves values at
+	// boot; no resolved secret is copied into this specification.
+	bootstrapJSON, err := json.Marshal(bootCfg)
+	if err != nil {
+		return fmt.Errorf("encode restore bootstrap configuration: %w", err)
+	}
+	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON)}
+	for key, value := range stackCfg {
+		req.RestoreSpec.Config[key] = value
+	}
 
 	if createPreview {
 		fmt.Printf("Desktop ID    : %s\n", desktopID)
@@ -933,6 +944,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if lastErr != nil {
 		_ = mgr.RecordFailure(ctx, desktopID, "create", lastErr.Error())
 		return finalizeCreateFailure(ctx, s, ws, workspaceReserved, env, createWorkspaceName, desktopID, lastErr, cleanupErr)
+	}
+	// Spot capacity fallback may have selected a different launch type or subnet
+	// than the first candidate recorded before provisioning.
+	if record, getErr := s.Get(ctx, desktopID); getErr == nil && record.RestoreSpec != nil {
+		record.RestoreSpec.Config["instanceType"] = req.InstanceType
+		record.RestoreSpec.Config["subnetId"] = stackCfg["subnetId"]
+		if err := s.Update(ctx, record); err != nil {
+			return fmt.Errorf("record selected launch settings: %w", err)
+		}
 	}
 
 	if err := mgr.UpdateFromOutputs(ctx, desktopID, outputs); err != nil {

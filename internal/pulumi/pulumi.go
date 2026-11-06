@@ -282,6 +282,42 @@ func (r *Runner) SetConfig(ctx context.Context, ref *StackRef, key, value string
 	return nil
 }
 
+// Config reads the latest successful deployment's plaintext configuration from
+// the backend. Local Pulumi.<stack>.yaml may be absent or stale.
+func (r *Runner) Config(ctx context.Context, ref *StackRef) (StackConfig, error) {
+	out, err := r.runCapture(ctx, ref.WorkDir, r.env(ref.BackendURL), "stack", "history", "--stack", ref.StackName, "--json", "--page-size", "1")
+	if err != nil {
+		return nil, fmt.Errorf("read stack deployment history %s: %w", ref.FullName(), err)
+	}
+	var history []struct {
+		Result string `json:"result"`
+		Config map[string]struct {
+			Value  string `json:"value"`
+			Secret bool   `json:"secret"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(out), &history); err != nil {
+		return nil, fmt.Errorf("decode stack deployment history %s: %w", ref.FullName(), err)
+	}
+	if len(history) != 1 || history[0].Result != "succeeded" {
+		return nil, fmt.Errorf("stack %s has no latest successful deployment", ref.FullName())
+	}
+	entries := history[0].Config
+	config := make(StackConfig, len(entries))
+	for key, entry := range entries {
+		if entry.Secret {
+			return nil, fmt.Errorf("stack %s config %s is secret and cannot be copied to a restore spec", ref.FullName(), key)
+		}
+		if strings.HasPrefix(key, "desktop:") {
+			key = strings.TrimPrefix(key, "desktop:")
+		} else if key != "aws:region" {
+			return nil, fmt.Errorf("stack %s contains unexpected config key %s", ref.FullName(), key)
+		}
+		config[key] = entry.Value
+	}
+	return config, nil
+}
+
 // Up selects (or creates) the stack, applies cfg, runs `pulumi up`, and
 // returns the stack's output map. Progress is streamed to progress if non-nil.
 func (r *Runner) Up(ctx context.Context, ref *StackRef, cfg StackConfig, progress io.Writer) (map[string]string, error) {
@@ -380,6 +416,16 @@ func (r *Runner) FoundationOutputs(ctx context.Context, ref *StackRef, environme
 // interrupted operation, Destroy automatically runs `pulumi cancel` to release
 // the lock and retries the destroy once.
 func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer) error {
+	return r.destroy(ctx, ref, progress, true)
+}
+
+// DestroyNoCancel refuses a locked stack rather than cancelling an operation
+// that may still belong to another desktop lifecycle worker.
+func (r *Runner) DestroyNoCancel(ctx context.Context, ref *StackRef, progress io.Writer) error {
+	return r.destroy(ctx, ref, progress, false)
+}
+
+func (r *Runner) destroy(ctx context.Context, ref *StackRef, progress io.Writer, allowCancel bool) error {
 	env := r.env(ref.BackendURL)
 	out, err := r.runCapture(ctx, ref.WorkDir, env, "stack", "select", ref.StackName)
 	if progress != nil && out != "" {
@@ -393,7 +439,7 @@ func (r *Runner) Destroy(ctx context.Context, ref *StackRef, progress io.Writer)
 	}
 	out, err = r.runCaptureTee(ctx, ref.WorkDir, env, progress, "destroy", "--stack", ref.StackName, "--yes", "--non-interactive", "--color", "never")
 	if err != nil {
-		if strings.Contains(out, "currently locked") {
+		if allowCancel && strings.Contains(out, "currently locked") {
 			if progress != nil {
 				_, _ = fmt.Fprintln(progress, "stack is locked by a previous operation; running pulumi cancel to release lock...")
 			}

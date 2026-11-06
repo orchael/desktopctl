@@ -175,6 +175,9 @@ func (s *Service) RefreshDesktop(ctx context.Context, organizationID, id string)
 	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
+	if d.State == store.StateParking || d.State == store.StateParked || d.State == store.StateRestoring || d.State == store.StateTerminating || d.State == store.StateStarting || d.State == store.StateStopping || d.State == store.StateResizing || d.FailurePhase == "park" || d.FailurePhase == "unpark" {
+		return &DesktopSummary{Desktop: d}, nil
+	}
 	live, err := s.liveInstanceState(ctx, d)
 	if err != nil {
 		return nil, err
@@ -222,10 +225,16 @@ func (s *Service) StopDesktop(ctx context.Context, organizationID, id string) (*
 	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
+	if d.State != store.StateReady && d.State != store.StateUnhealthy {
+		return nil, fmt.Errorf("desktop %q is %s; stop requires ready or unhealthy", id, d.State)
+	}
 	if d.InstanceID == "" {
 		return nil, fmt.Errorf("desktop %q has no instance ID", id)
 	}
 	if err := s.requireAWS(); err != nil {
+		return nil, err
+	}
+	if err := s.store.Transition(ctx, id, d.State, store.StateStopping); err != nil {
 		return nil, err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, s.lifecycleTimeout)
@@ -236,6 +245,7 @@ func (s *Service) StopDesktop(ctx context.Context, organizationID, id string) (*
 		err = awsx.StopInstance(callCtx, s.awsCfg, d.InstanceID)
 	}
 	if err != nil {
+		_ = s.store.RecordFailure(ctx, id, "stop", err.Error())
 		return nil, err
 	}
 	mgr := desktop.NewManager(s.store)
@@ -263,15 +273,25 @@ func (s *Service) StartDesktop(ctx context.Context, organizationID, id string) (
 	if !s.belongsToFleet(d, organizationID) {
 		return nil, store.ErrNotFound
 	}
+	if d.State == store.StateParked {
+		return nil, fmt.Errorf("desktop %q is parked; run desktopctl unpark %s", id, id)
+	}
+	if d.State != store.StateStopped && d.State != store.StateReady {
+		return nil, fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
+	}
 	if d.InstanceID == "" {
 		return nil, fmt.Errorf("desktop %q has no instance ID", id)
 	}
 	if err := s.requireAWS(); err != nil {
 		return nil, err
 	}
+	if err := s.store.Transition(ctx, id, d.State, store.StateStarting); err != nil {
+		return nil, err
+	}
 	callCtx, cancel := context.WithTimeout(ctx, s.lifecycleTimeout)
 	defer cancel()
 	if err := awsx.StartInstance(callCtx, s.awsCfg, d.InstanceID); err != nil {
+		_ = s.store.RecordFailure(ctx, id, "start", err.Error())
 		return nil, err
 	}
 	mgr := desktop.NewManager(s.store)
@@ -357,6 +377,13 @@ func (s *Service) TerminateDesktop(ctx context.Context, organizationID, id strin
 	if err := s.store.MarkTerminated(ctx, id); err != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", fmt.Sprintf("mark terminated after successful destroy: %v", err))
 		return nil, fmt.Errorf("mark terminated: %w", err)
+	}
+	if d.WorkspaceMode == "efs" && d.WorkspaceName != "" {
+		if ws, ok := s.store.(store.WorkspaceStore); ok {
+			if err := ws.DetachWorkspace(ctx, d.Environment, d.WorkspaceName, d.DesktopID); err != nil {
+				return nil, fmt.Errorf("desktop terminated but workspace claim remains: %w", err)
+			}
+		}
 	}
 	updated, err := s.store.Get(ctx, id)
 	if err != nil {

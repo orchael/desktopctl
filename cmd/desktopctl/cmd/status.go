@@ -60,7 +60,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		region = cfg.AWS.Region
 	}
 	costLabel := ""
-	if d.InstanceType != "" {
+	if d.InstanceType != "" && d.InstanceID != "" && d.State != store.StateParked {
 		if awsCfg, err := awsx.LoadConfig(ctx, region, cfg.AWS.Profile); err != nil {
 			costLabel = "unavailable (" + err.Error() + ")"
 		} else {
@@ -174,6 +174,9 @@ func printDesktopStatusWithAgentSecret(w io.Writer, d *store.Desktop, region, li
 	}
 	if d.StoppedAt != "" {
 		fmt.Fprintf(w, "Stopped at   : %s\n", d.StoppedAt)
+	}
+	if d.ParkedAt != "" {
+		fmt.Fprintf(w, "Parked at    : %s\n", d.ParkedAt)
 	}
 	if d.AMIID != "" {
 		fmt.Fprintf(w, "AMI ID       : %s\n", d.AMIID)

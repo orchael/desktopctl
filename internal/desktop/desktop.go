@@ -97,6 +97,7 @@ type CreateRequest struct {
 	WorkspaceMode  string
 	WorkspaceName  string
 	WorkspaceID    string
+	RestoreSpec    *store.RestoreSpec
 }
 
 // Validate checks that the CreateRequest is well-formed.
@@ -160,6 +161,7 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 		WorkspaceMode:  req.WorkspaceMode,
 		WorkspaceName:  req.WorkspaceName,
 		WorkspaceID:    req.WorkspaceID,
+		RestoreSpec:    req.RestoreSpec,
 		Repos:          req.Repos,
 		Secrets:        req.Secrets,
 		TailscaleNet:   req.TailscaleNet,
@@ -172,9 +174,21 @@ func (m *Manager) CreateRecord(ctx context.Context, id string, req *CreateReques
 
 // UpdateFromOutputs writes Pulumi stack outputs back into the fleet record.
 func (m *Manager) UpdateFromOutputs(ctx context.Context, id string, outputs map[string]string) error {
+	return m.updateFromOutputs(ctx, id, outputs, "", false)
+}
+
+// UpdateFromOutputsOwned refuses to write outputs from a superseded restore.
+func (m *Manager) UpdateFromOutputsOwned(ctx context.Context, id string, outputs map[string]string, token string) error {
+	return m.updateFromOutputs(ctx, id, outputs, token, true)
+}
+
+func (m *Manager) updateFromOutputs(ctx context.Context, id string, outputs map[string]string, token string, owned bool) error {
 	d, err := m.Store.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if owned && (d.State != store.StateRestoring || d.UnparkOperationToken != token) {
+		return store.ErrStateConflict
 	}
 	if v, ok := outputs["instanceId"]; ok {
 		d.InstanceID = v
@@ -256,8 +270,10 @@ func (m *Manager) MarkTerminating(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	d.State = store.StateTerminating
-	return m.Store.Update(ctx, d)
+	if d.State == store.StateTerminated || d.State == store.StateTerminating || d.State == store.StateParking || d.State == store.StateRestoring || d.State == store.StateStarting || d.State == store.StateStopping || d.State == store.StateResizing {
+		return fmt.Errorf("desktop %s is %s; cannot terminate during another lifecycle operation", id, d.State)
+	}
+	return m.Store.Transition(ctx, id, d.State, store.StateTerminating)
 }
 
 // AddSecrets appends new secret paths to the desktop record, deduplicating

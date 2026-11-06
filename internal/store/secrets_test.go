@@ -284,9 +284,9 @@ func TestDynamoUpdatePreservesSecretFenceAndPaths(t *testing.T) {
 		name, token, condition string
 		paths                  []string
 	}{
-		{"legacy", "", "attribute_exists(desktop_id) AND attribute_not_exists(secret_operation_token)", []string{"legacy change"}},
-		{"fenced", "B", "attribute_exists(desktop_id) AND secret_operation_token = :token AND secrets = :secrets", []string{"one", "two"}},
-		{"fenced empty", "B", "attribute_exists(desktop_id) AND secret_operation_token = :token AND (attribute_not_exists(secrets) OR secrets = :secrets)", nil},
+		{"legacy", "", "attribute_exists(desktop_id) AND attribute_not_exists(secret_operation_token) AND (attribute_not_exists(state_version) OR state_version = :version)", []string{"legacy change"}},
+		{"fenced", "B", "attribute_exists(desktop_id) AND secret_operation_token = :token AND secrets = :secrets AND (attribute_not_exists(state_version) OR state_version = :version)", []string{"one", "two"}},
+		{"fenced empty", "B", "attribute_exists(desktop_id) AND secret_operation_token = :token AND (attribute_not_exists(secrets) OR secrets = :secrets) AND (attribute_not_exists(state_version) OR state_version = :version)", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &DynamoStore{client: &mockDynamoClient{putFn: func(in *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
@@ -294,7 +294,7 @@ func TestDynamoUpdatePreservesSecretFenceAndPaths(t *testing.T) {
 					t.Fatalf("unsafe update condition: %+v", in)
 				}
 				if tc.token == "" {
-					if len(in.ExpressionAttributeValues) != 0 {
+					if len(in.ExpressionAttributeValues) != 1 {
 						t.Fatalf("legacy values: %+v", in.ExpressionAttributeValues)
 					}
 				} else {

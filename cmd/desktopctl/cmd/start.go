@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
+	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -22,11 +25,14 @@ var startCmd = &cobra.Command{
 	RunE:  runStart,
 }
 
+var startRetry bool
+
 func init() {
+	startCmd.Flags().BoolVar(&startRetry, "retry", false, "resume an interrupted start after confirming the previous process exited")
 	rootCmd.AddCommand(startCmd)
 }
 
-func runStart(cmd *cobra.Command, args []string) error {
+func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	ctx := context.Background()
 	id := args[0]
 
@@ -40,6 +46,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("desktop %q not found", id)
 		}
 		return err
+	}
+	if d.State == store.StateParked {
+		return fmt.Errorf("desktop %q is parked; run `desktopctl unpark %s` to provision a new instance", id, id)
+	}
+	if d.State == store.StateStarting && startRetry {
+		if err := requireStaleLifecycle(d, "start", 30*time.Minute, time.Now()); err != nil {
+			return err
+		}
+	} else if !(d.State == store.StateFailed && (d.FailurePhase == "start" || d.FailurePhase == "resize") && startRetry) && d.State != store.StateStopped && d.State != store.StateReady {
+		return fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
 	}
 
 	if d.InstanceID == "" {
@@ -70,6 +86,40 @@ func runStart(cmd *cobra.Command, args []string) error {
 	instanceStatus, err := awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
 	if err != nil {
 		return fmt.Errorf("instance status: %w", err)
+	}
+	recoverResize := d.State == store.StateFailed && d.FailurePhase == "resize"
+	if recoverResize {
+		if err := validateResizeRecovery(d, instanceStatus); err != nil {
+			return err
+		}
+		if err := requireBackend(ctx); err != nil {
+			return err
+		}
+	}
+	if d.State != store.StateStarting {
+		d, err = claimAndReadDesktop(ctx, s, d, store.StateStarting)
+		if err != nil {
+			return err
+		}
+	} else {
+		d, err = s.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+	}
+	defer func() {
+		if retErr != nil {
+			_ = s.RecordFailure(ctx, id, "start", retErr.Error())
+		}
+	}()
+	if instanceStatus.State == "pending" {
+		if err := ec2.NewInstanceRunningWaiter(ec2.NewFromConfig(awsCfg)).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{d.InstanceID}}, 10*time.Minute); err != nil {
+			return fmt.Errorf("wait for interrupted start: %w", err)
+		}
+		instanceStatus, err = awsx.InstanceStatus(ctx, awsCfg, d.InstanceID)
+		if err != nil {
+			return err
+		}
 	}
 	if instanceStatus.State == "running" {
 		if d.NoDNS {
@@ -138,6 +188,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if recoverResize {
+		runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: region}
+		if _, err := runner.RefreshAndUp(ctx, desktopStackRef(d), os.Stderr); err != nil {
+			return fmt.Errorf("reconcile resized desktop stack: %w", err)
+		}
+	}
 	if err := mgr.MarkRunning(ctx, id, "started"); err != nil {
 		return err
 	}
@@ -161,5 +217,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("SSH target  : %s\n", result["ssh_target"])
 	fmt.Printf("AMI ID      : %s\n", result["ami_id"])
 	fmt.Printf("Region      : %s\n", result["region"])
+	return nil
+}
+
+func validateResizeRecovery(d *store.Desktop, status *awsx.EC2InstanceStatus) error {
+	if status == nil || (status.State != "running" && status.State != "stopped") {
+		return fmt.Errorf("failed resize recovery requires a running or stopped instance")
+	}
+	if d.InstanceType == "" || status.InstanceType != d.InstanceType {
+		return fmt.Errorf("EC2 instance type %q differs from fleet record %q; inspect failed resize before retry", status.InstanceType, d.InstanceType)
+	}
+	if d.RestoreSpec != nil && d.RestoreSpec.Config["instanceType"] != d.InstanceType {
+		return fmt.Errorf("saved restore instance type differs from fleet record; inspect failed resize before retry")
+	}
 	return nil
 }
