@@ -62,6 +62,43 @@ func TestLegacyRestoreRejectsUnknownCloudInit(t *testing.T) {
 	}
 }
 
+func TestLegacyRestoreOptionalSecretSections(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent            string
+		original, current      []string
+		wantAgent, wantDesktop bool
+	}{
+		{name: "neither"},
+		{name: "agent only", agent: "/agent", original: nil, current: []string{"/agent"}, wantAgent: true},
+		{name: "desktop only", original: []string{"/desktop"}, current: []string{"/desktop"}, wantDesktop: true},
+		{name: "secrets added later", current: []string{"/desktop/new"}, wantDesktop: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			boot := &provision.BootstrapConfig{DesktopID: "d-0123abcd", AWSRegion: "us-east-2", AgentSecretPath: tc.agent, DesktopSecretPaths: tc.original}
+			original, err := provision.RenderCloudInit(boot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := gzipBase64UserData(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := &store.Desktop{DesktopID: boot.DesktopID, Region: boot.AWSRegion, Secrets: tc.current, RestoreSpec: &store.RestoreSpec{Version: 2, Config: map[string]string{"userDataBase64": encoded}}}
+			result, err := legacyRestoreConfig(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cloud, err := decodedUserData(result["userDataBase64"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(cloud, legacyAgentMarker) != tc.wantAgent || strings.Contains(cloud, legacyDesktopMarker) != tc.wantDesktop {
+				t.Fatalf("wrong optional sections: agent=%v desktop=%v", strings.Contains(cloud, legacyAgentMarker), strings.Contains(cloud, legacyDesktopMarker))
+			}
+		})
+	}
+}
+
 func TestLegacyCandidateRequiresMatchingFleetAndWorkspace(t *testing.T) {
 	ctx := context.Background()
 	s := store.NewInMemoryStore()

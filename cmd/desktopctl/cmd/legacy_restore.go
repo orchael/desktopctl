@@ -17,6 +17,7 @@ import (
 const (
 	legacyAgentMarker   = "# --- retrieve AI provider API keys and write bridgectl agents.env ---"
 	legacyDesktopMarker = "# --- retrieve desktop secrets and inject into ubuntu environment ---"
+	legacyInsertMarker  = "# --- suppress Claude Code first-run onboarding (blocks non-interactive use) ---"
 	maxLegacyCloudInit  = 1024 * 1024
 )
 
@@ -82,9 +83,9 @@ func legacySection(cloud, marker string) (int, int, error) {
 }
 
 func replaceLegacySection(cloud, generated, marker string) (string, error) {
-	start, end, err := legacySection(cloud, marker)
-	if err != nil {
-		return "", err
+	count := strings.Count(cloud, marker)
+	if count > 1 {
+		return "", fmt.Errorf("cloud-init contains duplicate %q sections", marker)
 	}
 	replacement := ""
 	if strings.Contains(generated, marker) {
@@ -93,6 +94,24 @@ func replaceLegacySection(cloud, generated, marker string) (string, error) {
 			return "", err
 		}
 		replacement = generated[newStart:newEnd]
+	}
+	if count == 0 {
+		if replacement == "" {
+			return cloud, nil
+		}
+		if strings.Count(cloud, legacyInsertMarker) != 1 {
+			return "", fmt.Errorf("cloud-init has no unambiguous secret insertion point")
+		}
+		at := strings.Index(cloud, legacyInsertMarker)
+		start := strings.LastIndex(cloud[:at], "\n") + 1
+		if cloud[start:at] != "  " {
+			return "", fmt.Errorf("cloud-init secret insertion point is not a runcmd comment")
+		}
+		return cloud[:start] + replacement + cloud[start:], nil
+	}
+	start, end, err := legacySection(cloud, marker)
+	if err != nil {
+		return "", err
 	}
 	return cloud[:start] + replacement + cloud[end:], nil
 }
@@ -103,18 +122,27 @@ func legacyRestoreConfig(d *store.Desktop) (pulumi.StackConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := legacySection(cloud, legacyAgentMarker); err != nil {
-		return nil, err
+	if strings.Count(cloud, legacyInsertMarker) != 1 {
+		return nil, fmt.Errorf("cloud-init has no unambiguous secret insertion point")
 	}
-	oldDesktopStart, oldDesktopEnd, err := legacySection(cloud, legacyDesktopMarker)
-	if err != nil {
-		return nil, err
+	oldDesktopStart, oldDesktopEnd := 0, 0
+	if strings.Contains(cloud, legacyDesktopMarker) {
+		oldDesktopStart, oldDesktopEnd, err = legacySection(cloud, legacyDesktopMarker)
+		if err != nil {
+			return nil, err
+		}
 	}
 	agentMatches := legacyAgentPathPattern.FindStringSubmatch(cloud)
-	if len(agentMatches) != 2 {
+	if strings.Contains(cloud, legacyAgentMarker) && len(agentMatches) != 2 {
 		return nil, fmt.Errorf("desktop %s has no unambiguous saved agent secret path", d.DesktopID)
 	}
-	agentPath := agentMatches[1]
+	agentPath := ""
+	if strings.Contains(cloud, legacyAgentMarker) && len(agentMatches) == 2 {
+		agentPath = agentMatches[1]
+	}
+	if agentPath == "" && cfg != nil && containsString(d.Secrets, cfg.GitHub.AgentSecret) {
+		agentPath = cfg.GitHub.AgentSecret
+	}
 	if !containsString(d.Secrets, agentPath) {
 		agentPath = ""
 	}

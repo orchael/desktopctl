@@ -50,6 +50,7 @@ type Service struct {
 	refreshTimeout   time.Duration
 	lifecycleTimeout time.Duration
 	standalone       bool
+	reconcileNested  func(context.Context, *store.Desktop, string) error
 }
 
 // NewService creates a Service. pulumiRunner may be nil; TerminateDesktop and
@@ -63,6 +64,7 @@ func NewService(cfg *appconfig.Config, s store.Store, pulumiRunner PulumiRunner,
 		mockAWS:          mockAWS,
 		refreshTimeout:   refreshTimeout,
 		lifecycleTimeout: lifecycleTimeout,
+		reconcileNested:  desktop.ReconcileNestedInstancesAWS,
 	}
 }
 
@@ -372,6 +374,12 @@ func (s *Service) TerminateDesktop(ctx context.Context, organizationID, id strin
 	if destroyErr := s.pulumiRunner.Destroy(destroyCtx, ref, io.Discard); destroyErr != nil {
 		_ = mgr.RecordFailure(ctx, id, "terminate", destroyErr.Error())
 		return nil, fmt.Errorf("pulumi destroy: %w", destroyErr)
+	}
+	if d.NestedVirt {
+		if err := s.reconcileNested(destroyCtx, d, s.cfg.AWS.Profile); err != nil {
+			_ = mgr.RecordFailure(ctx, id, "terminate", err.Error())
+			return nil, fmt.Errorf("reconcile nested instances: %w", err)
+		}
 	}
 
 	if err := s.store.MarkTerminated(ctx, id); err != nil {

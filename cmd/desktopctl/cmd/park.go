@@ -586,6 +586,7 @@ func waitUnparkReady(ctx context.Context, d *store.Desktop) error {
 			}
 			if host != "" {
 				checkers := health.StandardCheckers(host, 22)
+				checkers = append(checkers, health.NewRequiredBootstrapStatusChecker(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, 20*time.Second))
 				if !d.NoDNS {
 					checkers = append(checkers, health.NoVNCCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath)...)
 				}
@@ -597,7 +598,13 @@ func waitUnparkReady(ctx context.Context, d *store.Desktop) error {
 					checkers = append(checkers, health.AVDRequiredCheckers(host, 22, "ubuntu", cfg.Desktop.SSHKeyPath, d.AVDNames)...)
 				}
 				health.UseSSHHostKeyAlias(checkers, d.InstanceID)
-				if health.NewRunner(d.DesktopID, checkers...).Run(waitCtx).Passed {
+				report := health.NewRunner(d.DesktopID, checkers...).Run(waitCtx)
+				for _, check := range report.Checks {
+					if check.Name == "bootstrap-state" && check.Status == health.StatusFail && strings.HasPrefix(check.Message, "failed with exit code") {
+						return fmt.Errorf("desktop %s bootstrap failed: %s", d.DesktopID, check.Message)
+					}
+				}
+				if report.Passed {
 					return nil
 				}
 			}

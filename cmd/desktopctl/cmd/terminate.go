@@ -170,29 +170,7 @@ func destroyDesktopResources(ctx context.Context, runner createDestroyer, ref *p
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		return fmt.Errorf("pulumi destroy: %w", err)
 	}
-	if d.NestedVirt {
-		ids, err := listInstances(ctx, d.Region, profile, d)
-		if err != nil {
-			return fmt.Errorf("list nested instances for desktop %s: %w", d.DesktopID, err)
-		}
-		seen := make(map[string]bool, len(ids)+1)
-		if d.InstanceID != "" {
-			ids = append(ids, d.InstanceID)
-		}
-		if len(ids) == 0 {
-			return fmt.Errorf("cannot confirm absence of nested instance for desktop %s after unknown launch outcome", d.DesktopID)
-		}
-		for _, id := range ids {
-			if id == "" || seen[id] {
-				continue
-			}
-			seen[id] = true
-			if err := terminateInstance(ctx, d.Region, profile, id); err != nil {
-				return fmt.Errorf("verify nested instance %s terminated: %w", id, err)
-			}
-		}
-	}
-	return nil
+	return desktop.ReconcileNestedInstances(ctx, d, profile, listInstances, terminateInstance)
 }
 
 func listNestedDesktopInstanceIDs(ctx context.Context, region, profile string, d *store.Desktop) ([]string, error) {

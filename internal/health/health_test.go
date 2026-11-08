@@ -94,6 +94,21 @@ func TestInterpretBootstrapStatus(t *testing.T) {
 	}
 }
 
+func TestRequiredBootstrapResultBlocksFailureAndIncompleteBootstrap(t *testing.T) {
+	for _, raw := range []string{
+		`{"state":"failed","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:02:00Z","exit_code":17}`,
+		`{"state":"running","started_at":"2026-09-13T10:00:00Z"}`,
+		`{`,
+	} {
+		if got := requiredBootstrapResult(interpretBootstrapStatus([]byte(raw))); got.Status != StatusFail {
+			t.Fatalf("bootstrap %s should block readiness: %+v", raw, got)
+		}
+	}
+	if got := requiredBootstrapResult(interpretBootstrapStatus([]byte(`{"state":"missing"}`))); got.Status != StatusWarning {
+		t.Fatalf("legacy artifact fallback: %+v", got)
+	}
+}
+
 func TestFnChecker_pass(t *testing.T) {
 	c := NewFnChecker("test-pass", func(ctx context.Context) error {
 		return nil

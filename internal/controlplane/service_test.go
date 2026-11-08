@@ -192,6 +192,42 @@ func TestService_TerminateDesktop_DestroyFails(t *testing.T) {
 	}
 }
 
+func TestService_TerminateDesktop_RetainsWorkspaceUntilPrelaunchGone(t *testing.T) {
+	s := store.NewInMemoryStore()
+	id := seedDesktop(t, s, testOrganizationID, store.StateFailed)
+	d, err := s.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.NestedVirt = true
+	d.WorkspaceMode, d.WorkspaceName = "efs", "work"
+	d.InstanceID = "i-prelaunched"
+	if err := s.Update(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	w := &store.Workspace{Environment: d.Environment, WorkspaceName: "work", State: store.WorkspaceStateAttached, AttachedDesktopID: id}
+	if err := s.CreateWorkspace(context.Background(), w); err != nil {
+		t.Fatal(err)
+	}
+	svc := newServiceWithRunner(lifecycleTestConfig(), s, &mockPulumiRunner{})
+	svc.reconcileNested = func(_ context.Context, got *store.Desktop, _ string) error {
+		if got.InstanceID != "i-prelaunched" {
+			t.Fatalf("missing recorded prelaunch: %+v", got)
+		}
+		return errors.New("prelaunched instance still running")
+	}
+	if _, err := svc.TerminateDesktop(context.Background(), testOrganizationID, id); err == nil {
+		t.Fatal("termination released active workspace")
+	}
+	current, err := s.GetWorkspace(context.Background(), d.Environment, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.AttachedDesktopID != id {
+		t.Fatal("workspace claim lost while instance exists")
+	}
+}
+
 func TestService_CreateDesktop_NoPulumiRunner(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(lifecycleTestConfig(), store.NewInMemoryStore())

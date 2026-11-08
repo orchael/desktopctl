@@ -335,16 +335,25 @@ type bootstrapStatus struct {
 // artifact written by cloud-init. Missing artifacts remain compatible with
 // desktops created before lifecycle reporting was introduced.
 type BootstrapStatusChecker struct {
-	host         string
-	port         int
-	user         string
-	keyPath      string
-	timeout      time.Duration
-	hostKeyAlias string
+	host           string
+	port           int
+	user           string
+	keyPath        string
+	timeout        time.Duration
+	hostKeyAlias   string
+	requireSuccess bool
 }
 
 func NewBootstrapStatusChecker(host string, port int, user, keyPath string, timeout time.Duration) *BootstrapStatusChecker {
 	return &BootstrapStatusChecker{host: host, port: port, user: user, keyPath: keyPath, timeout: timeout}
+}
+
+// NewRequiredBootstrapStatusChecker is used when restore readiness must wait
+// for bootstrap to finish. Missing artifacts remain a legacy-image fallback.
+func NewRequiredBootstrapStatusChecker(host string, port int, user, keyPath string, timeout time.Duration) *BootstrapStatusChecker {
+	c := NewBootstrapStatusChecker(host, port, user, keyPath, timeout)
+	c.requireSuccess = true
+	return c
 }
 
 func (c *BootstrapStatusChecker) Name() string { return "bootstrap-state" }
@@ -379,7 +388,18 @@ func (c *BootstrapStatusChecker) Run(ctx context.Context) CheckResult {
 		}
 		return CheckResult{Name: c.Name(), Status: StatusFail, Message: message}
 	}
-	return interpretBootstrapStatus(out)
+	result := interpretBootstrapStatus(out)
+	if c.requireSuccess {
+		result = requiredBootstrapResult(result)
+	}
+	return result
+}
+
+func requiredBootstrapResult(result CheckResult) CheckResult {
+	if result.Status == StatusWarning && result.Message != "status artifact missing (desktop may predate lifecycle reporting)" {
+		result.Status = StatusFail
+	}
+	return result
 }
 
 func bootstrapStatusCommand() string {
