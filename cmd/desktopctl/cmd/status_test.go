@@ -73,6 +73,21 @@ func TestParseNoVNCOutput(t *testing.T) {
 	}
 }
 
+func TestNoVNCSSHArgsUseInstanceHostKeyAlias(t *testing.T) {
+	d := &store.Desktop{InstanceID: "i-new123", SSHTarget: "ubuntu@d-abc123.example.com"}
+	args := noVNCSSHArgs(d, "/tmp/test-key")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-o HostKeyAlias=i-new123") {
+		t.Errorf("SSH args do not bind host key to replacement instance: %q", joined)
+	}
+	if !strings.Contains(joined, "-o StrictHostKeyChecking=accept-new") {
+		t.Errorf("SSH args do not verify host key: %q", joined)
+	}
+	if !strings.HasSuffix(joined, "-- ubuntu@d-abc123.example.com novnc-desktop-url") {
+		t.Errorf("SSH args have wrong target or command: %q", joined)
+	}
+}
+
 func TestUpdateDesktopFromPulumiOutputs(t *testing.T) {
 	d := &store.Desktop{
 		Hostname:  "old.example.com",
