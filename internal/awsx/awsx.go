@@ -410,6 +410,10 @@ func InstanceState(ctx context.Context, cfg aws.Config, instanceID string) (stri
 type EC2InstanceStatus struct {
 	State                 string
 	ImageID               string
+	InstanceType          string
+	SubnetID              string
+	SecurityGroupIDs      []string
+	NestedVirtualization  string
 	PublicIP              string
 	StateTransitionReason string
 	InstanceLifecycle     string
@@ -431,10 +435,18 @@ func InstanceStatus(ctx context.Context, cfg aws.Config, instanceID string) (*EC
 	inst := out.Reservations[0].Instances[0]
 	status := &EC2InstanceStatus{
 		ImageID:               aws.ToString(inst.ImageId),
+		InstanceType:          string(inst.InstanceType),
+		SubnetID:              aws.ToString(inst.SubnetId),
 		PublicIP:              aws.ToString(inst.PublicIpAddress),
 		StateTransitionReason: aws.ToString(inst.StateTransitionReason),
 		InstanceLifecycle:     string(inst.InstanceLifecycle),
 		SpotInstanceRequestID: aws.ToString(inst.SpotInstanceRequestId),
+	}
+	for _, group := range inst.SecurityGroups {
+		status.SecurityGroupIDs = append(status.SecurityGroupIDs, aws.ToString(group.GroupId))
+	}
+	if inst.CpuOptions != nil {
+		status.NestedVirtualization = string(inst.CpuOptions.NestedVirtualization)
 	}
 	state := inst.State
 	if state == nil {

@@ -94,6 +94,21 @@ func TestInterpretBootstrapStatus(t *testing.T) {
 	}
 }
 
+func TestRequiredBootstrapResultBlocksFailureAndIncompleteBootstrap(t *testing.T) {
+	for _, raw := range []string{
+		`{"state":"failed","started_at":"2026-09-13T10:00:00Z","finished_at":"2026-09-13T10:02:00Z","exit_code":17}`,
+		`{"state":"running","started_at":"2026-09-13T10:00:00Z"}`,
+		`{`,
+	} {
+		if got := requiredBootstrapResult(interpretBootstrapStatus([]byte(raw))); got.Status != StatusFail {
+			t.Fatalf("bootstrap %s should block readiness: %+v", raw, got)
+		}
+	}
+	if got := requiredBootstrapResult(interpretBootstrapStatus([]byte(`{"state":"missing"}`))); got.Status != StatusWarning {
+		t.Fatalf("legacy artifact fallback: %+v", got)
+	}
+}
+
 func TestFnChecker_pass(t *testing.T) {
 	c := NewFnChecker("test-pass", func(ctx context.Context) error {
 		return nil
@@ -261,6 +276,21 @@ func TestSSHChecker_skippedWhenNoKey(t *testing.T) {
 	result := c.Run(context.Background())
 	if result.Status != StatusSkipped {
 		t.Errorf("expected skipped when keyPath is empty, got %q", result.Status)
+	}
+}
+
+func TestRestoreSSHCheckersUseInstanceHostKeyAlias(t *testing.T) {
+	checkers := []Checker{
+		NewSSHChecker("required", "desktop.example.test", 22, "ubuntu", "key", "true", time.Second),
+		NewBootstrapStatusChecker("desktop.example.test", 22, "ubuntu", "key", time.Second),
+		NewSSHOptionalChecker("optional", "desktop.example.test", 22, "ubuntu", "key", "true", "skip", "true", time.Second),
+	}
+	UseSSHHostKeyAlias(checkers, "i-replacement")
+	if checkers[0].(*SSHChecker).hostKeyAlias != "i-replacement" || checkers[1].(*BootstrapStatusChecker).hostKeyAlias != "i-replacement" || checkers[2].(*SSHOptionalChecker).hostKeyAlias != "i-replacement" {
+		t.Fatal("one or more SSH checkers still use the old hostname host-key identity")
+	}
+	if got := sshHostKeyAliasArgs("i-replacement"); len(got) != 2 || got[1] != "HostKeyAlias=i-replacement" {
+		t.Fatalf("wrong host-key alias arguments: %v", got)
 	}
 }
 
@@ -552,6 +582,18 @@ func TestAVDCheckers_nilWhenEmpty(t *testing.T) {
 	checkers := AVDCheckers("d-001.desktops.orchael.dev", 22, "ubuntu", "", nil)
 	if checkers != nil {
 		t.Errorf("expected nil for empty AVD names, got %d checkers", len(checkers))
+	}
+}
+
+func TestAVDRestoreCheckersAreRequired(t *testing.T) {
+	checkers := AVDRequiredCheckers("desktop.example.test", 22, "ubuntu", "key", []string{"pixel_7_phone", "pixel_tablet"})
+	if len(checkers) != 3 {
+		t.Fatalf("got %d AVD restore checks", len(checkers))
+	}
+	for _, checker := range checkers {
+		if _, ok := checker.(*SSHChecker); !ok {
+			t.Fatalf("AVD restore check %q could skip a missing SDK", checker.Name())
+		}
 	}
 }
 

@@ -65,6 +65,48 @@ func TestStackHasResource(t *testing.T) {
 	}
 }
 
+func TestReadDesktopConfigRejectsSecretValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		wantErr      bool
+	}{
+		{"plain values", `[{"result":"succeeded","config":{"aws:region":{"value":"us-east-2","secret":false},"desktop:desktopId":{"value":"d-1","secret":false}}}]`, false},
+		{"secret value", `[{"result":"succeeded","config":{"desktop:userDataBase64":{"value":"private","secret":true}}}]`, true},
+		{"unexpected namespace", `[{"result":"succeeded","config":{"other:token":{"value":"private","secret":false}}}]`, true},
+		{"failed latest update", `[{"result":"failed","config":{"desktop:desktopId":{"value":"d-1"}}}]`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakePulumiDir(t, 0, tc.output)
+			ref := DesktopStackRef("s3://bucket", "d-1", t.TempDir())
+			got, err := NewRunner().Config(context.Background(), ref)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Config error = %v, want error %v", err, tc.wantErr)
+			}
+			if !tc.wantErr && (got["desktopId"] != "d-1" || got["aws:region"] != "us-east-2") {
+				t.Fatalf("wrong normalized config: %#v", got)
+			}
+		})
+	}
+}
+
+func TestDestroyNoCancelPreservesPulumiLock(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "pulumi")
+	marker := filepath.Join(dir, "cancelled")
+	script := "#!/bin/sh\nif [ \"$1\" = stack ]; then exit 0; fi\nif [ \"$1\" = destroy ]; then echo 'currently locked'; exit 1; fi\nif [ \"$1\" = cancel ]; then touch '" + marker + "'; exit 0; fi\nexit 1\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ref := DesktopStackRef("s3://bucket", "d-1", dir)
+	if err := NewRunner().DestroyNoCancel(context.Background(), ref, nil); err == nil {
+		t.Fatal("locked destroy was accepted")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("locked park cancelled another Pulumi operation")
+	}
+}
+
 func TestDesktopStackRef(t *testing.T) {
 	ref := DesktopStackRef("s3://my-bucket", "d-001abc", "/infra/pulumi/desktop")
 	if ref.StackName != "desktop-d-001abc" {

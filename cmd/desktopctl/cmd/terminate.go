@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -83,18 +84,37 @@ func runTerminate(cmd *cobra.Command, args []string) error {
 	if !terminateForce && (d.State == store.StateFailed || d.State == store.StateProvisioningFailed) {
 		return fmt.Errorf("desktop %q is in state %q; use --force to terminate anyway", id, d.State)
 	}
+	if err := requireBackend(ctx); err != nil {
+		return err
+	}
 
 	mgr := desktop.NewManager(s)
-	if err := mgr.MarkTerminating(ctx, id); err != nil {
-		return err
+	switch d.State {
+	case store.StateTerminating:
+		if !terminateForce {
+			return fmt.Errorf("desktop %s termination is in progress; use --force only after it is stale", id)
+		}
+		if err := requireStaleLifecycle(d, "terminate", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+	case store.StateStarting, store.StateStopping, store.StateResizing:
+		if !terminateForce {
+			return fmt.Errorf("desktop %s is %s; use --force after the prior operation has ended", id, d.State)
+		}
+		if err := requireStaleLifecycle(d, string(d.State), 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
+		if err := s.Transition(ctx, id, d.State, store.StateTerminating); err != nil {
+			return err
+		}
+	default:
+		if err := mgr.MarkTerminating(ctx, id); err != nil {
+			return err
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "Terminating desktop %s (stack %s) ...\n", id, d.StackName)
 	fmt.Fprintln(os.Stderr, terminateWarning(d))
-
-	if err := requireBackend(ctx); err != nil {
-		return err
-	}
 
 	backendURL := "s3://" + cfg.Pulumi.BackendBucket
 	workDir := filepath.Join(cfg.Pulumi.InfraDir, "infra", "pulumi", "desktop")
@@ -150,29 +170,7 @@ func destroyDesktopResources(ctx context.Context, runner createDestroyer, ref *p
 	if err := runner.Destroy(ctx, ref, os.Stderr); err != nil {
 		return fmt.Errorf("pulumi destroy: %w", err)
 	}
-	if d.NestedVirt {
-		ids, err := listInstances(ctx, d.Region, profile, d)
-		if err != nil {
-			return fmt.Errorf("list nested instances for desktop %s: %w", d.DesktopID, err)
-		}
-		seen := make(map[string]bool, len(ids)+1)
-		if d.InstanceID != "" {
-			ids = append(ids, d.InstanceID)
-		}
-		if len(ids) == 0 {
-			return fmt.Errorf("cannot confirm absence of nested instance for desktop %s after unknown launch outcome", d.DesktopID)
-		}
-		for _, id := range ids {
-			if id == "" || seen[id] {
-				continue
-			}
-			seen[id] = true
-			if err := terminateInstance(ctx, d.Region, profile, id); err != nil {
-				return fmt.Errorf("verify nested instance %s terminated: %w", id, err)
-			}
-		}
-	}
-	return nil
+	return desktop.ReconcileNestedInstances(ctx, d, profile, listInstances, terminateInstance)
 }
 
 func listNestedDesktopInstanceIDs(ctx context.Context, region, profile string, d *store.Desktop) ([]string, error) {

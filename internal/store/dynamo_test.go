@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -396,6 +397,20 @@ func TestDynamoStore_RecordFailure_Success(t *testing.T) {
 	s := &DynamoStore{client: mock, tableName: "fleet"}
 	if err := s.RecordFailure(context.Background(), "d-fail-001", "pulumi-up", "timed out"); err != nil {
 		t.Fatalf("RecordFailure: %v", err)
+	}
+}
+
+func TestDynamoStore_RecordParkFailureRequiresOwnership(t *testing.T) {
+	mock := &mockDynamoClient{updateFn: func(input *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+		condition := aws.ToString(input.ConditionExpression)
+		if !strings.Contains(condition, "park_operation_token = :token") || !strings.Contains(condition, "lifecycle_state = :parking") {
+			t.Fatalf("park failure write is not fenced: %s", condition)
+		}
+		return nil, &types.ConditionalCheckFailedException{}
+	}}
+	s := &DynamoStore{client: mock, tableName: "fleet"}
+	if err := s.RecordParkFailure(context.Background(), "d-1", "owner-token", "failure"); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("stale park failure returned %v", err)
 	}
 }
 

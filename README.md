@@ -728,7 +728,7 @@ desktopctl create \
 Each environment has one shared encrypted EFS file system with AWS Backup
 enabled by default. Named workspaces are isolated with EFS access points. A
 workspace can be attached to only one non-terminated desktop at a time; stopped
-desktops keep the attachment lock. `terminate` releases the lock but always
+and parked desktops keep the attachment lock. `terminate` releases the lock but always
 retains the EFS workspace until `desktopctl workspace delete <name>` is run.
 To change the repo set for a retained workspace, first detach or terminate the
 desktop, then update the workspace metadata:
@@ -961,6 +961,14 @@ desktopctl start d-a1b2c3d4
 ```
 
 `stop` hibernates the instance — the kernel writes RAM to the encrypted root EBS volume, then the instance stops. `start` resumes it; running processes continue from where they left off. Resume typically takes 30–60 seconds.
+
+For an EFS-backed desktop that will be idle longer, preview with
+`desktopctl park <id> --dry-run`, then run `desktopctl park <id>` and later
+`desktopctl unpark <id>`.
+Parking deletes the instance and root EBS volume while keeping `/workspace`
+and the workspace claim. RAM, home-directory state, and other files outside
+`/workspace` are lost; unpark provisions a new instance using the saved launch
+settings. See [parking and recovery](docs/PARKING.md).
 
 ### 14. Terminate
 

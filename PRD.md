@@ -118,6 +118,8 @@ its own lifecycle and may survive desktop termination.
 | FR-1.6 | Fleet listing must hide terminated desktop records by default while allowing operators to include them explicitly. |
 | FR-1.7 | Operators must be able to preview and purge terminated desktop records from fleet metadata. |
 | FR-1.8 | Desktops must support an optional human-readable name that is unique within the selected environment. |
+| FR-1.9 | Operators may park an eligible EFS desktop after a read-only preview and explicit confirmation; listing and status must expose `parked` without treating it as a hibernated `stopped` desktop. |
+| FR-1.10 | `unpark` must restore the same logical desktop ID and name on a new EC2 instance; `start` must direct parked desktops to `unpark`. |
 
 **Acceptance criteria:**
 
@@ -133,6 +135,8 @@ its own lifecycle and may survive desktop termination.
 | AC-1.8 | `create` without `--github-owner` fails with a clear error message | `TestFR1_CreateRejectsWithoutOwner` |
 | AC-1.9 | `desktopctl list --all` includes terminated desktop records | Unit and manual CLI verification |
 | AC-1.10 | `desktopctl purge --dry-run` previews terminated records without deleting them | Unit and manual CLI verification |
+| AC-1.11 | `desktopctl park <id> --dry-run` shows the instance, root volume ID and size, EFS workspace, and discarded local state without a fleet write | Unit and live validation |
+| AC-1.12 | `desktopctl list` and `desktopctl status <id>` show `parked`; `start <id>` directs the operator to `unpark` | Unit and live validation |
 | AC-1.11 | `desktopctl purge` deletes terminated records and reports the number deleted | Unit and manual CLI verification |
 | AC-1.12 | `desktopctl create --name orchael-factory-dev --preview` records and displays the requested desktop name without changing the generated `desktop_id` contract | Unit and manual CLI verification |
 
@@ -260,6 +264,9 @@ its own lifecycle and may survive desktop termination.
 | FR-7.9 | The default workspace storage mode must remain local root EBS at `/workspace`; EFS-backed `/workspace` must be opt-in. |
 | FR-7.10 | When a desktop is created with an EFS workspace, `/workspace` must be mounted from the selected EFS access point or directory before repository checkout and readiness checks run. |
 | FR-7.11 | Terminating a desktop attached to an EFS workspace must destroy desktop compute resources without deleting the separately managed EFS file system or workspace directory unless the operator explicitly requests workspace deletion. |
+| FR-7.12 | An EFS desktop may be parked: its instance and root EBS volume are removed, while the logical desktop record and exclusive EFS workspace claim remain. RAM and all machine-local state are discarded. |
+| FR-7.13 | Unparking must use a versioned, non-secret copy of the original launch settings, provision a new instance with the same logical desktop ID and EFS workspace, and report ready only after host and workspace checks pass. |
+| FR-7.14 | EFS desktops with disposable AVDs may park only after explicit consent to discard guest state; unpark must recreate the configured AVDs on an appropriately configured replacement instance. |
 
 **Acceptance criteria:**
 
@@ -274,6 +281,10 @@ its own lifecycle and may survive desktop termination.
 | AC-7.7 | Resize validation rejects empty, unchanged, Spot, and nested-virtualization-incompatible target instance types | Unit tests |
 | AC-7.8 | `desktopctl create --workspace-mode local --preview` keeps `/workspace` on the desktop root EBS volume | Unit/smoke help verification |
 | AC-7.9 | `desktopctl create --workspace-mode efs --workspace-name orchael-factory-dev --preview` configures `/workspace` as an EFS mount and preserves the named workspace after desktop termination | Unit and live acceptance |
+| AC-7.10 | `park --dry-run` names the exact root volume and EFS workspace without a write; park rejects local workspaces and requires `--recreate-avds` for desktops with disposable AVDs | Unit and live validation |
+| AC-7.13 | An EFS desktop with saved AVD definitions may opt in to discard device data; unpark recreates the AVDs on a replacement instance with nested virtualization enabled and checks their presence before reporting ready | Unit and live validation |
+| AC-7.11 | Park confirms root volume deletion before setting `parked`; unpark retains the logical ID and EFS data but uses a new EC2 instance | Unit and live validation |
+| AC-7.12 | Terminating a parked desktop releases its workspace claim without deleting EFS data | Unit and live validation |
 
 ### FR-8 — External access posture
 
@@ -505,6 +516,11 @@ The PRD requires persistent desktops, but persistence must be defined at the inf
 The default architecture treats the EC2 instance plus its root EBS volume as the persisted desktop
 unit. Stop hibernates the instance, saving RAM to the encrypted root volume; start resumes it.
 Terminate destroys the instance and volume unless snapshot support is explicitly added later.
+For an EFS desktop, `park` also destroys that instance and volume but retains the logical
+desktop record in `parked` and keeps the workspace claim. `unpark` recreates compute from
+the saved launch settings and remounts `/workspace`. It has the startup time of a new
+instance, unlike `start`, and does not recover RAM, the home directory, packages installed
+after the AMI was built, or other files outside `/workspace`.
 
 EC2 hibernation requires two immutable launch-time settings: `Hibernation: true` and an encrypted root EBS volume. These cannot be enabled on existing instances. The desktop Pulumi stack sets both unconditionally. Operators must recreate existing desktops to gain hibernation support.
 

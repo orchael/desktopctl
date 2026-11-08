@@ -4,6 +4,7 @@
 - [Architecture and repository boundary](ARCHITECTURE.md)
 - [Provisioning worker contract](PROVISIONING_CONTRACT.md)
 - [CLI reference](desktopctl.md)
+- [Parking and restoring an EFS desktop](PARKING.md)
 - [Desktop profiles](DESKTOP_PROFILES.md)
 - [AWS operator permissions](AWS_OPERATOR_IAM.md)
 - [Fresh ca-central-1 setup and SSH smoke test](CA_CENTRAL_MIGRATION.md)

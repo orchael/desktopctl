@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -56,7 +57,8 @@ func (s *DynamoStore) Get(ctx context.Context, id string) (*Desktop, error) {
 		return nil, ErrNotFound
 	}
 	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(s.tableName),
+		TableName:      aws.String(s.tableName),
+		ConsistentRead: aws.Bool(true),
 		Key: map[string]types.AttributeValue{
 			"desktop_id": &types.AttributeValueMemberS{Value: id},
 		},
@@ -341,8 +343,11 @@ func (s *DynamoStore) DetachWorkspace(ctx context.Context, environment, name, de
 }
 
 func (s *DynamoStore) Update(ctx context.Context, d *Desktop) error {
-	d.UpdatedAt = now()
-	item, err := attributevalue.MarshalMap(d)
+	previousVersion := d.StateVersion
+	updated := *d
+	updated.StateVersion++
+	updated.UpdatedAt = now()
+	item, err := attributevalue.MarshalMap(&updated)
 	if err != nil {
 		return fmt.Errorf("marshal desktop record: %w", err)
 	}
@@ -350,21 +355,26 @@ func (s *DynamoStore) Update(ctx context.Context, d *Desktop) error {
 	// list. Once secret coordination starts, only CommitSecretOperation may
 	// change paths; ordinary updates may still change unrelated desktop fields.
 	condition := "attribute_exists(desktop_id) AND attribute_not_exists(secret_operation_token)"
-	var values map[string]types.AttributeValue
+	values := map[string]types.AttributeValue{}
+	versionCondition := "state_version = :version"
+	if previousVersion == 0 {
+		versionCondition = "(attribute_not_exists(state_version) OR state_version = :version)"
+	}
+	values[":version"] = &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", previousVersion)}
 	if d.SecretOperationToken != "" {
 		paths := make([]types.AttributeValue, len(d.Secrets))
 		for i, path := range d.Secrets {
 			paths[i] = &types.AttributeValueMemberS{Value: path}
 		}
-		values = map[string]types.AttributeValue{
-			":token":   &types.AttributeValueMemberS{Value: d.SecretOperationToken},
-			":secrets": &types.AttributeValueMemberL{Value: paths},
-		}
-		condition = "attribute_exists(desktop_id) AND secret_operation_token = :token AND secrets = :secrets"
+		values[":token"] = &types.AttributeValueMemberS{Value: d.SecretOperationToken}
+		values[":secrets"] = &types.AttributeValueMemberL{Value: paths}
+		secretCondition := "secret_operation_token = :token AND secrets = :secrets"
 		if len(d.Secrets) == 0 {
-			condition = "attribute_exists(desktop_id) AND secret_operation_token = :token AND (attribute_not_exists(secrets) OR secrets = :secrets)"
+			secretCondition = "secret_operation_token = :token AND (attribute_not_exists(secrets) OR secrets = :secrets)"
 		}
+		condition = "attribute_exists(desktop_id) AND " + secretCondition
 	}
+	condition += " AND " + versionCondition
 	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:                           aws.String(s.tableName),
 		Item:                                item,
@@ -376,11 +386,127 @@ func (s *DynamoStore) Update(ctx context.Context, d *Desktop) error {
 		var cce *types.ConditionalCheckFailedException
 		if errors.As(err, &cce) {
 			if len(cce.Item) != 0 {
+				var current Desktop
+				if unmarshalErr := attributevalue.UnmarshalMap(cce.Item, &current); unmarshalErr == nil && current.SecretOperationToken == d.SecretOperationToken && (current.SecretOperationToken == "" || slices.Equal(current.Secrets, d.Secrets)) {
+					return ErrStateConflict
+				}
 				return ErrSecretOperationChanged
 			}
 			return ErrNotFound
 		}
 		return fmt.Errorf("update desktop record: %w", err)
+	}
+	d.StateVersion = updated.StateVersion
+	d.UpdatedAt = updated.UpdatedAt
+	return nil
+}
+
+// RecordParkFailure fences stale park workers after an explicit retry claim.
+func (s *DynamoStore) RecordParkFailure(ctx context.Context, id, token, message string) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 map[string]types.AttributeValue{"desktop_id": &types.AttributeValueMemberS{Value: id}},
+		UpdateExpression:    aws.String("SET lifecycle_state = :failed, failure_phase = :phase, failure_message = :message, updated_at = :now REMOVE park_operation_token ADD state_version :one"),
+		ConditionExpression: aws.String("lifecycle_state = :parking AND park_operation_token = :token"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":failed":  &types.AttributeValueMemberS{Value: string(StateFailed)},
+			":parking": &types.AttributeValueMemberS{Value: string(StateParking)},
+			":phase":   &types.AttributeValueMemberS{Value: "park"},
+			":message": &types.AttributeValueMemberS{Value: message},
+			":now":     &types.AttributeValueMemberS{Value: now()},
+			":one":     &types.AttributeValueMemberN{Value: "1"},
+			":token":   &types.AttributeValueMemberS{Value: token},
+		},
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrStateConflict
+		}
+		return fmt.Errorf("record park failure: %w", err)
+	}
+	return nil
+}
+
+// RecordUnparkFailure fences stale restore workers after an explicit retry claim.
+func (s *DynamoStore) RecordUnparkFailure(ctx context.Context, id, token, message string) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 map[string]types.AttributeValue{"desktop_id": &types.AttributeValueMemberS{Value: id}},
+		UpdateExpression:    aws.String("SET lifecycle_state = :failed, failure_phase = :phase, failure_message = :message, updated_at = :now REMOVE unpark_operation_token ADD state_version :one"),
+		ConditionExpression: aws.String("lifecycle_state = :restoring AND unpark_operation_token = :token"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":failed":    &types.AttributeValueMemberS{Value: string(StateFailed)},
+			":restoring": &types.AttributeValueMemberS{Value: string(StateRestoring)},
+			":phase":     &types.AttributeValueMemberS{Value: "unpark"},
+			":message":   &types.AttributeValueMemberS{Value: message},
+			":now":       &types.AttributeValueMemberS{Value: now()},
+			":one":       &types.AttributeValueMemberN{Value: "1"},
+			":token":     &types.AttributeValueMemberS{Value: token},
+		},
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrStateConflict
+		}
+		return fmt.Errorf("record unpark failure: %w", err)
+	}
+	return nil
+}
+
+func (s *DynamoStore) RecordLifecycleFailure(ctx context.Context, id, token, phase, message string) error {
+	want := StateStarting
+	if phase == "stop" {
+		want = StateStopping
+	} else if phase != "start" {
+		return ErrStateConflict
+	}
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 map[string]types.AttributeValue{"desktop_id": &types.AttributeValueMemberS{Value: id}},
+		UpdateExpression:    aws.String("SET lifecycle_state = :failed, failure_phase = :phase, failure_message = :message, updated_at = :now REMOVE lifecycle_operation_token ADD state_version :one"),
+		ConditionExpression: aws.String("lifecycle_state = :current AND lifecycle_operation_token = :token"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":failed":  &types.AttributeValueMemberS{Value: string(StateFailed)},
+			":current": &types.AttributeValueMemberS{Value: string(want)},
+			":phase":   &types.AttributeValueMemberS{Value: phase},
+			":message": &types.AttributeValueMemberS{Value: message},
+			":now":     &types.AttributeValueMemberS{Value: now()},
+			":one":     &types.AttributeValueMemberN{Value: "1"},
+			":token":   &types.AttributeValueMemberS{Value: token},
+		},
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrStateConflict
+		}
+		return fmt.Errorf("record lifecycle failure: %w", err)
+	}
+	return nil
+}
+
+// Transition atomically claims a lifecycle transition across CLI processes.
+func (s *DynamoStore) Transition(ctx context.Context, id string, from, to LifecycleState) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 map[string]types.AttributeValue{"desktop_id": &types.AttributeValueMemberS{Value: id}},
+		UpdateExpression:    aws.String("SET lifecycle_state = :next, updated_at = :now ADD state_version :one"),
+		ConditionExpression: aws.String("lifecycle_state = :previous"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":previous": &types.AttributeValueMemberS{Value: string(from)},
+			":next":     &types.AttributeValueMemberS{Value: string(to)},
+			":now":      &types.AttributeValueMemberS{Value: now()},
+			":one":      &types.AttributeValueMemberN{Value: "1"},
+		},
+	})
+	if err != nil {
+		var cce *types.ConditionalCheckFailedException
+		if errors.As(err, &cce) {
+			return ErrStateConflict
+		}
+		return fmt.Errorf("transition desktop: %w", err)
 	}
 	return nil
 }
@@ -410,10 +536,11 @@ func (s *DynamoStore) MarkTerminated(ctx context.Context, id string) error {
 		Key: map[string]types.AttributeValue{
 			"desktop_id": &types.AttributeValueMemberS{Value: id},
 		},
-		UpdateExpression: aws.String("SET lifecycle_state = :s, updated_at = :t"),
+		UpdateExpression: aws.String("SET lifecycle_state = :s, updated_at = :t ADD state_version :one"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":s": &types.AttributeValueMemberS{Value: string(StateTerminated)},
-			":t": &types.AttributeValueMemberS{Value: ts},
+			":s":   &types.AttributeValueMemberS{Value: string(StateTerminated)},
+			":t":   &types.AttributeValueMemberS{Value: ts},
+			":one": &types.AttributeValueMemberN{Value: "1"},
 		},
 		ConditionExpression: aws.String("attribute_exists(desktop_id)"),
 	})
@@ -434,14 +561,13 @@ func (s *DynamoStore) RecordFailure(ctx context.Context, id, phase, message stri
 		Key: map[string]types.AttributeValue{
 			"desktop_id": &types.AttributeValueMemberS{Value: id},
 		},
-		UpdateExpression: aws.String(
-			"SET lifecycle_state = :s, failure_phase = :p, failure_message = :m, updated_at = :t",
-		),
+		UpdateExpression: aws.String("SET lifecycle_state = :s, failure_phase = :p, failure_message = :m, updated_at = :t ADD state_version :one"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":s": &types.AttributeValueMemberS{Value: string(StateFailed)},
-			":p": &types.AttributeValueMemberS{Value: phase},
-			":m": &types.AttributeValueMemberS{Value: message},
-			":t": &types.AttributeValueMemberS{Value: ts},
+			":s":   &types.AttributeValueMemberS{Value: string(StateFailed)},
+			":p":   &types.AttributeValueMemberS{Value: phase},
+			":m":   &types.AttributeValueMemberS{Value: message},
+			":t":   &types.AttributeValueMemberS{Value: ts},
+			":one": &types.AttributeValueMemberN{Value: "1"},
 		},
 		ConditionExpression: aws.String("attribute_exists(desktop_id)"),
 	})
