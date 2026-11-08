@@ -106,6 +106,10 @@ func runResize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("claim resize: %w", err)
 	}
+	d.ResizeTargetType = targetType
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("persist resize target before EC2 change: %w", err)
+	}
 
 	fmt.Fprintln(os.Stderr, "Updating Pulumi stack config ...")
 	if err := runner.SetConfig(ctx, ref, "instanceType", targetType, os.Stderr); err != nil {
@@ -146,6 +150,7 @@ func runResize(cmd *cobra.Command, args []string) error {
 
 	finalState := store.StateStopped
 	d.InstanceType = targetType
+	d.ResizeTargetType = ""
 	if d.RestoreSpec != nil && d.RestoreSpec.Config != nil {
 		d.RestoreSpec.Config["instanceType"] = targetType
 	}

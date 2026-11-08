@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -30,10 +32,37 @@ func TestFailedResizeRestartRecoveryRequiresMatchingInstance(t *testing.T) {
 	if err := validateResizeRecovery(d, status); err == nil {
 		t.Fatal("accepted mismatched EC2 instance")
 	}
+	d.ResizeTargetType = "m7i.xlarge"
+	if err := validateResizeRecovery(d, status); err != nil {
+		t.Fatalf("modified EC2 type should be recoverable: %v", err)
+	}
 	status.InstanceType = d.InstanceType
+	d.ResizeTargetType = ""
 	d.RestoreSpec.Config["instanceType"] = "m7i.xlarge"
 	if err := validateResizeRecovery(d, status); err == nil {
 		t.Fatal("accepted mismatched restore configuration")
+	}
+}
+
+func TestResizeTargetSurvivesMetadataWriteFailureAfterEC2Change(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateResizing, InstanceType: "m7i.xlarge", ResizeTargetType: "m8i.xlarge", RestoreSpec: &store.RestoreSpec{Config: map[string]string{"instanceType": "m7i.xlarge"}}}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	stale, _ := s.Get(ctx, d.DesktopID)
+	fresh, _ := s.Get(ctx, d.DesktopID)
+	if err := s.Update(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	stale.InstanceType = "m8i.xlarge"
+	if err := s.Update(ctx, stale); !errors.Is(err, store.ErrStateConflict) {
+		t.Fatalf("expected metadata update failure: %v", err)
+	}
+	current, _ := s.Get(ctx, d.DesktopID)
+	if err := validateResizeRecovery(current, &awsx.EC2InstanceStatus{State: "stopped", InstanceType: "m8i.xlarge"}); err != nil {
+		t.Fatalf("target lost after failed metadata write: %v", err)
 	}
 }
 

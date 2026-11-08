@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 
 	"github.com/orchael/desktopctl/internal/awsx"
-	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
@@ -54,6 +53,10 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 		if err := requireStaleLifecycle(d, "start", 30*time.Minute, time.Now()); err != nil {
 			return err
 		}
+	} else if d.State == store.StateResizing && startRetry {
+		if err := requireStaleLifecycle(d, "resize", 2*time.Hour, time.Now()); err != nil {
+			return err
+		}
 	} else if !(d.State == store.StateFailed && (d.FailurePhase == "start" || d.FailurePhase == "resize") && startRetry) && d.State != store.StateStopped && d.State != store.StateReady {
 		return fmt.Errorf("desktop %q is %s; start requires stopped or ready", id, d.State)
 	}
@@ -87,31 +90,41 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("instance status: %w", err)
 	}
-	recoverResize := d.State == store.StateFailed && d.FailurePhase == "resize"
+	recoverResize := (d.State == store.StateFailed && (d.FailurePhase == "resize" || d.ResizeTargetType != "")) || d.State == store.StateResizing
 	if recoverResize {
 		if err := validateResizeRecovery(d, instanceStatus); err != nil {
+			return err
+		}
+		if err := requireTools("pulumi"); err != nil {
 			return err
 		}
 		if err := requireBackend(ctx); err != nil {
 			return err
 		}
 	}
-	if d.State != store.StateStarting {
-		d, err = claimAndReadDesktop(ctx, s, d, store.StateStarting)
-		if err != nil {
-			return err
-		}
-	} else {
-		d, err = s.Get(ctx, id)
-		if err != nil {
-			return err
-		}
+	d, token, err := claimLifecycleOwner(ctx, s, d, store.StateStarting)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if retErr != nil {
-			_ = s.RecordFailure(ctx, id, "start", retErr.Error())
+			_ = recordLifecycleFailure(ctx, s, id, token, "start", retErr.Error())
 		}
 	}()
+	if recoverResize {
+		runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: region}
+		if err := runner.SetConfig(ctx, desktopStackRef(d), "instanceType", instanceStatus.InstanceType, os.Stderr); err != nil {
+			return fmt.Errorf("reconcile resized desktop stack config: %w", err)
+		}
+		d.InstanceType = instanceStatus.InstanceType
+		if d.RestoreSpec != nil && d.RestoreSpec.Config != nil {
+			d.RestoreSpec.Config["instanceType"] = d.InstanceType
+		}
+		d.ResizeTargetType = ""
+		if err := s.Update(ctx, d); err != nil {
+			return fmt.Errorf("reconcile resize fleet metadata: %w", err)
+		}
+	}
 	if instanceStatus.State == "pending" {
 		if err := ec2.NewInstanceRunningWaiter(ec2.NewFromConfig(awsCfg)).Wait(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{d.InstanceID}}, 10*time.Minute); err != nil {
 			return fmt.Errorf("wait for interrupted start: %w", err)
@@ -134,12 +147,10 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
-	mgr := desktop.NewManager(s)
-
 	if d.AMIID == "" {
 		if instanceStatus.ImageID == "" {
 			err := fmt.Errorf("resolve AMI for started instance: EC2 returned no image ID for %s", d.InstanceID)
-			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			_ = recordLifecycleFailure(ctx, s, id, token, "start", err.Error())
 			return err
 		}
 		d.AMIID = instanceStatus.ImageID
@@ -160,7 +171,7 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 	if !d.NoDNS {
 		zone, err := cfg.DNSZone()
 		if err != nil {
-			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			_ = recordLifecycleFailure(ctx, s, id, token, "start", err.Error())
 			return err
 		}
 		if d.Hostname == "" {
@@ -170,7 +181,7 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Fprintln(os.Stderr, "Waiting for public IP assignment ...")
 			publicIP, waitErr := awsx.WaitInstancePublicIP(ctx, awsCfg, d.InstanceID, 2*time.Minute)
 			if waitErr != nil {
-				_ = mgr.RecordFailure(ctx, id, "start", waitErr.Error())
+				_ = recordLifecycleFailure(ctx, s, id, token, "start", waitErr.Error())
 				return waitErr
 			}
 			instanceStatus.PublicIP = publicIP
@@ -178,7 +189,7 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 
 		fmt.Fprintf(os.Stderr, "Updating DNS record %s -> %s ...\n", d.Hostname, instanceStatus.PublicIP)
 		if err := awsx.UpsertARecord(ctx, awsCfg, zone, cfg.DNS.HostedZoneID, d.Hostname, instanceStatus.PublicIP); err != nil {
-			_ = mgr.RecordFailure(ctx, id, "start", err.Error())
+			_ = recordLifecycleFailure(ctx, s, id, token, "start", err.Error())
 			return err
 		}
 		d.NoVNCURL = fmt.Sprintf("https://%s:8443/novnc/vnc.html", d.Hostname)
@@ -194,7 +205,7 @@ func runStart(cmd *cobra.Command, args []string) (retErr error) {
 			return fmt.Errorf("reconcile resized desktop stack: %w", err)
 		}
 	}
-	if err := mgr.MarkRunning(ctx, id, "started"); err != nil {
+	if err := completeLifecycle(ctx, s, id, token, store.StateStarting, store.StateReady, "started", ""); err != nil {
 		return err
 	}
 
@@ -224,10 +235,10 @@ func validateResizeRecovery(d *store.Desktop, status *awsx.EC2InstanceStatus) er
 	if status == nil || (status.State != "running" && status.State != "stopped") {
 		return fmt.Errorf("failed resize recovery requires a running or stopped instance")
 	}
-	if d.InstanceType == "" || status.InstanceType != d.InstanceType {
-		return fmt.Errorf("EC2 instance type %q differs from fleet record %q; inspect failed resize before retry", status.InstanceType, d.InstanceType)
+	if d.InstanceType == "" || (status.InstanceType != d.InstanceType && status.InstanceType != d.ResizeTargetType) {
+		return fmt.Errorf("EC2 instance type %q differs from fleet record %q and intended resize %q; inspect failed resize before retry", status.InstanceType, d.InstanceType, d.ResizeTargetType)
 	}
-	if d.RestoreSpec != nil && d.RestoreSpec.Config["instanceType"] != d.InstanceType {
+	if d.RestoreSpec != nil && d.RestoreSpec.Config["instanceType"] != d.InstanceType && d.RestoreSpec.Config["instanceType"] != d.ResizeTargetType {
 		return fmt.Errorf("saved restore instance type differs from fleet record; inspect failed resize before retry")
 	}
 	return nil

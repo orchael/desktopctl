@@ -37,3 +37,13 @@ func TestReconcileNestedInstancesBlocksUnknownOrLivePrelaunch(t *testing.T) {
 		t.Fatal("live prelaunch accepted")
 	}
 }
+
+func TestReconcileNestedInstancesAllowsCompletedParkWithoutInstance(t *testing.T) {
+	d := &store.Desktop{DesktopID: "d-one", State: store.StateParked, ParkedAt: "2026-11-08T00:00:00Z", NestedVirt: true}
+	if err := ReconcileNestedInstances(context.Background(), d, "", func(_ context.Context, _, _ string, _ *store.Desktop) ([]string, error) { return nil, nil }, func(_ context.Context, _, _, _ string) error {
+		t.Fatal("no instance should be terminated")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

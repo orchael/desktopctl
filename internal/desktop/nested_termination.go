@@ -28,7 +28,7 @@ func ReconcileNestedInstances(ctx context.Context, d *store.Desktop, profile str
 	if d.InstanceID != "" {
 		ids = append(ids, d.InstanceID)
 	}
-	if len(ids) == 0 {
+	if len(ids) == 0 && (d.State != store.StateParked || d.ParkedAt == "") {
 		return fmt.Errorf("cannot confirm absence of nested instance for desktop %s after unknown launch outcome", d.DesktopID)
 	}
 	seen := make(map[string]bool, len(ids))

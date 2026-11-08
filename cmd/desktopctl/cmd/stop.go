@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 
 	"github.com/orchael/desktopctl/internal/awsx"
-	"github.com/orchael/desktopctl/internal/desktop"
 	"github.com/orchael/desktopctl/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -60,15 +59,13 @@ func runStop(cmd *cobra.Command, args []string) (retErr error) {
 		return fmt.Errorf("AWS config: %w", err)
 	}
 
-	mgr := desktop.NewManager(s)
-	if d.State != store.StateStopping {
-		if err := s.Transition(ctx, id, d.State, store.StateStopping); err != nil {
-			return err
-		}
+	d, token, err := claimLifecycleOwner(ctx, s, d, store.StateStopping)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if retErr != nil {
-			_ = s.RecordFailure(ctx, id, "stop", retErr.Error())
+			_ = recordLifecycleFailure(ctx, s, id, token, "stop", retErr.Error())
 		}
 	}()
 
@@ -93,7 +90,7 @@ func runStop(cmd *cobra.Command, args []string) (retErr error) {
 	} else if status.State != "stopped" {
 		return fmt.Errorf("cannot stop desktop %s while instance is %s", id, status.State)
 	}
-	if err := mgr.MarkStoppedWithReason(ctx, id, store.StopReasonUserRequest); err != nil {
+	if err := completeLifecycle(ctx, s, id, token, store.StateStopping, store.StateStopped, "", store.StopReasonUserRequest); err != nil {
 		return err
 	}
 	if d.NestedVirt {

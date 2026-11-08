@@ -53,3 +53,45 @@ func TestInterruptedLifecycleRetryRequiresAge(t *testing.T) {
 		t.Fatal("missing timestamp was accepted")
 	}
 }
+
+func TestLifecycleRetryClaimsFenceOverlappingWorkers(t *testing.T) {
+	for _, tc := range []struct {
+		state store.LifecycleState
+		phase string
+		final store.LifecycleState
+	}{
+		{store.StateStarting, "start", store.StateReady},
+		{store.StateStopping, "stop", store.StateStopped},
+	} {
+		t.Run(tc.phase, func(t *testing.T) {
+			ctx := context.Background()
+			s := store.NewInMemoryStore()
+			d := &store.Desktop{DesktopID: "d-0123abcd", State: tc.state}
+			if err := s.Create(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+			observed, _ := s.Get(ctx, d.DesktopID)
+			_, first, err := claimLifecycleOwner(ctx, s, observed, tc.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := claimLifecycleOwner(ctx, s, observed, tc.state); !errors.Is(err, store.ErrStateConflict) {
+				t.Fatalf("overlap claim: %v", err)
+			}
+			fresh, _ := s.Get(ctx, d.DesktopID)
+			_, second, err := claimLifecycleOwner(ctx, s, fresh, tc.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := recordLifecycleFailure(ctx, s, d.DesktopID, first, tc.phase, "late failure"); !errors.Is(err, store.ErrStateConflict) {
+				t.Fatalf("stale failure: %v", err)
+			}
+			if err := completeLifecycle(ctx, s, d.DesktopID, first, tc.state, tc.final, "", ""); !errors.Is(err, store.ErrStateConflict) {
+				t.Fatalf("stale completion: %v", err)
+			}
+			if err := completeLifecycle(ctx, s, d.DesktopID, second, tc.state, tc.final, "", ""); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
