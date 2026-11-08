@@ -308,15 +308,20 @@ func fetchNoVNCDesktopURL(d *store.Desktop) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, "ssh", //nolint:gosec
-		"-i", cfg.Desktop.SSHKeyPath,
+	out, _ := exec.CommandContext(ctx, "ssh", noVNCSSHArgs(d, cfg.Desktop.SSHKeyPath)...).CombinedOutput() //nolint:gosec
+	return parseNoVNCOutput(string(out))
+}
+
+func noVNCSSHArgs(d *store.Desktop, keyPath string) []string {
+	args := []string{
+		"-i", keyPath,
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=5",
 		"-o", "BatchMode=yes",
 		"-o", "PasswordAuthentication=no",
-		"--",
-		d.SSHTarget,
-		"novnc-desktop-url",
-	).CombinedOutput()
-	return parseNoVNCOutput(string(out))
+	}
+	if d.InstanceID != "" {
+		args = append(args, "-o", "HostKeyAlias="+d.InstanceID)
+	}
+	return append(args, "--", d.SSHTarget, "novnc-desktop-url")
 }
