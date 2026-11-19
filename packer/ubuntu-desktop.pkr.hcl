@@ -13,7 +13,7 @@ packer {
 
 variable "bridgectl_version" {
   type        = string
-  description = "bridgectl release tag (e.g. v1.4.3)"
+  description = "bridgectl release tag (e.g. v1.6.0)"
 }
 
 variable "tailscale_version" {
