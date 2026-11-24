@@ -121,6 +121,23 @@ func TestCreateSecretPathsSaaSExcludesOperatorAgentSecret(t *testing.T) {
 	}
 }
 
+func TestResolveBridgeEnrollmentSecret(t *testing.T) {
+	for _, tc := range []struct {
+		name, configured, override, want string
+		changed                          bool
+	}{
+		{"configured", "/configured", "", "/configured", false},
+		{"override", "/configured", "/other", "/other", true},
+		{"explicit disable", "/configured", "", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveBridgeEnrollmentSecret(tc.configured, tc.override, tc.changed); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveOwnerSecretPath(t *testing.T) {
 	for _, tc := range []struct {
 		name, configured, configuredOwner, selectedOwner, kind, want string

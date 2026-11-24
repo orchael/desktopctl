@@ -17,6 +17,9 @@ var codexHomeConfigScript string
 //go:embed public_novnc_tls.sh
 var publicNoVNCTLSScript string
 
+//go:embed bridge_enroll.py
+var bridgeEnrollScript string
+
 const (
 	// BridgectlVersion must match bridgectl_version in packer/variables.pkrvars.hcl.
 	BridgectlVersion      = "v1.6.0"
@@ -26,41 +29,42 @@ const (
 
 // BootstrapConfig holds the parameters for rendering the cloud-init user-data.
 type BootstrapConfig struct {
-	PublicNoVNC          bool
-	DesktopID            string
-	Hostname             string // FQDN used for certbot cert and novnc-desktop cert path
-	GitHubOwner          string
-	Repos                []string
-	WorkspacePath        string
-	WorkspaceMode        string
-	WorkspaceName        string
-	EFSFileSystemID      string
-	EFSAccessPointID     string
-	BridgePort           int
-	DesktopProfile       string // optional owner/repository[:path] profile installed as ubuntu
-	NoVNCHTTPPort        int
-	NoVNCHTTPSPort       int
-	CertbotEmail         string
-	GitHubSecretPath     string   // AWS Secrets Manager path: /desktopctl/<owner>/github
-	PublicGitHubSources  bool     // clone public repositories and profiles without SSH credentials
-	AgentSecretPath      string   // AWS Secrets Manager path: /desktopctl/<owner>/agents
-	ProfileSecretPath    string   // selected profile's required AWS Secrets Manager secret
-	DesktopSecretPaths   []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
-	TailscaleNetwork     string   // optional Tailscale tailnet/network name
-	TailscaleSecretPath  string   // AWS Secrets Manager path containing {"TS_AUTHKEY":"..."}
-	StepCAServerDNS      string   // optional step-ca DNS name
-	StepCAFingerprint    string   // optional step-ca root fingerprint for non-interactive bootstrap
-	StepCAProvisioner    string   // step-ca provisioner used for bridge host certs
-	StepCASecretPath     string   // AWS Secrets Manager path containing {"STEP_CA_PROVISIONER_PASSWORD":"..."}
-	StepCAClients        []StepCAClient
-	AWSRegion            string
-	Environment          string
-	PackagesPreInstalled bool
-	NoDNS                bool
-	SSHPublicKey         string // ed25519/RSA public key injected into ubuntu's authorized_keys
-	GitUserName          string // git config user.name written to ubuntu's global git config
-	GitUserEmail         string // git config user.email written to ubuntu's global git config
-	NPMGitHubScopes      []string
+	PublicNoVNC                bool
+	DesktopID                  string
+	Hostname                   string // FQDN used for certbot cert and novnc-desktop cert path
+	GitHubOwner                string
+	Repos                      []string
+	WorkspacePath              string
+	WorkspaceMode              string
+	WorkspaceName              string
+	EFSFileSystemID            string
+	EFSAccessPointID           string
+	BridgePort                 int
+	DesktopProfile             string // optional owner/repository[:path] profile installed as ubuntu
+	NoVNCHTTPPort              int
+	NoVNCHTTPSPort             int
+	CertbotEmail               string
+	GitHubSecretPath           string   // AWS Secrets Manager path: /desktopctl/<owner>/github
+	PublicGitHubSources        bool     // clone public repositories and profiles without SSH credentials
+	AgentSecretPath            string   // AWS Secrets Manager path: /desktopctl/<owner>/agents
+	BridgeEnrollmentSecretPath string   // separate Secrets Manager JSON secret for Bridge machine login
+	ProfileSecretPath          string   // selected profile's required AWS Secrets Manager secret
+	DesktopSecretPaths         []string // additional AWS Secrets Manager paths whose JSON keys become ubuntu env vars
+	TailscaleNetwork           string   // optional Tailscale tailnet/network name
+	TailscaleSecretPath        string   // AWS Secrets Manager path containing {"TS_AUTHKEY":"..."}
+	StepCAServerDNS            string   // optional step-ca DNS name
+	StepCAFingerprint          string   // optional step-ca root fingerprint for non-interactive bootstrap
+	StepCAProvisioner          string   // step-ca provisioner used for bridge host certs
+	StepCASecretPath           string   // AWS Secrets Manager path containing {"STEP_CA_PROVISIONER_PASSWORD":"..."}
+	StepCAClients              []StepCAClient
+	AWSRegion                  string
+	Environment                string
+	PackagesPreInstalled       bool
+	NoDNS                      bool
+	SSHPublicKey               string // ed25519/RSA public key injected into ubuntu's authorized_keys
+	GitUserName                string // git config user.name written to ubuntu's global git config
+	GitUserEmail               string // git config user.email written to ubuntu's global git config
+	NPMGitHubScopes            []string
 	// SwapSizeGB is the size of the swap file to create in GiB.
 	// 0 means no swap file is created.
 	SwapSizeGB int
@@ -1173,6 +1177,38 @@ runcmd:
     )
   - desktopctl-ts "services_started"
 
+{{- if .BridgeEnrollmentSecretPath}}
+  # --- enroll this desktop in Bridge after the managed user service starts ---
+  - |
+    (
+    set -eu
+    SECRET_ID=$(printf '%s' '{{ b64 .BridgeEnrollmentSecretPath }}' | base64 -d)
+    ENROLL_JSON=$(aws secretsmanager get-secret-value \
+      --region '{{ .AWSRegion }}' --secret-id "$SECRET_ID" \
+      --query SecretString --output text)
+    if [ -z "$ENROLL_JSON" ] || [ "$ENROLL_JSON" = None ]; then
+      echo "ERROR: Bridge enrollment secret is empty" >&2
+      exit 1
+    fi
+    install -d -m 755 /opt/desktopctl
+    cat >/opt/desktopctl/bridge_enroll.py <<'PY'
+{{ indent 4 .BridgeEnrollScript }}
+    PY
+    chmod 0755 /opt/desktopctl/bridge_enroll.py
+    UBUNTU_UID=$(id -u ubuntu)
+    for attempt in 1 2 3 4 5; do
+      if sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user is-active --quiet bridgectl; then
+        break
+      fi
+      sleep 2
+    done
+    sudo -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} systemctl --user is-active --quiet bridgectl
+    printf '%s' "$ENROLL_JSON" | sudo -H -u ubuntu env XDG_RUNTIME_DIR=/run/user/${UBUNTU_UID} \
+      python3 /opt/desktopctl/bridge_enroll.py
+    unset ENROLL_JSON
+    )
+{{- end}}
+
 {{- if gt .SwapSizeGB 0}}
   # --- swap file (prevents OOM crashes under memory pressure) ---
   - |
@@ -1425,6 +1461,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		DesktopProfileRepository string
 		DesktopProfilePath       string
 		CodexHomeConfigScript    string
+		BridgeEnrollScript       string
 		PublicNoVNCTLSScript     string
 	}
 	data := templateData{
@@ -1437,6 +1474,7 @@ func RenderCloudInit(cfg *BootstrapConfig) (string, error) {
 		DesktopProfileRepository: desktopProfile.Repository,
 		DesktopProfilePath:       desktopProfile.Path,
 		CodexHomeConfigScript:    codexHomeConfigScript,
+		BridgeEnrollScript:       bridgeEnrollScript,
 		PublicNoVNCTLSScript:     publicNoVNCTLSScript,
 	}
 

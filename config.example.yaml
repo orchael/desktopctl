@@ -127,6 +127,12 @@ desktop:
   # profile_secret: /desktopctl/markcallen/profiles/ai-desktop-profile
 
 agent:
+  # Optional Secrets Manager JSON secret used only for bridgectl machine login
+  # during initial provisioning. Keep it separate from github.agent_secret and
+  # desktop-wide --secret values. Override per desktop with
+  # create --bridge-enrollment-secret (an empty value disables enrollment).
+  # bridge_enrollment_secret: /desktopctl/dev/us-east-1/myorg/bridge-enrollment
+
   # Port where bridgectl listens on the desktop. Defaults to localhost-only.
   # When both Tailscale and step-ca are enabled, cloud-init binds this port to
   # the desktop's Tailscale IPv4 address for direct tailnet access.

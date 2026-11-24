@@ -243,6 +243,9 @@ type DesktopConfig struct {
 
 type AgentConfig struct {
 	BridgePort int `yaml:"bridge_port"`
+	// BridgeEnrollmentSecret is the Secrets Manager JSON secret used only for
+	// non-interactive Bridge enrollment during initial desktop provisioning.
+	BridgeEnrollmentSecret string `yaml:"bridge_enrollment_secret,omitempty"`
 	// LegacyProfile is read only to reject the obsolete agent.profile location.
 	LegacyProfile string `yaml:"profile,omitempty"`
 	// TrustHost disables SSH host key verification for SSH tunnel connections.

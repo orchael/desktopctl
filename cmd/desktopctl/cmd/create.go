@@ -55,43 +55,44 @@ func publicAMINamePattern(cliVersion, override string) (string, error) {
 }
 
 var (
-	createOwner             string
-	createOrganizationID    string
-	createName              string
-	createDesktopID         string
-	createRepos             []string
-	createSecrets           []string
-	createPreview           bool
-	createWorkspaceMode     string
-	createWorkspaceName     string
-	createEnv               string
-	createAMI               string
-	createVolumeSize        int
-	createSwapSize          int
-	createAVDs              []string
-	createNestedVirt        bool
-	createNestedVirtSet     bool // true when --nested-virtualization was explicitly passed
-	createMobile            bool
-	createInstanceType      string
-	createInstanceTypes     []string
-	createSpot              bool
-	createSpotMaxPrice      string
-	createTimeout           time.Duration
-	createTailscale         bool
-	createTailscaleNet      string
-	createStepCA            string
-	createStepCAProv        string
-	createStepCAFP          string
-	createStepCAClients     []string
-	createNPMGitHubScopes   []string
-	createNoNPMGitHubScopes bool
-	createDesktopProfile    string
-	createProfileSecret     string
-	createGitHubSecret      string
-	createNoDNS             bool
-	createAllowPorts        []int
-	createBootstrapPackages bool
-	createDeferReadiness    bool
+	createOwner                  string
+	createOrganizationID         string
+	createName                   string
+	createDesktopID              string
+	createRepos                  []string
+	createSecrets                []string
+	createBridgeEnrollmentSecret string
+	createPreview                bool
+	createWorkspaceMode          string
+	createWorkspaceName          string
+	createEnv                    string
+	createAMI                    string
+	createVolumeSize             int
+	createSwapSize               int
+	createAVDs                   []string
+	createNestedVirt             bool
+	createNestedVirtSet          bool // true when --nested-virtualization was explicitly passed
+	createMobile                 bool
+	createInstanceType           string
+	createInstanceTypes          []string
+	createSpot                   bool
+	createSpotMaxPrice           string
+	createTimeout                time.Duration
+	createTailscale              bool
+	createTailscaleNet           string
+	createStepCA                 string
+	createStepCAProv             string
+	createStepCAFP               string
+	createStepCAClients          []string
+	createNPMGitHubScopes        []string
+	createNoNPMGitHubScopes      bool
+	createDesktopProfile         string
+	createProfileSecret          string
+	createGitHubSecret           string
+	createNoDNS                  bool
+	createAllowPorts             []int
+	createBootstrapPackages      bool
+	createDeferReadiness         bool
 )
 
 var createCmd = &cobra.Command{
@@ -116,6 +117,7 @@ func init() {
 	createCmd.Flags().StringVar(&createDesktopID, "desktop-id", "", "stable desktop ID for a provisioning job (d- plus eight lowercase hex characters)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
+	createCmd.Flags().StringVar(&createBridgeEnrollmentSecret, "bridge-enrollment-secret", "", "AWS Secrets Manager path for one-time bridgectl Bridge enrollment (overrides agent.bridge_enrollment_secret; empty disables)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createWorkspaceMode, "workspace-mode", workspaceModeLocal, "workspace storage mode (local|efs)")
 	createCmd.Flags().StringVar(&createWorkspaceName, "workspace-name", "", "existing retained EFS workspace to mount at /workspace")
@@ -270,6 +272,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
 	agentSecretPath := resolveOwnerSecretPath(cfg.GitHub.AgentSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "agents")
+	bridgeEnrollmentSecret := resolveBridgeEnrollmentSecret(cfg.Agent.BridgeEnrollmentSecret, createBridgeEnrollmentSecret, cmd.Flags().Changed("bridge-enrollment-secret"))
 	gitHubSecret := createGitHubSecret
 	if gitHubSecret == "" && !cfg.SaaSMode {
 		gitHubSecret = resolveOwnerSecretPath(cfg.GitHub.GitHubSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "github")
@@ -364,8 +367,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
 	secretPaths := createSecretPaths(agentSecretPath, requestedSecrets, cfg.SaaSMode)
+	if bridgeEnrollmentSecret != "" && (bridgeEnrollmentSecret == agentSecretPath || containsString(secretPaths, bridgeEnrollmentSecret)) {
+		return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+	}
 	// Verify every configured secret before provisioning.
 	secretsToValidate := append([]string(nil), secretPaths...)
+	if bridgeEnrollmentSecret != "" {
+		secretsToValidate = append(secretsToValidate, bridgeEnrollmentSecret)
+	}
 	if gitHubSecret != "" {
 		secretsToValidate = append(secretsToValidate, gitHubSecret)
 	}
@@ -690,38 +699,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	bootCfg := &provision.BootstrapConfig{
-		DesktopID:            desktopID,
-		Hostname:             hostname,
-		GitHubOwner:          owner,
-		Repos:                req.Repos,
-		WorkspacePath:        "/workspace",
-		BridgePort:           cfg.Agent.BridgePort,
-		DesktopProfile:       desktopProfile,
-		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
-		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
-		PublicNoVNC:          cfg.Desktop.PublicNoVNC,
-		CertbotEmail:         "admin@orchael.ai",
-		GitHubSecretPath:     gitHubSecret,
-		PublicGitHubSources:  publicGitHubSources,
-		TailscaleNetwork:     tailscaleNetwork,
-		TailscaleSecretPath:  tailscaleSecretPath,
-		StepCAServerDNS:      stepCAServer,
-		StepCAFingerprint:    stepCAFingerprint,
-		StepCAProvisioner:    stepCAProvisioner,
-		StepCASecretPath:     stepCASecretPath,
-		StepCAClients:        stepCAClients,
-		AWSRegion:            cfg.AWS.Region,
-		Environment:          env,
-		WorkspaceMode:        createWorkspaceMode,
-		WorkspaceName:        createWorkspaceName,
-		PackagesPreInstalled: amiID != "" && !createBootstrapPackages,
-		NoDNS:                createNoDNS,
-		SSHPublicKey:         sshPubKey,
-		GitUserName:          cfg.GitHub.GitUserName,
-		GitUserEmail:         cfg.GitHub.GitUserEmail,
-		NPMGitHubScopes:      npmGitHubScopes,
-		SwapSizeGB:           swapSizeGB,
-		AVDs:                 avds,
+		DesktopID:                  desktopID,
+		Hostname:                   hostname,
+		GitHubOwner:                owner,
+		Repos:                      req.Repos,
+		WorkspacePath:              "/workspace",
+		BridgePort:                 cfg.Agent.BridgePort,
+		BridgeEnrollmentSecretPath: bridgeEnrollmentSecret,
+		DesktopProfile:             desktopProfile,
+		NoVNCHTTPPort:              provision.DefaultNoVNCHTTPPort,
+		NoVNCHTTPSPort:             provision.DefaultNoVNCHTTPSPort,
+		PublicNoVNC:                cfg.Desktop.PublicNoVNC,
+		CertbotEmail:               "admin@orchael.ai",
+		GitHubSecretPath:           gitHubSecret,
+		PublicGitHubSources:        publicGitHubSources,
+		TailscaleNetwork:           tailscaleNetwork,
+		TailscaleSecretPath:        tailscaleSecretPath,
+		StepCAServerDNS:            stepCAServer,
+		StepCAFingerprint:          stepCAFingerprint,
+		StepCAProvisioner:          stepCAProvisioner,
+		StepCASecretPath:           stepCASecretPath,
+		StepCAClients:              stepCAClients,
+		AWSRegion:                  cfg.AWS.Region,
+		Environment:                env,
+		WorkspaceMode:              createWorkspaceMode,
+		WorkspaceName:              createWorkspaceName,
+		PackagesPreInstalled:       amiID != "" && !createBootstrapPackages,
+		NoDNS:                      createNoDNS,
+		SSHPublicKey:               sshPubKey,
+		GitUserName:                cfg.GitHub.GitUserName,
+		GitUserEmail:               cfg.GitHub.GitUserEmail,
+		NPMGitHubScopes:            npmGitHubScopes,
+		SwapSizeGB:                 swapSizeGB,
+		AVDs:                       avds,
 	}
 	agentSecret := agentSecretPath
 	if cfg.SaaSMode {
@@ -1105,6 +1115,13 @@ func resolveOwnerSecretPath(configured, configuredOwner, selectedOwner, environm
 	}
 	if configured == "" || (configuredOwner != "" && configured == defaultPath(configuredOwner)) {
 		return defaultPath(selectedOwner)
+	}
+	return configured
+}
+
+func resolveBridgeEnrollmentSecret(configured, override string, changed bool) string {
+	if changed {
+		return override
 	}
 	return configured
 }

@@ -59,6 +59,51 @@ func TestRenderCloudInit(t *testing.T) {
 	}
 }
 
+func TestRenderCloudInitBridgeEnrollment(t *testing.T) {
+	const secret = "/desktopctl/dev/us-east-1/acme/bridge-enrollment"
+	base := &BootstrapConfig{DesktopID: "d-001", AWSRegion: "us-east-1"}
+	without, err := RenderCloudInit(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(without, "bridge_enroll.py") {
+		t.Fatal("unconfigured bootstrap must not run Bridge enrollment")
+	}
+	base.BridgeEnrollmentSecretPath = secret
+	with, err := RenderCloudInit(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := strings.Index(with, `systemctl --user start bridgectl`)
+	login := strings.Index(with, `python3 /opt/desktopctl/bridge_enroll.py`)
+	if service < 0 || login <= service {
+		t.Fatal("Bridge enrollment must run after the user service starts")
+	}
+	if !strings.Contains(with, base64.StdEncoding.EncodeToString([]byte(secret))) || !strings.Contains(with, `--query SecretString --output text`) {
+		t.Fatal("Bridge enrollment must fetch the selected secret at bootstrap")
+	}
+	if strings.Contains(with, `EnvironmentFile=-%h/.config/bridgectl/bridge-enrollment.env`) {
+		t.Fatal("machine credential must not be provided to the service")
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(with), &doc); err != nil {
+		t.Fatalf("Bridge enrollment cloud-init is invalid YAML: %v", err)
+	}
+	for _, entry := range doc["runcmd"].([]any) {
+		script, ok := entry.(string)
+		if !ok || !strings.Contains(script, "bridge_enroll.py") {
+			continue
+		}
+		check := exec.Command("bash", "-n")
+		check.Stdin = strings.NewReader(script)
+		if output, err := check.CombinedOutput(); err != nil {
+			t.Fatalf("Bridge enrollment shell syntax: %v: %s", err, output)
+		}
+		return
+	}
+	t.Fatal("Bridge enrollment command missing from runcmd")
+}
+
 func TestRenderCloudInit_SaaSWithoutDNSOrGitHubSecret(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID: "d-1234abcd", Hostname: "d-1234abcd.invalid",
