@@ -138,11 +138,30 @@ func TestResolveBridgeEnrollmentSecret(t *testing.T) {
 	}
 }
 
+func TestCreateReadinessReasonBridgeEnrollment(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile, bridgeSecret, want string
+		bootstrapPackages, deferReadiness bool
+	}{
+		{"bridge only", "", "/bridge", "bridge-enrollment", false, false},
+		{"profile takes precedence", "owner/repo", "/bridge", "owner/repo", false, false},
+		{"package bootstrap takes precedence", "", "/bridge", "bootstrap-packages", true, false},
+		{"deferred", "", "/bridge", "", false, true},
+		{"unconfigured", "", "", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := createReadinessReason(tc.profile, tc.bootstrapPackages, tc.bridgeSecret, tc.deferReadiness); got != tc.want {
+				t.Fatalf("reason = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBridgeEnrollmentSecretIsolationResolvesAliases(t *testing.T) {
-	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:/desktopctl/dev/us-east-1/acme/bridge-enrollment-AbCdEf"
+	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:/desktopctl/dev/us-east-1/acme/bridgectl-AbCdEf"
 	resolve := func(_ context.Context, secretID string) (string, error) {
 		switch secretID {
-		case "/desktopctl/dev/us-east-1/acme/bridge-enrollment", arn:
+		case "/desktopctl/dev/us-east-1/acme/bridgectl", arn:
 			return arn, nil
 		case "/desktopctl/dev/us-east-1/acme/agents":
 			return "arn:aws:secretsmanager:us-east-1:123456789012:secret:/desktopctl/dev/us-east-1/acme/agents-XyZ123", nil
@@ -150,10 +169,10 @@ func TestBridgeEnrollmentSecretIsolationResolvesAliases(t *testing.T) {
 			return "", errors.New("unexpected secret")
 		}
 	}
-	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridge-enrollment", []string{arn}, resolve); err == nil {
+	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridgectl", []string{arn}, resolve); err == nil {
 		t.Fatal("same secret referenced by name and ARN was accepted")
 	}
-	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridge-enrollment", []string{"/desktopctl/dev/us-east-1/acme/agents"}, resolve); err != nil {
+	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridgectl", []string{"/desktopctl/dev/us-east-1/acme/agents"}, resolve); err != nil {
 		t.Fatalf("distinct secret rejected: %v", err)
 	}
 }

@@ -60,7 +60,7 @@ func TestRenderCloudInit(t *testing.T) {
 }
 
 func TestRenderCloudInitBridgeEnrollment(t *testing.T) {
-	const secret = "/desktopctl/dev/us-east-1/acme/bridge-enrollment"
+	const secret = "/desktopctl/dev/us-east-1/acme/bridgectl"
 	base := &BootstrapConfig{DesktopID: "d-001", AWSRegion: "us-east-1"}
 	without, err := RenderCloudInit(base)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestRenderCloudInitBridgeEnrollment(t *testing.T) {
 func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID: "d-001", AWSRegion: "us-east-1",
-		BridgeEnrollmentSecretPath: "/desktopctl/dev/us-east-1/acme/bridge-enrollment",
+		BridgeEnrollmentSecretPath: "/desktopctl/dev/us-east-1/acme/bridgectl",
 	}
 	rendered, err := RenderCloudInit(cfg)
 	if err != nil {
@@ -158,6 +158,17 @@ func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
 				t.Fatalf("script error = %v, output = %q", err, output)
 			}
 		})
+	}
+}
+
+func TestBridgeEnrollmentHelper(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not installed")
+	}
+	cmd := exec.Command(python, "-m", "unittest", "discover", "-s", ".", "-p", "bridge_enroll_test.py")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Bridge enrollment helper tests failed: %v: %s", err, output)
 	}
 }
 

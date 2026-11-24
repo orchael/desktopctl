@@ -990,25 +990,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if !createDeferReadiness && (desktopProfile != "" || createBootstrapPackages) {
+	readinessReason := createReadinessReason(desktopProfile, createBootstrapPackages, bridgeEnrollmentSecret, createDeferReadiness)
+	if readinessReason != "" {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
-			return fmt.Errorf("load AWS config for profile bootstrap check: %w", err)
+			return fmt.Errorf("load AWS config for bootstrap check: %w", err)
 		}
 		profileRunner = &ssmProfileBootstrapRunner{client: ssm.NewFromConfig(awsCfg)}
-		fmt.Fprintf(os.Stderr, "Waiting for desktop profile bootstrap on %s ...\n", desktopID)
+		fmt.Fprintf(os.Stderr, "Waiting for desktop bootstrap on %s ...\n", desktopID)
 	}
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
-	readinessProfile := desktopProfile
-	if createDeferReadiness {
-		readinessProfile = ""
-	}
-	if !createDeferReadiness && createBootstrapPackages && readinessProfile == "" {
-		readinessProfile = "bootstrap-packages"
-	}
-	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessReason, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -1144,6 +1138,22 @@ func resolveBridgeEnrollmentSecret(configured, override string, changed bool) st
 		return override
 	}
 	return configured
+}
+
+func createReadinessReason(profile string, bootstrapPackages bool, bridgeEnrollmentSecret string, deferReadiness bool) string {
+	if deferReadiness {
+		return ""
+	}
+	if profile != "" {
+		return profile
+	}
+	if bootstrapPackages {
+		return "bootstrap-packages"
+	}
+	if bridgeEnrollmentSecret != "" {
+		return "bridge-enrollment"
+	}
+	return ""
 }
 
 func validateBridgeEnrollmentSecretIsolation(ctx context.Context, enrollmentPath string, otherPaths []string, resolveARN func(context.Context, string) (string, error)) error {

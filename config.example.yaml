@@ -140,7 +140,7 @@ agent:
   # bridgectl uses its production default (https://bridge.orchael.com).
   # Obtain an enrollment key or service account credential from Bridge before
   # creating the desktop. This CLI validates that the AWS secret exists.
-  # bridge_enrollment_secret: /desktopctl/dev/us-east-1/myorg/bridge-enrollment
+  # bridge_enrollment_secret: /desktopctl/dev/us-east-1/myorg/bridgectl
 
   # Port where bridgectl listens on the desktop. Defaults to localhost-only.
   # When both Tailscale and step-ca are enabled, cloud-init binds this port to
