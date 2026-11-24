@@ -396,14 +396,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if bridgeEnrollmentSecret != "" {
 			client := secretsmanager.NewFromConfig(awsCfg)
 			resolveARN := func(ctx context.Context, secretID string) (string, error) {
-				out, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
-				if err != nil {
-					return "", err
-				}
-				if arn := aws.ToString(out.ARN); arn != "" {
-					return arn, nil
-				}
-				return "", fmt.Errorf("Secrets Manager did not return an ARN for %q", secretID)
+				return resolveSecretARN(ctx, client, secretID)
 			}
 			otherPaths := append([]string(nil), secretPaths...)
 			if gitHubSecret != "" {
@@ -1171,6 +1164,17 @@ func validateBridgeEnrollmentSecretIsolation(ctx context.Context, enrollmentPath
 		}
 	}
 	return nil
+}
+
+func resolveSecretARN(ctx context.Context, client *secretsmanager.Client, secretID string) (string, error) {
+	out, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
+	if err != nil {
+		return "", err
+	}
+	if arn := aws.ToString(out.ARN); arn != "" {
+		return arn, nil
+	}
+	return "", fmt.Errorf("Secrets Manager did not return an ARN for %q", secretID)
 }
 
 func resolveProfileSecret(configuredProfile, configuredSecret, selectedProfile, flag string, flagChanged bool) string {

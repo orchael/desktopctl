@@ -229,7 +229,7 @@ func TestRestoreSpecRequiresRecordedWorkspaceAndLaunchInputs(t *testing.T) {
 func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	d, _ := parkedFixture()
 	d.Secrets = []string{"/secrets/agents", "/secrets/added"}
-	boot := &provision.BootstrapConfig{DesktopID: d.DesktopID, GitHubOwner: "orchael", Hostname: "desktop.example.test", WorkspaceMode: "efs", WorkspaceName: d.WorkspaceName, EFSFileSystemID: "fs-1", EFSAccessPointID: "fsap-1", AgentSecretPath: "/secrets/agents", DesktopSecretPaths: []string{"/secrets/removed"}, AWSRegion: "us-east-1"}
+	boot := &provision.BootstrapConfig{DesktopID: d.DesktopID, GitHubOwner: "orchael", Hostname: "desktop.example.test", WorkspaceMode: "efs", WorkspaceName: d.WorkspaceName, EFSFileSystemID: "fs-1", EFSAccessPointID: "fsap-1", AgentSecretPath: "/secrets/agents", BridgeEnrollmentSecretPath: "/secrets/retired-bridge", DesktopSecretPaths: []string{"/secrets/removed"}, AWSRegion: "us-east-1"}
 	raw, err := json.Marshal(boot)
 	if err != nil {
 		t.Fatal(err)
@@ -258,6 +258,28 @@ func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	userData := string(decoded)
 	if strings.Contains(userData, "/secrets/removed") || !strings.Contains(userData, "/secrets/added") || !strings.Contains(userData, "/secrets/agents") {
 		t.Fatalf("secret sources not regenerated from fleet list")
+	}
+	replacement := "/secrets/new-bridgectl"
+	overridden, err := restoreStackConfigWithBridgeSecret(d, &replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = base64.StdEncoding.DecodeString(overridden["userDataBase64"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err = gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = io.ReadAll(reader)
+	reader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userData = string(decoded)
+	if !strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte(replacement))) || strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte("/secrets/retired-bridge"))) {
+		t.Fatal("restore did not replace retired Bridge enrollment secret")
 	}
 	d.Secrets = []string{"/secrets/added"}
 	config, err = restoreStackConfig(d)

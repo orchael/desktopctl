@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/efs"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/smithy-go"
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/desktop"
@@ -27,6 +28,7 @@ import (
 )
 
 var parkDryRun, parkForce, parkRetry, parkRecreateAVDs, unparkRetry bool
+var unparkBridgeEnrollmentSecret string
 
 var (
 	parkCmd   = &cobra.Command{Use: "park <desktop-id>", Short: "Release an EFS desktop's instance and root disk while retaining its workspace", Args: cobra.ExactArgs(1), RunE: runPark}
@@ -39,6 +41,7 @@ func init() {
 	parkCmd.Flags().BoolVar(&parkRetry, "retry", false, "resume a stale interrupted park after confirming the prior process exited")
 	parkCmd.Flags().BoolVar(&parkRecreateAVDs, "recreate-avds", false, "discard AVD guest data and recreate configured AVDs when unparked")
 	unparkCmd.Flags().BoolVar(&unparkRetry, "retry", false, "reconcile an interrupted restoring state after confirming no operation is active")
+	unparkCmd.Flags().StringVar(&unparkBridgeEnrollmentSecret, "bridge-enrollment-secret", "", "replace the saved Bridge enrollment secret path for this restore; empty disables enrollment")
 	rootCmd.AddCommand(parkCmd, unparkCmd)
 }
 
@@ -340,7 +343,7 @@ func recordParkFailure(ctx context.Context, s store.Store, id, token, message st
 	return recorder.RecordParkFailure(ctx, id, token, message)
 }
 
-func runUnpark(_ *cobra.Command, args []string) error {
+func runUnpark(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	id := args[0]
 	if err := desktop.ValidateID(id); err != nil {
@@ -401,9 +404,26 @@ func runUnpark(_ *cobra.Command, args []string) error {
 		return err
 	}
 	runner := &pulumi.Runner{AWSProfile: cfg.AWS.Profile, AWSRegion: d.Region}
-	restoreCfg, err := restoreStackConfig(d)
+	var bridgeOverride *string
+	if cmd.Flags().Changed("bridge-enrollment-secret") {
+		bridgeOverride = &unparkBridgeEnrollmentSecret
+	}
+	restoreCfg, err := restoreStackConfigWithBridgeSecret(d, bridgeOverride)
 	if err != nil {
 		return err
+	}
+	if bridgeOverride != nil && *bridgeOverride != "" {
+		otherPaths := append([]string(nil), d.Secrets...)
+		var savedBoot provision.BootstrapConfig
+		if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &savedBoot); err != nil {
+			return fmt.Errorf("decode saved bootstrap settings for Bridge secret validation: %w", err)
+		}
+		if savedBoot.GitHubSecretPath != "" {
+			otherPaths = append(otherPaths, savedBoot.GitHubSecretPath)
+		}
+		if err := validateUnparkBridgeSecret(ctx, awsCfg, *bridgeOverride, otherPaths); err != nil {
+			return err
+		}
 	}
 	if err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
 		if d.NestedVirt {
@@ -526,7 +546,14 @@ func validateRestoreSpec(d *store.Desktop, spec *store.RestoreSpec, w *store.Wor
 // restoreStackConfig regenerates user data from the saved non-secret boot
 // settings and the current fleet secret list. A removed path is never replayed.
 func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
+	return restoreStackConfigWithBridgeSecret(d, nil)
+}
+
+func restoreStackConfigWithBridgeSecret(d *store.Desktop, bridgeOverride *string) (pulumi.StackConfig, error) {
 	if d.RestoreSpec != nil && d.RestoreSpec.Version == 2 {
+		if bridgeOverride != nil {
+			return nil, fmt.Errorf("Bridge enrollment secret override requires a version 1 restore specification")
+		}
 		return legacyRestoreConfig(d)
 	}
 	if d.RestoreSpec == nil || d.RestoreSpec.BootstrapJSON == "" {
@@ -538,6 +565,9 @@ func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
 	}
 	if boot.DesktopID != d.DesktopID || boot.WorkspaceMode != workspaceModeEFS || boot.WorkspaceName != d.WorkspaceName || boot.EFSAccessPointID != d.RestoreSpec.Config["workspaceEFSAccessPointId"] {
 		return nil, fmt.Errorf("saved bootstrap settings do not match desktop %s", d.DesktopID)
+	}
+	if bridgeOverride != nil {
+		boot.BridgeEnrollmentSecretPath = *bridgeOverride
 	}
 	agentPath := boot.AgentSecretPath
 	if agentPath == "" && cfg != nil && containsString(d.Secrets, cfg.GitHub.AgentSecret) {
@@ -565,6 +595,17 @@ func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
 	}
 	config["userDataBase64"] = compressed
 	return config, nil
+}
+
+func validateUnparkBridgeSecret(ctx context.Context, awsCfg aws.Config, path string, desktopPaths []string) error {
+	client := secretsmanager.NewFromConfig(awsCfg)
+	resolve := func(ctx context.Context, secretID string) (string, error) {
+		return resolveSecretARN(ctx, client, secretID)
+	}
+	if err := validateBridgeEnrollmentSecretIsolation(ctx, path, desktopPaths, resolve); err != nil {
+		return err
+	}
+	return nil
 }
 
 func waitUnparkReady(ctx context.Context, d *store.Desktop) error {

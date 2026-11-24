@@ -37,7 +37,17 @@ The fleet record retains a versioned launch specification containing the AMI,
 root size, network and workspace settings, and the non-secret bootstrap inputs.
 Unpark regenerates cloud-init using the current fleet secret paths, so paths
 removed after creation are not restored and paths added later are included.
-The new instance fetches current secret values at boot. For older desktops,
+The new instance fetches current secret values at boot.
+
+Bridge machine enrollment uses the saved secret path on restore. If its
+enrollment key has expired or been consumed, provide a fresh secret with
+`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. This override
+is for that restore; use it again on a later unpark if the original saved path
+is still retired. An explicit `--bridge-enrollment-secret=` disables enrollment
+for that restore. The replacement instance must enroll anew because park removes
+the original root disk and its saved Bridge identity.
+
+For older desktops,
 `desktopctl migrate-restore-spec` checks each active fleet record against its
 deployed Pulumi stack and reports which records can be backfilled. After a
 successful dry run, `desktopctl migrate-restore-spec --apply` writes version 2
