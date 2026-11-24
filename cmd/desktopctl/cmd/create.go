@@ -393,6 +393,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("secret %q not found in Secrets Manager (region %s)", secretPath, cfg.AWS.Region)
 			}
 		}
+		if bridgeEnrollmentSecret != "" {
+			client := secretsmanager.NewFromConfig(awsCfg)
+			resolveARN := func(ctx context.Context, secretID string) (string, error) {
+				out, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
+				if err != nil {
+					return "", err
+				}
+				if arn := aws.ToString(out.ARN); arn != "" {
+					return arn, nil
+				}
+				return "", fmt.Errorf("Secrets Manager did not return an ARN for %q", secretID)
+			}
+			otherPaths := append([]string(nil), secretPaths...)
+			if gitHubSecret != "" {
+				otherPaths = append(otherPaths, gitHubSecret)
+			}
+			if err := validateBridgeEnrollmentSecretIsolation(ctx, bridgeEnrollmentSecret, otherPaths, resolveARN); err != nil {
+				return err
+			}
+		}
 	}
 
 	tailscaleSecretPath := ""
@@ -1124,6 +1144,23 @@ func resolveBridgeEnrollmentSecret(configured, override string, changed bool) st
 		return override
 	}
 	return configured
+}
+
+func validateBridgeEnrollmentSecretIsolation(ctx context.Context, enrollmentPath string, otherPaths []string, resolveARN func(context.Context, string) (string, error)) error {
+	enrollmentARN, err := resolveARN(ctx, enrollmentPath)
+	if err != nil {
+		return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+	}
+	for _, path := range otherPaths {
+		arn, err := resolveARN(ctx, path)
+		if err != nil {
+			return fmt.Errorf("resolve desktop secret identity for %q: %w", path, err)
+		}
+		if arn == enrollmentARN {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
+	return nil
 }
 
 func resolveProfileSecret(configuredProfile, configuredSecret, selectedProfile, flag string, flagChanged bool) string {

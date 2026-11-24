@@ -1207,6 +1207,10 @@ runcmd:
       python3 /opt/desktopctl/bridge_enroll.py
     unset ENROLL_JSON
     )
+    enrollment_status=$?
+    if [ "$enrollment_status" -ne 0 ]; then
+      exit "$enrollment_status"
+    fi
 {{- end}}
 
 {{- if gt .SwapSizeGB 0}}

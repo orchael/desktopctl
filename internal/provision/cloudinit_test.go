@@ -104,6 +104,63 @@ func TestRenderCloudInitBridgeEnrollment(t *testing.T) {
 	t.Fatal("Bridge enrollment command missing from runcmd")
 }
 
+func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
+	cfg := &BootstrapConfig{
+		DesktopID: "d-001", AWSRegion: "us-east-1",
+		BridgeEnrollmentSecretPath: "/desktopctl/dev/us-east-1/acme/bridge-enrollment",
+	}
+	rendered, err := RenderCloudInit(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(rendered), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var enrollmentScript string
+	for _, entry := range doc["runcmd"].([]any) {
+		if script, ok := entry.(string); ok && strings.Contains(script, "bridge_enroll.py") {
+			enrollmentScript = script
+			break
+		}
+	}
+	if enrollmentScript == "" {
+		t.Fatal("enrollment script missing")
+	}
+	for _, tc := range []struct {
+		name, fail, wantMarker string
+	}{
+		{"secret retrieval fails", "aws", ""},
+		{"login fails", "login", ""},
+		{"login succeeds", "", "completion-marker"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "bin")
+			if err := os.Mkdir(bin, 0700); err != nil {
+				t.Fatal(err)
+			}
+			stubs := map[string]string{
+				"aws":  "#!/bin/sh\n[ \"$BRIDGE_TEST_FAIL\" = aws ] && exit 1\nprintf '{\"BRIDGECTL_ENROLL_KEY\":\"test\"}'\n",
+				"sudo": "#!/bin/sh\ncase \"$*\" in *bridge_enroll.py*) [ \"$BRIDGE_TEST_FAIL\" = login ] && exit 1;; esac\nexit 0\n",
+				"id":   "#!/bin/sh\nprintf 1000\n",
+			}
+			for name, content := range stubs {
+				if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			script := strings.ReplaceAll(enrollmentScript, "/opt/desktopctl", filepath.Join(dir, "opt")) + "\nprintf completion-marker\n"
+			cmd := exec.Command("bash", "-c", script)
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "BRIDGE_TEST_FAIL="+tc.fail)
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != (tc.fail == "") || strings.Contains(string(output), "completion-marker") != (tc.wantMarker != "") {
+				t.Fatalf("script error = %v, output = %q", err, output)
+			}
+		})
+	}
+}
+
 func TestRenderCloudInit_SaaSWithoutDNSOrGitHubSecret(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID: "d-1234abcd", Hostname: "d-1234abcd.invalid",

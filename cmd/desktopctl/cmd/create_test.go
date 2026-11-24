@@ -138,6 +138,26 @@ func TestResolveBridgeEnrollmentSecret(t *testing.T) {
 	}
 }
 
+func TestBridgeEnrollmentSecretIsolationResolvesAliases(t *testing.T) {
+	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:/desktopctl/dev/us-east-1/acme/bridge-enrollment-AbCdEf"
+	resolve := func(_ context.Context, secretID string) (string, error) {
+		switch secretID {
+		case "/desktopctl/dev/us-east-1/acme/bridge-enrollment", arn:
+			return arn, nil
+		case "/desktopctl/dev/us-east-1/acme/agents":
+			return "arn:aws:secretsmanager:us-east-1:123456789012:secret:/desktopctl/dev/us-east-1/acme/agents-XyZ123", nil
+		default:
+			return "", errors.New("unexpected secret")
+		}
+	}
+	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridge-enrollment", []string{arn}, resolve); err == nil {
+		t.Fatal("same secret referenced by name and ARN was accepted")
+	}
+	if err := validateBridgeEnrollmentSecretIsolation(context.Background(), "/desktopctl/dev/us-east-1/acme/bridge-enrollment", []string{"/desktopctl/dev/us-east-1/acme/agents"}, resolve); err != nil {
+		t.Fatalf("distinct secret rejected: %v", err)
+	}
+}
+
 func TestResolveOwnerSecretPath(t *testing.T) {
 	for _, tc := range []struct {
 		name, configured, configuredOwner, selectedOwner, kind, want string
