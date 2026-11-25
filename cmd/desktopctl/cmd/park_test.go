@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -345,7 +346,7 @@ func TestFailedUnparkRetryReplacesInstanceAndRerunsBootstrap(t *testing.T) {
 
 func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
 	d, _ := parkedFixture()
-	d.Secrets = []string{"/desktop-env"}
+	d.Secrets = []string{"/desktop-env", "/agents"}
 	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/saved-bridge","GitHubSecretPath":"/github","AgentSecretPath":"/agents"}`}
 	path, other, err := restoreBridgeSecretPaths(d, nil)
 	if err != nil {
@@ -374,6 +375,35 @@ func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
 	path, _, err = restoreBridgeSecretPaths(saved, nil)
 	if err != nil || path != override {
 		t.Fatalf("saved override used by later secret operations: %q, %v", path, err)
+	}
+}
+
+func TestFailedNestedUnparkClearsPrelaunchBeforeRetry(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateRestoring, InstanceID: "i-failed", UnparkOperationToken: "owner"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	if err := resetFailedNestedUnpark(ctx, s, d, func() error {
+		order = append(order, "destroy")
+		return nil
+	}, func(id string) error {
+		order = append(order, "terminate:"+id)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(order, []string{"destroy", "terminate:i-failed"}) {
+		t.Fatalf("reset order: %v", order)
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.InstanceID != "" || d.InstanceID != "" {
+		t.Fatal("failed prelaunch ID was reused")
 	}
 }
 

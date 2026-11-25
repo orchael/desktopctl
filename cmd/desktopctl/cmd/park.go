@@ -431,8 +431,16 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	retryNested := d.NestedVirt && shouldReplaceFailedUnparkInstance(d)
 	if err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
 		if d.NestedVirt {
+			if retryNested {
+				if err := resetFailedNestedUnpark(ctx, s, d,
+					func() error { return runner.DestroyNoCancel(ctx, desktopStackRef(d), os.Stderr) },
+					func(id string) error { return terminatePrelaunchedInstance(ctx, d.Region, cfg.AWS.Profile, id) }); err != nil {
+					return nil, err
+				}
+			}
 			if err := prepareNestedUnpark(ctx, s, d, restoreCfg); err != nil {
 				return nil, err
 			}
@@ -451,6 +459,36 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 		}
 	}
 	fmt.Printf("Desktop %s restored on instance %s with workspace %s.\n", id, restored.InstanceID, restored.WorkspaceName)
+	return nil
+}
+
+func resetFailedNestedUnpark(ctx context.Context, s store.Store, d *store.Desktop, destroy func() error, terminate func(string) error) error {
+	if err := requireUnparkOwner(ctx, s, d.DesktopID, d.UnparkOperationToken); err != nil {
+		return err
+	}
+	// The nested virtualization workaround imports a prelaunched EC2 instance.
+	// Clear its old stack before launching a replacement; otherwise it reuses
+	// the instance with failed cloud-init despite the new user data.
+	if err := destroy(); err != nil {
+		return fmt.Errorf("destroy failed nested restore stack: %w", err)
+	}
+	if d.InstanceID != "" {
+		if err := terminate(d.InstanceID); err != nil {
+			return fmt.Errorf("terminate failed nested restore instance: %w", err)
+		}
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		return err
+	}
+	if current.State != store.StateRestoring || current.UnparkOperationToken != d.UnparkOperationToken || current.InstanceID != d.InstanceID {
+		return store.ErrStateConflict
+	}
+	current.InstanceID = ""
+	if err := s.Update(ctx, current); err != nil {
+		return err
+	}
+	d.InstanceID = ""
 	return nil
 }
 
@@ -642,10 +680,8 @@ func restoreBridgeSecretPaths(d *store.Desktop, override *string) (string, []str
 		path = *override
 	}
 	other := append([]string(nil), d.Secrets...)
-	for _, p := range []string{boot.AgentSecretPath, boot.ProfileSecretPath, boot.GitHubSecretPath} {
-		if p != "" && !containsString(other, p) {
-			other = append(other, p)
-		}
+	if boot.GitHubSecretPath != "" && !containsString(other, boot.GitHubSecretPath) {
+		other = append(other, boot.GitHubSecretPath)
 	}
 	return path, other, nil
 }
