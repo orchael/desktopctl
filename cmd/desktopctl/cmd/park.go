@@ -92,8 +92,7 @@ func volumeGone(ctx context.Context, client *ec2.Client, id string) (bool, error
 func instanceGone(ctx context.Context, client *ec2.Client, id string) (bool, error) {
 	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{id}})
 	if err != nil {
-		var apiErr smithy.APIError
-		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidInstanceID.NotFound" {
+		if ec2InstanceNotFound(err) {
 			return true, nil
 		}
 		return false, err
@@ -103,6 +102,11 @@ func instanceGone(ctx context.Context, client *ec2.Client, id string) (bool, err
 	}
 	state := out.Reservations[0].Instances[0].State
 	return state != nil && string(state.Name) == "terminated", nil
+}
+
+func ec2InstanceNotFound(err error) bool {
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidInstanceID.NotFound"
 }
 
 func verifyWorkspaceAccessPoint(ctx context.Context, awsCfg aws.Config, w *store.Workspace) error {
@@ -437,9 +441,9 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	}
 	retryNested := d.NestedVirt && shouldReplaceFailedUnparkInstance(d)
 	var prepare func(*store.Desktop) error
-	if bridgeOverride != nil {
+	if shouldSaveRestoredBridgeSecret(bridgeOverride, bridgePath) {
 		prepare = func(claimed *store.Desktop) error {
-			return saveRestoredBridgeSecret(ctx, s, claimed, *bridgeOverride, bridgeARN)
+			return saveRestoredBridgeSecret(ctx, s, claimed, bridgePath, bridgeARN)
 		}
 	}
 	if err := completeUnparkWithPrepare(ctx, s, d, prepare, func() (map[string]string, error) {
@@ -465,6 +469,10 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Desktop %s restored on instance %s with workspace %s.\n", id, restored.InstanceID, restored.WorkspaceName)
 	return nil
+}
+
+func shouldSaveRestoredBridgeSecret(override *string, effectivePath string) bool {
+	return override != nil || effectivePath != ""
 }
 
 func resetFailedNestedUnpark(ctx context.Context, s store.Store, d *store.Desktop, destroy func() error, terminate func(string) error) error {

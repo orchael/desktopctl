@@ -1563,6 +1563,9 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
 	description, err := ec2Client.DescribeInstances(cleanupCtx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
 	if err != nil {
+		if ec2InstanceNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
 	}
 	for _, reservation := range description.Reservations {
@@ -1575,12 +1578,18 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
 	}); err != nil {
+		if ec2InstanceNotFound(err) {
+			return nil
+		}
 		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
 		return err
 	}
 	if err := ec2sdk.NewInstanceTerminatedWaiter(ec2Client).Wait(cleanupCtx, &ec2sdk.DescribeInstancesInput{
 		InstanceIds: []string{instanceID},
 	}, 2*time.Minute); err != nil {
+		if ec2InstanceNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
 	}
 	return nil

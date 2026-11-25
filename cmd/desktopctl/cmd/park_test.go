@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/smithy-go"
 	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/store"
 )
@@ -419,6 +420,60 @@ func TestFailedUnparkKeepsEffectiveBridgeOverride(t *testing.T) {
 	path, _, err := restoreBridgeSecretPaths(failed, nil)
 	if err != nil || failed.State != store.StateFailed || path != "/new-bridge" || failed.RestoreSpec.BridgeEnrollmentSecretARN != arn {
 		t.Fatalf("failed restore lost effective Bridge identity: %q, %v", path, err)
+	}
+}
+
+func TestUnparkRepinsRecreatedBridgeSecret(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d, _ := parkedFixture()
+	d.State = store.StateParked
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/bridgectl"}`, BridgeEnrollmentSecretARN: "arn:old"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil || !shouldSaveRestoredBridgeSecret(nil, path) {
+		t.Fatalf("ordinary unpark did not select saved Bridge path: %q, %v", path, err)
+	}
+	const newARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-new123"
+	if err := completeUnparkWithPrepare(ctx, s, d,
+		func(claimed *store.Desktop) error { return saveRestoredBridgeSecret(ctx, s, claimed, path, newARN) },
+		func() (map[string]string, error) { return map[string]string{"instanceId": "i-new"}, nil },
+		func(*store.Desktop) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.State != store.StateReady || ready.RestoreSpec.BridgeEnrollmentSecretARN != newARN {
+		t.Fatal("ordinary unpark kept a stale Bridge secret identity")
+	}
+}
+
+func TestMissingPrelaunchInstanceCanBeClearedOnRetry(t *testing.T) {
+	notFound := &smithy.GenericAPIError{Code: "InvalidInstanceID.NotFound"}
+	if !ec2InstanceNotFound(notFound) || ec2InstanceNotFound(errors.New("other failure")) {
+		t.Fatal("EC2 missing-instance classification failed")
+	}
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateRestoring, InstanceID: "i-gone", UnparkOperationToken: "owner"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetFailedNestedUnpark(ctx, s, d, func() error { return nil }, func(string) error {
+		if ec2InstanceNotFound(notFound) {
+			return nil
+		}
+		return notFound
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil || current.InstanceID != "" {
+		t.Fatalf("stale prelaunch ID was not cleared: %v", err)
 	}
 }
 

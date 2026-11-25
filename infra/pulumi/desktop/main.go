@@ -217,7 +217,10 @@ func run(ctx *pulumi.Context) error {
 	// A failed restore may already have created an instance whose cloud-init
 	// failed. Replacing it is required for a retry to execute user data again.
 	if cfg.GetBool("replaceInstanceOnRestore") {
-		instanceResourceOpts = append(instanceResourceOpts, pulumi.ReplaceOnChanges([]string{"userDataBase64"}))
+		instanceResourceOpts = append(instanceResourceOpts,
+			pulumi.ReplaceOnChanges([]string{"userDataBase64"}),
+			pulumi.DeleteBeforeReplace(true),
+		)
 	}
 	if importInstanceID != "" {
 		instanceResourceOpts = append(instanceResourceOpts,
