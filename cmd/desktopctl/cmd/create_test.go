@@ -17,12 +17,56 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/config"
 	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/pulumi"
 	"github.com/orchael/desktopctl/internal/store"
 )
+
+type eventuallyVisiblePrelaunch struct {
+	describes     int
+	terminates    int
+	alwaysMissing bool
+}
+
+func (m *eventuallyVisiblePrelaunch) DescribeInstances(_ context.Context, _ *ec2sdk.DescribeInstancesInput, _ ...func(*ec2sdk.Options)) (*ec2sdk.DescribeInstancesOutput, error) {
+	m.describes++
+	if m.describes == 1 || m.alwaysMissing {
+		return nil, &smithy.GenericAPIError{Code: "InvalidInstanceID.NotFound"}
+	}
+	state := ec2types.InstanceStateNameRunning
+	if m.terminates > 0 {
+		state = ec2types.InstanceStateNameTerminated
+	}
+	return &ec2sdk.DescribeInstancesOutput{Reservations: []ec2types.Reservation{{Instances: []ec2types.Instance{{State: &ec2types.InstanceState{Name: state}}}}}}, nil
+}
+
+func (m *eventuallyVisiblePrelaunch) TerminateInstances(_ context.Context, _ *ec2sdk.TerminateInstancesInput, _ ...func(*ec2sdk.Options)) (*ec2sdk.TerminateInstancesOutput, error) {
+	m.terminates++
+	return &ec2sdk.TerminateInstancesOutput{}, nil
+}
+
+func TestFreshPrelaunchCleanupRetriesEC2Propagation(t *testing.T) {
+	m := &eventuallyVisiblePrelaunch{}
+	if err := terminatePrelaunchedInstanceWithClient(context.Background(), m, "i-new", false); err != nil {
+		t.Fatal(err)
+	}
+	if m.describes < 3 || m.terminates != 1 {
+		t.Fatalf("cleanup stopped before confirming termination: describes=%d terminates=%d", m.describes, m.terminates)
+	}
+	m = &eventuallyVisiblePrelaunch{alwaysMissing: true}
+	if err := terminatePrelaunchedInstanceWithClient(context.Background(), m, "i-new", false); err == nil {
+		t.Fatal("unconfirmed fresh instance cleanup was treated as success")
+	}
+	if m.terminates != 0 {
+		t.Fatal("cleanup terminated an unseen instance")
+	}
+	if err := terminatePrelaunchedInstanceWithClient(context.Background(), m, "i-old", true); err != nil {
+		t.Fatalf("retired missing instance should be clearable: %v", err)
+	}
+}
 
 func TestPublicAMINamePattern(t *testing.T) {
 	for _, tc := range []struct {
@@ -734,7 +778,7 @@ func TestResolveCreateIntegrations(t *testing.T) {
 func TestResolveStepCAClients_ConfigAndFlags(t *testing.T) {
 	dir := t.TempDir()
 	pubPath := filepath.Join(dir, "mark.pub")
-	if err := os.WriteFile(pubPath, []byte("ssh-ed25519 AAAA mark\n"), 0600); err != nil {
+	if err := os.WriteFile(pubPath, []byte("ssh-ed25519 AAAA mark\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

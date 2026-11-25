@@ -451,7 +451,7 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 			if retryNested {
 				if err := resetFailedNestedUnpark(ctx, s, d,
 					func() error { return runner.DestroyNoCancel(ctx, desktopStackRef(d), os.Stderr) },
-					func(id string) error { return terminatePrelaunchedInstance(ctx, d.Region, cfg.AWS.Profile, id) }); err != nil {
+					func(id string) error { return terminateRetiredPrelaunchedInstance(ctx, d.Region, cfg.AWS.Profile, id) }); err != nil {
 					return nil, err
 				}
 			}

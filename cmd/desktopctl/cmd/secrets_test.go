@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/orchael/desktopctl/internal/store"
 )
 
@@ -17,7 +17,7 @@ func TestSecretsAddUsesPinnedBridgeIdentityAfterSecretRetirement(t *testing.T) {
 	d := &store.Desktop{RestoreSpec: &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/retired-bridge"}`, BridgeEnrollmentSecretARN: bridgeARN}}
 	resolve := func(_ context.Context, path string) (string, error) {
 		if path == "/retired-bridge" {
-			return "", fmt.Errorf("retired secret must not be queried")
+			return "", &secretsmanagertypes.ResourceNotFoundException{}
 		}
 		if path == "/alias" {
 			return bridgeARN, nil
@@ -29,6 +29,26 @@ func TestSecretsAddUsesPinnedBridgeIdentityAfterSecretRetirement(t *testing.T) {
 	}
 	if err := validateAddedSecretARNs(context.Background(), d, []string{"/alias"}, resolve); err == nil {
 		t.Fatal("Bridge ARN alias was allowed into desktop environment")
+	}
+	if err := validateAddedSecretARNs(context.Background(), d, []string{"/retired-bridge"}, resolve); err == nil {
+		t.Fatal("saved enrollment path was allowed into desktop environment")
+	}
+}
+
+func TestSecretsAddRejectsRecreatedBridgeSecretAndAlias(t *testing.T) {
+	const oldARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-old123"
+	const newARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-new456"
+	d := &store.Desktop{RestoreSpec: &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/bridgectl"}`, BridgeEnrollmentSecretARN: oldARN}}
+	resolve := func(_ context.Context, path string) (string, error) {
+		if path == "/bridgectl" || path == newARN {
+			return newARN, nil
+		}
+		return "arn:aws:secretsmanager:us-east-1:123456789012:secret:other-123456", nil
+	}
+	for _, path := range []string{"/bridgectl", newARN} {
+		if err := validateAddedSecretARNs(context.Background(), d, []string{path}, resolve); err == nil {
+			t.Fatalf("recreated Bridge secret %q was allowed into desktop environment", path)
+		}
 	}
 }
 

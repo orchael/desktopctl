@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/store"
@@ -258,16 +259,29 @@ func validateAddedSecretARNs(ctx context.Context, d *store.Desktop, newPaths []s
 	if err != nil || bridgePath == "" {
 		return err
 	}
-	arn := d.RestoreSpec.BridgeEnrollmentSecretARN
-	if arn == "" {
-		// Older records have no pinned identity. Resolve the path conservatively:
-		// if it has been deleted, we cannot safely recognize an ARN alias.
-		arn, err = resolve(ctx, bridgePath)
-		if err != nil {
+	for _, path := range newPaths {
+		if path == bridgePath {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
+	pinnedARN := d.RestoreSpec.BridgeEnrollmentSecretARN
+	currentARN, err := resolve(ctx, bridgePath)
+	if err != nil {
+		var missing *secretsmanagertypes.ResourceNotFoundException
+		if pinnedARN == "" || !errors.As(err, &missing) {
 			return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
 		}
 	}
-	return validateBridgeEnrollmentARNIsolation(ctx, arn, newPaths, resolve)
+	for _, path := range newPaths {
+		arn, err := resolve(ctx, path)
+		if err != nil {
+			return fmt.Errorf("resolve desktop secret identity for %q: %w", path, err)
+		}
+		if arn == pinnedARN || (currentARN != "" && arn == currentARN) {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
+	return nil
 }
 
 func runSecretsRemove(cmd *cobra.Command, args []string) error {

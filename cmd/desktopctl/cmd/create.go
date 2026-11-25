@@ -1550,6 +1550,14 @@ func persistPrelaunchedInstance(ctx context.Context, s store.Store, desktopID, i
 }
 
 func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
+	return terminatePrelaunchedInstanceWithMode(ctx, region, profile, instanceID, false)
+}
+
+func terminateRetiredPrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
+	return terminatePrelaunchedInstanceWithMode(ctx, region, profile, instanceID, true)
+}
+
+func terminatePrelaunchedInstanceWithMode(ctx context.Context, region, profile, instanceID string, allowMissing bool) error {
 	if instanceID == "" {
 		return nil
 	}
@@ -1561,38 +1569,66 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 		return err
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
-	description, err := ec2Client.DescribeInstances(cleanupCtx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	if err != nil {
-		if ec2InstanceNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
-	}
-	for _, reservation := range description.Reservations {
-		for _, instance := range reservation.Instances {
-			if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+	return terminatePrelaunchedInstanceWithClient(cleanupCtx, ec2Client, instanceID, allowMissing)
+}
+
+type prelaunchEC2Client interface {
+	ec2sdk.DescribeInstancesAPIClient
+	TerminateInstances(context.Context, *ec2sdk.TerminateInstancesInput, ...func(*ec2sdk.Options)) (*ec2sdk.TerminateInstancesOutput, error)
+}
+
+func terminatePrelaunchedInstanceWithClient(ctx context.Context, client prelaunchEC2Client, instanceID string, allowMissing bool) error {
+	for attempt := 0; attempt < 3; attempt++ {
+		description, err := client.DescribeInstances(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+		if err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
 				return nil
 			}
+			if ec2InstanceNotFound(err) && attempt < 2 {
+				if err := waitPrelaunchRetry(ctx, attempt); err != nil {
+					return err
+				}
+				continue
+			}
+			return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
 		}
-	}
-	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
-		InstanceIds: []string{instanceID},
-	}); err != nil {
-		if ec2InstanceNotFound(err) {
-			return nil
+		for _, reservation := range description.Reservations {
+			for _, instance := range reservation.Instances {
+				if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+					return nil
+				}
+			}
 		}
-		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
-		return err
-	}
-	if err := ec2sdk.NewInstanceTerminatedWaiter(ec2Client).Wait(cleanupCtx, &ec2sdk.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}, 2*time.Minute); err != nil {
-		if ec2InstanceNotFound(err) {
-			return nil
+		if _, err := client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{InstanceIds: []string{instanceID}}); err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
+				return nil
+			}
+			if ec2InstanceNotFound(err) && attempt < 2 {
+				if err := waitPrelaunchRetry(ctx, attempt); err != nil {
+					return err
+				}
+				continue
+			}
+			return fmt.Errorf("terminate pre-launched instance %s: %w", instanceID, err)
 		}
-		return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
+		if err := ec2sdk.NewInstanceTerminatedWaiter(client).Wait(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute); err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("pre-launched instance %s termination was not confirmed", instanceID)
+}
+
+func waitPrelaunchRetry(ctx context.Context, attempt int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Duration(attempt+1) * 250 * time.Millisecond):
+		return nil
+	}
 }
 
 func isCreateCapacityError(err error) bool {
