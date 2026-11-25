@@ -367,6 +367,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
 	secretPaths := createSecretPaths(agentSecretPath, requestedSecrets, cfg.SaaSMode)
+	bridgeEnrollmentARN := ""
 	if bridgeEnrollmentSecret != "" && (bridgeEnrollmentSecret == agentSecretPath || containsString(secretPaths, bridgeEnrollmentSecret)) {
 		return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
 	}
@@ -398,11 +399,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			resolveARN := func(ctx context.Context, secretID string) (string, error) {
 				return resolveSecretARN(ctx, client, secretID)
 			}
+			bridgeEnrollmentARN, err = resolveARN(ctx, bridgeEnrollmentSecret)
+			if err != nil {
+				return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+			}
 			otherPaths := append([]string(nil), secretPaths...)
 			if gitHubSecret != "" {
 				otherPaths = append(otherPaths, gitHubSecret)
 			}
-			if err := validateBridgeEnrollmentSecretIsolation(ctx, bridgeEnrollmentSecret, otherPaths, resolveARN); err != nil {
+			if err := validateBridgeEnrollmentARNIsolation(ctx, bridgeEnrollmentARN, otherPaths, resolveARN); err != nil {
 				return err
 			}
 		}
@@ -799,7 +804,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("encode restore bootstrap configuration: %w", err)
 	}
-	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON)}
+	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON), BridgeEnrollmentSecretARN: bridgeEnrollmentARN}
 	for key, value := range stackCfg {
 		req.RestoreSpec.Config[key] = value
 	}
@@ -1154,6 +1159,10 @@ func validateBridgeEnrollmentSecretIsolation(ctx context.Context, enrollmentPath
 	if err != nil {
 		return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
 	}
+	return validateBridgeEnrollmentARNIsolation(ctx, enrollmentARN, otherPaths, resolveARN)
+}
+
+func validateBridgeEnrollmentARNIsolation(ctx context.Context, enrollmentARN string, otherPaths []string, resolveARN func(context.Context, string) (string, error)) error {
 	for _, path := range otherPaths {
 		arn, err := resolveARN(ctx, path)
 		if err != nil {

@@ -1,12 +1,36 @@
 package cmd
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/orchael/desktopctl/internal/store"
 )
+
+func TestSecretsAddUsesPinnedBridgeIdentityAfterSecretRetirement(t *testing.T) {
+	const bridgeARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-123456"
+	d := &store.Desktop{RestoreSpec: &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/retired-bridge"}`, BridgeEnrollmentSecretARN: bridgeARN}}
+	resolve := func(_ context.Context, path string) (string, error) {
+		if path == "/retired-bridge" {
+			return "", fmt.Errorf("retired secret must not be queried")
+		}
+		if path == "/alias" {
+			return bridgeARN, nil
+		}
+		return "arn:aws:secretsmanager:us-east-1:123456789012:secret:other-123456", nil
+	}
+	if err := validateAddedSecretARNs(context.Background(), d, []string{"/unrelated"}, resolve); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAddedSecretARNs(context.Background(), d, []string{"/alias"}, resolve); err == nil {
+		t.Fatal("Bridge ARN alias was allowed into desktop environment")
+	}
+}
 
 func secretScriptRequest(t *testing.T, script string) []byte {
 	t.Helper()

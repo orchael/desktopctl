@@ -41,10 +41,11 @@ The new instance fetches current secret values at boot.
 
 Bridge machine enrollment uses the saved secret path on restore. If its
 enrollment key has expired or been consumed, provide a fresh secret with
-`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. A successful
-restore saves the override for later restores and for secret isolation checks.
-An explicit `--bridge-enrollment-secret=` disables enrollment and saves that
-choice after a successful restore. The replacement instance must enroll anew because park removes
+`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. Unpark saves
+the validated override before provisioning, so later restores and secret
+isolation checks use it even if this restore fails. An explicit
+`--bridge-enrollment-secret=` disables enrollment and saves that choice before
+provisioning. The replacement instance must enroll anew because park removes
 the original root disk and its saved Bridge identity.
 
 For older desktops,

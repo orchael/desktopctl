@@ -246,15 +246,28 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 }
 
 func validateAddedSecretsAgainstBridge(ctx context.Context, d *store.Desktop, newPaths []string, awsCfg aws.Config) error {
-	bridgePath, _, err := restoreBridgeSecretPaths(d, nil)
-	if err != nil || bridgePath == "" {
-		return err
-	}
 	client := secretsmanager.NewFromConfig(awsCfg)
 	resolve := func(ctx context.Context, secretID string) (string, error) {
 		return resolveSecretARN(ctx, client, secretID)
 	}
-	return validateBridgeEnrollmentSecretIsolation(ctx, bridgePath, newPaths, resolve)
+	return validateAddedSecretARNs(ctx, d, newPaths, resolve)
+}
+
+func validateAddedSecretARNs(ctx context.Context, d *store.Desktop, newPaths []string, resolve func(context.Context, string) (string, error)) error {
+	bridgePath, _, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil || bridgePath == "" {
+		return err
+	}
+	arn := d.RestoreSpec.BridgeEnrollmentSecretARN
+	if arn == "" {
+		// Older records have no pinned identity. Resolve the path conservatively:
+		// if it has been deleted, we cannot safely recognize an ARN alias.
+		arn, err = resolve(ctx, bridgePath)
+		if err != nil {
+			return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+		}
+	}
+	return validateBridgeEnrollmentARNIsolation(ctx, arn, newPaths, resolve)
 }
 
 func runSecretsRemove(cmd *cobra.Command, args []string) error {

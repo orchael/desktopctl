@@ -362,10 +362,12 @@ func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
 	}
 	ctx := context.Background()
 	s := store.NewInMemoryStore()
+	d.State = store.StateRestoring
+	d.UnparkOperationToken = "owner"
 	if err := s.Create(ctx, d); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveRestoredBridgeSecret(ctx, s, d, override); err != nil {
+	if err := saveRestoredBridgeSecret(ctx, s, d, override, "arn:aws:secretsmanager:us-east-1:123456789012:secret:new-bridge-123456"); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := s.Get(ctx, d.DesktopID)
@@ -375,6 +377,48 @@ func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
 	path, _, err = restoreBridgeSecretPaths(saved, nil)
 	if err != nil || path != override {
 		t.Fatalf("saved override used by later secret operations: %q, %v", path, err)
+	}
+	if saved.RestoreSpec.BridgeEnrollmentSecretARN == "" {
+		t.Fatal("canonical Bridge identity was not saved")
+	}
+}
+
+func TestFailedUnparkKeepsEffectiveBridgeOverride(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d, _ := parkedFixture()
+	d.State = store.StateParked
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/old-bridge"}`}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:new-bridge-123456"
+	err := completeUnparkWithPrepare(ctx, s, d,
+		func(claimed *store.Desktop) error {
+			return saveRestoredBridgeSecret(ctx, s, claimed, "/new-bridge", arn)
+		},
+		func() (map[string]string, error) {
+			current, err := s.Get(ctx, d.DesktopID)
+			if err != nil {
+				return nil, err
+			}
+			path, _, err := restoreBridgeSecretPaths(current, nil)
+			if err != nil || path != "/new-bridge" || current.RestoreSpec.BridgeEnrollmentSecretARN != arn {
+				t.Fatalf("override was not recorded before provisioning: %q, %v", path, err)
+			}
+			return map[string]string{"instanceId": "i-new"}, nil
+		},
+		func(*store.Desktop) error { return errors.New("bootstrap failed") })
+	if err == nil {
+		t.Fatal("failed readiness was accepted")
+	}
+	failed, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := restoreBridgeSecretPaths(failed, nil)
+	if err != nil || failed.State != store.StateFailed || path != "/new-bridge" || failed.RestoreSpec.BridgeEnrollmentSecretARN != arn {
+		t.Fatalf("failed restore lost effective Bridge identity: %q, %v", path, err)
 	}
 }
 

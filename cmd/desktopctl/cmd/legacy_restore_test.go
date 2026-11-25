@@ -51,6 +51,37 @@ func TestLegacyRestoreReplacesChangedSecretSections(t *testing.T) {
 	}
 }
 
+func TestLegacyFailedRestoreRetryChangesUserDataAndRequestsReplacement(t *testing.T) {
+	boot := &provision.BootstrapConfig{DesktopID: "d-0123abcd", AWSRegion: "us-east-2"}
+	cloud, err := provision.RenderCloudInit(boot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := gzipBase64UserData(cloud)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &store.Desktop{DesktopID: boot.DesktopID, Region: boot.AWSRegion, State: store.StateFailed, FailurePhase: "unpark", RestoreSpec: &store.RestoreSpec{Version: 2, Config: map[string]string{"userDataBase64": encoded}}}
+	if !shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("failed version 2 restore did not request replacement")
+	}
+	first, err := restoreStackConfigForRetry(d, nil, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := restoreStackConfigForRetry(d, nil, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["replaceInstanceOnRestore"] != "true" || first["userDataBase64"] == second["userDataBase64"] {
+		t.Fatal("legacy retry reused failed cloud-init")
+	}
+	decoded, err := decodedUserData(first["userDataBase64"])
+	if err != nil || !strings.Contains(decoded, "desktopctl restore retry first") {
+		t.Fatalf("legacy retry nonce missing: %v", err)
+	}
+}
+
 func TestLegacyRestoreRejectsUnknownCloudInit(t *testing.T) {
 	encoded, err := gzipBase64UserData("#cloud-config\nruncmd:\n  - echo unknown\n")
 	if err != nil {

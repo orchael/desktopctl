@@ -297,6 +297,9 @@ fetches the secret after starting the Ubuntu user service and passes its values
 only to `bridgectl login --non-interactive`. Enrollment failure prevents the
 desktop from being marked ready. Existing enrolled desktops use their saved
 Bridge state on normal restarts.
+Desktopctl records the enrollment secret's ARN with the desktop so later
+`secrets add` calls can reject name and ARN aliases even after the enrollment
+secret is retired.
 
 ### Noninteractive setup
 

@@ -27,8 +27,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var parkDryRun, parkForce, parkRetry, parkRecreateAVDs, unparkRetry bool
-var unparkBridgeEnrollmentSecret string
+var (
+	parkDryRun, parkForce, parkRetry, parkRecreateAVDs, unparkRetry bool
+	unparkBridgeEnrollmentSecret                                    string
+)
 
 var (
 	parkCmd   = &cobra.Command{Use: "park <desktop-id>", Short: "Release an EFS desktop's instance and root disk while retaining its workspace", Args: cobra.ExactArgs(1), RunE: runPark}
@@ -416,8 +418,10 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	bridgeARN := ""
 	if bridgePath != "" {
-		if err := validateUnparkBridgeSecret(ctx, awsCfg, bridgePath, otherPaths); err != nil {
+		bridgeARN, err = validateUnparkBridgeSecret(ctx, awsCfg, bridgePath, otherPaths)
+		if err != nil {
 			return err
 		}
 	}
@@ -432,7 +436,13 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 		}
 	}
 	retryNested := d.NestedVirt && shouldReplaceFailedUnparkInstance(d)
-	if err := completeUnpark(ctx, s, d, func() (map[string]string, error) {
+	var prepare func(*store.Desktop) error
+	if bridgeOverride != nil {
+		prepare = func(claimed *store.Desktop) error {
+			return saveRestoredBridgeSecret(ctx, s, claimed, *bridgeOverride, bridgeARN)
+		}
+	}
+	if err := completeUnparkWithPrepare(ctx, s, d, prepare, func() (map[string]string, error) {
 		if d.NestedVirt {
 			if retryNested {
 				if err := resetFailedNestedUnpark(ctx, s, d,
@@ -452,11 +462,6 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	restored, err := s.Get(ctx, id)
 	if err != nil {
 		return err
-	}
-	if bridgeOverride != nil {
-		if err := saveRestoredBridgeSecret(ctx, s, restored, *bridgeOverride); err != nil {
-			return err
-		}
 	}
 	fmt.Printf("Desktop %s restored on instance %s with workspace %s.\n", id, restored.InstanceID, restored.WorkspaceName)
 	return nil
@@ -493,6 +498,10 @@ func resetFailedNestedUnpark(ctx context.Context, s store.Store, d *store.Deskto
 }
 
 func completeUnpark(ctx context.Context, s store.Store, original *store.Desktop, up func() (map[string]string, error), ready func(*store.Desktop) error) error {
+	return completeUnparkWithPrepare(ctx, s, original, nil, up, ready)
+}
+
+func completeUnparkWithPrepare(ctx context.Context, s store.Store, original *store.Desktop, prepare func(*store.Desktop) error, up func() (map[string]string, error), ready func(*store.Desktop) error) error {
 	id := original.DesktopID
 	if original.State == store.StateRestoring {
 		if err := requireStaleLifecycle(original, "unpark", 2*time.Hour, time.Now()); err != nil {
@@ -521,6 +530,12 @@ func completeUnpark(ctx context.Context, s store.Store, original *store.Desktop,
 		return fmt.Errorf("claim unpark: %w", err)
 	}
 	*original = *d
+	if prepare != nil {
+		if err := prepare(original); err != nil {
+			_ = recordUnparkFailure(ctx, s, id, token, err.Error())
+			return err
+		}
+	}
 	outputs, err := up()
 	if err != nil {
 		_ = recordUnparkFailure(ctx, s, id, token, err.Error())
@@ -617,7 +632,11 @@ func renderRestoreStackConfig(d *store.Desktop, bridgeOverride *string, retryNon
 		if bridgeOverride != nil {
 			return nil, fmt.Errorf("Bridge enrollment secret override requires a version 1 restore specification")
 		}
-		return legacyRestoreConfig(d)
+		config, err := legacyRestoreConfig(d)
+		if err != nil {
+			return nil, err
+		}
+		return applyRestoreRetry(config, retryNonce)
 	}
 	if d.RestoreSpec == nil || d.RestoreSpec.BootstrapJSON == "" {
 		return nil, fmt.Errorf("desktop %s lacks saved bootstrap settings", d.DesktopID)
@@ -648,9 +667,6 @@ func renderRestoreStackConfig(d *store.Desktop, bridgeOverride *string, retryNon
 	if err != nil {
 		return nil, fmt.Errorf("render restore cloud-init: %w", err)
 	}
-	if retryNonce != "" {
-		userData += "\n# desktopctl restore retry " + retryNonce + "\n"
-	}
 	compressed, err := gzipBase64UserData(userData)
 	if err != nil {
 		return nil, err
@@ -660,8 +676,21 @@ func renderRestoreStackConfig(d *store.Desktop, bridgeOverride *string, retryNon
 		config[key] = value
 	}
 	config["userDataBase64"] = compressed
+	return applyRestoreRetry(config, retryNonce)
+}
+
+func applyRestoreRetry(config pulumi.StackConfig, retryNonce string) (pulumi.StackConfig, error) {
 	config["replaceInstanceOnRestore"] = "false"
 	if retryNonce != "" {
+		userData, err := decodedUserData(config["userDataBase64"])
+		if err != nil {
+			return nil, fmt.Errorf("decode restore user data for retry: %w", err)
+		}
+		compressed, err := gzipBase64UserData(userData + "\n# desktopctl restore retry " + retryNonce + "\n")
+		if err != nil {
+			return nil, err
+		}
+		config["userDataBase64"] = compressed
 		config["replaceInstanceOnRestore"] = "true"
 	}
 	return config, nil
@@ -686,7 +715,13 @@ func restoreBridgeSecretPaths(d *store.Desktop, override *string) (string, []str
 	return path, other, nil
 }
 
-func saveRestoredBridgeSecret(ctx context.Context, s store.Store, d *store.Desktop, path string) error {
+func saveRestoredBridgeSecret(ctx context.Context, s store.Store, d *store.Desktop, path, arn string) error {
+	if (path == "") != (arn == "") {
+		return fmt.Errorf("Bridge enrollment path and identity must both be set or both be empty")
+	}
+	if err := requireUnparkOwner(ctx, s, d.DesktopID, d.UnparkOperationToken); err != nil {
+		return err
+	}
 	if d.RestoreSpec == nil || d.RestoreSpec.Version != 1 {
 		return fmt.Errorf("desktop %s lacks a version 1 restore specification", d.DesktopID)
 	}
@@ -700,21 +735,26 @@ func saveRestoredBridgeSecret(ctx context.Context, s store.Store, d *store.Deskt
 		return err
 	}
 	d.RestoreSpec.BootstrapJSON = string(raw)
+	d.RestoreSpec.BridgeEnrollmentSecretARN = arn
 	if err := s.Update(ctx, d); err != nil {
-		return fmt.Errorf("restored desktop is ready but saving Bridge enrollment path failed: %w", err)
+		return fmt.Errorf("save Bridge enrollment path before restore: %w", err)
 	}
 	return nil
 }
 
-func validateUnparkBridgeSecret(ctx context.Context, awsCfg aws.Config, path string, desktopPaths []string) error {
+func validateUnparkBridgeSecret(ctx context.Context, awsCfg aws.Config, path string, desktopPaths []string) (string, error) {
 	client := secretsmanager.NewFromConfig(awsCfg)
 	resolve := func(ctx context.Context, secretID string) (string, error) {
 		return resolveSecretARN(ctx, client, secretID)
 	}
-	if err := validateBridgeEnrollmentSecretIsolation(ctx, path, desktopPaths, resolve); err != nil {
-		return err
+	arn, err := resolve(ctx, path)
+	if err != nil {
+		return "", fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
 	}
-	return nil
+	if err := validateBridgeEnrollmentARNIsolation(ctx, arn, desktopPaths, resolve); err != nil {
+		return "", err
+	}
+	return arn, nil
 }
 
 func waitUnparkReady(ctx context.Context, d *store.Desktop) error {
