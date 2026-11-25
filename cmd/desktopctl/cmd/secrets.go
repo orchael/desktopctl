@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/store"
@@ -211,6 +215,9 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 
 	toAdd, reloadPaths := secretPathsAfterAdd(d.Secrets, newPaths)
 	reloadPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
+	if err := validateAddedSecretsAgainstBridge(ctx, d, reloadPaths, awsCfg); err != nil {
+		return err
+	}
 	for _, p := range newPaths {
 		if !containsString(toAdd, p) {
 			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
@@ -236,6 +243,18 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
 	return nil
+}
+
+func validateAddedSecretsAgainstBridge(ctx context.Context, d *store.Desktop, newPaths []string, awsCfg aws.Config) error {
+	bridgePath, _, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil || bridgePath == "" {
+		return err
+	}
+	client := secretsmanager.NewFromConfig(awsCfg)
+	resolve := func(ctx context.Context, secretID string) (string, error) {
+		return resolveSecretARN(ctx, client, secretID)
+	}
+	return validateBridgeEnrollmentSecretIsolation(ctx, bridgePath, newPaths, resolve)
 }
 
 func runSecretsRemove(cmd *cobra.Command, args []string) error {

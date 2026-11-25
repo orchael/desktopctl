@@ -412,16 +412,22 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if bridgeOverride != nil && *bridgeOverride != "" {
-		otherPaths := append([]string(nil), d.Secrets...)
-		var savedBoot provision.BootstrapConfig
-		if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &savedBoot); err != nil {
-			return fmt.Errorf("decode saved bootstrap settings for Bridge secret validation: %w", err)
+	bridgePath, otherPaths, err := restoreBridgeSecretPaths(d, bridgeOverride)
+	if err != nil {
+		return err
+	}
+	if bridgePath != "" {
+		if err := validateUnparkBridgeSecret(ctx, awsCfg, bridgePath, otherPaths); err != nil {
+			return err
 		}
-		if savedBoot.GitHubSecretPath != "" {
-			otherPaths = append(otherPaths, savedBoot.GitHubSecretPath)
+	}
+	if shouldReplaceFailedUnparkInstance(d) {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return fmt.Errorf("generate restore retry nonce: %w", err)
 		}
-		if err := validateUnparkBridgeSecret(ctx, awsCfg, *bridgeOverride, otherPaths); err != nil {
+		restoreCfg, err = restoreStackConfigForRetry(d, bridgeOverride, hex.EncodeToString(nonce[:]))
+		if err != nil {
 			return err
 		}
 	}
@@ -438,6 +444,11 @@ func runUnpark(cmd *cobra.Command, args []string) error {
 	restored, err := s.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if bridgeOverride != nil {
+		if err := saveRestoredBridgeSecret(ctx, s, restored, *bridgeOverride); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("Desktop %s restored on instance %s with workspace %s.\n", id, restored.InstanceID, restored.WorkspaceName)
 	return nil
@@ -550,6 +561,20 @@ func restoreStackConfig(d *store.Desktop) (pulumi.StackConfig, error) {
 }
 
 func restoreStackConfigWithBridgeSecret(d *store.Desktop, bridgeOverride *string) (pulumi.StackConfig, error) {
+	return renderRestoreStackConfig(d, bridgeOverride, "")
+}
+
+func restoreStackConfigForRetry(d *store.Desktop, bridgeOverride *string, nonce string) (pulumi.StackConfig, error) {
+	return renderRestoreStackConfig(d, bridgeOverride, nonce)
+}
+
+func shouldReplaceFailedUnparkInstance(d *store.Desktop) bool {
+	// Pulumi can create an instance before returning an error, leaving the fleet
+	// record without its ID. Treat every failed/interrupted restore as a retry.
+	return (d.State == store.StateFailed && d.FailurePhase == "unpark") || d.State == store.StateRestoring
+}
+
+func renderRestoreStackConfig(d *store.Desktop, bridgeOverride *string, retryNonce string) (pulumi.StackConfig, error) {
 	if d.RestoreSpec != nil && d.RestoreSpec.Version == 2 {
 		if bridgeOverride != nil {
 			return nil, fmt.Errorf("Bridge enrollment secret override requires a version 1 restore specification")
@@ -585,6 +610,9 @@ func restoreStackConfigWithBridgeSecret(d *store.Desktop, bridgeOverride *string
 	if err != nil {
 		return nil, fmt.Errorf("render restore cloud-init: %w", err)
 	}
+	if retryNonce != "" {
+		userData += "\n# desktopctl restore retry " + retryNonce + "\n"
+	}
 	compressed, err := gzipBase64UserData(userData)
 	if err != nil {
 		return nil, err
@@ -594,7 +622,52 @@ func restoreStackConfigWithBridgeSecret(d *store.Desktop, bridgeOverride *string
 		config[key] = value
 	}
 	config["userDataBase64"] = compressed
+	config["replaceInstanceOnRestore"] = "false"
+	if retryNonce != "" {
+		config["replaceInstanceOnRestore"] = "true"
+	}
 	return config, nil
+}
+
+func restoreBridgeSecretPaths(d *store.Desktop, override *string) (string, []string, error) {
+	if d.RestoreSpec == nil || d.RestoreSpec.Version != 1 {
+		return "", nil, nil
+	}
+	var boot provision.BootstrapConfig
+	if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &boot); err != nil {
+		return "", nil, fmt.Errorf("decode saved bootstrap settings for Bridge secret validation: %w", err)
+	}
+	path := boot.BridgeEnrollmentSecretPath
+	if override != nil {
+		path = *override
+	}
+	other := append([]string(nil), d.Secrets...)
+	for _, p := range []string{boot.AgentSecretPath, boot.ProfileSecretPath, boot.GitHubSecretPath} {
+		if p != "" && !containsString(other, p) {
+			other = append(other, p)
+		}
+	}
+	return path, other, nil
+}
+
+func saveRestoredBridgeSecret(ctx context.Context, s store.Store, d *store.Desktop, path string) error {
+	if d.RestoreSpec == nil || d.RestoreSpec.Version != 1 {
+		return fmt.Errorf("desktop %s lacks a version 1 restore specification", d.DesktopID)
+	}
+	var boot provision.BootstrapConfig
+	if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &boot); err != nil {
+		return fmt.Errorf("decode saved bootstrap settings: %w", err)
+	}
+	boot.BridgeEnrollmentSecretPath = path
+	raw, err := json.Marshal(&boot)
+	if err != nil {
+		return err
+	}
+	d.RestoreSpec.BootstrapJSON = string(raw)
+	if err := s.Update(ctx, d); err != nil {
+		return fmt.Errorf("restored desktop is ready but saving Bridge enrollment path failed: %w", err)
+	}
+	return nil
 }
 
 func validateUnparkBridgeSecret(ctx context.Context, awsCfg aws.Config, path string, desktopPaths []string) error {

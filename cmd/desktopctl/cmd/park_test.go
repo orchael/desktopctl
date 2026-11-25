@@ -304,6 +304,79 @@ func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	}
 }
 
+func TestFailedUnparkRetryReplacesInstanceAndRerunsBootstrap(t *testing.T) {
+	d, _ := parkedFixture()
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"DesktopID":"d-0123abcd","WorkspaceMode":"efs","WorkspaceName":"test","EFSAccessPointID":"fsap-1"}`, Config: map[string]string{"workspaceEFSAccessPointId": "fsap-1"}}
+	// Use the fixture's actual workspace name so restore validation stays realistic.
+	var boot provision.BootstrapConfig
+	if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &boot); err != nil {
+		t.Fatal(err)
+	}
+	boot.DesktopID, boot.WorkspaceName, boot.EFSAccessPointID = d.DesktopID, d.WorkspaceName, "fsap-1"
+	raw, err := json.Marshal(&boot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.RestoreSpec.BootstrapJSON = string(raw)
+	d.InstanceID, d.State, d.FailurePhase = "i-failed", store.StateFailed, "unpark"
+	if !shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("failed unpark instance must be replaced")
+	}
+	d.InstanceID = ""
+	if !shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("failed unpark may have an unrecorded Pulumi instance")
+	}
+	first, err := restoreStackConfigForRetry(d, nil, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := restoreStackConfigForRetry(d, nil, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["replaceInstanceOnRestore"] != "true" || first["userDataBase64"] == second["userDataBase64"] {
+		t.Fatal("retry did not force a user data replacement")
+	}
+	d.State = store.StateParked
+	if shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("parked restore should not replace an existing instance")
+	}
+}
+
+func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
+	d, _ := parkedFixture()
+	d.Secrets = []string{"/desktop-env"}
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/saved-bridge","GitHubSecretPath":"/github","AgentSecretPath":"/agents"}`}
+	path, other, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/saved-bridge" || !containsString(other, "/desktop-env") || !containsString(other, "/github") || !containsString(other, "/agents") {
+		t.Fatalf("saved secret isolation: %q %v", path, other)
+	}
+	override := "/new-bridge"
+	path, _, err = restoreBridgeSecretPaths(d, &override)
+	if err != nil || path != override {
+		t.Fatalf("override secret isolation: %q, %v", path, err)
+	}
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveRestoredBridgeSecret(ctx, s, d, override); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, err = restoreBridgeSecretPaths(saved, nil)
+	if err != nil || path != override {
+		t.Fatalf("saved override used by later secret operations: %q, %v", path, err)
+	}
+}
+
 func TestParkRetryFencesPreviousWorker(t *testing.T) {
 	ctx := context.Background()
 	s := store.NewInMemoryStore()

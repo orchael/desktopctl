@@ -41,10 +41,10 @@ The new instance fetches current secret values at boot.
 
 Bridge machine enrollment uses the saved secret path on restore. If its
 enrollment key has expired or been consumed, provide a fresh secret with
-`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. This override
-is for that restore; use it again on a later unpark if the original saved path
-is still retired. An explicit `--bridge-enrollment-secret=` disables enrollment
-for that restore. The replacement instance must enroll anew because park removes
+`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. A successful
+restore saves the override for later restores and for secret isolation checks.
+An explicit `--bridge-enrollment-secret=` disables enrollment and saves that
+choice after a successful restore. The replacement instance must enroll anew because park removes
 the original root disk and its saved Bridge identity.
 
 For older desktops,
@@ -79,7 +79,8 @@ hours, confirm that the previous CLI and Pulumi operations have exited, then
 use `park --retry --force`. This takes a new fenced claim and refuses to cancel
 an existing Pulumi lock. A failed
 restore leaves the workspace attached and the record in `failed` with phase
-`unpark`; run `unpark` again. If the process was interrupted while the record
+`unpark`; run `unpark` again. A retry replaces any instance created by the failed
+restore so cloud-init and Bridge enrollment run again, while retaining EFS. If the process was interrupted while the record
 says `restoring`, confirm that it is no longer running and use `unpark --retry`.
 Pulumi up will reconcile a partially created stack.
 
