@@ -1180,6 +1180,7 @@ runcmd:
 {{- if .BridgeEnrollmentSecretPath}}
   # --- enroll this desktop in Bridge after the managed user service starts ---
   - |
+    set +e
     (
     set -eu
     SECRET_ID=$(printf '%s' '{{ b64 .BridgeEnrollmentSecretPath }}' | base64 -d)
@@ -1209,7 +1210,7 @@ runcmd:
     )
     enrollment_status=$?
     if [ "$enrollment_status" -ne 0 ]; then
-      exit "$enrollment_status"
+      echo "WARNING: Bridge enrollment failed; desktop bootstrap will continue" >&2
     fi
 {{- end}}
 

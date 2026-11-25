@@ -294,8 +294,9 @@ Set `agent.bridge_enrollment_secret` to the secret path in the operator config.
 `create --bridge-enrollment-secret <path>` overrides it for one desktop, and
 `create --bridge-enrollment-secret=` disables it for one desktop. Provisioning
 fetches the secret after starting the Ubuntu user service and passes its values
-only to `bridgectl login --non-interactive`. Enrollment failure prevents the
-desktop from being marked ready. Existing enrolled desktops use their saved
+only to `bridgectl login --non-interactive`. An enrollment failure writes a
+warning to cloud-init logs and does not prevent the desktop from starting or
+being marked ready. Existing enrolled desktops use their saved
 Bridge state on normal restarts.
 Desktopctl records the enrollment secret's ARN with the desktop so later
 `secrets add` calls can reject name and ARN aliases even after the enrollment

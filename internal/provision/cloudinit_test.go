@@ -104,7 +104,7 @@ func TestRenderCloudInitBridgeEnrollment(t *testing.T) {
 	t.Fatal("Bridge enrollment command missing from runcmd")
 }
 
-func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
+func TestBridgeEnrollmentFailureDoesNotStopBootstrap(t *testing.T) {
 	cfg := &BootstrapConfig{
 		DesktopID: "d-001", AWSRegion: "us-east-1",
 		BridgeEnrollmentSecretPath: "/desktopctl/dev/us-east-1/acme/bridgectl",
@@ -128,11 +128,11 @@ func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
 		t.Fatal("enrollment script missing")
 	}
 	for _, tc := range []struct {
-		name, fail, wantMarker string
+		name, fail string
 	}{
-		{"secret retrieval fails", "aws", ""},
-		{"login fails", "login", ""},
-		{"login succeeds", "", "completion-marker"},
+		{"secret retrieval fails", "aws"},
+		{"login fails", "login"},
+		{"login succeeds", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -151,11 +151,14 @@ func TestBridgeEnrollmentFailureStopsBootstrap(t *testing.T) {
 				}
 			}
 			script := strings.ReplaceAll(enrollmentScript, "/opt/desktopctl", filepath.Join(dir, "opt")) + "\nprintf completion-marker\n"
-			cmd := exec.Command("bash", "-c", script)
+			cmd := exec.Command("bash", "-ec", script)
 			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "BRIDGE_TEST_FAIL="+tc.fail)
 			output, err := cmd.CombinedOutput()
-			if (err == nil) != (tc.fail == "") || strings.Contains(string(output), "completion-marker") != (tc.wantMarker != "") {
+			if err != nil || !strings.Contains(string(output), "completion-marker") {
 				t.Fatalf("script error = %v, output = %q", err, output)
+			}
+			if strings.Contains(string(output), "WARNING: Bridge enrollment failed") != (tc.fail != "") {
+				t.Fatalf("unexpected enrollment warning: %q", output)
 			}
 		})
 	}
