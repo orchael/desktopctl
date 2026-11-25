@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/aws/smithy-go"
 	"github.com/orchael/desktopctl/internal/provision"
 	"github.com/orchael/desktopctl/internal/store"
 )
@@ -229,7 +231,7 @@ func TestRestoreSpecRequiresRecordedWorkspaceAndLaunchInputs(t *testing.T) {
 func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	d, _ := parkedFixture()
 	d.Secrets = []string{"/secrets/agents", "/secrets/added"}
-	boot := &provision.BootstrapConfig{DesktopID: d.DesktopID, GitHubOwner: "orchael", Hostname: "desktop.example.test", WorkspaceMode: "efs", WorkspaceName: d.WorkspaceName, EFSFileSystemID: "fs-1", EFSAccessPointID: "fsap-1", AgentSecretPath: "/secrets/agents", DesktopSecretPaths: []string{"/secrets/removed"}, AWSRegion: "us-east-1"}
+	boot := &provision.BootstrapConfig{DesktopID: d.DesktopID, GitHubOwner: "orchael", Hostname: "desktop.example.test", WorkspaceMode: "efs", WorkspaceName: d.WorkspaceName, EFSFileSystemID: "fs-1", EFSAccessPointID: "fsap-1", AgentSecretPath: "/secrets/agents", BridgeEnrollmentSecretPath: "/secrets/retired-bridge", DesktopSecretPaths: []string{"/secrets/removed"}, AWSRegion: "us-east-1"}
 	raw, err := json.Marshal(boot)
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +261,28 @@ func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	if strings.Contains(userData, "/secrets/removed") || !strings.Contains(userData, "/secrets/added") || !strings.Contains(userData, "/secrets/agents") {
 		t.Fatalf("secret sources not regenerated from fleet list")
 	}
+	replacement := "/secrets/new-bridgectl"
+	overridden, err := restoreStackConfigWithBridgeSecret(d, &replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = base64.StdEncoding.DecodeString(overridden["userDataBase64"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err = gzip.NewReader(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = io.ReadAll(reader)
+	reader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userData = string(decoded)
+	if !strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte(replacement))) || strings.Contains(userData, base64.StdEncoding.EncodeToString([]byte("/secrets/retired-bridge"))) {
+		t.Fatal("restore did not replace retired Bridge enrollment secret")
+	}
 	d.Secrets = []string{"/secrets/added"}
 	config, err = restoreStackConfig(d)
 	if err != nil {
@@ -279,6 +303,206 @@ func TestRestoreRegeneratesCurrentSecretPaths(t *testing.T) {
 	}
 	if strings.Contains(string(decoded), "/secrets/agents") {
 		t.Fatal("removed agent secret was restored")
+	}
+}
+
+func TestFailedUnparkRetryReplacesInstanceAndRerunsBootstrap(t *testing.T) {
+	d, _ := parkedFixture()
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"DesktopID":"d-0123abcd","WorkspaceMode":"efs","WorkspaceName":"test","EFSAccessPointID":"fsap-1"}`, Config: map[string]string{"workspaceEFSAccessPointId": "fsap-1"}}
+	// Use the fixture's actual workspace name so restore validation stays realistic.
+	var boot provision.BootstrapConfig
+	if err := json.Unmarshal([]byte(d.RestoreSpec.BootstrapJSON), &boot); err != nil {
+		t.Fatal(err)
+	}
+	boot.DesktopID, boot.WorkspaceName, boot.EFSAccessPointID = d.DesktopID, d.WorkspaceName, "fsap-1"
+	raw, err := json.Marshal(&boot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.RestoreSpec.BootstrapJSON = string(raw)
+	d.InstanceID, d.State, d.FailurePhase = "i-failed", store.StateFailed, "unpark"
+	if !shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("failed unpark instance must be replaced")
+	}
+	d.InstanceID = ""
+	if !shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("failed unpark may have an unrecorded Pulumi instance")
+	}
+	first, err := restoreStackConfigForRetry(d, nil, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := restoreStackConfigForRetry(d, nil, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["replaceInstanceOnRestore"] != "true" || first["userDataBase64"] == second["userDataBase64"] {
+		t.Fatal("retry did not force a user data replacement")
+	}
+	d.State = store.StateParked
+	if shouldReplaceFailedUnparkInstance(d) {
+		t.Fatal("parked restore should not replace an existing instance")
+	}
+}
+
+func TestRestoreBridgeSecretPathsUsesSavedPathAndOverride(t *testing.T) {
+	d, _ := parkedFixture()
+	d.Secrets = []string{"/desktop-env", "/agents"}
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/saved-bridge","GitHubSecretPath":"/github","AgentSecretPath":"/agents"}`}
+	path, other, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/saved-bridge" || !containsString(other, "/desktop-env") || !containsString(other, "/github") || !containsString(other, "/agents") {
+		t.Fatalf("saved secret isolation: %q %v", path, other)
+	}
+	override := "/new-bridge"
+	path, _, err = restoreBridgeSecretPaths(d, &override)
+	if err != nil || path != override {
+		t.Fatalf("override secret isolation: %q, %v", path, err)
+	}
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d.State = store.StateRestoring
+	d.UnparkOperationToken = "owner"
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveRestoredBridgeSecret(ctx, s, d, override, "arn:aws:secretsmanager:us-east-1:123456789012:secret:new-bridge-123456"); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, err = restoreBridgeSecretPaths(saved, nil)
+	if err != nil || path != override {
+		t.Fatalf("saved override used by later secret operations: %q, %v", path, err)
+	}
+	if saved.RestoreSpec.BridgeEnrollmentSecretARN == "" {
+		t.Fatal("canonical Bridge identity was not saved")
+	}
+}
+
+func TestFailedUnparkKeepsEffectiveBridgeOverride(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d, _ := parkedFixture()
+	d.State = store.StateParked
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/old-bridge"}`}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:new-bridge-123456"
+	err := completeUnparkWithPrepare(ctx, s, d,
+		func(claimed *store.Desktop) error {
+			return saveRestoredBridgeSecret(ctx, s, claimed, "/new-bridge", arn)
+		},
+		func() (map[string]string, error) {
+			current, err := s.Get(ctx, d.DesktopID)
+			if err != nil {
+				return nil, err
+			}
+			path, _, err := restoreBridgeSecretPaths(current, nil)
+			if err != nil || path != "/new-bridge" || current.RestoreSpec.BridgeEnrollmentSecretARN != arn {
+				t.Fatalf("override was not recorded before provisioning: %q, %v", path, err)
+			}
+			return map[string]string{"instanceId": "i-new"}, nil
+		},
+		func(*store.Desktop) error { return errors.New("bootstrap failed") })
+	if err == nil {
+		t.Fatal("failed readiness was accepted")
+	}
+	failed, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := restoreBridgeSecretPaths(failed, nil)
+	if err != nil || failed.State != store.StateFailed || path != "/new-bridge" || failed.RestoreSpec.BridgeEnrollmentSecretARN != arn {
+		t.Fatalf("failed restore lost effective Bridge identity: %q, %v", path, err)
+	}
+}
+
+func TestUnparkRepinsRecreatedBridgeSecret(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d, _ := parkedFixture()
+	d.State = store.StateParked
+	d.RestoreSpec = &store.RestoreSpec{Version: 1, BootstrapJSON: `{"BridgeEnrollmentSecretPath":"/bridgectl"}`, BridgeEnrollmentSecretARN: "arn:old"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	path, _, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil || !shouldSaveRestoredBridgeSecret(nil, path) {
+		t.Fatalf("ordinary unpark did not select saved Bridge path: %q, %v", path, err)
+	}
+	const newARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-new123"
+	if err := completeUnparkWithPrepare(ctx, s, d,
+		func(claimed *store.Desktop) error { return saveRestoredBridgeSecret(ctx, s, claimed, path, newARN) },
+		func() (map[string]string, error) { return map[string]string{"instanceId": "i-new"}, nil },
+		func(*store.Desktop) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.State != store.StateReady || ready.RestoreSpec.BridgeEnrollmentSecretARN != newARN {
+		t.Fatal("ordinary unpark kept a stale Bridge secret identity")
+	}
+}
+
+func TestMissingPrelaunchInstanceCanBeClearedOnRetry(t *testing.T) {
+	notFound := &smithy.GenericAPIError{Code: "InvalidInstanceID.NotFound"}
+	if !ec2InstanceNotFound(notFound) || ec2InstanceNotFound(errors.New("other failure")) {
+		t.Fatal("EC2 missing-instance classification failed")
+	}
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateRestoring, InstanceID: "i-gone", UnparkOperationToken: "owner"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetFailedNestedUnpark(ctx, s, d, func() error { return nil }, func(string) error {
+		if ec2InstanceNotFound(notFound) {
+			return nil
+		}
+		return notFound
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil || current.InstanceID != "" {
+		t.Fatalf("stale prelaunch ID was not cleared: %v", err)
+	}
+}
+
+func TestFailedNestedUnparkClearsPrelaunchBeforeRetry(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	d := &store.Desktop{DesktopID: "d-0123abcd", State: store.StateRestoring, InstanceID: "i-failed", UnparkOperationToken: "owner"}
+	if err := s.Create(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	if err := resetFailedNestedUnpark(ctx, s, d, func() error {
+		order = append(order, "destroy")
+		return nil
+	}, func(id string) error {
+		order = append(order, "terminate:"+id)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(order, []string{"destroy", "terminate:i-failed"}) {
+		t.Fatalf("reset order: %v", order)
+	}
+	current, err := s.Get(ctx, d.DesktopID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.InstanceID != "" || d.InstanceID != "" {
+		t.Fatal("failed prelaunch ID was reused")
 	}
 }
 

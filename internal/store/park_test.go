@@ -6,9 +6,26 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+func TestRestoreSpecPersistsBridgeSecretIdentity(t *testing.T) {
+	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:bridgectl-123456"
+	original := &Desktop{DesktopID: "d-0123abcd", RestoreSpec: &RestoreSpec{Version: 1, BridgeEnrollmentSecretARN: arn}}
+	item, err := attributevalue.MarshalMap(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Desktop
+	if err := attributevalue.UnmarshalMap(item, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.RestoreSpec == nil || restored.RestoreSpec.BridgeEnrollmentSecretARN != arn {
+		t.Fatal("Bridge secret identity was lost in fleet storage")
+	}
+}
 
 func TestParkTransitionAndRestoreSpecIsolation(t *testing.T) {
 	ctx := context.Background()

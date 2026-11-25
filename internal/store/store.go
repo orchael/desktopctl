@@ -109,9 +109,10 @@ type Desktop struct {
 // RestoreSpec is the versioned, non-secret launch configuration retained for a
 // parked desktop. User data contains secret *paths*, never resolved values.
 type RestoreSpec struct {
-	Version       int               `dynamodbav:"version" json:"version"`
-	Config        map[string]string `dynamodbav:"config" json:"config"`
-	BootstrapJSON string            `dynamodbav:"bootstrap_json" json:"-"`
+	Version                   int               `dynamodbav:"version" json:"version"`
+	Config                    map[string]string `dynamodbav:"config" json:"config"`
+	BootstrapJSON             string            `dynamodbav:"bootstrap_json" json:"-"`
+	BridgeEnrollmentSecretARN string            `dynamodbav:"bridge_enrollment_secret_arn,omitempty" json:"-"`
 }
 
 type Workspace struct {

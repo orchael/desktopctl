@@ -55,43 +55,44 @@ func publicAMINamePattern(cliVersion, override string) (string, error) {
 }
 
 var (
-	createOwner             string
-	createOrganizationID    string
-	createName              string
-	createDesktopID         string
-	createRepos             []string
-	createSecrets           []string
-	createPreview           bool
-	createWorkspaceMode     string
-	createWorkspaceName     string
-	createEnv               string
-	createAMI               string
-	createVolumeSize        int
-	createSwapSize          int
-	createAVDs              []string
-	createNestedVirt        bool
-	createNestedVirtSet     bool // true when --nested-virtualization was explicitly passed
-	createMobile            bool
-	createInstanceType      string
-	createInstanceTypes     []string
-	createSpot              bool
-	createSpotMaxPrice      string
-	createTimeout           time.Duration
-	createTailscale         bool
-	createTailscaleNet      string
-	createStepCA            string
-	createStepCAProv        string
-	createStepCAFP          string
-	createStepCAClients     []string
-	createNPMGitHubScopes   []string
-	createNoNPMGitHubScopes bool
-	createDesktopProfile    string
-	createProfileSecret     string
-	createGitHubSecret      string
-	createNoDNS             bool
-	createAllowPorts        []int
-	createBootstrapPackages bool
-	createDeferReadiness    bool
+	createOwner                  string
+	createOrganizationID         string
+	createName                   string
+	createDesktopID              string
+	createRepos                  []string
+	createSecrets                []string
+	createBridgeEnrollmentSecret string
+	createPreview                bool
+	createWorkspaceMode          string
+	createWorkspaceName          string
+	createEnv                    string
+	createAMI                    string
+	createVolumeSize             int
+	createSwapSize               int
+	createAVDs                   []string
+	createNestedVirt             bool
+	createNestedVirtSet          bool // true when --nested-virtualization was explicitly passed
+	createMobile                 bool
+	createInstanceType           string
+	createInstanceTypes          []string
+	createSpot                   bool
+	createSpotMaxPrice           string
+	createTimeout                time.Duration
+	createTailscale              bool
+	createTailscaleNet           string
+	createStepCA                 string
+	createStepCAProv             string
+	createStepCAFP               string
+	createStepCAClients          []string
+	createNPMGitHubScopes        []string
+	createNoNPMGitHubScopes      bool
+	createDesktopProfile         string
+	createProfileSecret          string
+	createGitHubSecret           string
+	createNoDNS                  bool
+	createAllowPorts             []int
+	createBootstrapPackages      bool
+	createDeferReadiness         bool
 )
 
 var createCmd = &cobra.Command{
@@ -116,6 +117,7 @@ func init() {
 	createCmd.Flags().StringVar(&createDesktopID, "desktop-id", "", "stable desktop ID for a provisioning job (d- plus eight lowercase hex characters)")
 	createCmd.Flags().StringArrayVar(&createRepos, "repo", nil, "GitHub repository to clone (repeatable)")
 	createCmd.Flags().StringArrayVar(&createSecrets, "secret", nil, "AWS Secrets Manager path whose JSON keys are injected into the ubuntu environment (repeatable)")
+	createCmd.Flags().StringVar(&createBridgeEnrollmentSecret, "bridge-enrollment-secret", "", "AWS Secrets Manager path for one-time bridgectl Bridge enrollment (overrides agent.bridge_enrollment_secret; empty disables)")
 	createCmd.Flags().BoolVar(&createPreview, "preview", false, "preview infrastructure changes without applying")
 	createCmd.Flags().StringVar(&createWorkspaceMode, "workspace-mode", workspaceModeLocal, "workspace storage mode (local|efs)")
 	createCmd.Flags().StringVar(&createWorkspaceName, "workspace-name", "", "existing retained EFS workspace to mount at /workspace")
@@ -270,6 +272,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--github-owner is required when no --repo is specified (or set github.owner in config)")
 	}
 	agentSecretPath := resolveOwnerSecretPath(cfg.GitHub.AgentSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "agents")
+	bridgeEnrollmentSecret := resolveBridgeEnrollmentSecret(cfg.Agent.BridgeEnrollmentSecret, createBridgeEnrollmentSecret, cmd.Flags().Changed("bridge-enrollment-secret"))
 	gitHubSecret := createGitHubSecret
 	if gitHubSecret == "" && !cfg.SaaSMode {
 		gitHubSecret = resolveOwnerSecretPath(cfg.GitHub.GitHubSecret, cfg.GitHub.Owner, owner, cfg.Environment(), cfg.AWS.Region, "github")
@@ -364,8 +367,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		requestedSecrets = append(requestedSecrets, profileSecret)
 	}
 	secretPaths := createSecretPaths(agentSecretPath, requestedSecrets, cfg.SaaSMode)
+	bridgeEnrollmentARN := ""
+	if bridgeEnrollmentSecret != "" && (bridgeEnrollmentSecret == agentSecretPath || containsString(secretPaths, bridgeEnrollmentSecret)) {
+		return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+	}
 	// Verify every configured secret before provisioning.
 	secretsToValidate := append([]string(nil), secretPaths...)
+	if bridgeEnrollmentSecret != "" {
+		secretsToValidate = append(secretsToValidate, bridgeEnrollmentSecret)
+	}
 	if gitHubSecret != "" {
 		secretsToValidate = append(secretsToValidate, gitHubSecret)
 	}
@@ -382,6 +392,23 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			}
 			if !ok {
 				return fmt.Errorf("secret %q not found in Secrets Manager (region %s)", secretPath, cfg.AWS.Region)
+			}
+		}
+		if bridgeEnrollmentSecret != "" {
+			client := secretsmanager.NewFromConfig(awsCfg)
+			resolveARN := func(ctx context.Context, secretID string) (string, error) {
+				return resolveSecretARN(ctx, client, secretID)
+			}
+			bridgeEnrollmentARN, err = resolveARN(ctx, bridgeEnrollmentSecret)
+			if err != nil {
+				return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+			}
+			otherPaths := append([]string(nil), secretPaths...)
+			if gitHubSecret != "" {
+				otherPaths = append(otherPaths, gitHubSecret)
+			}
+			if err := validateBridgeEnrollmentARNIsolation(ctx, bridgeEnrollmentARN, otherPaths, resolveARN); err != nil {
+				return err
 			}
 		}
 	}
@@ -690,38 +717,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	bootCfg := &provision.BootstrapConfig{
-		DesktopID:            desktopID,
-		Hostname:             hostname,
-		GitHubOwner:          owner,
-		Repos:                req.Repos,
-		WorkspacePath:        "/workspace",
-		BridgePort:           cfg.Agent.BridgePort,
-		DesktopProfile:       desktopProfile,
-		NoVNCHTTPPort:        provision.DefaultNoVNCHTTPPort,
-		NoVNCHTTPSPort:       provision.DefaultNoVNCHTTPSPort,
-		PublicNoVNC:          cfg.Desktop.PublicNoVNC,
-		CertbotEmail:         "admin@orchael.ai",
-		GitHubSecretPath:     gitHubSecret,
-		PublicGitHubSources:  publicGitHubSources,
-		TailscaleNetwork:     tailscaleNetwork,
-		TailscaleSecretPath:  tailscaleSecretPath,
-		StepCAServerDNS:      stepCAServer,
-		StepCAFingerprint:    stepCAFingerprint,
-		StepCAProvisioner:    stepCAProvisioner,
-		StepCASecretPath:     stepCASecretPath,
-		StepCAClients:        stepCAClients,
-		AWSRegion:            cfg.AWS.Region,
-		Environment:          env,
-		WorkspaceMode:        createWorkspaceMode,
-		WorkspaceName:        createWorkspaceName,
-		PackagesPreInstalled: amiID != "" && !createBootstrapPackages,
-		NoDNS:                createNoDNS,
-		SSHPublicKey:         sshPubKey,
-		GitUserName:          cfg.GitHub.GitUserName,
-		GitUserEmail:         cfg.GitHub.GitUserEmail,
-		NPMGitHubScopes:      npmGitHubScopes,
-		SwapSizeGB:           swapSizeGB,
-		AVDs:                 avds,
+		DesktopID:                  desktopID,
+		Hostname:                   hostname,
+		GitHubOwner:                owner,
+		Repos:                      req.Repos,
+		WorkspacePath:              "/workspace",
+		BridgePort:                 cfg.Agent.BridgePort,
+		BridgeEnrollmentSecretPath: bridgeEnrollmentSecret,
+		DesktopProfile:             desktopProfile,
+		NoVNCHTTPPort:              provision.DefaultNoVNCHTTPPort,
+		NoVNCHTTPSPort:             provision.DefaultNoVNCHTTPSPort,
+		PublicNoVNC:                cfg.Desktop.PublicNoVNC,
+		CertbotEmail:               "admin@orchael.ai",
+		GitHubSecretPath:           gitHubSecret,
+		PublicGitHubSources:        publicGitHubSources,
+		TailscaleNetwork:           tailscaleNetwork,
+		TailscaleSecretPath:        tailscaleSecretPath,
+		StepCAServerDNS:            stepCAServer,
+		StepCAFingerprint:          stepCAFingerprint,
+		StepCAProvisioner:          stepCAProvisioner,
+		StepCASecretPath:           stepCASecretPath,
+		StepCAClients:              stepCAClients,
+		AWSRegion:                  cfg.AWS.Region,
+		Environment:                env,
+		WorkspaceMode:              createWorkspaceMode,
+		WorkspaceName:              createWorkspaceName,
+		PackagesPreInstalled:       amiID != "" && !createBootstrapPackages,
+		NoDNS:                      createNoDNS,
+		SSHPublicKey:               sshPubKey,
+		GitUserName:                cfg.GitHub.GitUserName,
+		GitUserEmail:               cfg.GitHub.GitUserEmail,
+		NPMGitHubScopes:            npmGitHubScopes,
+		SwapSizeGB:                 swapSizeGB,
+		AVDs:                       avds,
 	}
 	agentSecret := agentSecretPath
 	if cfg.SaaSMode {
@@ -776,7 +804,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("encode restore bootstrap configuration: %w", err)
 	}
-	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON)}
+	req.RestoreSpec = &store.RestoreSpec{Version: 1, Config: make(map[string]string, len(stackCfg)), BootstrapJSON: string(bootstrapJSON), BridgeEnrollmentSecretARN: bridgeEnrollmentARN}
 	for key, value := range stackCfg {
 		req.RestoreSpec.Config[key] = value
 	}
@@ -960,25 +988,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var profileRunner profileBootstrapRunner
-	if !createDeferReadiness && (desktopProfile != "" || createBootstrapPackages) {
+	readinessReason := createReadinessReason(desktopProfile, createBootstrapPackages, bridgeEnrollmentSecret, createDeferReadiness)
+	if readinessReason != "" {
 		awsCfg, err := awsx.LoadConfig(ctx, cfg.AWS.Region, cfg.AWS.Profile)
 		if err != nil {
 			_ = mgr.RecordFailure(ctx, desktopID, "desktop-profile", "cannot load AWS config for bootstrap check")
-			return fmt.Errorf("load AWS config for profile bootstrap check: %w", err)
+			return fmt.Errorf("load AWS config for bootstrap check: %w", err)
 		}
 		profileRunner = &ssmProfileBootstrapRunner{client: ssm.NewFromConfig(awsCfg)}
-		fmt.Fprintf(os.Stderr, "Waiting for desktop profile bootstrap on %s ...\n", desktopID)
+		fmt.Fprintf(os.Stderr, "Waiting for desktop bootstrap on %s ...\n", desktopID)
 	}
 	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, profileBootstrapTimeout)
 	defer cancelBootstrap()
-	readinessProfile := desktopProfile
-	if createDeferReadiness {
-		readinessProfile = ""
-	}
-	if !createDeferReadiness && createBootstrapPackages && readinessProfile == "" {
-		readinessProfile = "bootstrap-packages"
-	}
-	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessProfile, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
+	if err := completeCreateReadiness(bootstrapCtx, mgr, desktopID, readinessReason, outputs[pulumi.OutputInstanceID], profileRunner, 10*time.Second); err != nil {
 		return err
 	}
 
@@ -1107,6 +1129,61 @@ func resolveOwnerSecretPath(configured, configuredOwner, selectedOwner, environm
 		return defaultPath(selectedOwner)
 	}
 	return configured
+}
+
+func resolveBridgeEnrollmentSecret(configured, override string, changed bool) string {
+	if changed {
+		return override
+	}
+	return configured
+}
+
+func createReadinessReason(profile string, bootstrapPackages bool, bridgeEnrollmentSecret string, deferReadiness bool) string {
+	if deferReadiness {
+		return ""
+	}
+	if profile != "" {
+		return profile
+	}
+	if bootstrapPackages {
+		return "bootstrap-packages"
+	}
+	if bridgeEnrollmentSecret != "" {
+		return "bridge-enrollment"
+	}
+	return ""
+}
+
+func validateBridgeEnrollmentSecretIsolation(ctx context.Context, enrollmentPath string, otherPaths []string, resolveARN func(context.Context, string) (string, error)) error {
+	enrollmentARN, err := resolveARN(ctx, enrollmentPath)
+	if err != nil {
+		return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+	}
+	return validateBridgeEnrollmentARNIsolation(ctx, enrollmentARN, otherPaths, resolveARN)
+}
+
+func validateBridgeEnrollmentARNIsolation(ctx context.Context, enrollmentARN string, otherPaths []string, resolveARN func(context.Context, string) (string, error)) error {
+	for _, path := range otherPaths {
+		arn, err := resolveARN(ctx, path)
+		if err != nil {
+			return fmt.Errorf("resolve desktop secret identity for %q: %w", path, err)
+		}
+		if arn == enrollmentARN {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
+	return nil
+}
+
+func resolveSecretARN(ctx context.Context, client *secretsmanager.Client, secretID string) (string, error) {
+	out, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretID)})
+	if err != nil {
+		return "", err
+	}
+	if arn := aws.ToString(out.ARN); arn != "" {
+		return arn, nil
+	}
+	return "", fmt.Errorf("Secrets Manager did not return an ARN for %q", secretID)
 }
 
 func resolveProfileSecret(configuredProfile, configuredSecret, selectedProfile, flag string, flagChanged bool) string {
@@ -1473,6 +1550,14 @@ func persistPrelaunchedInstance(ctx context.Context, s store.Store, desktopID, i
 }
 
 func terminatePrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
+	return terminatePrelaunchedInstanceWithMode(ctx, region, profile, instanceID, false)
+}
+
+func terminateRetiredPrelaunchedInstance(ctx context.Context, region, profile, instanceID string) error {
+	return terminatePrelaunchedInstanceWithMode(ctx, region, profile, instanceID, true)
+}
+
+func terminatePrelaunchedInstanceWithMode(ctx context.Context, region, profile, instanceID string, allowMissing bool) error {
 	if instanceID == "" {
 		return nil
 	}
@@ -1484,29 +1569,66 @@ func terminatePrelaunchedInstance(ctx context.Context, region, profile, instance
 		return err
 	}
 	ec2Client := ec2sdk.NewFromConfig(awsCfg)
-	description, err := ec2Client.DescribeInstances(cleanupCtx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	if err != nil {
-		return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
-	}
-	for _, reservation := range description.Reservations {
-		for _, instance := range reservation.Instances {
-			if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+	return terminatePrelaunchedInstanceWithClient(cleanupCtx, ec2Client, instanceID, allowMissing)
+}
+
+type prelaunchEC2Client interface {
+	ec2sdk.DescribeInstancesAPIClient
+	TerminateInstances(context.Context, *ec2sdk.TerminateInstancesInput, ...func(*ec2sdk.Options)) (*ec2sdk.TerminateInstancesOutput, error)
+}
+
+func terminatePrelaunchedInstanceWithClient(ctx context.Context, client prelaunchEC2Client, instanceID string, allowMissing bool) error {
+	for attempt := 0; attempt < 3; attempt++ {
+		description, err := client.DescribeInstances(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+		if err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
 				return nil
 			}
+			if ec2InstanceNotFound(err) && attempt < 2 {
+				if err := waitPrelaunchRetry(ctx, attempt); err != nil {
+					return err
+				}
+				continue
+			}
+			return fmt.Errorf("describe pre-launched instance %s: %w", instanceID, err)
 		}
+		for _, reservation := range description.Reservations {
+			for _, instance := range reservation.Instances {
+				if instance.State != nil && instance.State.Name == ec2types.InstanceStateNameTerminated {
+					return nil
+				}
+			}
+		}
+		if _, err := client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{InstanceIds: []string{instanceID}}); err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
+				return nil
+			}
+			if ec2InstanceNotFound(err) && attempt < 2 {
+				if err := waitPrelaunchRetry(ctx, attempt); err != nil {
+					return err
+				}
+				continue
+			}
+			return fmt.Errorf("terminate pre-launched instance %s: %w", instanceID, err)
+		}
+		if err := ec2sdk.NewInstanceTerminatedWaiter(client).Wait(ctx, &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute); err != nil {
+			if allowMissing && ec2InstanceNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
+		}
+		return nil
 	}
-	if _, err := ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
-		InstanceIds: []string{instanceID},
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: could not terminate pre-launched instance %s after create failure: %v\n", instanceID, err)
-		return err
+	return fmt.Errorf("pre-launched instance %s termination was not confirmed", instanceID)
+}
+
+func waitPrelaunchRetry(ctx context.Context, attempt int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Duration(attempt+1) * 250 * time.Millisecond):
+		return nil
 	}
-	if err := ec2sdk.NewInstanceTerminatedWaiter(ec2Client).Wait(cleanupCtx, &ec2sdk.DescribeInstancesInput{
-		InstanceIds: []string{instanceID},
-	}, 2*time.Minute); err != nil {
-		return fmt.Errorf("wait for pre-launched instance %s termination: %w", instanceID, err)
-	}
-	return nil
 }
 
 func isCreateCapacityError(err error) bool {

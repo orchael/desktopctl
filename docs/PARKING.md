@@ -37,7 +37,18 @@ The fleet record retains a versioned launch specification containing the AMI,
 root size, network and workspace settings, and the non-secret bootstrap inputs.
 Unpark regenerates cloud-init using the current fleet secret paths, so paths
 removed after creation are not restored and paths added later are included.
-The new instance fetches current secret values at boot. For older desktops,
+The new instance fetches current secret values at boot.
+
+Bridge machine enrollment uses the saved secret path on restore. If its
+enrollment key has expired or been consumed, provide a fresh secret with
+`desktopctl unpark <desktop-id> --bridge-enrollment-secret <path>`. Unpark saves
+the validated override before provisioning, so later restores and secret
+isolation checks use it even if this restore fails. An explicit
+`--bridge-enrollment-secret=` disables enrollment and saves that choice before
+provisioning. The replacement instance must enroll anew because park removes
+the original root disk and its saved Bridge identity.
+
+For older desktops,
 `desktopctl migrate-restore-spec` checks each active fleet record against its
 deployed Pulumi stack and reports which records can be backfilled. After a
 successful dry run, `desktopctl migrate-restore-spec --apply` writes version 2
@@ -69,7 +80,10 @@ hours, confirm that the previous CLI and Pulumi operations have exited, then
 use `park --retry --force`. This takes a new fenced claim and refuses to cancel
 an existing Pulumi lock. A failed
 restore leaves the workspace attached and the record in `failed` with phase
-`unpark`; run `unpark` again. If the process was interrupted while the record
+`unpark`; run `unpark` again. A retry replaces any instance created by the failed
+restore so cloud-init and Bridge enrollment run again, while retaining EFS. For
+nested virtualization, the failed desktop stack and any recorded prelaunched
+instance are removed before a fresh instance is imported. If the process was interrupted while the record
 says `restoring`, confirm that it is no longer running and use `unpark --retry`.
 Pulumi up will reconcile a partially created stack.
 

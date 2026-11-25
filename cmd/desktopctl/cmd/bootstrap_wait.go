@@ -138,8 +138,12 @@ func completeCreateReadiness(ctx context.Context, mgr *desktop.Manager, desktopI
 		if err := waitForProfileBootstrap(ctx, runner, instanceID, interval); err != nil {
 			recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			message := "desktop profile bootstrap failed: " + err.Error()
-			if recordErr := mgr.RecordFailure(recordCtx, desktopID, "desktop-profile", message); recordErr != nil {
+			message := "desktop bootstrap failed: " + err.Error()
+			phase := "desktop-profile"
+			if desktopProfile == "bridge-enrollment" {
+				phase = "bridge-enrollment"
+			}
+			if recordErr := mgr.RecordFailure(recordCtx, desktopID, phase, message); recordErr != nil {
 				return fmt.Errorf("%s; also failed to record fleet state: %w", message, recordErr)
 			}
 			return fmt.Errorf("%s (desktop retained for diagnosis)", message)

@@ -1,12 +1,17 @@
 package cmd
 
 import (
+	"context"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	secretsmanagertypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 
 	"github.com/orchael/desktopctl/internal/awsx"
 	"github.com/orchael/desktopctl/internal/store"
@@ -211,6 +216,9 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 
 	toAdd, reloadPaths := secretPathsAfterAdd(d.Secrets, newPaths)
 	reloadPaths = trackedSecretPaths(cfg.GitHub.AgentSecret, reloadPaths)
+	if err := validateAddedSecretsAgainstBridge(ctx, d, reloadPaths, awsCfg); err != nil {
+		return err
+	}
 	for _, p := range newPaths {
 		if !containsString(toAdd, p) {
 			fmt.Printf("Secret %s already configured on %s, skipping\n", p, id)
@@ -235,6 +243,44 @@ func runSecretsAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Added %d secret(s) to %s: %s\n", len(toAdd), id, strings.Join(toAdd, ", "))
+	return nil
+}
+
+func validateAddedSecretsAgainstBridge(ctx context.Context, d *store.Desktop, newPaths []string, awsCfg aws.Config) error {
+	client := secretsmanager.NewFromConfig(awsCfg)
+	resolve := func(ctx context.Context, secretID string) (string, error) {
+		return resolveSecretARN(ctx, client, secretID)
+	}
+	return validateAddedSecretARNs(ctx, d, newPaths, resolve)
+}
+
+func validateAddedSecretARNs(ctx context.Context, d *store.Desktop, newPaths []string, resolve func(context.Context, string) (string, error)) error {
+	bridgePath, _, err := restoreBridgeSecretPaths(d, nil)
+	if err != nil || bridgePath == "" {
+		return err
+	}
+	for _, path := range newPaths {
+		if path == bridgePath {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
+	pinnedARN := d.RestoreSpec.BridgeEnrollmentSecretARN
+	currentARN, err := resolve(ctx, bridgePath)
+	if err != nil {
+		var missing *secretsmanagertypes.ResourceNotFoundException
+		if pinnedARN == "" || !errors.As(err, &missing) {
+			return fmt.Errorf("resolve Bridge enrollment secret identity: %w", err)
+		}
+	}
+	for _, path := range newPaths {
+		arn, err := resolve(ctx, path)
+		if err != nil {
+			return fmt.Errorf("resolve desktop secret identity for %q: %w", path, err)
+		}
+		if arn == pinnedARN || (currentARN != "" && arn == currentARN) {
+			return fmt.Errorf("Bridge enrollment secret must be separate from provider and desktop environment secrets")
+		}
+	}
 	return nil
 }
 

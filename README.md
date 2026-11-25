@@ -280,6 +280,27 @@ New token and provider key values replace the corresponding stored values;
 unspecified values remain. A different identity with existing names still
 requires `setup --allow-existing`.
 
+### Optional Bridge machine enrollment
+
+To enroll new desktops in Bridge without a browser, create a separate AWS
+Secrets Manager JSON secret at the conventional path
+`/desktopctl/<env>/<region>/<owner>/bridgectl`. This secret is not created by
+`desktopctl setup`. It must contain either `BRIDGECTL_ENROLL_KEY`, or all of
+`BRIDGECTL_CLIENT_ID`, `BRIDGECTL_CLIENT_SECRET`, `BRIDGECTL_OIDC_ISSUER`, and
+`BRIDGECTL_OIDC_PROJECT_ID`. `BRIDGECTL_BRIDGE_URL` is optional and must be an
+HTTPS origin; without it, bridgectl uses `https://bridge.orchael.com`.
+
+Set `agent.bridge_enrollment_secret` to the secret path in the operator config.
+`create --bridge-enrollment-secret <path>` overrides it for one desktop, and
+`create --bridge-enrollment-secret=` disables it for one desktop. Provisioning
+fetches the secret after starting the Ubuntu user service and passes its values
+only to `bridgectl login --non-interactive`. Enrollment failure prevents the
+desktop from being marked ready. Existing enrolled desktops use their saved
+Bridge state on normal restarts.
+Desktopctl records the enrollment secret's ARN with the desktop so later
+`secrets add` calls can reject name and ARN aliases even after the enrollment
+secret is retired.
+
 ### Noninteractive setup
 
 `setup --non-interactive` takes values from command flags, environment

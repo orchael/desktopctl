@@ -127,6 +127,21 @@ desktop:
   # profile_secret: /desktopctl/markcallen/profiles/ai-desktop-profile
 
 agent:
+  # Optional Secrets Manager JSON secret used only for bridgectl machine login
+  # during initial provisioning. Keep it separate from github.agent_secret and
+  # desktop-wide --secret values. Override per desktop with
+  # create --bridge-enrollment-secret (use --bridge-enrollment-secret= to disable).
+  # SecretString must be a JSON object containing either:
+  #   {"BRIDGECTL_ENROLL_KEY":"<Bridge-issued enrollment key>"}
+  # or a Bridge/ZITADEL service account credential:
+  #   {"BRIDGECTL_CLIENT_ID":"<id>","BRIDGECTL_CLIENT_SECRET":"<secret>",
+  #    "BRIDGECTL_OIDC_ISSUER":"https://<issuer>","BRIDGECTL_OIDC_PROJECT_ID":"<id>"}
+  # BRIDGECTL_BRIDGE_URL is optional; it must be an HTTPS origin. When absent,
+  # bridgectl uses its production default (https://bridge.orchael.com).
+  # Obtain an enrollment key or service account credential from Bridge before
+  # creating the desktop. This CLI validates that the AWS secret exists.
+  # bridge_enrollment_secret: /desktopctl/dev/us-east-1/myorg/bridgectl
+
   # Port where bridgectl listens on the desktop. Defaults to localhost-only.
   # When both Tailscale and step-ca are enabled, cloud-init binds this port to
   # the desktop's Tailscale IPv4 address for direct tailnet access.

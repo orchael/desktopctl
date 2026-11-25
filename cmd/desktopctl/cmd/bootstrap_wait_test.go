@@ -44,6 +44,7 @@ func TestCompleteCreateReadinessWaitsForSelectedProfile(t *testing.T) {
 		{name: "no profile", wantState: store.StateReady},
 		{name: "profile succeeded", profile: "markcallen/ai-desktop-profile", result: "Success", wantState: store.StateReady},
 		{name: "profile failed", profile: "markcallen/ai-desktop-profile", result: "Failed", wantState: store.StateFailed, wantError: true},
+		{name: "Bridge enrollment failed without profile", profile: "bridge-enrollment", result: "Failed", wantState: store.StateFailed, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := store.NewInMemoryStore()
@@ -66,7 +67,11 @@ func TestCompleteCreateReadinessWaitsForSelectedProfile(t *testing.T) {
 			if tc.profile != "" && runner.onlineChecks < 2 {
 				t.Fatal("did not wait for SSM to become online")
 			}
-			if tc.wantError && (got.FailurePhase != "desktop-profile" || !strings.Contains(got.FailureMsg, "bootstrap")) {
+			wantPhase := "desktop-profile"
+			if tc.profile == "bridge-enrollment" {
+				wantPhase = "bridge-enrollment"
+			}
+			if tc.wantError && (got.FailurePhase != wantPhase || !strings.Contains(got.FailureMsg, "bootstrap")) {
 				t.Fatalf("failure was not recorded: %+v", got)
 			}
 		})
