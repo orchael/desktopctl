@@ -48,7 +48,10 @@ func init() {
 			if err != nil {
 				return err
 			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+				ProtocolVersion int `json:"protocolVersion"`
+				executionworkspace.Status
+			}{ProtocolVersion: 1, Status: status})
 		},
 	})
 }

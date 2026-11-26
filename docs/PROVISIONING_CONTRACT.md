@@ -55,7 +55,7 @@ An orchestrator using this mode must call `create --defer-readiness`, publish th
 The Linux desktopctl binary exposes an internal
 `execution-workspace <prepare|status|cleanup>` command for invocation by the
 authenticated host transport account. It accepts one bounded JSON object on
-stdin and replies with JSON. Every operation requires a Console `leaseId` and
+stdin and replies with JSON containing `protocolVersion: 1`. Every operation requires a Console `leaseId` and
 positive `generation`; prepare additionally requires a GitHub
 `repository` in owner/name form and a full lowercase `baseRevision` commit
 SHA. It checks out the exact revision detached, using public HTTPS and no
@@ -69,11 +69,9 @@ received before a delayed prepare prevents that prepare from creating a new
 checkout. The host command leaves enrollment, daemon state, and existing
 workspace mounts alone.
 
-Console already has authenticated SSM invocation for bootstrap and access. Its
-worker has no execution job that claims a lease-bound command, checks the
-tenant's desktop/instance binding, invokes this installed helper with validated
-input, and returns a fenced result. The desktop image also needs to carry the
-helper. There is no supported private-repository credential path for this
+Console already has authenticated SSM invocation for bootstrap and access. The Console execution worker expects a released binary at
+`/usr/local/bin/desktopctl` on the target desktop. The desktop image needs to
+carry that binary before execution dispatch can be enabled. There is no supported private-repository credential path for this
 command. Before reuse, the runtime must stop the previous execution and verify
 process termination; directory cleanup alone cannot terminate a session or
 isolate two processes running as the same host user. No existing SSM policy,
