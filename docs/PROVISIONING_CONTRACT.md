@@ -49,3 +49,32 @@ The Desktops worker calls `bootstrap`, `init-foundation --saas`, then `create` w
 The SaaS foundation stays closed by default. Set `desktop.public_novnc: true` and `desktop.public_hostname` to the centrally managed DNS name to enable direct browser access. Pulumi manages TCP 8443 for token-authenticated noVNC and TCP 80 for ACME HTTP-01 validation; cloud-init installs matching UFW rules, obtains the desktop certificate, configures the native `/novnc/` path and access-token base URL, and enables certificate renewal on the desktop. Browser and WebSocket traffic go straight to that hostname, without a console proxy.
 
 An orchestrator using this mode must call `create --defer-readiness`, publish the desktop A record after EC2 launch, and then verify cloud-init and desktop health before marking its job READY. This avoids waiting for a certificate while withholding the DNS record needed to issue it. The default CLI readiness behavior is unchanged. Use baked image packages without forcing `--bootstrap-packages` to avoid replacing the image's Docker CE packages with distribution packages.
+
+## Crew execution workspace host command
+
+The Linux desktopctl binary exposes an internal
+`execution-workspace <prepare|status|cleanup>` command for invocation by the
+authenticated host transport account. It accepts one bounded JSON object on
+stdin and replies with JSON. Every operation requires a Console `leaseId` and
+positive `generation`; prepare additionally requires a GitHub
+`repository` in owner/name form and a full lowercase `baseRevision` commit
+SHA. It checks out the exact revision detached, using public HTTPS and no
+credentials. Ready means the checkout succeeded and its HEAD matched at
+preparation. It returns a stable `workspaceRef` and the bound revision.
+
+A protected local state file and a host lock retain the highest generation and
+reject stale or conflicting requests. Cleanup removes only the checkout named
+for its fence and persists a tombstone before reuse. In particular, a cleanup
+received before a delayed prepare prevents that prepare from creating a new
+checkout. The host command leaves enrollment, daemon state, and existing
+workspace mounts alone.
+
+Console already has authenticated SSM invocation for bootstrap and access. Its
+worker has no execution job that claims a lease-bound command, checks the
+tenant's desktop/instance binding, invokes this installed helper with validated
+input, and returns a fenced result. The desktop image also needs to carry the
+helper. There is no supported private-repository credential path for this
+command. Before reuse, the runtime must stop the previous execution and verify
+process termination; directory cleanup alone cannot terminate a session or
+isolate two processes running as the same host user. No existing SSM policy,
+desktop bootstrap, or daemon configuration is changed by this command.
