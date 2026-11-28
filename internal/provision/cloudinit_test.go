@@ -1035,6 +1035,9 @@ func TestRenderCloudInit_cloudWatch(t *testing.T) {
 		"retention_in_days",
 		"mem_used_percent",
 		"disk_used_percent",
+		"'aggregation_dimensions': [['DesktopId', 'path']]",
+		"'append_dimensions': {'DesktopId': '$DESKTOP_ID'}",
+		"'drop_original_metrics': ['disk_used_percent', 'disk_used', 'disk_free']",
 		"swap_used_percent",
 	}
 	for _, want := range checks {

@@ -64,6 +64,9 @@ func TestControlPlaneRolePolicyIncludesRequiredResources(t *testing.T) {
 	}
 	for _, want := range []string{
 		"arn:aws:secretsmanager:*:*:secret:/desktopctl/*",
+		"arn:aws:cloudwatch:*:123456789012:alarm:desktopctl-*-d-*-root-disk",
+		"cloudwatch:PutMetricAlarm",
+		"cloudwatch:DeleteAlarms",
 		"arn:aws:ssm:*:*:parameter/desktopctl/*",
 		"EC2FleetDescribe",
 		"EC2FleetLaunch",

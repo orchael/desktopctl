@@ -152,6 +152,11 @@ func defaultBootstrapUserName(environment string) string {
 }
 
 func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, desktopRoleArn, secretPrefix string) (string, error) {
+	roleARNParts := strings.SplitN(desktopRoleArn, ":", 6)
+	if len(roleARNParts) != 6 || roleARNParts[0] != "arn" || roleARNParts[1] == "" || roleARNParts[4] == "" {
+		return "", fmt.Errorf("desktopRoleArn must be an IAM role ARN")
+	}
+	alarmARN := fmt.Sprintf("arn:%s:cloudwatch:*:%s:alarm:desktopctl-*-d-*-root-disk", roleARNParts[1], roleARNParts[4])
 	ddbFleetArn := fmt.Sprintf("arn:aws:dynamodb:*:*:table/%s", fleetTable)
 	ddbAMIArn := fmt.Sprintf("arn:aws:dynamodb:*:*:table/%s", amiTable)
 	secretArn := fmt.Sprintf("arn:aws:secretsmanager:*:*:secret:%s*", secretPrefix)
@@ -159,6 +164,24 @@ func controlPlaneRolePolicy(fleetTable, amiTable, backendBucket, hostedZoneArn, 
 	policy := map[string]any{
 		"Version": "2012-10-17",
 		"Statement": []map[string]any{
+			{
+				"Sid":    "ManageDesktopRootDiskAlarms",
+				"Effect": "Allow",
+				"Action": []string{
+					"cloudwatch:PutMetricAlarm",
+					"cloudwatch:DeleteAlarms",
+					"cloudwatch:TagResource",
+					"cloudwatch:UntagResource",
+					"cloudwatch:ListTagsForResource",
+				},
+				"Resource": alarmARN,
+			},
+			{
+				"Sid":      "DescribeDesktopRootDiskAlarms",
+				"Effect":   "Allow",
+				"Action":   "cloudwatch:DescribeAlarms",
+				"Resource": "*",
+			},
 			{
 				"Sid":    "FleetTables",
 				"Effect": "Allow",

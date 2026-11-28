@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/route53"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -62,6 +63,13 @@ func run(ctx *pulumi.Context) error {
 	}
 	if volumeSize <= 0 {
 		return fmt.Errorf("volumeSize must be a positive integer, got %d", volumeSize)
+	}
+	instanceInfo, err := ec2.GetInstanceType(ctx, &ec2.GetInstanceTypeArgs{InstanceType: instanceType})
+	if err != nil {
+		return fmt.Errorf("look up memory for %s: %w", instanceType, err)
+	}
+	if instanceInfo.MemorySize > 16*1024 && volumeSize < 200 {
+		volumeSize = 200
 	}
 
 	// amiId must be set to a Packer-built novnc-desktop AMI; plain Ubuntu AMIs are not supported.
@@ -234,6 +242,35 @@ func run(ctx *pulumi.Context) error {
 		return err
 	}
 
+	// The agent emits a root-filesystem rollup keyed by logical desktop ID,
+	// so replacement instances keep the same alarm and metric identity.
+	alarm, err := cloudwatch.NewMetricAlarm(ctx, "desktop-root-disk-"+desktopID, &cloudwatch.MetricAlarmArgs{
+		Name:               pulumi.String(fmt.Sprintf("desktopctl-%s-%s-root-disk", environment, desktopID)),
+		AlarmDescription:   pulumi.String("Root filesystem is at least 85% used for 5 minutes"),
+		Namespace:          pulumi.String("desktopctl"),
+		MetricName:         pulumi.String("disk_used_percent"),
+		Statistic:          pulumi.String("Average"),
+		Period:             pulumi.Int(60),
+		EvaluationPeriods:  pulumi.Int(5),
+		DatapointsToAlarm:  pulumi.Int(5),
+		Threshold:          pulumi.Float64(85),
+		ComparisonOperator: pulumi.String("GreaterThanOrEqualToThreshold"),
+		TreatMissingData:   pulumi.String("missing"),
+		Dimensions: pulumi.StringMap{
+			"DesktopId": pulumi.String(desktopID),
+			"path":      pulumi.String("/"),
+		},
+		Tags: pulumi.StringMap{
+			"managed-by":   pulumi.String("desktopctl"),
+			"desktop-id":   pulumi.String(desktopID),
+			"environment":  pulumi.String(environment),
+			"desktop-name": pulumi.String(desktopName),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create root disk alarm: %w", err)
+	}
+
 	// --- Route53 record ---
 	if dnsEnabled {
 		zoneID := cfg.Get("zoneId")
@@ -281,6 +318,7 @@ func run(ctx *pulumi.Context) error {
 	ctx.Export("instanceType", pulumi.String(instanceType))
 	ctx.Export("region", pulumi.String(region))
 	ctx.Export("marketType", pulumi.String(marketType))
+	ctx.Export("rootDiskAlarmArn", alarm.Arn)
 
 	return nil
 }

@@ -737,6 +737,24 @@ func controlPlanePolicy(partition, accountID, stateBucket string) string {
       "Resource": "*"
     },
     {
+      "Sid": "ManageDesktopRootDiskAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "arn:%[1]s:cloudwatch:*:%[2]s:alarm:desktopctl-*-d-*-root-disk"
+    },
+    {
+      "Sid": "DescribeDesktopRootDiskAlarms",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:DescribeAlarms"],
+      "Resource": "*"
+    },
+    {
       "Sid": "EFSWorkspaces",
       "Effect": "Allow",
       "Action": [

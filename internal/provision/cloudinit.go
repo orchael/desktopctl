@@ -1280,9 +1280,7 @@ runcmd:
       },
       'metrics': {
         'namespace': 'desktopctl',
-        'append_dimensions': {
-          'DesktopId': '$DESKTOP_ID'
-        },
+        'aggregation_dimensions': [['DesktopId', 'path']],
         'metrics_collected': {
           'mem': {
             'measurement': ['mem_used_percent', 'mem_used', 'mem_available', 'mem_total'],
@@ -1291,7 +1289,10 @@ runcmd:
           'disk': {
             'measurement': ['disk_used_percent', 'disk_used', 'disk_free'],
             'metrics_collection_interval': 60,
-            'resources': ['/']
+            'resources': ['/'],
+            'drop_device': True,
+            'drop_original_metrics': ['disk_used_percent', 'disk_used', 'disk_free'],
+            'append_dimensions': {'DesktopId': '$DESKTOP_ID'}
           },
           'swap': {
             'measurement': ['swap_used_percent', 'swap_used', 'swap_free'],
