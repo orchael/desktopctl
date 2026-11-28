@@ -61,6 +61,7 @@ SSH-based checks (require desktop.ssh_key_path in config; skipped otherwise):
   System Resources:
     - bootstrap-state  — cloud-init lifecycle state from the persistent desktop artifact
     - disk-space       — /workspace has >1GB free
+    - root-disk-space  — root filesystem is below 85% used
     - memory-available — system has >512MB free memory
 
   Certificate & TLS:

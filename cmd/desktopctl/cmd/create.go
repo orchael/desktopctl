@@ -124,7 +124,7 @@ func init() {
 	createCmd.Flags().StringVar(&createEnv, "env", "", "environment (prod|dev), overrides config")
 	createCmd.Flags().StringVar(&createAMI, "ami", "", "override active AMI ID for this region (optional)")
 	createCmd.Flags().IntVar(&createVolumeSize, "volume-size", 0, "root EBS volume size in GiB (default: "+fmt.Sprintf("%d", config.DefaultVolumeSize)+" for normal desktops, "+fmt.Sprintf("%d", config.DefaultMobileVolumeSize)+" for mobile/AVD; overridden by desktop.volume_size in config)")
-	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: min(2× instance memory, 32); 0 = auto; -1 = disable)")
+	createCmd.Flags().IntVar(&createSwapSize, "swap-size", 0, "swap file size in GiB (default: min(instance memory, 16); 0 = auto; -1 = disable)")
 	createCmd.Flags().StringArrayVar(&createAVDs, "avd", nil, "Android Virtual Device to create at boot: name:image[:device] (repeatable; quote the value to protect semicolons, e.g. --avd 'flutter_dev:system-images;android-35;google_apis;x86_64:pixel_6')")
 	createCmd.Flags().BoolVar(&createNestedVirt, "nested-virtualization", false, "enable KVM nested virtualization (requires a supported Intel Nitro instance: c8i, m8i, r8i, c7i, m7i, r7i, i7i)")
 	createCmd.Flags().BoolVar(&createMobile, "mobile", false, "shorthand for Flutter/Android development: enables nested virtualization, sets instance type to "+config.DefaultMobileInstanceType+" (if not overridden in config), and creates a default AVD ("+config.DefaultMobileAVDName+") when no --avd flags are given")
@@ -621,6 +621,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	selectedInstanceType := subnets[0].instanceType
 	req.InstanceType = selectedInstanceType
+	memoryGiB, err := createInstanceMemoryGiB(ctx, cfg.AWS.Region, cfg.AWS.Profile, selectedInstanceType)
+	if err != nil {
+		return err
+	}
+	volumeSize = enforceMemoryVolumeFloor(volumeSize, memoryGiB)
 	subnetID := subnets[0].subnetID
 	costLabel := ""
 	if marketType == store.MarketSpot {
@@ -651,7 +656,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "  Volume size           : %d GiB (~$%.2f/month EBS gp3 us-east-1)\n", volumeSize, float64(volumeSize)*0.08)
 
-	swapSizeGB, err := resolveSwapSize(createSwapSize, selectedInstanceType, volumeSize)
+	swapSizeGB, err := resolveSwapSizeForMemory(createSwapSize, memoryGiB, volumeSize)
 	if err != nil {
 		return err
 	}
@@ -2175,17 +2180,48 @@ func resolveVolumeSize(cliFlag, configValue int, mobile bool, avds []string) int
 	return config.DefaultVolumeSize
 }
 
+func enforceMemoryVolumeFloor(volumeSize, memoryGiB int) int {
+	if memoryGiB > 16 && volumeSize < 200 {
+		return 200
+	}
+	return volumeSize
+}
+
+func createInstanceMemoryGiB(ctx context.Context, region, profile, instanceType string) (int, error) {
+	if memoryGiB := provision.InstanceMemoryGiB(instanceType); memoryGiB > 0 {
+		return memoryGiB, nil
+	}
+	awsCfg, err := awsx.LoadConfig(ctx, region, profile)
+	if err != nil {
+		return 0, fmt.Errorf("load AWS config for instance memory: %w", err)
+	}
+	result, err := ec2sdk.NewFromConfig(awsCfg).DescribeInstanceTypes(ctx, &ec2sdk.DescribeInstanceTypesInput{
+		InstanceTypes: []ec2types.InstanceType{ec2types.InstanceType(instanceType)},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("describe memory for %s: %w", instanceType, err)
+	}
+	if len(result.InstanceTypes) != 1 || result.InstanceTypes[0].MemoryInfo == nil || aws.ToInt64(result.InstanceTypes[0].MemoryInfo.SizeInMiB) <= 0 {
+		return 0, fmt.Errorf("memory size unavailable for %s", instanceType)
+	}
+	return int((aws.ToInt64(result.InstanceTypes[0].MemoryInfo.SizeInMiB) + 1023) / 1024), nil
+}
+
 // resolveSwapSize determines the swap file size in GiB.
 //
 // flag values:
 //
 //	-1 — swap disabled (returns 0, no error)
-//	 0 — auto: 2× instance memory, capped at 32 GiB (falls back to 4 GiB for unknown types)
+//	 0 — auto: instance memory, capped at 16 GiB (falls back to 4 GiB for unknown types)
 //	>0 — explicit size in GiB
 //
 // An error is returned when the swap would leave fewer than 20 GiB on the root
 // volume for the OS and application data.
 func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int, error) {
+	return resolveSwapSizeForMemory(flagValue, provision.InstanceMemoryGiB(instanceType), volumeSizeGiB)
+}
+
+func resolveSwapSizeForMemory(flagValue, memoryGiB, volumeSizeGiB int) (int, error) {
 	if flagValue < -1 {
 		return 0, fmt.Errorf("invalid --swap-size %d: use -1 to disable swap, 0 for auto, or a positive integer for an explicit size in GiB", flagValue)
 	}
@@ -2194,16 +2230,14 @@ func resolveSwapSize(flagValue int, instanceType string, volumeSizeGiB int) (int
 	}
 	swapSizeGiB := flagValue
 	if swapSizeGiB == 0 {
-		const maxAutoSwapSizeGiB = 32
-		memGiB := provision.InstanceMemoryGiB(instanceType)
-		if memGiB == 0 {
+		if memoryGiB == 0 {
 			// Unknown instance type: default to 4 GiB so swap is still created.
-			memGiB = 4
+			memoryGiB = 4
 		}
-		swapSizeGiB = 2 * memGiB
-		if swapSizeGiB > maxAutoSwapSizeGiB {
-			swapSizeGiB = maxAutoSwapSizeGiB
-		}
+		swapSizeGiB = memoryGiB
+	}
+	if swapSizeGiB > 16 {
+		swapSizeGiB = 16
 	}
 	const minOSReservedGiB = 20
 	if swapSizeGiB+minOSReservedGiB > volumeSizeGiB {

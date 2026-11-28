@@ -49,6 +49,7 @@ Require SSH key configured in `config.yaml`; skipped otherwise.
 Monitor available system resources:
 
 - **disk-space** — `/workspace` partition has >1GB free space
+- **root-disk-space** — Root filesystem is below 85% used
 - **memory-available** — System has >512MB free memory
 - **novnc-running** — novnc-desktop process is actively running
 

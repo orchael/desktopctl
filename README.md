@@ -717,11 +717,21 @@ Or use full GitHub URLs:
 desktopctl create --github-owner myorg --repo https://github.com/myorg/my-app --repo https://github.com/myorg/shared-lib
 ```
 
-Override the root volume size (default 100 GiB):
+Override the root volume size (default 100 GiB). Instance types with more than
+16 GiB of RAM always receive at least a 200 GiB root volume, even when a lower
+size is requested by flag or config:
 
 ```bash
 desktopctl create --repo myorg/my-app --volume-size 200
 ```
+
+New desktops create a swapfile equal to instance memory, capped at 16 GiB.
+`--swap-size` can request a smaller size or disable swap with `-1`; requests
+above 16 GiB are capped. The per-desktop Pulumi stack also manages a CloudWatch
+alarm when root disk usage reaches 85% for five minutes. The CloudWatch agent
+must be running and publishing the root disk metric for the alarm to evaluate;
+existing desktops need a stack and agent configuration update before they gain
+this alarm. Notification delivery is a separate configuration task.
 
 Name a desktop for easier operator workflows:
 

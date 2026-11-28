@@ -618,6 +618,8 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewBootstrapStatusChecker(hostname, sshPort, user, keyPath, t),
 		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
 			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
+		NewSSHChecker("root-disk-space", hostname, sshPort, user, keyPath,
+			`df -P / | awk 'NR == 2 { gsub(/%/, "", $5); exit ($5 >= 85) }'`, t),
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
 			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,

@@ -362,7 +362,7 @@ func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
 	for _, c := range checkers {
 		names[c.Name()] = true
 	}
-	for _, want := range []string{"swap-active", "cloudwatch-agent-active"} {
+	for _, want := range []string{"swap-active", "cloudwatch-agent-active", "root-disk-space"} {
 		if !names[want] {
 			t.Errorf("SystemCheckers missing %q", want)
 		}

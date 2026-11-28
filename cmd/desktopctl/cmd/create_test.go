@@ -361,6 +361,17 @@ func TestResolveVolumeSize(t *testing.T) {
 	}
 }
 
+func TestEnforceMemoryVolumeFloor(t *testing.T) {
+	for _, tc := range []struct{ volume, memory, want int }{
+		{100, 8, 100}, {100, 16, 100}, {100, 32, 200},
+		{80, 64, 200}, {200, 32, 200}, {250, 32, 250},
+	} {
+		if got := enforceMemoryVolumeFloor(tc.volume, tc.memory); got != tc.want {
+			t.Errorf("enforceMemoryVolumeFloor(%d, %d) = %d, want %d", tc.volume, tc.memory, got, tc.want)
+		}
+	}
+}
+
 func TestCreateCmd_npmGitHubScopeFlagsRegistered(t *testing.T) {
 	if flag := createCmd.Flags().Lookup("npm-github-scope"); flag == nil {
 		t.Fatal("npm-github-scope flag not registered")
@@ -1234,25 +1245,25 @@ func TestResolveSwapSize(t *testing.T) {
 			errContains:  "invalid --swap-size",
 		},
 		{
-			name:         "auto: 2x memory for t3.large (8 GiB RAM → 16 GiB swap)",
+			name:         "auto: memory for t3.large",
 			flagValue:    0,
 			instanceType: "t3.large",
+			volumeGiB:    100,
+			wantSwap:     8,
+		},
+		{
+			name:         "auto: memory for m5.xlarge",
+			flagValue:    0,
+			instanceType: "m5.xlarge",
 			volumeGiB:    100,
 			wantSwap:     16,
 		},
 		{
-			name:         "auto: 2x memory for m5.xlarge (16 GiB RAM → 32 GiB swap)",
-			flagValue:    0,
-			instanceType: "m5.xlarge",
-			volumeGiB:    100,
-			wantSwap:     32,
-		},
-		{
-			name:         "auto: unknown instance type falls back to 4 GiB → 8 GiB swap",
+			name:         "auto: unknown instance type falls back to 4 GiB swap",
 			flagValue:    0,
 			instanceType: "x99.mega",
 			volumeGiB:    100,
-			wantSwap:     8,
+			wantSwap:     4,
 		},
 		{
 			name:         "explicit size",
@@ -1262,32 +1273,32 @@ func TestResolveSwapSize(t *testing.T) {
 			wantSwap:     4,
 		},
 		{
-			name:         "swap + OS reservation exactly fits volume",
+			name:         "explicit swap is capped at 16 GiB",
 			flagValue:    80,
 			instanceType: "t3.large",
 			volumeGiB:    100,
-			wantSwap:     80,
+			wantSwap:     16,
 		},
 		{
-			name:         "swap + OS reservation exceeds volume",
+			name:         "capped swap + OS reservation exceeds volume",
 			flagValue:    81,
 			instanceType: "t3.large",
-			volumeGiB:    100,
+			volumeGiB:    35,
 			wantErr:      true,
 			errContains:  "exceeds root volume size",
 		},
 		{
-			name:         "auto swap is capped at 32 GiB",
+			name:         "auto swap is capped at 16 GiB",
 			flagValue:    0,
 			instanceType: "r5.2xlarge", // 64 GiB RAM → 128 GiB swap
 			volumeGiB:    100,
-			wantSwap:     32,
+			wantSwap:     16,
 		},
 		{
 			name:         "capped auto swap can still exceed small volume",
 			flagValue:    0,
 			instanceType: "r5.2xlarge",
-			volumeGiB:    40,
+			volumeGiB:    35,
 			wantErr:      true,
 			errContains:  "exceeds root volume size",
 		},
