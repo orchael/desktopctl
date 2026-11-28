@@ -621,11 +621,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 	selectedInstanceType := subnets[0].instanceType
 	req.InstanceType = selectedInstanceType
-	memoryGiB, err := createInstanceMemoryGiB(ctx, cfg.AWS.Region, cfg.AWS.Profile, selectedInstanceType)
-	if err != nil {
-		return err
+	candidateStorage := make([]createStorageSizing, len(subnets))
+	for i, candidate := range subnets {
+		memoryGiB, err := createInstanceMemoryGiB(ctx, cfg.AWS.Region, cfg.AWS.Profile, candidate.instanceType)
+		if err != nil {
+			return err
+		}
+		candidateStorage[i], err = resolveCreateStorage(volumeSize, createSwapSize, memoryGiB)
+		if err != nil {
+			return fmt.Errorf("size storage for %s: %w", candidate.instanceType, err)
+		}
 	}
-	volumeSize = enforceMemoryVolumeFloor(volumeSize, memoryGiB)
+	volumeSize = candidateStorage[0].volumeSize
+	swapSizeGB := candidateStorage[0].swapSize
 	subnetID := subnets[0].subnetID
 	costLabel := ""
 	if marketType == store.MarketSpot {
@@ -655,11 +663,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "  Estimated cost        : %s\n", costLabel)
 	}
 	fmt.Fprintf(os.Stderr, "  Volume size           : %d GiB (~$%.2f/month EBS gp3 us-east-1)\n", volumeSize, float64(volumeSize)*0.08)
-
-	swapSizeGB, err := resolveSwapSizeForMemory(createSwapSize, memoryGiB, volumeSize)
-	if err != nil {
-		return err
-	}
 
 	// AVDs are only activated when --avd or --mobile is explicitly passed.
 	// Config-file AVDs are ignored on plain desktop creates.
@@ -899,6 +902,25 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	var cleanupErr error
 	for i, candidate := range subnets {
 		prelaunchedInstanceID := ""
+		if i > 0 {
+			volumeSize = candidateStorage[i].volumeSize
+			if candidateStorage[i].swapSize != bootCfg.SwapSizeGB {
+				bootCfg.SwapSizeGB = candidateStorage[i].swapSize
+				userData, err = provision.RenderCloudInit(bootCfg)
+				if err != nil {
+					return fmt.Errorf("render fallback cloud-init: %w", err)
+				}
+				userDataBase64, err = gzipBase64UserData(userData)
+				if err != nil {
+					return fmt.Errorf("compress fallback cloud-init: %w", err)
+				}
+			}
+			stackCfg["volumeSize"] = fmt.Sprintf("%d", volumeSize)
+			stackCfg["userDataBase64"] = userDataBase64
+			if err := persistCreateCandidate(ctx, s, desktopID, candidate.instanceType, candidate.subnetID, volumeSize, userDataBase64, bootCfg); err != nil {
+				return fmt.Errorf("record fallback launch settings: %w", err)
+			}
+		}
 		if i > 0 {
 			fmt.Fprintf(os.Stderr, "Retrying Spot create with %s in subnet %s", candidate.instanceType, candidate.subnetID)
 			if candidate.az != "" {
@@ -2185,6 +2207,41 @@ func enforceMemoryVolumeFloor(volumeSize, memoryGiB int) int {
 		return 200
 	}
 	return volumeSize
+}
+
+type createStorageSizing struct {
+	volumeSize int
+	swapSize   int
+}
+
+func resolveCreateStorage(requestedVolumeSize, requestedSwapSize, memoryGiB int) (createStorageSizing, error) {
+	volumeSize := enforceMemoryVolumeFloor(requestedVolumeSize, memoryGiB)
+	swapSize, err := resolveSwapSizeForMemory(requestedSwapSize, memoryGiB, volumeSize)
+	if err != nil {
+		return createStorageSizing{}, err
+	}
+	return createStorageSizing{volumeSize: volumeSize, swapSize: swapSize}, nil
+}
+
+func persistCreateCandidate(ctx context.Context, s store.Store, desktopID, instanceType, subnetID string, volumeSize int, userDataBase64 string, bootCfg *provision.BootstrapConfig) error {
+	record, err := s.Get(ctx, desktopID)
+	if err != nil {
+		return err
+	}
+	if record.RestoreSpec == nil {
+		return fmt.Errorf("desktop %s has no restore specification", desktopID)
+	}
+	bootstrapJSON, err := json.Marshal(bootCfg)
+	if err != nil {
+		return err
+	}
+	record.InstanceType = instanceType
+	record.RestoreSpec.Config["instanceType"] = instanceType
+	record.RestoreSpec.Config["subnetId"] = subnetID
+	record.RestoreSpec.Config["volumeSize"] = fmt.Sprintf("%d", volumeSize)
+	record.RestoreSpec.Config["userDataBase64"] = userDataBase64
+	record.RestoreSpec.BootstrapJSON = string(bootstrapJSON)
+	return s.Update(ctx, record)
 }
 
 func createInstanceMemoryGiB(ctx context.Context, region, profile, instanceType string) (int, error) {

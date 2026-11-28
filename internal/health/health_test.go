@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -366,6 +367,32 @@ func TestSystemCheckers_includesSwapAndCloudWatch(t *testing.T) {
 		if !names[want] {
 			t.Errorf("SystemCheckers missing %q", want)
 		}
+	}
+}
+
+func TestRootDiskSpaceCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name, script string
+		wantPass     bool
+	}{
+		{"below threshold", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/root 100 84 16 84%% /\\n'", true},
+		{"at threshold", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/root 100 85 15 85%% /\\n'", false},
+		{"no data", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n'", false},
+		{"malformed data", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/root 100 85 15 unknown /\\n'", false},
+		{"df failure", "exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "df"), []byte("#!/bin/sh\n"+tc.script+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", rootDiskSpaceCommand)
+			cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+			err := cmd.Run()
+			if (err == nil) != tc.wantPass {
+				t.Fatalf("command pass = %t, want %t (err %v)", err == nil, tc.wantPass, err)
+			}
+		})
 	}
 }
 

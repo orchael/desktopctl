@@ -372,6 +372,54 @@ func TestEnforceMemoryVolumeFloor(t *testing.T) {
 	}
 }
 
+func TestCreateStorageSizingAcrossSpotFallback(t *testing.T) {
+	first, err := resolveCreateStorage(100, 0, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := resolveCreateStorage(100, 0, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != (createStorageSizing{volumeSize: 100, swapSize: 8}) {
+		t.Fatalf("first sizing = %+v", first)
+	}
+	if fallback != (createStorageSizing{volumeSize: 200, swapSize: 16}) {
+		t.Fatalf("fallback sizing = %+v", fallback)
+	}
+}
+
+func TestPersistCreateCandidateUpdatesRestoreInputs(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryStore()
+	if err := s.Create(ctx, &store.Desktop{
+		DesktopID: "d-12345678",
+		RestoreSpec: &store.RestoreSpec{Version: 1, Config: map[string]string{
+			"instanceType": "m7i.large", "volumeSize": "100", "userDataBase64": "old",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bootCfg := &provision.BootstrapConfig{SwapSizeGB: 16}
+	if err := persistCreateCandidate(ctx, s, "d-12345678", "m7i.2xlarge", "subnet-next", 200, "new", bootCfg); err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.Get(ctx, "d-12345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"instanceType": "m7i.2xlarge", "subnetId": "subnet-next", "volumeSize": "200", "userDataBase64": "new",
+	} {
+		if got := record.RestoreSpec.Config[key]; got != want {
+			t.Errorf("restore %s = %q, want %q", key, got, want)
+		}
+	}
+	if !strings.Contains(record.RestoreSpec.BootstrapJSON, `"swap_size_gb":16`) && !strings.Contains(record.RestoreSpec.BootstrapJSON, `"SwapSizeGB":16`) {
+		t.Errorf("fallback restore bootstrap missing swap size: %s", record.RestoreSpec.BootstrapJSON)
+	}
+}
+
 func TestCreateCmd_npmGitHubScopeFlagsRegistered(t *testing.T) {
 	if flag := createCmd.Flags().Lookup("npm-github-scope"); flag == nil {
 		t.Fatal("npm-github-scope flag not registered")

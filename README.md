@@ -732,6 +732,10 @@ alarm when root disk usage reaches 85% for five minutes. The CloudWatch agent
 must be running and publishing the root disk metric for the alarm to evaluate;
 existing desktops need a stack and agent configuration update before they gain
 this alarm. Notification delivery is a separate configuration task.
+If provisioning uses desktopctl-generated operator or control-plane roles,
+update the foundation or control-plane-access stack first so those roles can
+manage the new alarm. Existing customer worker roles need the corresponding
+Desktops policy update before provisioning with this CLI release.
 
 Name a desktop for easier operator workflows:
 

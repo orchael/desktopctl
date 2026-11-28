@@ -42,3 +42,29 @@ func TestControlPlanePolicyAllowsAMICopy(t *testing.T) {
 	}
 	t.Fatal("EC2AndPackerControlPlane statement not found")
 }
+
+func TestControlPlanePolicyManagesOnlyDesktopRootDiskAlarms(t *testing.T) {
+	var policy struct {
+		Statement []struct {
+			Sid      string   `json:"Sid"`
+			Action   []string `json:"Action"`
+			Resource any      `json:"Resource"`
+		} `json:"Statement"`
+	}
+	if err := json.Unmarshal([]byte(controlPlanePolicy("aws", "123456789012", "state")), &policy); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range policy.Statement {
+		if statement.Sid != "ManageDesktopRootDiskAlarms" {
+			continue
+		}
+		if !slices.Contains(statement.Action, "cloudwatch:PutMetricAlarm") || !slices.Contains(statement.Action, "cloudwatch:DeleteAlarms") {
+			t.Fatal("alarm lifecycle permissions missing")
+		}
+		if statement.Resource != "arn:aws:cloudwatch:*:123456789012:alarm:desktopctl-*-d-*-root-disk" {
+			t.Fatalf("alarm resource = %v", statement.Resource)
+		}
+		return
+	}
+	t.Fatal("alarm policy missing")
+}

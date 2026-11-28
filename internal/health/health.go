@@ -612,6 +612,8 @@ func shellQuote(s string) string {
 
 // SystemCheckers returns checks for system health (disk, memory, services, certificate,
 // swap file, and CloudWatch agent).
+const rootDiskSpaceCommand = `output=$(df -P /) && printf '%s\n' "$output" | awk 'NR == 2 && $5 ~ /^[0-9]+%$/ { usage = $5; sub(/%$/, "", usage); found = 1; if (usage < 85) ok = 1 } END { exit !(found && ok) }'`
+
 func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checker {
 	t := 20 * time.Second
 	return []Checker{
@@ -619,7 +621,7 @@ func SystemCheckers(hostname string, sshPort int, user, keyPath string) []Checke
 		NewSSHChecker("disk-space", hostname, sshPort, user, keyPath,
 			"[ $(df /workspace | tail -1 | awk '{print $4}') -gt 1048576 ]", t), // >1GB free
 		NewSSHChecker("root-disk-space", hostname, sshPort, user, keyPath,
-			`df -P / | awk 'NR == 2 { gsub(/%/, "", $5); exit ($5 >= 85) }'`, t),
+			rootDiskSpaceCommand, t),
 		NewSSHChecker("memory-available", hostname, sshPort, user, keyPath,
 			"[ $(free -m | grep Mem | awk '{print $7}') -gt 512 ]", t), // >512MB free
 		NewSSHChecker("certbot-cert-valid", hostname, sshPort, user, keyPath,
